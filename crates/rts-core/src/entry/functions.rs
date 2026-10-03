@@ -126,6 +126,42 @@ fn write_own(
 
 /// Makes a callable out of a code address and an environment.
 ///
+/// # What a closure costs here, decomposed by ablation (2026-10-03)
+///
+/// One release binary, four configurations behind an env var read once, with an
+/// object literal as a control that is not a closure. An arrow, since it has no
+/// `prototype` to confuse the reading:
+///
+/// | | ns | what came out |
+/// |---|---:|---|
+/// | everything | 93.3 | |
+/// | without the `length` write | 90.0 | **3.3** |
+/// | without `name` and `length` | 83.3 | **+6.7** |
+/// | also without `external::hold`/`release` | 73.3 | **+10** |
+/// | object literal, for scale | 36.7 | one cell and one field |
+///
+/// **So `name` and `length` together are 10 ns and the scoped hold is 10** —
+/// neither is where a closure's cost is, and both were candidates before this
+/// was measured. What remains unablated is the cell, `mark_callable`,
+/// `described_at`, `callable_template` and `light_codes::insert`.
+///
+/// Two warnings for whoever ablates this next, both paid here:
+///
+/// **Clear `owned` along with the write.** Removing a `write_own` while leaving
+/// `owned[n] = Some(key)` makes `record_callable_template` promise a slot no
+/// closure has, so `slot_of` misses and every later closure takes `put` with a
+/// shape transition instead of `set_slot_value`. That configuration measured
+/// **136.7 against 93.3 with LESS work**, which is the only reason it was
+/// caught — an ablation that comes out faster is measuring something else.
+///
+/// **Do not subtract two different shapes and call it an ablation.** The 36.7
+/// ns gap between the stripped arrow and the object literal is a difference
+/// between forms, not a measurement of the tables; and a first reading of it as
+/// "28 ns of runtime traversal" was wrong, because the literal's own path
+/// includes `alloc_or_die` (12.70) and the collector's amortised bookkeeping
+/// (~11) that plan items 6.4/6.6 already own. The traversal is about 8 ns a
+/// call, which is why plan 4.5 stays closed.
+///
 /// The code address comes from the machine's `FuncAddr`, which is a relocation
 /// the destination filled in — so it is a real address by the time this runs,
 /// and this never computes one.
