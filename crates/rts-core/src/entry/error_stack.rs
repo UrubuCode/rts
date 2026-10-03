@@ -135,6 +135,8 @@ fn kept(context: &Context, hide_from: u64, limit: usize) -> Vec<u64> {
         // functions to a program, and the caller passed the one it has.
         frames.truncate(frames.iter().rposition(|callee| *callee == hide_from).unwrap_or(0));
     }
+    super::machine_trace::compare(context, &frames);
+
     let over = frames.len().saturating_sub(limit);
     frames.drain(..over);
     frames

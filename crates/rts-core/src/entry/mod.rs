@@ -78,6 +78,7 @@ mod construct_plain;
 mod object_under;
 mod spread_list;
 mod light_call;
+mod machine_trace;
 mod function_direct;
 mod functions;
 mod generator;
@@ -261,7 +262,7 @@ pub use errors::{
 };
 pub use unhandled::unhandled_error;
 pub use throw::{
-    call_frames, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
+    call_frames, declare_code_map, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
     throw_value, thrown, thrown_address,
 };
 
@@ -722,6 +723,21 @@ pub struct Context {
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
     function_names: Vec<(u64, String, u32, bool, bool)>,
+    /// Where every compiled function is, for attributing a RETURN ADDRESS.
+    ///
+    /// # Why this is not `function_names`
+    ///
+    /// That table is keyed by a function's ENTRY address, because that is the
+    /// number a callable holds. A stack walk hands back addresses from the
+    /// MIDDLE of a function — a return address points just past a call — so a
+    /// lookup by entry address misses every frame. This answers which function
+    /// contains an address, by bisection, and carries the position map with it.
+    ///
+    /// Filled by the host after placement, from `InMemory::code_map`, for the
+    /// same reason the two tables above are: no address exists until then. A
+    /// program this was never installed for walks nothing and falls back to
+    /// `callees`, which is what `machine_trace` is written around.
+    code_map: Option<rts_cranelift::observe::CodeMap>,
     /// The code addresses of the functions the compiler marked light — what
     /// `functions::called` asks before it pushes the argument stacks.
     /// Addresses, not references: nothing here is a root.
@@ -1477,6 +1493,7 @@ impl Context {
             driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
+            code_map: None,
             light_codes: light_call::CodeSet::default(),
             empty_layout: None,
             spare_arrays: Default::default(),

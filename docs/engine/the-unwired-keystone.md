@@ -186,6 +186,43 @@ logic is tested against a fabricated stack carrying a cycle, a hole and an
 unaligned link — rule 3, with no client present — and the one unsafe read
 belongs to whoever owns the thread and therefore knows the bound.
 
+**And then it was wired, and MEASURED, on the same day — which found a third
+thing both documents had wrong.** The join is small: `InMemory::code_map` is
+already built at placement, `rts-host` seeds it into the `Context` beside the
+function names it already seeds, and `machine_trace::census` walks and
+attributes. On `inner`/`middle`/`outer` throwing an `Error` it answers
+`[] (1 frames walked, 0 attributed)` against `callees`' `["inner"]`, and the
+link dump says why:
+
+```text
+link fp=0xf3e73ebda0 next=0x24d2be01860 ret=0x24d2bdffcb0 high=0xf3e7400000
+```
+
+`fp` is a stack address and `next` is a HEAP address. The word at `[rbp]` is not
+a saved frame pointer, because nothing made `rbp` one: `registers.rs` captures
+it as a VALUE for the collector, which is correct whatever it holds, and a walk
+needs it to be a LINK. `-C force-frame-pointers=yes` was tried and changed
+nothing, which refutes the remedy the literature survey offers for this exact
+premise.
+
+So this section's original worry was right about host frames and wrong about
+which part. The problem is not a host frame keeping no frame pointer in the
+MIDDLE of the chain — it is that the walk has no trustworthy place to BEGIN,
+because every capture point is a host frame. Skipping cannot help with the
+first frame.
+
+**What is left is one machine capability**, and it is what the cited engines
+actually do rather than what this document inferred they do. None of them starts
+in a host frame: V8 writes `c_entry_fp_`, JSC `VM::topCallFrame`, wasmtime
+`last_wasm_exit_fp`. Compiled code stores its own frame pointer where the
+runtime can find it before calling out, and from there every frame is compiled
+and every link is real, because `preserve_frame_pointers` is set for those.
+
+That belongs in the machine layer — a store of the frame pointer is something
+only the layer that emits prologues can name — and per ACTIVATION rather than
+per call, which is the same property that makes the direct call worth having: a
+compiled-to-compiled call records nothing.
+
 **What is still unwired is the JOIN, which is this document's own point.** The
 walk is in the machine layer and the trace is a language's; `CodeMap` is held by
 the compiler and `throw::stack_text_of` runs in the runtime, and the two cannot
