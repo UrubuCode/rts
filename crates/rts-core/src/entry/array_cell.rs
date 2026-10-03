@@ -175,9 +175,22 @@ pub(super) fn at<'a>(context: &'a Context, cell: u32) -> Option<&'a [u64]> {
 /// Removed by construction rather than measured, which is the stronger form:
 /// there is no number to compare because there is no second lookup left to
 /// cost anything.
+/// `#[inline(never)]` is load-bearing and was MEASURED, not assumed. `held` is
+/// one branch of `Context::elements_at`; the other is the spilled read, which
+/// touches none of this. Letting this body inline changed the register
+/// allocation of the function both branches share, and the SPILLED read — code
+/// that did not change, over an IR this binary emits identically — measured
+/// 4–6% slower. Keeping the two branches in separate bodies is what makes the
+/// in-cell path payable by the in-cell path alone.
+#[inline(never)]
 pub(super) fn held<'a>(context: &'a Context, cell: u32) -> Option<&'a [u64]> {
-    let count = length_of(context, cell)?;
-    let window = context.region.payload_window(cell, FIRST_SLOT, count)?;
+    // Opened once for all three questions. This asked `type_of`, then `field`,
+    // then `payload_window`, and each of the three decomposed the reference and
+    // loaded the same header word — three decompositions and three loads of one
+    // word, per element read.
+    let opened = context.region.open(cell)?;
+    let count = length_of(context, opened)?;
+    let window = context.region.opened_window(opened, FIRST_SLOT, count)?;
     // SAFETY: `payload_window` has checked that `FIRST_SLOT + count` is within
     // the cell's width AND within the words that back it, and it answers a
     // pointer into those words. The borrow of `context` outlives the slice by
@@ -215,12 +228,12 @@ pub(super) fn spill(context: &mut Context, cell: u32) -> bool {
 /// the same condition that makes the elements safe at all, since a cell that
 /// has left the array layout has had a property written into the slots they
 /// occupy.
-fn length_of(context: &Context, cell: u32) -> Option<u32> {
+fn length_of(context: &Context, opened: crate::heap::Opened) -> Option<u32> {
     let slot = context.array_length_slot?;
-    if context.region.type_of(cell) != context.array_layout {
+    if Some(opened.ty()) != context.array_layout {
         return None;
     }
-    let word = context.region.field(cell, slot)?;
+    let word = context.region.opened_field(opened, slot)?;
     let count = Value(word).as_f64()?;
     // A negative or fractional `length` cannot be an inline count, and
     // answering `None` sends the caller to the `Slab` rather than making a

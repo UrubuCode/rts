@@ -324,6 +324,34 @@ const FREE_MARKER: u64 = u64::MAX;
 /// this bound the same way it read the fixed one.
 const WIDTH_SHIFT: u32 = 32;
 
+/// A cell whose reference has been decomposed and whose header has been read.
+///
+/// Carries the header word itself rather than the two fields taken out of it,
+/// because both come from the one load and the caller that needs this wants
+/// both: the type to check the layout, the width to bound the access.
+///
+/// Only [`Region::open`] makes one, so holding an `Opened` is the proof that
+/// the cell exists, is not a spanning object's interior, and is not free.
+#[derive(Clone, Copy)]
+pub(crate) struct Opened {
+    index: u32,
+    header: u64,
+}
+
+impl Opened {
+    /// The cell's type, as [`Region::type_of`] answers it.
+    #[inline]
+    pub(crate) fn ty(self) -> u32 {
+        self.header as u32
+    }
+
+    /// How many slots the cell owns, as [`Region::width_of`] answers it.
+    #[inline]
+    pub(crate) fn width(self) -> u32 {
+        (self.header >> WIDTH_SHIFT) as u32
+    }
+}
+
 /// A header word out of its two halves.
 pub(super) fn header_word(ty: u32, width: u32) -> u64 {
     (u64::from(width) << WIDTH_SHIFT) | u64::from(ty)
@@ -806,6 +834,56 @@ impl Region {
             return None;
         }
         Some((word >> WIDTH_SHIFT) as u32)
+    }
+
+    /// A cell with its reference decomposed and its header read ONCE, for a
+    /// caller that will ask it more than one thing.
+    ///
+    /// # Why this exists beside [`Self::field`] and [`Self::payload_window`]
+    ///
+    /// Those answer one question each and open the cell to do it, which is
+    /// right for a caller that asks once. Reading an array's inline elements
+    /// asks three times — `type_of` for the layout, `field` for `length`, then
+    /// `payload_window` for the run — and each of the three decomposed the
+    /// reference and loaded the SAME header word: three decompositions and
+    /// three loads of one word, per element read.
+    ///
+    /// Use this only where two or more questions are asked about one cell. The
+    /// single-access form stays for the single-access callers, and is
+    /// deliberately NOT expressed through this one — see `width_at`.
+    #[inline]
+    pub(crate) fn open(&self, reference: u32) -> Option<Opened> {
+        let index = self.decompose(reference)?;
+        if self.is_spanned_interior(index) {
+            return None;
+        }
+        let header = self.word_checked(self.word_of(index))?;
+        if header == FREE_MARKER {
+            return None;
+        }
+        Some(Opened { index, header })
+    }
+
+    /// A field of an already-opened cell. See [`Self::open`].
+    #[inline]
+    pub(crate) fn opened_field(&self, cell: Opened, slot: u32) -> Option<u64> {
+        if slot >= cell.width() {
+            return None;
+        }
+        self.word_checked(self.word_of(cell.index) + 1 + slot as usize)
+    }
+
+    /// A run of an already-opened cell's payload. See [`Self::open`], and
+    /// [`Self::payload_window`] for what the pointer may be used for.
+    #[inline]
+    pub(crate) fn opened_window(&self, cell: Opened, from: u32, count: u32) -> Option<*mut u64> {
+        let end = from.checked_add(count)?;
+        if end > cell.width() {
+            return None;
+        }
+        let at = self.word_of(cell.index) + 1 + from as usize;
+        let words = self.words.get(at..at + count as usize)?;
+        Some(std::cell::UnsafeCell::raw_get(words.as_ptr()))
     }
 
     /// The whole header word, which is what an inline cache remembers.
