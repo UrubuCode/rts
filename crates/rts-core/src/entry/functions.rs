@@ -209,6 +209,32 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // `new F()` is the ordinary way to write a method, so it has to exist
         // first. Laziness would need the property-read path to materialise it,
         // which is a second answer to what a callable's own keys are.
+        //
+        // **What that decision costs, measured 2026-10-02 so the next reader
+        // weighing laziness has the number rather than an intuition** (release,
+        // ONE shape per process, which matters — the figure below was 430 ns
+        // and attributed to capture when several allocating shapes shared a
+        // process):
+        //
+        // | | ns |
+        // |---|---:|
+        // | object literal `{a:i}`, for scale | 76.7 |
+        // | arrow — no `prototype` by the language's rule | 240-253 |
+        // | method in an object literal, the object included | 323.3 |
+        // | **function expression — carries `prototype`** | **500-507** |
+        //
+        // So **~260 ns, more than HALF of what a function expression costs**,
+        // and three readings agree: arrow against function expression (267),
+        // the method minus its own object (323.3 - 76.7 = 246, against the
+        // arrow's 240), and the same gap again on the two capturing shapes.
+        //
+        // It is NOT a free win, and the sentence above is the reason: every
+        // path that enumerates or probes a callable's own keys — the read miss,
+        // `Object.keys`, `in`, `getOwnPropertyDescriptor`, `defineProperty`, a
+        // proxy's `ownKeys` — would have to materialise or synthesise it, and
+        // one that forgot would answer a `prototype` that is absent rather than
+        // one that is late. That is a decision to take deliberately, which is
+        // why this records the price instead of quietly paying or cutting it.
         let empty = context.shapes.root();
         let empty_ty = context.layout_of(empty).index() as u32;
         // Which keys this closure ends up owning, in the template's own order —
