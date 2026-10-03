@@ -667,8 +667,9 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-**Twenty-one crates, counted on 2026-09-20 rather than carried forward.** Every
-one of them is on the path a program takes. Sixteen
+**Twenty-five crates, counted on 2026-10-03 rather than carried forward.** Every
+one of them is on the path a program takes, with ONE exception stated where it
+is listed: `rts-profile` is a format with neither end wired yet. Sixteen
 were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
 that is not here does not exist, and `git log --diff-filter=D` is where it went.
 
@@ -686,6 +687,11 @@ crates/
   rts-mir/           the shared mid-level IR: CFG in SSA, effects, guards, two
                      tiers, and a type domain the LANGUAGE declares. Neither
                      front end's, which is why it is not inside either
+  rts-profile/       what a site SAW, and how often. The record between two runs:
+                     counts, never types — what a majority authorises is a
+                     judgement its reader's language makes. Its own crate for the
+                     reason rts-mir is: the writer is rts-core, the reader is
+                     rts-codegen, and there is no edge between them
   rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
   rts-core/          the runtime: values, heap, objects, coercion, entry points
   rts-host/          where the three meet, and where a program runs
@@ -701,6 +707,11 @@ crates/
   rts-physics/       `rts:rigid` — the rayon rigid-body solver, the CPU
                      fallback for a GPU-first scene; its own crate because wasm
                      has no threads
+  rts-audio/ rts-particles/ rts-text/   absent from this block until 2026-10-03,
+                     and the reason the count was FOUR short this time. Same
+                     failure as the two above, so the fix is the same: the
+                     number comes from `ls crates | wc -l`, and anything the
+                     block does not name is checked rather than assumed
 
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-dom-bridge/    `rts:dom` — the document reachable from TypeScript without
