@@ -165,6 +165,38 @@ pub(in crate::frame::render) fn paint_list(
                 });
                 mesh_quad_filled(&painter, corners, rgba_to_color32(*color));
             }
+            // A sideways run (a vertical writing mode, `rts_dom::layout`'s
+            // rotated frame). egui cannot draw rotated text, so this is the
+            // stated cut of lot WM-1: Ahem — whose glyphs are solid em
+            // squares — is drawn as its squares stacked down the line, which
+            // is exact; any other face is drawn UPRIGHT where the rotated run
+            // starts. Turning the item through `paint/transform.rs` is WM-5.
+            DisplayItem::Text { x, y, text, color, size, is_ahem, letter_spacing, orientation, .. }
+                if *orientation != rts_dom::paint::Orientation::Horizontal =>
+            {
+                let (px, py) = match mat {
+                    Some(m) => m.apply(*x, *y),
+                    None => (*x, *y),
+                };
+                let at = if mat.is_some() { origin_sem_dxdy } else { origin };
+                let lr = *orientation == rts_dom::paint::Orientation::SidewaysLr;
+                let col = rgba_to_color32(*color);
+                if *is_ahem {
+                    for (i, ch) in text.chars().enumerate() {
+                        if ch.is_whitespace() {
+                            continue;
+                        }
+                        let u = i as f32 * (*size + *letter_spacing);
+                        let (rx, ry) = if lr { (px, py - u - *size) } else { (px - *size, py + u) };
+                        let r = egui::Rect::from_min_size(at + egui::vec2(rx, ry), egui::vec2(*size, *size));
+                        painter.rect_filled(r, 0.0, col);
+                    }
+                } else {
+                    let font = egui::FontId::proportional(*size);
+                    let (rx, ry) = if lr { (px, py - *size) } else { (px - *size, py) };
+                    painter.text(at + egui::vec2(rx, ry), egui::Align2::LEFT_TOP, text, font, col);
+                }
+            }
             DisplayItem::Text { x, y, text, color, size, mono, family, bold, italic, letter_spacing, decoration, .. } => {
                 // The face that MEASURED this text (`medida::painted_family`).
                 let fam = super::medida::painted_family(painter.ctx(), family.as_deref(), *mono, *bold, *italic);

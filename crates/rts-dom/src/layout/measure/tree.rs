@@ -363,6 +363,14 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
                 return 0.0;
             }
             let css = dom.computed_style_idx(id).unwrap_or_default();
+            // A box that opens a rotated frame is as wide as its BLOCK size,
+            // which only laying it out answers (`block/rotated.rs`): its text
+            // runs down the page, not across it.
+            if crate::layout::block::rotated::opens_frame(dom, id, &css) {
+                if let Some(caixa) = box_id.or_else(|| tree.boxes_of(id).first().copied()) {
+                    return measure_block(dom, id, caixa, ctx.viewport_w, None, None, None, true, ctx).0;
+                }
+            }
             let f = font_px(&css, parent_font);
             let border_box = css.border_box.unwrap_or(false);
             let resolve = ResolveCtx {
