@@ -295,6 +295,12 @@ fn main() {
         report("probe: + callables", alloc_each(), move |sink, _| {
             sink.wrapping_add(rts_core::entry::probe_two_words_and_table(0, undefined))
         });
+        report("probe: + light set", alloc_each(), move |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_two_words_and_light(0, undefined))
+        });
+        report("probe: + lookups", alloc_each(), move |sink, _| {
+            sink.wrapping_add(rts_core::entry::probe_two_words_and_lookups(0, undefined))
+        });
 
         // ------------------------------------------- what every kind shares
         //

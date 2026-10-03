@@ -85,6 +85,55 @@ pub fn probe_two_words_and_table(code: i64, environment: u64) -> u64 {
     })
 }
 
+/// Duas palavras mais as CONSULTAS que `closure_new` faz por instância.
+///
+/// # A pergunta que isto responde
+///
+/// `described_at(code)`, `callable_template(at)` e `light_codes::insert(code)`
+/// são todas função do ENDEREÇO DE CÓDIGO, que é constante: um laço que cria
+/// trezentas mil closures da mesma função pede a mesma resposta trezentas mil
+/// vezes. Isso é o oposto do que uma linguagem de máquina faz — o Go resolve o
+/// nome por endereço no pclntab quando alguém pergunta, não quando o valor é
+/// criado.
+///
+/// Se a diferença entre isto e [`probe_two_words`] for grande, um cache
+/// monomórfico por endereço (que é o que um inline cache é) vale mais do que
+/// mover o estado para a célula, e vale-o sem mudar nada de observável. Se for
+/// pequena, o custo está noutro sítio e este caminho fecha-se.
+///
+/// Não inclui as escritas de `name`/`length` nem o `external::hold`: esses já
+/// estão medidos por ablação a 10 ns cada em JavaScript, logo somá-los aqui
+/// seria contar duas vezes.
+pub fn probe_two_words_and_lookups(code: i64, environment: u64) -> u64 {
+    let made = probe_two_words(code, environment);
+    with_current(|context| {
+        // Exactamente as três que `closure_new` faz, na mesma ordem, e os
+        // resultados são consumidos por `black_box` para que nada seja
+        // eliminado por não ser usado — uma sonda cujo corpo o compilador
+        // apaga mede um laço vazio e parece rápida.
+        let described = context.described_at(code as u64);
+        let has_prototype = described.is_none_or(|(_, _, has, _)| has);
+        let at = usize::from(has_prototype) | (usize::from(described.is_some()) << 1);
+        let template = context.callable_template(at);
+        std::hint::black_box((described.is_some(), template.is_some()));
+        made
+    })
+}
+
+/// O mesmo, mais o `light_codes::insert` que `closure_new_light` faz por
+/// instância.
+///
+/// O último candidato por-instância que não tinha número. É um conjunto de
+/// endereços, e o endereço é o mesmo em todas as instâncias da mesma função —
+/// logo um laço insere a mesma chave repetidamente, e o emissor já sabe quais
+/// funções são leves (`Ctx::light_functions`) mas o host não lhe passa isso.
+/// Se isto custar, semear o conjunto uma vez é a correcção; se não, fecha-se.
+pub fn probe_two_words_and_light(code: i64, environment: u64) -> u64 {
+    let made = probe_two_words(code, environment);
+    with_current(|context| context.light_codes.insert(code as u64));
+    made
+}
+
 /// Quanto custa alcançar o contexto e mais nada.
 ///
 /// O chão de todas as outras: uma linha que não aloca nem escreve, só toma o

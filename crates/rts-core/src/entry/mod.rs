@@ -152,7 +152,11 @@ pub use array::{ARRAY_OF_SLOTS, array_is_array};
 pub use array_proto::array_push_direct;
 pub use function_direct::{function_apply_direct, function_call_direct};
 pub use light_call::closure_new_light;
-pub use probe_floor::{probe_cell_only, probe_context_only, probe_two_words, probe_two_words_and_table};
+pub use probe_floor::{
+    probe_cell_only, probe_context_only, probe_two_words, probe_two_words_and_light,
+    probe_two_words_and_lookups,
+    probe_two_words_and_table,
+};
 pub use object_under::object_new_under;
 pub use function_direct::function_apply_listed_direct;
 pub use spread_list::spread_list;
