@@ -20,7 +20,9 @@
 //! being a profiler is not a machine-level capability.
 
 mod code;
+mod frames;
 mod positions;
 
 pub use code::{Attribution, CodeMap, CodeRange};
+pub use frames::{Chain, FRAME_LIMIT, Frame};
 pub use positions::PositionMap;
