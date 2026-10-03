@@ -41,7 +41,12 @@ pub(crate) fn wrap_and_parse_script(source: &str, names: &mut Names) -> Result<V
     let wrapped = format!("{wrapper} {SCRIPT}() {{ {source}
  }}");
     let program = parse_script(&wrapped, names)
-        .map_err(|error| HostError::Parse(format!("{error:?}")))?;
+        // `reason()` and not `{error:?}`: this string is what a `SyntaxError`
+        // raised by `new Function` or `eval` shows a running program, and
+        // `Syntax("Unexpected token `const`")` names a Rust enum the program
+        // never heard of. `ParseError::reason` says why that framing belongs to
+        // the caller.
+        .map_err(|error| HostError::Parse(error.reason()))?;
     // Anything other than the one function declaration means the wrapping did
     // not produce what it was written to produce, which is a defect here
     // rather than in the source.

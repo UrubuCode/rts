@@ -52,6 +52,7 @@ use rts_cranelift::target::InMemory;
 
 use rts_core::entry::Context;
 
+use crate::link::HostError;
 use crate::run::{Entry, Seed, addressed, front_end_agreeing, place, prepare};
 
 /// Wires the running host's compiler onto `context` — the same six hooks
@@ -137,10 +138,15 @@ pub(crate) fn check_source(source: &str) -> Option<String> {
 /// Compiles `function anonymous(<parameters>) { <body> }` into the running
 /// context and answers it as a callable value.
 ///
-/// `None` for source that did not parse, emit, verify or place, and for a
-/// runtime this cannot compile against — the caller turns that into a
+/// `Err(reason)` for source that did not parse, emit, verify or place, and for
+/// a runtime this cannot compile against — the caller turns that into a
 /// `SyntaxError`, which is what a program sees for the same input in Node.
-pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64> {
+///
+/// The reason is carried rather than summarised: for a parse failure it is the
+/// parser's own words, and for generated source that is the only thing the
+/// author can act on — there is no file to open. See
+/// `rts_core::entry::FunctionCompiler`.
+pub(crate) fn compile_function(parameters: &[String], body: &str) -> Result<u64, String> {
     // A SCRIPT that answers the function, rather than the function itself.
     // `front_end` compiles a function body, so a `return` of a function
     // expression is what makes the value come back — and it means the wrapper
@@ -168,10 +174,10 @@ pub(crate) fn compile_function(parameters: &[String], body: &str) -> Option<u64>
 /// shape of an environment, and this crate restating either would be the second
 /// statement of an agreement that already has one.
 ///
-/// Answers the value the source completed with. `None` for source that did not
-/// parse, emit, verify or place — which `rts_core::entry::eval` turns into a
-/// `SyntaxError`.
-pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
+/// Answers the value the source completed with. `Err(reason)` for source that
+/// did not parse, emit, verify or place — which `rts_core::entry::eval` turns
+/// into a `SyntaxError` naming that reason.
+pub(crate) fn evaluate_in_scope(source: &str, environment: u64) -> Result<u64, String> {
     let enclosing = rts_core::entry::environment_names(environment);
     // The calling scope decided this when IT compiled, and that `Ctx` no
     // longer exists — so it is read back off the environment `eval` was
@@ -218,12 +224,39 @@ pub(crate) fn evaluate_in_scope_with_receiver(
         // there.
         rts_core::entry::mark_hides_node_globals(environment);
     }
+    // `.ok()`: this callback's type is still `Option` — see
+    // `rts_core::entry::EvalCompilerWithReceiver` for whose decision that is,
+    // and why widening a signature whose every consumer discards the reason
+    // would be churn rather than a fix.
     place_and_enter(
         source,
         crate::run::Scoped::Page { enclosing: &enclosing, hide_node_globals },
         environment,
         receiver,
     )
+    .ok()
+}
+
+/// What a refusal says to the program whose own text was being compiled.
+///
+/// Everywhere else in this crate a `HostError` is rendered with `{:?}`, which
+/// is right for a developer reading a compiler's output and wrong for the
+/// message of a `SyntaxError` a running program will catch:
+/// `Parse("Unexpected token 'const'")` names a Rust enum the program never
+/// heard of. So a parse failure — the one variant that is the PROGRAM's
+/// mistake, and whose words are the whole of its value — is unwrapped, and
+/// every other variant keeps its `Debug`, because those are faults of this
+/// engine and a bug report needs the shape.
+///
+/// Rejected: a `Display` impl on `HostError`. Its `Debug` rendering is what the
+/// CLI prints today — `rts-cli`'s `new_engine` says so in its own doc — so a
+/// second rendering used by one path is a smaller change than re-deciding what
+/// every command prints.
+fn refusal(error: HostError) -> String {
+    match error {
+        HostError::Parse(message) => message,
+        other => format!("{other:?}"),
+    }
 }
 
 /// Compiles one source text into the running region and enters it, answering
@@ -238,14 +271,17 @@ fn place_and_enter(
     enclosing: crate::run::Scoped<'_>,
     environment: u64,
     receiver: u64,
-) -> Option<u64> {
+) -> Result<u64, String> {
     let agreement = rts_core::entry::agreement();
     // See the module documentation: a second compilation under single-region
     // addressing would build references the running program reads as other
     // cells, and this crate cannot re-derive the selector width the running
     // code was placed with.
     if agreement.region_selector_bits != 0 {
-        return None;
+        return Err(
+            "a program placed for several regions cannot compile more source while it runs"
+                .to_owned(),
+        );
     }
 
     let seed = Seed {
@@ -258,7 +294,11 @@ fn place_and_enter(
     // call that passed no receiver, and `arguments.callee` names the function.
     // `emit::nonstrict` states both; a body that DOES open with the directive
     // turns it back off there, per function and inherited inward.
-    let front = front_end_agreeing(source, Some(&seed), true, enclosing).ok()?;
+    // This was `.ok()?`, and it is the ONE line issue #2892 was about: the
+    // parser had said `Unexpected token 'const'` and the `?` turned it into a
+    // bare `None`, so the only message the caller could build was the input
+    // read back to the program.
+    let front = front_end_agreeing(source, Some(&seed), true, enclosing).map_err(refusal)?;
 
     // The first agreement, checked rather than trusted. It costs nothing to be
     // right — both sides declare over a fresh `TagRegistry` and the declaration
@@ -272,7 +312,9 @@ fn place_and_enter(
         || kinds.symbol != agreement.kinds.symbol
         || kinds.bigint != agreement.kinds.bigint
     {
-        return None;
+        return Err("this compilation disagrees with the running program about the \
+                    singleton or kind numbering"
+            .to_owned());
     }
 
     // Everything this compilation minted past what it was seeded with. Only the
@@ -286,14 +328,17 @@ fn place_and_enter(
         .map(|text| (*text).to_owned())
         .collect();
 
-    let prepared = prepare(front.emitted, front.funcs, front.types, front.calls).ok()?;
+    let prepared =
+        prepare(front.emitted, front.funcs, front.types, front.calls).map_err(refusal)?;
     let bases = RegionBases::single(
         RegionBase::Immediate(agreement.region_base),
         agreement.region_stride,
     );
-    let placed = place(&prepared, bases).ok()?;
+    let placed = place(&prepared, bases).map_err(refusal)?;
     let (function_names, frames) = addressed(&prepared, &placed);
-    let address = placed.address_of(prepared.script)?;
+    let address = placed
+        .address_of(prepared.script)
+        .ok_or_else(|| "the placed program has no script entry".to_owned())?;
 
     // Before the code is entered, never after: `closure_new` reads the name
     // table to write `.name` and `.length` on the function it builds, and the
@@ -324,5 +369,5 @@ fn place_and_enter(
     // and Function-built code. The context is already installed: this is reached
     // from inside a native, which runs with no outstanding context borrow.
     let nothing = rts_core::entry::undefined_value();
-    Some(entry(environment, receiver, nothing, nothing, nothing, nothing))
+    Ok(entry(environment, receiver, nothing, nothing, nothing, nothing))
 }

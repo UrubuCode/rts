@@ -799,7 +799,10 @@ pub(crate) fn front_end_agreeing(
     let module = match looks_like_a_module {
         true => Some(
             parse_module(source, &mut names)
-                .map_err(|error| HostError::Parse(format!("{error:?}")))?,
+                // See `wrap_and_parse_script`: the same string can reach a
+                // running program as a `SyntaxError` message, so it carries the
+                // parser's words rather than a Rust enum's `Debug`.
+                .map_err(|error| HostError::Parse(error.reason()))?,
         ),
         false => None,
     };
