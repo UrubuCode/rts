@@ -101,6 +101,13 @@ pub fn collect(context: &mut Context, stack_low: usize, registers: &[Slot]) -> u
     };
 
     let mut roots = super::roots::context_roots(context);
+    // Guardado ANTES de a pilha ser varrida, porque é com isto que a segunda
+    // marcação de `RTS_GC_PRECISION` é feita: as raízes que o motor DECLARA,
+    // sem as palavras que a pilha oferece por se parecerem com referências.
+    let declared = match super::switches::gc_precision() {
+        true => roots.clone(),
+        false => Vec::new(),
+    };
     if stack_high > stack_low {
         // SAFETY: `stack_low` is a real address on this thread's own stack —
         // the caller took it from a local just before this call — and
@@ -119,6 +126,30 @@ pub fn collect(context: &mut Context, stack_low: usize, registers: &[Slot]) -> u
 
     let stack_roots = roots.len();
     let marks = super::trace::mark(context, &roots);
+    // O número que o 6.4 e o 6.5 precisam, e que nenhum dos dois documentos
+    // tem: quantas células só estão vivas porque uma palavra da pilha se
+    // parece com uma referência. Antes do `sweep`, porque é sobre o mesmo
+    // conjunto de marcas.
+    if super::switches::gc_precision() {
+        let mut precise = declared;
+        precise.extend_from_slice(registers);
+        let exact = super::trace::mark(context, &precise);
+        let live = context.region.live_refs();
+        let pinned = live
+            .iter()
+            .filter(|cell| {
+                let slot = crate::heap::Slot(**cell);
+                marks.is_marked(slot) && !exact.is_marked(slot)
+            })
+            .count();
+        let total = live.iter().filter(|cell| marks.is_marked(crate::heap::Slot(**cell)))
+            .count();
+        eprintln!(
+            "rts-gc precision: {pinned} of {total} live cells are pinned by the \
+             conservative stack scan ({} declared roots, {stack_roots} with the scan)",
+            precise.len(),
+        );
+    }
     let freed = sweep(context, &marks);
     if super::switches::gc_debug() {
         eprintln!(

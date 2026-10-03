@@ -95,6 +95,28 @@ switches! {
 
     /// `RTS_GC_DEBUG` — what the cycle collector found.
     gc_debug => "RTS_GC_DEBUG",
+
+    /// `RTS_GC_PRECISION` — quanto a varredura CONSERVADORA da pilha mantém
+    /// vivo que as raízes explícitas não manteriam.
+    ///
+    /// # Porque isto existe, e o que decide
+    ///
+    /// `docs/engine/the-unwired-keystone.md` e o P3 dizem que um coletor que
+    /// MOVE exige raízes precisas, porque uma palavra que apenas PARECE uma
+    /// referência não pode ser reescrita. Nenhum dos dois diz quanto o
+    /// conservadorismo custa HOJE, e sem esse número tanto o 6.4 (mover) como
+    /// o 6.5 (raízes precisas) são trabalho justificado por princípio em vez
+    /// de por medição — que é o que o P8 proíbe.
+    ///
+    /// Com isto ligado, cada ciclo marca DUAS vezes: uma com as raízes todas
+    /// (o comportamento, intocado) e uma só com as explícitas — `context_roots`
+    /// mais os registos salvos. A diferença é quantas células a pilha pina por
+    /// se parecerem com referências, e é o limite superior do que um coletor
+    /// que move ganharia.
+    ///
+    /// Custa uma marcação inteira por ciclo, logo não serve para medir tempo —
+    /// serve para contar. Desligado é zero: nada acima do `if` corre.
+    gc_precision => "RTS_GC_PRECISION",
 }
 
 #[cfg(test)]
