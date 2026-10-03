@@ -138,7 +138,6 @@ extern "C" fn to_locale_string(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64,
         let cell = Value(this).as_slot()?;
         let elements: Vec<u64> = context
             .elements_at(cell)?
-            .clone()
             .iter()
             .map(|held| super::super::array::visible(context, *held))
             .collect();

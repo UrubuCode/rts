@@ -88,8 +88,58 @@ const EACH: u64 = 200_000;
 /// rounds, which is one round paying for a cycle the others did not.
 const ALLOC_EACH: u64 = 2_000;
 
+/// Why the allocating rows are capped here, and why raising it does not work.
+///
+/// `roots::scan_stack` is conservative: any word anywhere on the machine stack
+/// that looks like an encoded reference pins the cell it names. These rows
+/// allocate in a tight Rust loop, which leaves such words behind in spill
+/// slots, so the cells stay live, nothing is reclaimed, and the count has to
+/// stay far below what the region holds.
+///
+/// **Tried on 2026-10-02 and it does not help**: folding each answer to a byte
+/// before the checksum, so no full-width reference reaches the sink. At 200 000
+/// the region still died with *"all of them are in use even after a
+/// collection"*. The loop pins what it allocates whatever is done with the
+/// RESULT, so the cap is a property of conservative scanning rather than of how
+/// this file is written, and precise roots
+/// (`docs/engine/the-unwired-keystone.md`, plan 6.5) is what lifts it.
+///
+/// What follows for anyone reading these rows, and it is the reason this note
+/// is here rather than in a commit message: an allocating row measures
+/// allocation **with no collection in it**, and it cannot be made to measure
+/// anything else from here. For the cost a program actually pays — where
+/// `bench/analytic.ts` records 39-73 % of an allocation row being the collector
+/// — the instrument is a compiled JavaScript loop, because compiled code does
+/// not leave those words on the stack. Two numbers, two questions, and neither
+/// substitutes for the other.
+
+
 /// Rounds, so the spread between them can be reported.
 const ROUNDS: usize = 7;
+
+/// Only the rows whose name contains this run, when one is given.
+///
+/// # Why a filter rather than running the whole table
+///
+/// The allocating rows share one region that is never emptied between them, so
+/// adding a row CHANGES THE OTHER ROWS: three `array_new` rows were added on
+/// 2026-10-02 and `array_new(4)` went from a 36 % spread to **527 %**, because
+/// the extra six thousand cells pushed later rounds into collections the
+/// earlier ones did not pay. The minimum is still the least-interfered round,
+/// but a row whose rounds differ by five times is not a number to compare
+/// anything against.
+///
+/// So an allocating row is measured in a process of its own — `entry_probe
+/// array_new(4)` — which is the same discipline this tree's bench files already
+/// state for allocating rows. Without an argument everything runs, which is
+/// what the non-allocating rows want and what makes the shared floor visible
+/// in the same run as the kinds above it.
+fn wanted(what: &str) -> bool {
+    match std::env::args().nth(1) {
+        Some(filter) => what.contains(&filter),
+        None => true,
+    }
+}
 
 fn main() {
     if cfg!(debug_assertions) {
@@ -176,6 +226,29 @@ fn main() {
         report("array_new(4)", ALLOC_EACH, |sink, _| {
             sink.wrapping_add(array_new(4))
         });
+        // ------------------------------------- where the array's +41 ns LIVES
+        //
+        // `array_new(4)` measures 60 against `object_new(2)` at 19, and the
+        // gap has three candidates: the `Vec` the `Slab` holds (a malloc, plus
+        // `wanted` writes to fill it with holes), the `array_elements` side
+        // table, and `fresh_length`. Only the FIRST of the three grows with
+        // the element count.
+        //
+        // So the split says which to attack: if 0 and 14 land together the
+        // cost is fixed — the side table and the length — and inline elements
+        // (plan 14.3) buy nothing by removing a malloc that was not the cost.
+        // If the slope is steep it is the `Vec`, and inline is the answer.
+        // Measuring this before building it, because this session has already
+        // spent a release build on an attribution the rows refuted.
+        report("array_new(0)", ALLOC_EACH, |sink, _| {
+            sink.wrapping_add(array_new(0))
+        });
+        report("array_new(14)", ALLOC_EACH, |sink, _| {
+            sink.wrapping_add(array_new(14))
+        });
+        report("array_new(64)", ALLOC_EACH, |sink, _| {
+            sink.wrapping_add(array_new(64))
+        });
         report("closure_new", ALLOC_EACH, |sink, _| {
             sink.wrapping_add(closure_new(0, undefined))
         });
@@ -235,6 +308,9 @@ fn crate_stride() -> i64 {
 /// compiler removes shows up as a number too good to be true rather than as a
 /// fast one.
 fn report(what: &str, each: u64, mut body: impl FnMut(u64, u64) -> u64) {
+    if !wanted(what) {
+        return;
+    }
     let mut best = f64::INFINITY;
     let mut worst: f64 = 0.0;
     let mut sink = 0u64;
