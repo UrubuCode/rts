@@ -1530,6 +1530,45 @@ fn allocate_for_target(callee: u64) -> Option<u64> {
 ///
 /// Split from [`allocate_for_target`] so that a caller inside a borrow of its
 /// own — `construct_plain` — asks the same question without a second one.
+/// # What this costs, and what the CLR does instead (2026-10-03)
+///
+/// Measured by a cumulative ladder — `RTS_STOP_AT=1` returning `undefined` in
+/// place of the fresh object, release, one shape per process, with an object
+/// literal as a control that does not pass through here:
+///
+/// | `new C()` on a class with no fields | ns |
+/// |---|---:|
+/// | without allocating the fresh object | 10.0 / 13.3 |
+/// | normally | **76.7 / 70.0** |
+/// | object literal, for scale (its own cell AND a field) | 43.3 / 50.0 |
+///
+/// **The fresh object costs ~60 ns of ~73**, which is more than a complete
+/// object literal. The allocation itself is ~9 (`probe_floor`), so ~50 ns is
+/// the work around it, and this function is where all of it is: a full
+/// `read_property` for `prototype` that walks the chain (the probe puts
+/// `get_property` at ~24 ns), the proxy/bound walk, a `typed_as` to find or
+/// mint the layout for this shape-and-link, and a `set_prototype` write into a
+/// side table.
+///
+/// **The CLR does none of it.** A type's `MethodTable` is settled at compile
+/// time and carries the size and the GC descriptor, so `newobj` is an inline
+/// bump with the `MethodTable*` as an immediate — the allocation-context
+/// design in `docs/design/coreclr/botr/garbage-collection.md`, where *"there is
+/// no need to lock for object allocations, as long as the current allocation
+/// context is not exhausted"*. Nothing is read from the constructor at run
+/// time, because nothing has to be.
+///
+/// The correction here is the one already applied twice in this engine, and a
+/// third time to `Context::prototype_layout` on the same day: **remember the
+/// instance layout and prototype per constructor**, so the first `new` of a
+/// class does this work and the rest allocate and link. That needs
+/// invalidation when a program assigns `C.prototype = X`, which is observable —
+/// and `cache::chain_changed` is the mechanism that already exists for exactly
+/// that question, so it should be reused rather than a second one invented.
+///
+/// Not implemented here: it is a cache with an invalidation rule, and the rule
+/// is the part that is silent when it is wrong — an instance inheriting from a
+/// prototype its class no longer has.
 pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> Option<u64> {
     {
         let cell = Value(target).as_slot().or_else(|| Value(callee).as_slot())?;
