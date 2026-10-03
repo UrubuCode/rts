@@ -8,11 +8,9 @@
 use swc_common::Spanned;
 use swc_ecma_ast as swc;
 
+use super::decorator::{decorated_class_declaration, is_decorated_class};
 use super::expr::expr;
-use super::item::{
-    class_parts, decorated_class_declaration, enum_declaration, function_parts,
-    namespace_declaration, type_of,
-};
+use super::item::{class_parts, enum_declaration, function_parts, namespace_declaration, type_of};
 use super::pat::{binding, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
@@ -259,7 +257,7 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
             name: Some(cx.name(&function.ident.sym)),
             ..function_parts(cx, &function.function)?
         })),
-        swc::Decl::Class(class) if class.class.decorators.is_empty() => {
+        swc::Decl::Class(class) if !is_decorated_class(&class.class) => {
             StmtKind::Class(Box::new(Class {
                 name: Some(cx.name(&class.ident.sym)),
                 ..class_parts(cx, &class.class)?

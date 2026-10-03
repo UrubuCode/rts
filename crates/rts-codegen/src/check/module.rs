@@ -169,21 +169,39 @@ pub(super) fn duplicate_export(program: &Program, names: &Names) -> Option<Strin
 }
 
 /// The names an exported declaration introduces, as text.
+///
+/// A block counts, and for the reason `emit::module::declared_names` states: a
+/// decorated class arrives as one, and the `var` inside it is the declaration.
+/// Both readers of an exported declaration have to agree about that or the
+/// duplicate-export check and the publication list describe different modules.
 fn declared_names(statement: &Stmt, names: &Names) -> Vec<String> {
     let mut bound: Vec<Name> = Vec::new();
-    match &statement.kind {
-        crate::syntax::StmtKind::Declare { bindings, .. }
-        | crate::syntax::StmtKind::Using { bindings, .. } => {
-            for binding in bindings {
-                binding.target.bound_names(&mut bound);
-            }
-        }
-        crate::syntax::StmtKind::Function(function) => bound.extend(function.name),
-        crate::syntax::StmtKind::Class(class) => bound.extend(class.name),
-        _ => {}
-    }
+    collect(statement, &mut bound, true);
     bound
         .into_iter()
         .map(|name| names.text(name).to_owned())
         .collect()
+}
+
+/// One level into a block and no deeper, for the reason
+/// `emit::module::declared_names` gives: a binding nested further cannot be
+/// visible outside the block that holds it, so it is not something the
+/// declaration exports.
+fn collect(statement: &Stmt, bound: &mut Vec<Name>, into_blocks: bool) {
+    match &statement.kind {
+        crate::syntax::StmtKind::Declare { bindings, .. }
+        | crate::syntax::StmtKind::Using { bindings, .. } => {
+            for binding in bindings {
+                binding.target.bound_names(bound);
+            }
+        }
+        crate::syntax::StmtKind::Function(function) => bound.extend(function.name),
+        crate::syntax::StmtKind::Class(class) => bound.extend(class.name),
+        crate::syntax::StmtKind::Block(inner) if into_blocks => {
+            for statement in inner {
+                collect(statement, bound, false);
+            }
+        }
+        _ => {}
+    }
 }

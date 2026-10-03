@@ -36,6 +36,7 @@
 //! nothing is approximated, because a tree that is quietly missing a subtree is
 //! the failure mode that produces a wrong program instead of an error.
 
+mod decorator;
 mod expr;
 mod item;
 mod members;
