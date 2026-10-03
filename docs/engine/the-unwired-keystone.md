@@ -162,6 +162,45 @@ compiled function — and would silently truncate the moment a native sat betwee
 them, which is most real traces. Writing it that way to have something is how a
 trace that is quietly wrong ships.
 
+## What the conservative scan actually costs, measured (2026-10-03)
+
+Everything in this document argues that a moving collector needs precise roots,
+and the argument is right. What it never had is a NUMBER, so both 6.4 and 6.5
+were justified by principle rather than measurement — which is what P8 forbids.
+
+`RTS_GC_PRECISION` marks each cycle twice, once with every root and once with
+only the declared ones (`context_roots` plus the saved registers):
+
+```
+rts-gc precision: 2 of 2814 live cells are pinned by the conservative
+stack scan (221 declared roots, 235 with the scan)
+```
+
+**Two cells of 2814 — 0.07 %**, stable across every cycle of two different
+programs.
+
+Three things follow, and they reorder this document's own advice:
+
+- **6.4 does not wait for 6.5.** Mostly-copying — Bartlett, and what the CLR
+  does with pinned handles — pins what the conservative stack reaches and
+  evacuates the rest. The residual fragmentation that costs was the unknown
+  price of that design, and it is 0.07 %.
+- **6.5 drops in priority.** A shadow stack recovers those two cells. Its value
+  is moving WITHOUT pinning, and at two cells, pinning is already near free.
+- **And the hard part of 6.4 is not the stack at all.** It is that **23 side
+  tables are indexed by cell index**, so moving a cell means moving 23 entries.
+  That sounded like the blocker until `side_tables/release.rs` was read: the
+  `tables!` macro already generates a total `release_tables`, so a
+  `relocate_tables(from, to)` is the same shape and is **unforgettable by
+  construction** — the property P3 praises about `SideTable`.
+
+So what 6.4 still needs, stated so the size is not underestimated again:
+**forwarding**. Copying a cell is easy; finding every reference that names it
+and rewriting them is the work, and the classic answer (a forwarding pointer in
+the old cell, then a pass that updates every reference) has to agree with
+`trace::edges_of` about what a reference IS — which is exactly the question
+`gc::traces_field` answers and `Repr::Payload` exists to keep honest.
+
 ## The alternative the section above does not consider: a shadow stack
 
 *Added 2026-10-03, and it changes the recommendation rather than qualifying it.*
