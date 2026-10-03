@@ -121,7 +121,7 @@ This is also the line that makes the neutrality testable rather than asserted:
 if a field of the record can only be filled in by a language, the field is in the
 wrong crate.
 
-## Why it is a crate, which nothing else in this conversation was
+## Why it WOULD be a crate, which nothing else in this conversation would be
 
 The dependency graph decides it. Read from the manifests on 2026-10-03:
 
@@ -305,6 +305,41 @@ the other side: a site whose callee is statically known needs no observation,
 and a site whose callee is not is reached through a door that could carry its
 identity. Worth doing after the direct call, not before, because the direct
 call is what makes the remaining set small enough to be interesting.
+
+## The four invariants the format needs, kept from the crate that held them
+
+`rts-profile` existed between two commits on 2026-10-03 — the format, 27 tests,
+no producer — and was deleted by `rts-codegen` rule 10: *a structure with no
+producer is a gap rather than a feature*. `git show` has it. What it established
+is not in the code any more, so it is here, because these are the parts that
+were not obvious before writing them:
+
+- **Overflow must keep the total rising.** A site records a bounded number of
+  distinct witnesses and then refuses new ones. If the TOTAL stopped rising with
+  them, a megamorphic site would report its first four witnesses as if they were
+  the whole population, and any threshold would speculate on a site that misses
+  nine times in ten. Letting the total rise while the counts do not keeps each
+  recorded witness's share EXACT, and loses only the identity of what did not
+  fit — which is the part nobody needs.
+- **Order is part of a witness.** `{x, y}` and `{y, x}` are two layouts, because
+  a layout arrived at one member at a time builds a distinct node per addition.
+  Sorting the names to make them compare equal merges two populations and reports
+  a majority no site ever saw.
+- **Equality cannot depend on arrival order.** The natural derived equality
+  compares the witness list as a vector, and a record written ranked by count
+  reads back in a different order from the one it was told in — so a round trip
+  through the text form fails for a record that is correct. An equality that
+  depends on arrival order makes the format untestable, which is how this was
+  found.
+- **A version is refused, never interpreted.** Reading an older layout as best
+  it can be is the same silent class as the unstable key: a field that moved is
+  read as the field now in that place, and every guard still passes.
+
+And one that is about the record as a FILE: a name that cannot be written is
+refused at the writer rather than escaped under the reader. An escaping
+convention is a second thing two implementations must agree about, and a client
+whose names can contain whitespace needs a decision rather than a quoting rule
+guessed at underneath it.
 
 ## What falsifies the design
 
