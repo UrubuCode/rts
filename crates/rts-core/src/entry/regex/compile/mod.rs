@@ -26,14 +26,17 @@
 /// [`super::compiled`] hand the same program to every object that spells the
 /// pattern the same way.
 
+/// A top-level alternation, one branch at a time, so a lookbehind may lead a
+/// BRANCH rather than only the whole pattern.
+mod branches;
 /// The flag letters, as the structure the builder and the matcher both read.
 mod flags;
 /// The lookbehind the runtime checks itself, and why one is refused.
 mod guard;
 
+use branches::Arm;
 pub(in crate::entry) use flags::Flags;
 pub(in crate::entry::regex) use guard::refusal_detail;
-use guard::guarded;
 
 #[derive(Clone)]
 pub(in crate::entry) enum Engine {
@@ -61,6 +64,13 @@ pub(in crate::entry) enum Engine {
         /// captures nothing, which `lookbehind::split` refuses to let it.
         body: Box<Engine>,
     },
+    /// A pattern neither engine compiles whose TOP-LEVEL ALTERNATION is taken
+    /// apart, so that a lookbehind leading a branch governs that branch alone.
+    ///
+    /// See [`branches`] for why this is not merely a widening of `Guarded`:
+    /// `Guarded` applied a leading lookbehind to every branch of the body and
+    /// answered a wrong result for `/(?<=\.\s*)[a-z]+|z/`.
+    Alternation(Vec<Arm>),
 }
 
 /// Where a capture group matched, in **bytes**.
@@ -87,7 +97,7 @@ impl Engine {
     /// compiles the two halves of an already-translated pattern, and running
     /// the rewrites a second time over text they wrote is exactly what
     /// `translate`'s own ordering comments warn against.
-    fn of_translated(pattern: &str, flags: Flags) -> Option<Engine> {
+    pub(super) fn of_translated(pattern: &str, flags: Flags) -> Option<Engine> {
         match regex::RegexBuilder::new(pattern)
             .case_insensitive(flags.ignore_case)
             .multi_line(flags.multiline)
@@ -103,7 +113,7 @@ impl Engine {
                 // And the one thing the second engine does not have either: a
                 // lookbehind whose width is not fixed. Asked LAST so that
                 // nothing either engine already takes changes shape.
-                Err(_) => guarded(pattern, flags).ok(),
+                Err(_) => guard::fallback(pattern, flags).ok(),
             },
         }
     }
@@ -185,6 +195,9 @@ impl Engine {
             // decided by WHERE the body matched, so the spans are part of
             // reaching the boolean rather than extra work beside it.
             Engine::Guarded { .. } => self.find_at(haystack, start).is_some(),
+            // No leftmost and no ordering needed for a boolean: any branch
+            // matching anywhere is the answer.
+            Engine::Alternation(arms) => branches::matches_at(arms, haystack, start),
         }
     }
 
@@ -209,6 +222,9 @@ impl Engine {
             // `lookbehind::split` refuses one — so the numbering the body has
             // is the whole pattern's.
             Engine::Guarded { body, .. } => body.names(),
+            // Spliced, because a group is numbered by where its `(` appears in
+            // the WHOLE pattern and the branches were compiled apart.
+            Engine::Alternation(arms) => branches::names(arms),
         }
     }
 
@@ -225,6 +241,7 @@ impl Engine {
             Engine::Plain(compiled) => compiled.capture_names().any(|name| name.is_some()),
             Engine::Fancy(compiled) => compiled.capture_names().any(|name| name.is_some()),
             Engine::Guarded { body, .. } => body.has_names(),
+            Engine::Alternation(arms) => branches::has_names(arms),
         }
     }
 
@@ -259,6 +276,9 @@ impl Engine {
                 negated,
                 body,
             } => guard::find(look, *negated, body, haystack, start),
+            // Likewise the branch search and the rule that picks between two
+            // branches are one question, so they live together.
+            Engine::Alternation(arms) => branches::find(arms, haystack, start),
         }
     }
 }
