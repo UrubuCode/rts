@@ -353,11 +353,15 @@ fn closed(socket: u64) -> bool {
 
 /// Takes everything the socket has right now.
 ///
-/// The empty write first, then `read` in a LOOP until it gives `null` — the
-/// same thing `http::client::drain_socket_buffer` does, and its own module
-/// has why: with no loop iteration happening on its own, it is the write that
-/// forces the socket to progress. A single read handed back the first piece
-/// and lost the rest.
+/// The empty write first, then `read` in a LOOP until it gives `null`: with no
+/// loop iteration happening on its own, it is the write that forces the socket
+/// to progress. A single read handed back the first piece and lost the rest.
+///
+/// `http::client::drain_socket_buffer` was the twin of this and is GONE — that
+/// client reads its response through `'data'` now (`http::response_reader`), and
+/// this one spins because `fetch` still returns a settled promise rather than
+/// one a later pump settles. Named so the remaining copy reads as the debt it is
+/// rather than as the house style.
 fn drain(socket: u64) -> Vec<u8> {
     let absent = entry::undefined_value();
     let empty = entry::with_runtime(|context| entry::make_bytes(context, &[]));
