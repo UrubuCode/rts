@@ -137,11 +137,9 @@ fn init(context: &mut entry::Context, instance: u64) {
     let ready_state = entry::make_string(context, "open");
     set_value(context, instance, "readyState", ready_state);
     set_num(context, instance, "timeout", 0.0);
-    let write_fn = entry::make_callable(context, write_hook);
-    set_value(context, instance, "_write", write_fn);
-    let destroy_fn = entry::make_callable(context, destroy_hook);
-    set_value(context, instance, "_destroy", destroy_fn);
+    super::duplex_hooks::install(context, instance);
 }
+
 
 /// `socket.connect(port[, host][, connectListener])` and
 /// `socket.connect(options[, connectListener])` — the path (IPC) overload
@@ -302,6 +300,17 @@ fn spawn_reader(id: u64, mut stream: TcpStream) {
                     registry::with_sockets(|table| {
                         if let Some(entry) = table.get_mut(&id) {
                             entry.queue.push_back(SocketEvent::End);
+                            // A clean EOF used to queue `'end'` and nothing
+                            // else, so a socket the peer closed never reached
+                            // `'close'` — Node emits it on the next tick for a
+                            // socket with the default `allowHalfOpen: false`,
+                            // and it is also what tells `registry::source` this
+                            // socket has stopped holding the program open. The
+                            // rejected alternative was leaving `'close'` to
+                            // `destroy()`: that is a call only a program that
+                            // knows to make it ever makes, and the stream here
+                            // is already at its end either way.
+                            entry.queue.push_back(SocketEvent::Closed { had_error: false });
                         }
                     });
                     return;
@@ -356,54 +365,12 @@ pub(super) fn adopt(stream: TcpStream, remote: String) -> u64 {
     instance
 }
 
-fn socket_id(this: u64) -> Option<u64> {
+pub(super) fn socket_id(this: u64) -> Option<u64> {
     let value = entry::get_indexed(this, super::common::key("__socketId"));
     entry::number_of(value).map(|v| v as u64)
 }
 
-/// Installed as `this._write` — see the module doc.
-extern "C" fn write_hook(_e: u64, this: u64, chunk: u64, _encoding: u64, callback: u64, _d: u64) -> u64 {
-    registry::pump();
-    let absent = entry::undefined_value();
-    let bytes = entry::text_of(chunk)
-        .and_then(|text| entry::encode_text(&text, "utf8"))
-        .or_else(|| entry::with_runtime(|context| entry::bytes_of(context, chunk)))
-        .unwrap_or_default();
-    let Some(id) = socket_id(this) else {
-        entry::call(callback, absent, absent, absent, absent, absent);
-        return absent;
-    };
-    let result = registry::write_now(id, &bytes);
-    match result {
-        Ok(()) => {
-            let written = super::common::get_num(this, "bytesWritten") + bytes.len() as f64;
-            entry::with_runtime(|context| super::common::set_num(context, this, "bytesWritten", written));
-            entry::call(callback, absent, absent, absent, absent, absent);
-        }
-        Err(error) => {
-            let text = error.to_string();
-            let message = entry::with_runtime(|context| entry::make_string(context, &text));
-            entry::call(callback, absent, message, absent, absent, absent);
-        }
-    }
-    absent
-}
 
-/// Installed as `this._destroy` — closes the OS socket; the JS-side
-/// bookkeeping (`destroyed`, `'close'`) is `readable::destroy`'s, inherited.
-extern "C" fn destroy_hook(_e: u64, this: u64, _error: u64, _b: u64, _c: u64, _d: u64) -> u64 {
-    if let Some(id) = socket_id(this) {
-        registry::with_sockets(|table| {
-            if let Some(entry) = table.get_mut(&id) {
-                entry.closed = true;
-                if let Some(stream) = &entry.stream {
-                    let _ = stream.shutdown(std::net::Shutdown::Both);
-                }
-            }
-        });
-    }
-    entry::undefined_value()
-}
 
 /// `socket.address()`.
 extern "C" fn address(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
