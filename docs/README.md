@@ -117,8 +117,14 @@ The compiler is two crates, and the boundary between them is the design:
 | | |
 |---|---|
 | `crates/rts-cranelift/README.md` | the machine. 13 binding rules. Knows no language. |
-| `crates/rts-codegen/README.md` | the language. 10 binding rules. Knows no machine. |
+| `crates/rts-codegen/README.md` | the language. 10 binding rules. Names machine operations freely; re-decides none. |
 | `crates/rts-codegen/PLAN.md` | the phases, the measured coverage, and what is left |
 | `docs/engine/` | how the pieces fit, and the decisions behind them |
 
 Either rule alone is a preference. Both at once is a boundary.
+
+**And the boundary is NOT symmetric** — the language row said "knows no machine"
+until 2026-10-03, which `CLAUDE.md` had already corrected on 2026-10-01 and this
+table had not. The half that does not relax is the machine knowing no language;
+the other half is *naming* versus *deciding*. Rule 1 of this file applied to this
+file.
