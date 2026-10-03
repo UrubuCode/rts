@@ -48,10 +48,10 @@
 //! **`http.setGlobalProxyFromEnv`/proxy tunneling** — accepted and ignored
 //! or not exposed. **`writeHead`'s headers-as-iterable-of-pairs form** — only
 //! a plain `{name: value}` object is read (`outgoing::apply_headers_object`).
-//! **A streaming `ClientRequest`** — see `client.rs`'s own doc for why this
-//! client blocks through the whole exchange instead: there is no event loop
-//! a background thread can post a later turn into, the same limit `net`'s
-//! own doc names.
+//! **A streaming request BODY** — `client.rs` buffers what `req.write()` is
+//! given and frames one request on `end()`. The RESPONSE does stream: it is read
+//! by `response_reader` off the socket's `'data'`, which is also what stopped
+//! `http` over loopback from deadlocking; that module's doc has the account.
 
 mod agent;
 // `pub(crate)` para o `fetch` reusar `decode_body` — um segundo de-chunker
@@ -64,6 +64,7 @@ mod outgoing;
 // `IncomingMessage` — ver `crate::fetch`.
 pub(crate) mod parser;
 mod registry;
+mod response_reader;
 mod server;
 mod status;
 

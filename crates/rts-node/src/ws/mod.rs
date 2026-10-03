@@ -33,6 +33,7 @@
 mod api;
 mod client;
 mod conn;
+mod exports;
 pub(crate) mod frame;
 pub(crate) mod handshake;
 mod transport;
@@ -48,6 +49,13 @@ use rts_core::entry::{self, Context, Pending};
 pub fn install(context: &mut Context) {
     let namespace = api::namespace(context);
     entry::declare_module(context, "ws", namespace);
+    // The npm `ws` does `module.exports = WebSocket`, so `require("ws")` is the
+    // class and not a namespace object. It answered the namespace, which is why
+    // `const WebSocket = require("ws"); new WebSocket(url)` raised "object is
+    // not a constructor" while `import WebSocket from "ws"` worked — the two
+    // views of one module disagreed. `crate::host_exports` states both at once.
+    let exports = exports::common(context, namespace);
+    crate::host_exports::declare(context, &["ws"], namespace, exports);
     conn::declare(context);
 }
 

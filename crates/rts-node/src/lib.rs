@@ -33,6 +33,7 @@
 
 mod fetch;
 mod errors;
+pub(crate) mod host_exports;
 mod owned_socket;
 pub mod assert;
 pub mod async_hooks;
@@ -206,11 +207,23 @@ pub fn install(context: &mut Context) {
         rts_core::entry::declare_module(context, &format!("node:{name}"), namespace);
         rts_core::entry::declare_module(context, name, namespace);
     }
-    // CommonJS `require("events")` returns the callable EventEmitter export,
-    // while named/namespace imports still read the full events namespace. Both
-    // spellings share the same registered entry; only the CommonJS view differs.
+    // `events` is one of the four `node:` modules whose `module.exports` is a
+    // FUNCTION rather than an object of properties (measured against Node
+    // 22.23.2). Both views are declared by one call for the reason
+    // `host_exports` gives: `require` and a default import used to read
+    // different things, so `import EventEmitter from "events"` answered the
+    // namespace, which is not a constructor.
+    //
+    // `stream`, `assert` and `module` are the other three and are deliberately
+    // NOT converted here — `host_exports`'s "What is still not Node" section
+    // says what each would need first.
     let event_emitter = rts_core::entry::get_member(context, events_namespace, "EventEmitter");
-    rts_core::entry::declare_module_common(context, &["node:events", "events"], event_emitter);
+    host_exports::declare(
+        context,
+        &["node:events", "events"],
+        events_namespace,
+        event_emitter,
+    );
     // Registering all of these costs 14 us, measured 2026-08-11 — which is the
     // answer to "why not prune the list by what the program imports instead":
     // a pruning pass could remove only this, and building what is left is 1.4 ms

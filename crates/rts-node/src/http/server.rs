@@ -39,6 +39,7 @@ use super::registry::{self, ServerConn, Stage};
 use super::{incoming, outgoing, parser};
 
 const METHODS: &[(&str, Provided)] = &[
+    ("address", address),
     ("listen", listen),
     ("close", close),
     ("closeAllConnections", noop_self),
@@ -93,6 +94,22 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
     call_method(net_server, "listen", a, b, c);
     entry::with_runtime(|context| set_bool(context, this, "listening", true));
     this
+}
+
+/// `server.address()` — forwarded verbatim to the held `net.Server`, which
+/// already answers `null` before `'listening'`/after `close()` and
+/// `{ address, port, family }` while listening (Node 22, measured: `null`, then
+/// `{"address":"127.0.0.1","family":"IPv4","port":…}`).
+///
+/// It was simply ABSENT, so `server.address().port` threw a `TypeError` and a
+/// program could not learn the port of a `listen(0, …)` — which is every
+/// loopback test, this module's own fixture included. Forwarded rather than
+/// reimplemented: the port is the `net.Server`'s fact, and a second reader of the
+/// same `ServerEntry::local_addr` is a second thing that can disagree.
+extern "C" fn address(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    let net_server = get_value(this, "__netServer__");
+    let absent = entry::undefined_value();
+    call_method(net_server, "address", absent, absent, absent)
 }
 
 /// `server.close(callback?)`.
@@ -216,10 +233,30 @@ fn drain(id: u64) {
         match effect {
             Effect::Request { message, response, http_server } => {
                 emit(http_server, "request", message, response, absent);
+                // AFTER the handler, and this is what makes `req.on('end', …)`
+                // fire. `stream`'s Readable only emits `'end'` in flowing mode
+                // (its own doc says attaching `'data'` is not enough here), so a
+                // handler that waits for `'end'` without reading the body — the
+                // ordinary shape for a GET — waited forever: measured against
+                // Node 22, `server:req-end` arrives there and did not here, and
+                // the whole exchange stopped at `server:request`. Node resumes an
+                // `IncomingMessage` nobody consumes for the same reason.
+                //
+                // Here rather than before the emit: a handler that attaches
+                // `'data'` must have done so before anything flows, or the first
+                // chunk is delivered to no one.
+                call_method(message, "resume", absent, absent, absent);
             }
             Effect::Body { message, bytes } => {
                 let push_fn = entry::with_runtime(|context| entry::get_member(context, message, "push"));
-                let chunk = entry::with_runtime(|context| entry::make_bytes(context, &bytes));
+                // BUFFER and not `Uint8Array`, the same choice `net::registry`'s
+                // `'data'` delivery already documents: a `Uint8Array`'s
+                // `toString()` answers the bytes as a comma-separated list where
+                // `Buffer`'s decodes the text. Measured against Node 22 with a
+                // POST of `hello`: the handler's `chunk.toString()` read
+                // `104,101,108,108,111` here and `hello` there, so every server
+                // that concatenates its request body got numbers.
+                let chunk = entry::with_runtime(|context| entry::make_buffer(context, &bytes));
                 entry::call(push_fn, message, chunk, absent, absent, absent);
             }
             Effect::End { message } => {
