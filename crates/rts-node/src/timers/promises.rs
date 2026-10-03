@@ -53,9 +53,16 @@
 //! stall. Sequential `for await` is indistinguishable; a body that takes longer
 //! than the delay is not.
 //!
-//! `options.ref` — `unref` semantics need an event loop that can be kept alive
-//! by a pending timer, and this host's is a drain rather than a loop. The
-//! parent's module doc states the same gap for `.unref()`.
+//! `options.ref` — still absent, and the REASON written here is no longer the
+//! reason. It said `unref` semantics "need an event loop that can be kept alive
+//! by a pending timer, and this host's is a drain rather than a loop"; it is a
+//! loop (`entry::loops`), and `super::handle` implements `unref()` on the
+//! callback side against `Timer::refed`. What is missing here is only the
+//! plumbing: this module registers its timers through [`super::register`], which
+//! has no parameter for the flag, and nothing reads `options.ref` off the
+//! options object. It is rewritten rather than deleted because a "cannot" that
+//! outlives its cause is how a member stays unwritten for a reason that stopped
+//! being true — which is exactly what happened to `.unref()` itself.
 
 use std::time::{Duration, Instant};
 

@@ -47,18 +47,31 @@
 //! `fs/watch.rs`'s `WATCHERS`/`pump` shape IS reused, deliberately: same
 //! problem (host-native queue, JS-thread-only delivery), same shape.
 //!
-//! # `Timeout`/`Immediate` — a number, not an object
+//! # `Timeout`/`Immediate` — an OBJECT, and the paragraph saying a number was
+//! right about its reason and wrong about its conclusion
 //!
-//! Real Node returns a `Timeout`/`Immediate` instance with `.ref()`/
-//! `.unref()`/`.refresh()`/`[Symbol.dispose]`/`[Symbol.toPrimitive]`. None of
-//! those are implemented — with no event loop, "keep the process alive"
-//! and "refresh the deadline" have nothing to act on that isn't already
-//! either the no-op or the deferred-forever case above — so `setTimeout`/
-//! `setInterval`/`setImmediate` return the numeric id directly, which is
-//! already the shape `clearTimeout`/`clearInterval`/`clearImmediate` need and
-//! is exactly what real Node's own `Timeout[Symbol.toPrimitive]()` coerces
-//! down to for cross-thread use; a program calling `clearTimeout(id)` with
-//! the returned value works unchanged.
+//! It said: Node returns a `Timeout`/`Immediate` with `.ref()`/`.unref()`/
+//! `.refresh()`/`[Symbol.dispose]`/`[Symbol.toPrimitive]`, and none of those are
+//! implemented, because "with no event loop, *keep the process alive* and
+//! *refresh the deadline* have nothing to act on". That was true when written.
+//! Both halves have since stopped being: there IS a loop — `entry::loops`, which
+//! this module registers as a [`source`] — and the deadline is a field in
+//! [`TIMERS`]. So `unref()` means exactly *stop answering
+//! [`entry::Pending::In`]*, which is the one thing that holds a program open,
+//! and `refresh()` means *write the deadline again*.
+//!
+//! The handle is therefore a [`handle::timeout`]/[`handle::immediate`] object,
+//! and the number is still reachable: `Timeout[Symbol.toPrimitive]` answers the
+//! same id, and [`cancel`] takes either — so a program calling
+//! `clearTimeout(id)` with a number it kept from before works unchanged, which
+//! is what kept the old shape defensible and is why nothing had to be broken to
+//! leave it.
+//!
+//! What forced the change is a program rather than a tidiness argument:
+//! `@whiskeysockets/baileys` dies with `(intermediate value).unref is not a
+//! function`, and `.unref()` is the most common thing published JavaScript
+//! writes about a timer handle. [`handle`] holds the design, the measured Node
+//! contract and the divergences that remain.
 //!
 //! # `timers/promises` is [`promises`], and the paragraph refusing it was stale
 //!
@@ -77,9 +90,16 @@
 //!
 //! # Not implemented, by name
 //!
-//! `.ref()`/`.unref()`/`.hasRef()`/`.refresh()`/
-//! `[Symbol.dispose]`/`[Symbol.toPrimitive]` — no `Timeout`/`Immediate`
-//! object exists to hang them on (see above). Trailing `...args` forwarding
+//! `.ref()`/`.unref()`/`.hasRef()`/`.refresh()`/`.close()`/`[Symbol.dispose]`/
+//! `[Symbol.toPrimitive]` were all listed here, for the reason the section above
+//! records; all seven exist now and [`handle`] is where. What is still absent on
+//! that side is named in that module rather than here, so the list is in one
+//! place: `Timeout.prototype[Symbol.toPrimitive].name`'s spelling, a
+//! `t.constructor` that cannot build a scheduled timer, and Node's
+//! underscore-prefixed internals.
+//!
+//! `setInterval` still does not hold the program open, and `unref()` does not
+//! change that in either direction — see [`source`]. Trailing `...args` forwarding
 //! beyond one value — this module's four-slot calling convention leaves one
 //! argument slot once the callback and delay are read; `setTimeout(cb, 10, a,
 //! b, c)` forwards only `a`. Delay clamping/`NaN` handling beyond a floor of
@@ -92,7 +112,11 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+mod handle;
 pub mod promises;
+mod surface;
+
+pub use surface::namespace;
 
 /// What a due timer DOES, which is the one thing the callback and the promise
 /// forms do not share.
@@ -137,6 +161,16 @@ struct Timer {
     /// first, because `f` was registered first — which is the right rule for
     /// two timers and the wrong one across the two phases.
     immediate: bool,
+    /// Whether this timer may hold the program open — `ref()`/`unref()`.
+    ///
+    /// Read by [`source`] and nowhere else, which is the whole of what `unref`
+    /// means here: an unrefed timer is still pumped, still fires while anything
+    /// else keeps the loop turning, and contributes no [`entry::Pending::In`].
+    ///
+    /// The FLAG a program reads back with `hasRef()` is not this field, and that
+    /// is not duplication — see [`handle`]'s module doc. Node answers `hasRef()`
+    /// after the timer has fired, when this entry no longer exists.
+    refed: bool,
 }
 
 thread_local! {
@@ -302,90 +336,13 @@ fn reject_aborted() {
 
 /// `delay` clamped to a floor of `1`ms — see the module doc for what is not
 /// separately validated.
-fn clamp_delay(delay: u64, _a1: u64) -> u64 {
+///
+/// Here rather than in [`surface`]: `promises` normalises its own delay through
+/// it too, so it is the QUEUE's rule about what a deadline may be and not one
+/// surface's reading of an argument.
+pub(super) fn clamp_delay(delay: u64, _a1: u64) -> u64 {
     let millis = entry::number_of(delay).map(|value| value as i64).unwrap_or(1);
     millis.max(1) as u64
-}
-
-const PRESENT: fn(u64) -> bool = |value| value != entry::undefined_value();
-
-/// The namespace `node:timers` is.
-pub fn namespace(context: &mut entry::Context) -> u64 {
-    let members: &[(&str, entry::Provided)] = &[
-        ("setTimeout", set_timeout),
-        ("clearTimeout", clear_timeout),
-        ("setInterval", set_interval),
-        ("clearInterval", clear_interval),
-        ("setImmediate", set_immediate),
-        ("clearImmediate", clear_immediate),
-    ];
-    entry::declare_loop_source(context, "node:timers", source);
-    entry::make_namespace(context, members)
-}
-
-/// `setTimeout(callback, delay?, arg?)`.
-///
-/// # Why none of these pumps first
-///
-/// Every extern here used to call [`pump`] before doing anything, which was
-/// right when there was no event loop: the only chance a due callback had to
-/// run was when the program next touched a timer.
-///
-/// There is a loop now — `rts-host`'s `run` drains microtasks and then pumps —
-/// so pumping here runs a due callback SYNCHRONOUSLY, in the middle of whatever
-/// statement happened to mention a timer. Measured: `setImmediate(f);
-/// queueMicrotask(g);` alone orders correctly, and adding a `setTimeout` after
-/// them inverts it — the `setTimeout` call fires the already-due immediate
-/// before the synchronous code that follows.
-///
-/// [`source`] keeps its own, and that one is not the same thing: it is the loop
-/// ASKING what is due, which is the question pumping answers.
-extern "C" fn set_timeout(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
-    schedule(callback, arg, clamp_delay(delay, 0), None)
-}
-
-/// `clearTimeout(id)`.
-extern "C" fn clear_timeout(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    cancel(id);
-    entry::undefined_value()
-}
-
-/// `setInterval(callback, delay?, arg?)`.
-extern "C" fn set_interval(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
-    let period = Duration::from_millis(clamp_delay(delay, 0));
-    schedule(callback, arg, period.as_millis() as u64, Some(period))
-}
-
-/// `clearInterval(id)`.
-extern "C" fn clear_interval(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    cancel(id);
-    entry::undefined_value()
-}
-
-/// `setImmediate(callback, arg?)` — due at the next [`pump`], not after any
-/// delay.
-extern "C" fn set_immediate(_e: u64, _this: u64, callback: u64, arg: u64, _a2: u64, _a3: u64) -> u64 {
-    if !PRESENT(callback) {
-        return entry::undefined_value();
-    }
-    entry::make_number(
-        registered(Deliver::Call { callback, arg }, Instant::now(), None, true) as f64,
-    )
-}
-
-/// `clearImmediate(id)`.
-extern "C" fn clear_immediate(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    cancel(id);
-    entry::undefined_value()
-}
-
-fn schedule(callback: u64, arg: u64, delay_ms: u64, period: Option<Duration>) -> u64 {
-    if !PRESENT(callback) {
-        return entry::undefined_value();
-    }
-    let deadline = Instant::now() + Duration::from_millis(delay_ms);
-    let id = register(Deliver::Call { callback, arg }, deadline, period);
-    entry::make_number(id as f64)
 }
 
 /// Puts one timer in this thread's table and answers its RAW id.
@@ -412,28 +369,51 @@ fn registered(
             deadline,
             period,
             immediate,
+            refed: true,
         });
     });
     id
 }
 
-/// Removes a timer by its raw id — the half of [`cancel`] that has a number
+/// Writes a timer's ref flag, if it is still scheduled.
+///
+/// Silent about an id the table does not hold, because the common case for that
+/// is a handle whose timer already fired — and [`handle`] keeps the flag a
+/// program reads back, so there is nothing lost by this answering nothing.
+fn set_refed(id: u64, refed: bool) {
+    with_timers(|table| {
+        if let Some(timer) = table.get_mut(&id) {
+            timer.refed = refed;
+        }
+    });
+}
+
+/// Schedules `id` again from now — `Timeout.prototype.refresh()`.
+///
+/// Under the id it already had, replacing whatever entry is there: Node keeps
+/// `Number(t)` stable across a refresh, so a program that kept the primitive to
+/// cancel with still names this timer afterwards. Minting a fresh id would leave
+/// that number pointing at nothing.
+fn rearm(id: u64, callback: u64, arg: u64, delay_ms: u64, periodic: bool, refed: bool) {
+    let period = Duration::from_millis(delay_ms);
+    with_timers(|table| {
+        table.insert(id, Timer {
+            deliver: Deliver::Call { callback, arg },
+            deadline: Instant::now() + period,
+            period: periodic.then_some(period),
+            immediate: false,
+            refed,
+        });
+    });
+}
+
+/// Removes a timer by its raw id — the half of [`surface`]'s `cancel` that has a number
 /// already, and what [`promises`] cancels an outstanding tick with.
 fn forget(id: u64) {
     with_timers(|table| {
         table.remove(&id);
     });
 }
-
-/// Removes a timer by its numeric id — a no-op for an unknown/foreign/
-/// already-cleared id, matching real Node's silent tolerance.
-fn cancel(id: u64) {
-    let Some(number) = entry::number_of(id) else {
-        return;
-    };
-    forget(number as u64);
-}
-
 
 /// This module as a loop source: deliver what is due, then say when to come
 /// back.
@@ -452,19 +432,33 @@ fn cancel(id: u64) {
 ///
 /// An INTERVAL answers `Blocked`, not `In`: it is pumped on every pass and does
 /// not hold the program open. That is a stated divergence from Node, where a
-/// live interval keeps a process alive — the answers to that (`unref`,
-/// `clearInterval`) assume an event loop and a program written to end itself,
-/// and a suite where one stray interval hangs every fixture is worse.
+/// live interval keeps a process alive — a suite where one stray interval hangs
+/// every fixture is worse, and the divergence is the conservative direction.
+///
+/// An UNREFED timer answers the same way, and that is not a divergence but the
+/// definition: `Timer::refed` is read here and nowhere else, so `unref()` removes
+/// a timer from the `In` set while leaving it pumped. A program whose only
+/// outstanding work is an unrefed timer therefore ENDS, which is what Node does
+/// and what `scripts`-level measurement of this change had to show before the
+/// method could ship.
 pub fn source() -> entry::Pending {
     pump();
     let now = Instant::now();
     let (soonest, periodic) = with_timers(|table| {
         let soonest = table
             .values()
-            .filter(|timer| timer.period.is_none())
+            .filter(|timer| timer.period.is_none() && timer.refed)
             .map(|timer| timer.deadline)
             .min();
-        (soonest, table.values().any(|timer| timer.period.is_some()))
+        // `Blocked` and not `Idle` for an unrefed timer, which is the difference
+        // between "does not hold the program open" and "will never fire": the
+        // first is what `unref` means, and `Blocked` is pumped on every pass
+        // while contributing no deadline — exactly an interval's answer, for
+        // exactly the same reason.
+        let waiting = table
+            .values()
+            .any(|timer| timer.period.is_some() || !timer.refed);
+        (soonest, waiting)
     });
     match (soonest, periodic) {
         (Some(deadline), _) => entry::Pending::In(deadline.saturating_duration_since(now)),
