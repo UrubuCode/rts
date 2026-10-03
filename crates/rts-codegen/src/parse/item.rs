@@ -301,10 +301,47 @@ fn private_names_of(class: &swc::Class) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Whether a class member is only a type, and so contributes nothing that runs.
+///
+/// A method with no BODY is an overload signature, or a member of a
+/// `declare class`. TypeScript erases it and keeps the implementation, which is
+/// written last — so the member that stays is the one the signatures describe.
+///
+/// This is the rule `parse::stmt::decl` applies to a bodyless function
+/// declaration, stated twice because a class member is a different SWC node
+/// rather than a different rule. Until 2026-10-03 neither place applied it, and
+/// `block_body` gave the signature `FunctionBody::Block(vec![])` — a real
+/// method returning `undefined`.
+///
+/// That answered WRONGLY with nothing failing. The signatures put one key into
+/// the class's shape several times, and which function ran depended on how the
+/// call was compiled rather than on what was written. Measured 2026-10-03
+/// against bun 1.4.0, one signature over one implementation:
+///
+/// ```text
+/// new K().go("a")                 → "impl:a"   — resolved by name, last wins
+/// const k = new K(); k.go("a")    → undefined  — a cached access, first slot
+/// ```
+///
+/// Rejected: making a duplicate shape key keep the last slot. That describes a
+/// class body which cannot exist once the signatures are erased, and the shape
+/// is the machine's question anyway (rule 2) — erasure is the language's.
+fn member_is_signature_only(member: &swc::ClassMember) -> bool {
+    match member {
+        swc::ClassMember::Method(method) => method.function.body.is_none(),
+        swc::ClassMember::PrivateMethod(method) => method.function.body.is_none(),
+        swc::ClassMember::Constructor(constructor) => constructor.body.is_none(),
+        _ => false,
+    }
+}
+
 fn class_members(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
     let mut body = Vec::new();
 
     for member in &class.body {
+        if member_is_signature_only(member) {
+            continue;
+        }
         match member {
             swc::ClassMember::Method(method) => body.push(ClassElement::Method(Method {
                 key: ClassKey::Public(property_key(cx, &method.key)?),
