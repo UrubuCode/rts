@@ -27,9 +27,33 @@
 //! a JS object) that duplicating it is the cost every module here pays for
 //! its own options object, not a second parser.
 //!
+//! # It no longer blocks on the handshake, and that is the last of three loops
+//!
+//! `build_request` used to call a `connect_blocking` that spun on
+//! `tlsSocket.write(empty)` + `getProtocol()` with a 4 ms sleep until the
+//! handshake reported done. It was the third of three blocking loops on the
+//! `http`/`https` path; the other two went with `crate::http::client`'s
+//! own rewrite, and `http::response_reader`'s module doc carries the
+//! measurement that condemns all three: `net::registry::pump` has a
+//! reentrancy guard, so every nested pump such a loop asks for returns
+//! WITHOUT delivering anything. That makes it a deadlock rather than
+//! slowness, and spinning harder cannot help.
+//!
+//! Measured here, 2026-10-03, against `@whiskeysockets/baileys`: the socket
+//! emitted one `connection.update` with `connecting` and then nothing at all
+//! for 45 s — no QR, no second update, no error.
+//!
+//! Nothing waits now. `tls.connect` returns a `TLSSocket` immediately and
+//! rustls' own writer BUFFERS the plaintext this request writes until the
+//! handshake finishes (`tls::conn::Driver::send` is `writer().write_all`), so
+//! `http`'s `client_end` can frame the request straight away — exactly as
+//! `http::client` writes into a `net.Socket` that is still connecting.
+//! `http::response_reader` reads the answer off the `TLSSocket` by listening,
+//! which it was already written to do (see its `ID` constant's doc).
+//!
 //! # Two process-killing bugs here, both fixed 2026-09
 //!
-//! **`connect_blocking` against a real server aborted the process** with
+//! **`connect_blocking` (since deleted) against a real server aborted the process** with
 //! `[RTS PANIC] RefCell already borrowed`, before a single request byte went
 //! out. The panic was IN this file's own call chain but not this file's own
 //! bug: this module's tight `write`/`getProtocol` spin ends up pumping the
@@ -60,19 +84,18 @@
 //! line after `https.request(...)` returns) could never run in time. An
 //! `'error'` with no listener kills the process (`common::emit`'s own doc),
 //! and not even a `try`/`catch` wrapping the whole call saves it — checked,
-//! not assumed. [`emit_error_later`] defers the emit through a real
-//! `setTimeout(fn, 0)`, the same "later turn" a caller's own synchronous
-//! statements now get to run ahead of, matching Node's own behavior (a
-//! connection attempt there is never synchronous either). See that
-//! function's own doc for why this reuses `node:timers` rather than
-//! building `node:net`'s queue-and-pump shape a second time.
+//! not assumed. `crate::owned_socket::report_error_later` defers the emit
+//! through a real `setTimeout(fn, 0)`, the same "later turn" a caller's own
+//! synchronous statements now get to run ahead of, matching Node's own
+//! behavior (a connection attempt there is never synchronous either). See
+//! that function's own doc for why this reuses `node:timers` rather than
+//! building `node:net`'s queue-and-pump shape a second time — and
+//! `crate::owned_socket`'s own doc for why both the recorder and the relay
+//! now live there instead of once here and once in `http::client`.
 
 use rts_core::entry;
-use std::time::{Duration, Instant};
 
 use super::common::*;
-
-const CONNECT_TIMEOUT_MS: u64 = 5000;
 
 /// `https.request(url|options[, options][, callback])`.
 pub(super) extern "C" fn request(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64 {
@@ -91,7 +114,8 @@ pub(super) extern "C" fn get(_e: u64, _this: u64, a: u64, b: u64, c: u64, _d: u6
 
 fn build_request(url_or_options: u64, options: u64, callback: u64, auto_end: bool) -> u64 {
     let absent = entry::undefined_value();
-    let (host, port, path, method) = entry::with_runtime(|context| read_request_options(context, url_or_options, options));
+    let target = entry::with_runtime(|context| read_request_options(context, url_or_options, options));
+    let Target { host, port, path, method, ca, servername } = target;
     // Read OUTSIDE the borrow above, and as its OWN pass over both option
     // sources — see `read_headers`'s own doc for why a `headers` object walk
     // cannot share `read_request_options`'s borrow the way the four scalar
@@ -101,29 +125,12 @@ fn build_request(url_or_options: u64, options: u64, callback: u64, auto_end: boo
         headers.push(("Host".to_owned(), host.clone()));
     }
 
-    let socket = tls_connect(&host, port);
+    let socket = tls_connect(&host, port, ca.as_deref(), servername.as_deref());
     // The `TLSSocket` is this module's, not the program's — see
     // `crate::owned_socket`. `tls::socket::on_underlying_error` already relays
     // the inner `net.Socket`'s failure onto it, so without a listener HERE that
     // relay was the thing that killed the process.
     crate::owned_socket::absorb_errors(socket);
-    if !connect_blocking(socket) {
-        let error_instance = crate::owned_socket::recorded_error(socket)
-            .unwrap_or_else(|| error_object("ECONNREFUSED", "connect failed"));
-        // Still hand back a real `ClientRequest`-shaped object so a
-        // program's `.on('error', ...)` has something to have registered
-        // on, matching `http::client::build_request`'s own shape for the
-        // same failure.
-        let instance = entry::with_runtime(|context| {
-            let prototype = http_member(context, "ClientRequest");
-            let prototype = entry::get_member(context, prototype, "prototype");
-            let instance = entry::make_instance(context, prototype);
-            init_emitter(context, instance);
-            instance
-        });
-        emit_error_later(instance, error_instance);
-        return instance;
-    }
 
     let instance = entry::with_runtime(|context| {
         let ctor = http_member(context, "ClientRequest");
@@ -157,86 +164,29 @@ fn build_request(url_or_options: u64, options: u64, callback: u64, auto_end: boo
         entry::call(once_fn, instance, key("response"), callback, absent, absent);
     }
 
+    // The socket's failure, reported on the request a program actually holds.
+    // `connect_blocking` used to ask the socket for it and emit here; nothing
+    // asks now, so the relay is what reports — including a refusal already
+    // recorded, which for `https` is possible because `tls.connect` both
+    // connects and writes the ClientHello before this line is reached.
+    crate::owned_socket::relay_errors(instance, socket);
+
     if auto_end {
         call_method(instance, "end", absent, absent, absent);
     }
     instance
 }
 
-fn error_object(code: &str, message: &str) -> u64 {
-    entry::with_runtime(|context| {
-        let object = entry::make_object(context);
-        let message_v = entry::make_string(context, message);
-        let code_v = entry::make_string(context, code);
-        entry::put_member(context, object, "message", message_v);
-        entry::put_member(context, object, "code", code_v);
-        object
-    })
-}
-
-/// Emits `'error'` on `instance` on a LATER turn instead of synchronously.
-///
-/// # The bug this replaces
-///
-/// `build_request` used to call `common::emit` directly, inside the same
-/// native call that just built `instance` a line above — before the value
-/// had even been returned to the caller, let alone before a caller's next
-/// statement could run `req.on('error', cb)`. Real Node's `http(s).request()`
-/// NEVER emits `'error'` synchronously during construction for exactly this
-/// reason (a connection attempt is always asynchronous there), so the
-/// ordinary, universally-documented idiom — `const req = https.request(opts);
-/// req.on('error', cb); req.end();` — has no possible way to have attached a
-/// listener first under a synchronous emit. `common::emit`'s own doc: an
-/// `'error'` with none attached ends the process, and a native cannot raise
-/// something a caller's `try`/`catch` around the whole `https.request(...)`
-/// call would see — that path was checked and does not save it either.
-///
-/// # Why `setTimeout(fn, 0)` rather than `node:net`'s own queue-and-pump
-///
-/// `node:net`'s `Socket::connect` solves the identical ordering problem by
-/// spawning a background OS thread and delivering the failure through
-/// `net::registry`'s queue, pumped on a LATER native call. This client has no
-/// background thread — `connect_blocking`/[`build_request`] already know the
-/// outcome by the time this runs, synchronously, on the calling thread — so
-/// there is nothing to poll for. What is missing is only a LATER TURN to
-/// deliver on, and `node:timers`' zero-delay `setTimeout` already IS that:
-/// `docs/reference/node/STATUS.md`'s fixed defect describes the same
-/// end-of-turn pump this rides. Building a second queue/table/loop-source
-/// registration to get the same "later" would be the class
-/// `docs/reference/node/STATUS.md`'s "one source, generated views" section
-/// warns against — reusing a mechanism this crate already has and already
-/// tests, rather than adding a second one that does the same thing.
-fn emit_error_later(instance: u64, error: u64) {
-    let state = entry::with_runtime(|context| {
-        let state = entry::make_object(context);
-        entry::put_member(context, state, "instance", instance);
-        entry::put_member(context, state, "error", error);
-        state
-    });
-    // Minted OUTSIDE the borrow above, like every closure/call in this crate
-    // — `entry::closure_new` takes the runtime borrow itself.
-    let closure = entry::closure_new(deliver_deferred_error as *const () as usize as i64, state);
-    let (timers_ns, absent) = entry::with_runtime(|context| (entry::module_at_name(context, "node:timers"), entry::undefined_in(context)));
-    let set_timeout = entry::with_runtime(|context| entry::get_member(context, timers_ns, "setTimeout"));
-    let delay = entry::make_number(0.0);
-    entry::call(set_timeout, absent, closure, delay, absent, absent);
-}
-
-/// The `setTimeout` callback [`emit_error_later`] schedules — reads
-/// `instance`/`error` back off its closure state and emits, now on a turn a
-/// caller's own synchronous statements (`req.on('error', cb)`) have already
-/// run past.
-extern "C" fn deliver_deferred_error(state: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let (instance, error) =
-        entry::with_runtime(|context| (entry::get_member(context, state, "instance"), entry::get_member(context, state, "error")));
-    let absent = entry::undefined_value();
-    emit(instance, "error", error, absent, absent);
-    absent
-}
-
 /// Opens the `TLSSocket` this request runs over, through `tls`'s own public
 /// `connect` — never a bare `net.Socket` or a `TcpStream` opened here.
-fn tls_connect(host: &str, port: u16) -> u64 {
+///
+/// `ca` and `servername` are forwarded; everything else a caller put in its
+/// options object is not, which is the divergence worth naming: `ws` sets
+/// `options.createConnection` and expects its own socket to be used, and this
+/// ignores it. Harmless for `ws` specifically — its `tlsConnect` is
+/// `tls.connect` with the same `host`/`port`/`servername` this builds — and
+/// still a divergence for anyone who supplies a different one.
+fn tls_connect(host: &str, port: u16, ca: Option<&str>, servername: Option<&str>) -> u64 {
     let absent = entry::undefined_value();
     let connect_fn = entry::with_runtime(|context| tls_member(context, "connect"));
     let options = entry::with_runtime(|context| {
@@ -245,71 +195,85 @@ fn tls_connect(host: &str, port: u16) -> u64 {
         let port_v = entry::make_number(port as f64);
         entry::put_member(context, options, "host", host_v);
         entry::put_member(context, options, "port", port_v);
-        let servername_v = entry::make_string(context, host);
+        // The address dialled unless the caller said otherwise: a certificate
+        // names a host, and an IP literal matches none.
+        let servername_v = entry::make_string(context, servername.unwrap_or(host));
         entry::put_member(context, options, "servername", servername_v);
+        if let Some(ca) = ca {
+            let ca_v = entry::make_string(context, ca);
+            entry::put_member(context, options, "ca", ca_v);
+        }
         options
     });
     entry::call(connect_fn, absent, options, absent, absent, absent)
 }
 
-/// Spins on `tlsSocket.write(empty)` (the only reliable way to force the
-/// underlying `net` registry to pump — the same technique
-/// `http::client::connect_blocking` uses on a plain socket) until
-/// `getProtocol()` reports the handshake done, or the timeout elapses.
-fn connect_blocking(socket: u64) -> bool {
-    let start = Instant::now();
-    let absent = entry::undefined_value();
-    loop {
-        let empty = entry::with_runtime(|context| entry::make_bytes(context, &[]));
-        call_method(socket, "write", empty, absent, absent);
-        let protocol = call_method(socket, "getProtocol", absent, absent, absent);
-        if protocol != entry::null_value() && protocol != absent {
-            return true;
-        }
-        if start.elapsed() > Duration::from_millis(CONNECT_TIMEOUT_MS) {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(4));
-    }
+/// What a request needs off either a URL string or an options object —
+/// `docs/reference/node/https.md`'s reduced `RequestOptions`, plus the two
+/// fields that are `https`'s own rather than `http`'s. See the module doc for
+/// why this is a small duplicate of `http::client`'s own (private) reader
+/// rather than a reused import. `headers` is NOT among them — see
+/// [`read_headers`] for why it cannot share this borrow.
+struct Target {
+    host: String,
+    port: u16,
+    path: String,
+    method: String,
+    /// `options.ca`, forwarded to `tls.connect` as the extra trust anchor.
+    ///
+    /// Read because without it a server whose certificate is not in
+    /// `webpki_roots` cannot be reached at all — which includes every local
+    /// one, so it is also what makes a ruler for this module possible without
+    /// the internet. `rejectUnauthorized` is NOT read: `tls::context` has no
+    /// way to turn verification off, so accepting the option would be a name
+    /// that does not do what it means.
+    ca: Option<String>,
+    /// `options.servername`, forwarded so SNI and the certificate's name can
+    /// differ from the address dialled — `localhost` against `127.0.0.1` is
+    /// the ordinary case, and `ws` sets it for exactly that reason.
+    servername: Option<String>,
 }
 
-/// `(host, port, path, method)` off either a URL string or an options
-/// object — `docs/reference/node/https.md`'s reduced `RequestOptions`, the
-/// same fields `http::client`'s own (private) reader takes; see the module
-/// doc for why this is a small duplicate rather than a reused import.
-/// `headers` used to be a fifth field here — see [`read_headers`] for why it
-/// was pulled out into its own pass rather than staying alongside these
-/// four.
-fn read_request_options(context: &mut entry::Context, url_or_options: u64, options: u64) -> (String, u16, String, String) {
-    let mut host = "localhost".to_owned();
-    let mut port = 443u16;
-    let mut path = "/".to_owned();
-    let mut method = "GET".to_owned();
+fn read_request_options(context: &mut entry::Context, url_or_options: u64, options: u64) -> Target {
+    let mut target = Target {
+        host: "localhost".to_owned(),
+        port: 443,
+        path: "/".to_owned(),
+        method: "GET".to_owned(),
+        ca: None,
+        servername: None,
+    };
     // The overload test, not a conversion — see `http::client`'s copy of this
     // line for the account.
     if let Some(text) = entry::string_in(context, url_or_options) {
-        parse_url_into(&text, &mut host, &mut port, &mut path);
+        parse_url_into(&text, &mut target.host, &mut target.port, &mut target.path);
     } else {
-        apply_options(context, url_or_options, &mut host, &mut port, &mut path, &mut method);
+        apply_options(context, url_or_options, &mut target);
     }
     if options != entry::undefined_in(context) {
-        apply_options(context, options, &mut host, &mut port, &mut path, &mut method);
+        apply_options(context, options, &mut target);
     }
-    (host, port, path, method)
+    target
 }
 
-fn apply_options(context: &mut entry::Context, options: u64, host: &mut String, port: &mut u16, path: &mut String, method: &mut String) {
+fn apply_options(context: &mut entry::Context, options: u64, target: &mut Target) {
     if let Some(h) = option_text(context, options, "hostname").or_else(|| option_text(context, options, "host")) {
-        *host = h;
+        target.host = h;
     }
     if let Some(p) = option_num(context, options, "port") {
-        *port = p as u16;
+        target.port = p as u16;
     }
     if let Some(p) = option_text(context, options, "path") {
-        *path = p;
+        target.path = p;
     }
     if let Some(m) = option_text(context, options, "method") {
-        *method = m.to_ascii_uppercase();
+        target.method = m.to_ascii_uppercase();
+    }
+    if let Some(ca) = option_text(context, options, "ca") {
+        target.ca = Some(ca);
+    }
+    if let Some(name) = option_text(context, options, "servername") {
+        target.servername = Some(name);
     }
 }
 

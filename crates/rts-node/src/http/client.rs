@@ -38,7 +38,7 @@
 //! `build_request` used to `emit` a failed connection's `'error'`
 //! SYNCHRONOUSLY, before the instance it just built was even returned —
 //! so `req.on('error', cb)` on the next line could never run in time, and an
-//! `'error'` with no listener kills the process. [`emit_error_later`] defers
+//! `'error'` with no listener kills the process. `crate::owned_socket` defers
 //! it through `setTimeout(fn, 0)` instead. `https::client`'s copy of this
 //! file has the fuller account of both; they were found and fixed together.
 
@@ -113,8 +113,9 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     // The socket's failure, relayed onto the request a program actually holds —
     // `connect_blocking` used to ask for it, and nothing asks now. Installed
     // before `connect`, for the reason `crate::owned_socket` states: the first
-    // pump can deliver a refusal.
-    relay_socket_error(instance, socket);
+    // pump can deliver a refusal. The relay itself lives beside the recorder
+    // it pairs with rather than here, since `https::client` needs the same one.
+    crate::owned_socket::relay_errors(instance, socket);
 
     let connect_fn = entry::with_runtime(|context| entry::get_member(context, socket, "connect"));
     let port_v = entry::make_number(port as f64);
@@ -132,69 +133,13 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     instance
 }
 
-/// Emits `'error'` on `instance` on a LATER turn instead of synchronously —
-/// see `https::client`'s copy of this function for the full account (the two
-/// were found and fixed together, the same failed-connection shape). Short
-/// version: emitting inside `build_request` itself, before the
-/// value it just built was even returned to the caller, made
-/// `req.on('error', cb)` — the ordinary Node idiom — impossible to run in
-/// time, and an `'error'` with no listener kills the process (`common::emit`'s
-/// own doc), unrecoverably even from a `try`/`catch` wrapping the whole
-/// `http.request(...)` call. `setTimeout(fn, 0)` gives the caller's own
-/// synchronous statements a turn to run first, the same "later turn"
-/// `docs/reference/node/STATUS.md`'s fixed `setTimeout(f, 0)` defect
-/// describes pumping into — reused rather than building a second
-/// queue/table/loop-source the way `node:net`'s own (threaded) `connect`
-/// needs one for.
-fn emit_error_later(instance: u64, error: u64) {
-    emit_later(instance, "error", error);
-}
-
 /// `'socket'` on a later turn — Node reports it once the request has a socket,
 /// and a program's `req.on('socket', …)` is written on the line AFTER
-/// `http.request(...)` returns, so emitting it from inside `build_request` is the
-/// same unobservable-by-construction event `emit_error_later` exists for.
+/// `http.request(...)` returns, so emitting it from inside `build_request` would
+/// be unobservable by construction — the same reason
+/// `crate::owned_socket::report_error_later` exists for `'error'`.
 fn emit_socket_later(instance: u64, socket: u64) {
     emit_later(instance, "socket", socket);
-}
-
-/// Relays the owned socket's `'error'` onto the request, deferred.
-///
-/// Deferred and not direct: `_write` pumps `node:net` before it writes, so a
-/// refusal already queued is delivered from INSIDE `end()` — before the caller's
-/// own `req.on('error', …)` for `http.get`, which ends the request itself. The
-/// socket keeps `crate::owned_socket`'s recording listener too; that one absorbs,
-/// this one reports.
-fn relay_socket_error(instance: u64, socket: u64) {
-    let absent = entry::undefined_value();
-    let on_fn = entry::with_runtime(|context| entry::get_member(context, socket, "on"));
-    if on_fn == absent {
-        return;
-    }
-    // The request is reached through a PROPERTY of the socket and the listener is
-    // a plain callable, which is the form every other relay in this module takes
-    // (`server.rs`'s four `__httpServer__` relays). A closure over the request
-    // was tried first and never fired.
-    entry::with_runtime(|context| set_value(context, socket, "__clientRequest__", instance));
-    let listener = entry::with_runtime(|context| entry::make_callable(context, relay_error));
-    entry::call(on_fn, socket, key("error"), listener, absent, absent);
-}
-
-/// The socket's `'error'`, reported on the `ClientRequest` a program holds.
-extern "C" fn relay_error(_e: u64, socket: u64, error: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let absent = entry::undefined_value();
-    let instance = get_value(socket, "__clientRequest__");
-    if instance == absent {
-        return absent;
-    }
-    // Once. A refused connection is followed by a reset and then a close, and
-    // `node:net` emits `'error'` for more than one of them; Node reports the
-    // first on the request and nothing after it.
-    if get_value(instance, "__errored__") != entry::boolean_value(true) {
-        entry::with_runtime(|context| set_bool(context, instance, "__errored__", true));
-        emit_error_later(instance, error);
-    }
-    absent
 }
 
 /// Emits `event` on `instance` from a `setTimeout(fn, 0)` turn.
@@ -416,7 +361,8 @@ extern "C" fn client_end(_e: u64, this: u64, chunk: u64, _encoding: u64, callbac
     // used to be on this line could not complete at all when the server was in
     // the same program — `response_reader`'s module doc has the measurement and
     // the reason — and a reset or a refusal now reaches the program through
-    // [`relay_socket_error`] rather than through this function's return path.
+    // `crate::owned_socket::relay_errors` rather than through this function's
+    // return path.
     response_reader::begin(this, socket);
     if callback != absent {
         entry::call(callback, absent, absent, absent, absent, absent);
