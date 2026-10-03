@@ -115,6 +115,18 @@ impl Context {
         self.pending_stacks.get(cell).is_some()
     }
 
+    /// Whether ANY key of this cell is an accessor rather than a data
+    /// property.
+    ///
+    /// The sibling of [`Context::records_attributes`], for the same reason and
+    /// read at the same place: a walk that copies a whole object has to know
+    /// that no key of it runs user code, and asking per key costs a linear
+    /// find per key to answer `false` every time. `false` is the common
+    /// answer, and it licenses reading the slots directly.
+    pub(in crate::entry) fn records_accessors(&self, cell: u32) -> bool {
+        self.accessors.get(cell).is_some_and(|held| !held.is_empty())
+    }
+
     pub(super) fn accessor_at(&self, cell: u32, key: u32) -> Option<Pair> {
         let defined = self.accessors.get(cell)?;
         defined

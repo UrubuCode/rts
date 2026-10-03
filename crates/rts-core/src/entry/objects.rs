@@ -1341,6 +1341,13 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
         });
         return target;
     }
+    // The whole string round trip, skipped when the source cannot observe it.
+    // See [`copy_own_data_slots`]; `false` means something about the source
+    // made the general walk below necessary.
+    if copy_own_data_slots(target, source) {
+        copy_symbol_keyed(target, source);
+        return target;
+    }
     let mut keys = super::rooted::Rooted::new();
     with_current(|context| {
         for text in super::array::key_texts(context, source, true) {
@@ -1359,6 +1366,12 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     // the string enumeration and a symbol has no string spelling for it to
     // report, so `{ ...withSym }` used to answer an object with every key but
     // the symbol one.
+    copy_symbol_keyed(target, source);
+    target
+}
+
+/// The symbol half of a spread, which no fast path changes.
+fn copy_symbol_keyed(target: u64, source: u64) {
     let symbols = with_current(|context| super::array::symbol_keyed(context, source));
     for (key, value) in symbols {
         with_current(|context| {
@@ -1367,7 +1380,125 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
             }
         });
     }
-    target
+}
+
+/// Copies the source's own string-keyed data properties SLOT BY SLOT, or
+/// answers `false` without having written anything.
+///
+/// # Why this exists
+///
+/// This is what V8 and JavaScriptCore reach for under the name `CloneObject`
+/// / `CopyDataProperties`, and the measurement that asked for it is that
+/// `{ ...S }` over four properties cost **1849 ns against 9.7 on node**, while
+/// writing the same four properties out by hand — `{ k0: S.k0, … }` — cost
+/// **12.0 ns in this engine**. Two spellings of one operation, 154x apart, so
+/// the cost was never the work.
+///
+/// It was the ROUND TRIP. The walk below this one asks for each key's TEXT,
+/// interns that text into a fresh string cell, and hands the cell to
+/// `get_indexed` and `set_indexed`, each of which turns it back into the
+/// `u32` key it started as. Per property: one `Str` clone, one cell
+/// allocation, and two resolutions of a key that was never not a key —
+/// `array::key_list` already answers `Vec<Key>` and `key_texts` is only that,
+/// mapped through the interner and thrown away.
+///
+/// So this takes `key_list`'s answer and reads the slot the shape already
+/// assigns to it. No text, no interning, no generic read.
+///
+/// # What makes it safe to skip the general walk
+///
+/// Four questions, asked ONCE for the whole cell rather than per key, because
+/// each is a property of the object and not of a property:
+///
+/// - **a proxy anywhere** — its traps must observe the read, and the caller
+///   has already handled a proxy SOURCE; this refuses one elsewhere for the
+///   same reason `computed::access` does.
+/// - **elements** — an array's indices are keys the shape does not carry, so
+///   a slot walk would silently drop them.
+/// - **recorded attributes** — a non-enumerable own key must not be copied.
+///   `records_attributes` answers for the cell, and its own documentation says
+///   this is what the answer is for.
+/// - **accessors** — a getter must RUN, and running user code is exactly what
+///   a slot read does not do.
+///
+/// A key that is an index (`{ 0: "a" }`) and a source with no shape (a
+/// primitive string) both fall out of the per-key resolution below, which is
+/// why they are not in that list.
+///
+/// # Why nothing is written until every key has resolved
+///
+/// A bail halfway through would leave the target holding part of the copy and
+/// the general walk would then make it again. The first pass resolves every
+/// key to a slot and the second does the writing, so `false` always means
+/// "nothing happened".
+///
+/// The plan holds a key and a slot number and not values, which is also why
+/// it needs no `Rooted`: rule 10 is about references a `Vec` names where a
+/// collection cannot see them, and neither of those is one. The value
+/// itself is read and written inside one statement, so it is only ever a Rust
+/// local, which the stack scan and `registers::callee_saved` do cover.
+fn copy_own_data_slots(target: u64, source: u64) -> bool {
+    with_current(|context| {
+        let (Some(src), Some(dst)) = (Value(source).as_slot(), Value(target).as_slot()) else {
+            return false;
+        };
+        // `{ ...o }` always builds a fresh target, so this cannot happen today.
+        // It is refused anyway because the loop below reads one cell while
+        // writing another, and that is only sound while they are two cells.
+        if src == dst {
+            return false;
+        }
+        if context.any_proxy()
+            || context.elements_at(src).is_some()
+            || context.records_attributes(src)
+            || context.records_accessors(src)
+        {
+            return false;
+        }
+        let Some(shape) = context.region.type_of(src).and_then(|ty| context.shape_of(ty)) else {
+            return false;
+        };
+
+        // `key_list` and NOT `ShapeTree::properties`, and this is where the
+        // other half of the cost still is -- 894 ns for four properties
+        // against node's 9.9, where writing them out by hand is 11.7.
+        //
+        // The shape carries the same keys, in a `properties()` call that skips
+        // this whole walk, and taking it is wrong for one reason: an
+        // integer-like key is interned as a NAME (`to_property_key` says so in
+        // its own header), so the shape holds `{ b: 1, 0: "a" }` in insertion
+        // order while the language enumerates `"0"` first. `key_list` is what
+        // knows that, because it re-reads the text and answers `Key::Index`.
+        //
+        // So the shape walk needs the interner to record ONCE, at intern time,
+        // whether a name is index-like -- one bit, asked per key for free --
+        // and that is a change to the key space rather than to this function.
+        // Until then the cheap enumeration cannot be told from the correct one.
+        let keys = super::array::key_list(context, source, true);
+        let mut plan = Vec::with_capacity(keys.len());
+        for key in keys {
+            let Key::Name(named) = key else {
+                return false;
+            };
+            let Some(at) = context.shapes.slot_of(shape, named) else {
+                return false;
+            };
+            if context.region.field(src, at).is_none() {
+                return false;
+            }
+            plan.push((named, at));
+        }
+
+        for (named, at) in plan {
+            // Cannot be `None`: the first pass read this very slot, and
+            // nothing since has touched `src` -- `put` writes `dst`, and the
+            // two were just proved distinct.
+            if let Some(value) = context.region.field(src, at) {
+                put(context, dst, Key::Name(named), value);
+            }
+        }
+        true
+    })
 }
 
 /// Makes an array's elements agree with a `length` a program just wrote.
