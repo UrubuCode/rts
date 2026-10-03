@@ -3,32 +3,29 @@
 //! `net.Socket`, connected then written to and read from via its own
 //! `write`/`on('data', …)`), never through `net`'s private internals.
 //!
-//! # The one real divergence from Node here, named rather than hidden
+//! # It no longer blocks, and that is the whole of this module's history
 //!
-//! Node's `ClientRequest` is asynchronous: `request()` returns before the
-//! socket connects, and `'response'` arrives later, on its own turn. This
-//! engine has no event loop a background thread can post an ARBITRARY
-//! callback into — the same limit `net`'s own module doc states for
-//! `'connection'`/`'data'` — so there is no "later turn" of THAT shape for a
-//! native to defer to. [`connect_blocking`] and [`read_response_blocking`]
-//! instead SPIN: they call a real `net` native in a short loop (the only way
-//! to force `net::registry::pump` to run, since that function is private)
-//! with a small sleep between attempts, until the socket connects / the
-//! response head and body are fully read, or a bounded timeout elapses.
-//! **The request only returns once the whole exchange is done** —
-//! `request()` connects synchronously before handing back the
-//! `ClientRequest`, and `end()` sends the body and reads the whole response
-//! before returning, then fires `'response'` synchronously with a complete,
-//! non-streaming `IncomingMessage`. A program that never calls `.end()`
-//! (relying on `.write()` alone plus a timer to flush later, a legal but
-//! rare shape) never gets a response — named, not silently different.
+//! `request()` used to connect synchronously and `end()` used to read the entire
+//! response before returning, each by spinning on `socket.write(empty)` to force
+//! `net::registry::pump` with a 4 ms sleep between attempts. The doc here called
+//! that "the one real divergence from Node", and it was worse than a divergence:
+//! over loopback, with the server in the SAME program, the exchange could not
+//! complete at all. `net::registry::pump` is guarded against reentrancy, a
+//! same-program request starts inside a pump (`server.listen`'s callback runs
+//! from one), and so every pump the spin asked for returned without delivering
+//! the `'connection'` the server was waiting for. Measured: `listening` and then
+//! a real `ETIMEDOUT` ten seconds later.
 //!
-//! **One "later turn" this module DOES have**: `node:timers`' own
-//! `setTimeout(fn, 0)`, which [`emit_error_later`] rides below. The claim
-//! above still holds for `'response'` — nothing here polls a background
-//! thread's mailbox on its own schedule — but "no later turn at all"
-//! overstated it: a zero-delay timer is exactly enough for one deferred
-//! callback with no data still in flight.
+//! `request()` and `end()` now return immediately and the response arrives
+//! through `'data'` listeners — `super::response_reader`, which is `server.rs`'
+//! own reading discipline applied to the client half. That module's doc carries
+//! the measurement, the Node 22 event order beside ours, and the two contracts
+//! this deliberately changed.
+//!
+//! **One "later turn" this module has**, and it predates the above:
+//! `node:timers`' `setTimeout(fn, 0)`, which [`emit_later`] rides — enough for
+//! `'socket'` and for a deferred `'error'`, neither of which a caller could
+//! observe if emitted from inside `build_request`.
 //!
 //! # Two bugs fixed 2026-09, both shared with `https::client`'s twin copy
 //!
@@ -46,21 +43,16 @@
 //! file has the fuller account of both; they were found and fixed together.
 
 use rts_core::entry::{self, Provided};
-use std::time::{Duration, Instant};
-
 use super::common::*;
-use super::{incoming, outgoing, parser};
-
-const CONNECT_TIMEOUT_MS: u64 = 5000;
-const RESPONSE_TIMEOUT_MS: u64 = 10000;
+use super::{outgoing, parser, response_reader};
 
 pub(super) const CLIENT_METHODS: &[(&str, Provided)] = outgoing::OUTGOING_METHODS;
 
 pub(super) fn prototype(context: &mut entry::Context) -> u64 {
-    // `ClientRequest` needs `end` to mean "send, then block for the whole
-    // response" rather than `OutgoingMessage`'s plain "flush and finish" —
-    // so its own `end`/`write` shadow the shared list rather than reusing it
-    // verbatim.
+    // `ClientRequest` needs `end` to mean "frame the whole request and start
+    // reading the response" rather than `OutgoingMessage`'s plain "flush and
+    // finish", and `write` to BUFFER rather than send — so its own `end`/`write`
+    // shadow the shared list rather than reusing it verbatim.
     let mut methods: Vec<(&str, Provided)> = CLIENT_METHODS.to_vec();
     methods.retain(|(name, _)| *name != "end" && *name != "write");
     methods.push(("write", client_write));
@@ -85,9 +77,9 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     let absent = entry::undefined_value();
     let socket_ctor = entry::with_runtime(|context| entry::get_member(context, net_ns, "Socket"));
     let socket = entry::call(socket_ctor, absent, absent, absent, absent, absent);
-    // Before `connect`, because `connect_blocking` below is the first thing
-    // that pumps `node:net` and therefore the first thing that can deliver a
-    // refusal — see `crate::owned_socket`.
+    // Before `connect`, because the first `socket.write` pumps `node:net` and is
+    // therefore the first thing that can deliver a refusal — see
+    // `crate::owned_socket`.
     crate::owned_socket::absorb_errors(socket);
 
     let instance = entry::with_runtime(|context| {
@@ -118,20 +110,21 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
         entry::call(once_fn, instance, key("response"), callback, absent, absent);
     }
 
+    // The socket's failure, relayed onto the request a program actually holds —
+    // `connect_blocking` used to ask for it, and nothing asks now. Installed
+    // before `connect`, for the reason `crate::owned_socket` states: the first
+    // pump can deliver a refusal.
+    relay_socket_error(instance, socket);
+
     let connect_fn = entry::with_runtime(|context| entry::get_member(context, socket, "connect"));
     let port_v = entry::make_number(port as f64);
     let host_v = entry::with_runtime(|context| entry::make_string(context, &host));
     entry::call(connect_fn, socket, port_v, host_v, absent, absent);
-    if !connect_blocking(socket) {
-        // The socket's OWN error when it has one: `node:net` knows which of
-        // refused, unreachable and timed out happened, and "connect failed"
-        // with a guessed `ECONNREFUSED` erased that. Node reports the real
-        // code, and a program branching on `err.code` reads it.
-        let reported = crate::owned_socket::recorded_error(socket)
-            .unwrap_or_else(|| error_object("ECONNREFUSED", "connect failed"));
-        emit_error_later(instance, reported);
-        return instance;
-    }
+    // No wait for `'connect'`. `net::registry::write_now` queues what is written
+    // while a socket is still connecting and flushes it on `'connect'` — which is
+    // Node's own behaviour — so `end()` below can frame the request immediately,
+    // and `'socket'` is reported on a later turn the way Node reports it.
+    emit_socket_later(instance, socket);
 
     if auto_end {
         client_end(0, instance, absent, absent, absent, 0);
@@ -139,21 +132,10 @@ pub(super) fn build_request(url_or_options: u64, options: u64, callback: u64, au
     instance
 }
 
-fn error_object(code: &str, message: &str) -> u64 {
-    entry::with_runtime(|context| {
-        let object = entry::make_object(context);
-        let message_v = entry::make_string(context, message);
-        let code_v = entry::make_string(context, code);
-        entry::put_member(context, object, "message", message_v);
-        entry::put_member(context, object, "code", code_v);
-        object
-    })
-}
-
 /// Emits `'error'` on `instance` on a LATER turn instead of synchronously —
 /// see `https::client`'s copy of this function for the full account (the two
-/// were found and fixed together, the same `connect_blocking` failure
-/// shape). Short version: emitting inside `build_request` itself, before the
+/// were found and fixed together, the same failed-connection shape). Short
+/// version: emitting inside `build_request` itself, before the
 /// value it just built was even returned to the caller, made
 /// `req.on('error', cb)` — the ordinary Node idiom — impossible to run in
 /// time, and an `'error'` with no listener kills the process (`common::emit`'s
@@ -165,10 +147,64 @@ fn error_object(code: &str, message: &str) -> u64 {
 /// queue/table/loop-source the way `node:net`'s own (threaded) `connect`
 /// needs one for.
 fn emit_error_later(instance: u64, error: u64) {
+    emit_later(instance, "error", error);
+}
+
+/// `'socket'` on a later turn — Node reports it once the request has a socket,
+/// and a program's `req.on('socket', …)` is written on the line AFTER
+/// `http.request(...)` returns, so emitting it from inside `build_request` is the
+/// same unobservable-by-construction event `emit_error_later` exists for.
+fn emit_socket_later(instance: u64, socket: u64) {
+    emit_later(instance, "socket", socket);
+}
+
+/// Relays the owned socket's `'error'` onto the request, deferred.
+///
+/// Deferred and not direct: `_write` pumps `node:net` before it writes, so a
+/// refusal already queued is delivered from INSIDE `end()` — before the caller's
+/// own `req.on('error', …)` for `http.get`, which ends the request itself. The
+/// socket keeps `crate::owned_socket`'s recording listener too; that one absorbs,
+/// this one reports.
+fn relay_socket_error(instance: u64, socket: u64) {
+    let absent = entry::undefined_value();
+    let on_fn = entry::with_runtime(|context| entry::get_member(context, socket, "on"));
+    if on_fn == absent {
+        return;
+    }
+    // The request is reached through a PROPERTY of the socket and the listener is
+    // a plain callable, which is the form every other relay in this module takes
+    // (`server.rs`'s four `__httpServer__` relays). A closure over the request
+    // was tried first and never fired.
+    entry::with_runtime(|context| set_value(context, socket, "__clientRequest__", instance));
+    let listener = entry::with_runtime(|context| entry::make_callable(context, relay_error));
+    entry::call(on_fn, socket, key("error"), listener, absent, absent);
+}
+
+/// The socket's `'error'`, reported on the `ClientRequest` a program holds.
+extern "C" fn relay_error(_e: u64, socket: u64, error: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let instance = get_value(socket, "__clientRequest__");
+    if instance == absent {
+        return absent;
+    }
+    // Once. A refused connection is followed by a reset and then a close, and
+    // `node:net` emits `'error'` for more than one of them; Node reports the
+    // first on the request and nothing after it.
+    if get_value(instance, "__errored__") != entry::boolean_value(true) {
+        entry::with_runtime(|context| set_bool(context, instance, "__errored__", true));
+        emit_error_later(instance, error);
+    }
+    absent
+}
+
+/// Emits `event` on `instance` from a `setTimeout(fn, 0)` turn.
+fn emit_later(instance: u64, event: &str, payload: u64) {
     let state = entry::with_runtime(|context| {
         let state = entry::make_object(context);
         entry::put_member(context, state, "instance", instance);
-        entry::put_member(context, state, "error", error);
+        entry::put_member(context, state, "error", payload);
+        let name = entry::make_string(context, event);
+        entry::put_member(context, state, "event", name);
         state
     });
     // Minted OUTSIDE the borrow above — `entry::closure_new` takes the
@@ -180,12 +216,18 @@ fn emit_error_later(instance: u64, error: u64) {
     entry::call(set_timeout, absent, closure, delay, absent, absent);
 }
 
-/// The `setTimeout` callback [`emit_error_later`] schedules.
+/// The `setTimeout` callback [`emit_later`] schedules.
 extern "C" fn deliver_deferred_error(state: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let (instance, error) =
-        entry::with_runtime(|context| (entry::get_member(context, state, "instance"), entry::get_member(context, state, "error")));
+    let (instance, error, event) = entry::with_runtime(|context| {
+        (
+            entry::get_member(context, state, "instance"),
+            entry::get_member(context, state, "error"),
+            entry::get_member(context, state, "event"),
+        )
+    });
     let absent = entry::undefined_value();
-    emit(instance, "error", error, absent, absent);
+    let name = entry::text_of(event).unwrap_or_else(|| "error".to_owned());
+    emit(instance, &name, error, absent, absent);
     absent
 }
 
@@ -310,27 +352,6 @@ fn parse_url_into(text: &str, host: &mut String, port: &mut u16, path: &mut Stri
     }
 }
 
-/// Spins on a real `net` native (`socket.write`, the only one guaranteed to
-/// call `net::registry::pump` — see the module doc) until `connecting` flips
-/// false, meaning `net::registry::pump` delivered either `'connect'` or a
-/// connect failure. Answers whether it connected.
-fn connect_blocking(socket: u64) -> bool {
-    let start = Instant::now();
-    loop {
-        let empty = entry::with_runtime(|context| entry::make_bytes(context, &[]));
-        let absent = entry::undefined_value();
-        call_method(socket, "write", empty, absent, absent);
-        let connecting = get_value(socket, "connecting") == entry::boolean_value(true);
-        if !connecting {
-            return get_text(socket, "remoteAddress").is_some();
-        }
-        if start.elapsed() > Duration::from_millis(CONNECT_TIMEOUT_MS) {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(4));
-    }
-}
-
 /// `request.write(chunk, encoding?, callback?)` — buffered in `__body__`
 /// rather than sent immediately: this client sends one framed request (see
 /// [`client_end`]), not an incrementally streamed one.
@@ -347,11 +368,20 @@ extern "C" fn client_write(_e: u64, this: u64, chunk: u64, _encoding: u64, callb
 }
 
 /// `request.end(chunk?, encoding?, callback?)` — sends the request line,
-/// headers and body, then blocks for the whole response (see the module
-/// doc) and emits `'response'` with a complete `IncomingMessage`.
+/// headers and body, then hands the socket to [`response_reader`] and RETURNS.
+/// `'response'` is emitted later, from a pump, with an `IncomingMessage` that
+/// streams its body as it arrives.
 extern "C" fn client_end(_e: u64, this: u64, chunk: u64, _encoding: u64, callback: u64, _d: u64) -> u64 {
     let absent = entry::undefined_value();
-    if entry::text_of(chunk).is_some() {
+    // The ABSENCE test and not a conversion: `entry::text_of(undefined)` answers
+    // `Some("undefined")`, so a plain `req.end()` appended the nine characters
+    // `undefined` to the body and framed them in `Content-Length`. Measured: a
+    // `POST` of `hello` arrived as `helloundefined`, 14 bytes, and the server read
+    // it as the body it was told to expect — self-consistent and wrong. It was
+    // invisible until this client stopped blocking, because the exchange it
+    // corrupted never completed. Same mistake `read_request_options` documents one
+    // argument earlier: a conversion cannot answer "was anything written".
+    if chunk != absent && chunk != entry::null_value() {
         client_write(0, this, chunk, absent, absent, 0);
     }
     let socket = get_value(this, "socket");
@@ -382,86 +412,16 @@ extern "C" fn client_end(_e: u64, this: u64, chunk: u64, _encoding: u64, callbac
     entry::with_runtime(|context| set_bool(context, this, "writableEnded", true));
     emit(this, "finish", absent, absent, absent);
 
-    match read_response_blocking(socket) {
-        Some(message) => {
-            emit(this, "response", message, absent, absent);
-        }
-        None => {
-            // A connection the peer RESET is the common way no response
-            // arrives, and calling that a timeout misreports it: WhatsApp's
-            // reset (`os error 10054`) read as `ETIMEDOUT` after ten seconds
-            // of waiting for bytes that were never coming. The recorded error
-            // is the socket's own, and it is only absent when nothing failed.
-            let reported = crate::owned_socket::recorded_error(socket)
-                .unwrap_or_else(|| error_object("ETIMEDOUT", "response timed out"));
-            emit(this, "error", reported, absent, absent);
-        }
-    }
+    // Start LISTENING for the response instead of reading it here. The loop that
+    // used to be on this line could not complete at all when the server was in
+    // the same program — `response_reader`'s module doc has the measurement and
+    // the reason — and a reset or a refusal now reaches the program through
+    // [`relay_socket_error`] rather than through this function's return path.
+    response_reader::begin(this, socket);
     if callback != absent {
         entry::call(callback, absent, absent, absent, absent, absent);
     }
     this
-}
-
-/// Spins reading `socket`'s buffered bytes (forced the same way
-/// [`connect_blocking`] is) until a full response head and body have
-/// arrived, building the `IncomingMessage` [`client_end`] emits. `None` on
-/// timeout.
-fn read_response_blocking(socket: u64) -> Option<u64> {
-    let start = Instant::now();
-    let mut buf: Vec<u8> = Vec::new();
-    loop {
-        let chunk_text = drain_socket_buffer(socket);
-        buf.extend_from_slice(&chunk_text);
-        if let Some((head, consumed)) = parser::parse_response_head(&buf) {
-            buf.drain(..consumed);
-            let framing = parser::framing_of(&head.headers);
-            let target_len = match framing {
-                parser::Framing::Length(n) => Some(n),
-                parser::Framing::None => Some(0),
-                parser::Framing::Chunked => None,
-            };
-            loop {
-                if let Some(n) = target_len
-                    && buf.len() >= n
-                {
-                    break;
-                }
-                if start.elapsed() > Duration::from_millis(RESPONSE_TIMEOUT_MS) {
-                    return None;
-                }
-                if let parser::Framing::Chunked = framing
-                    && buf.windows(5).any(|w| w == b"0\r\n\r\n")
-                {
-                    break;
-                }
-                let more = drain_socket_buffer(socket);
-                if more.is_empty() {
-                    std::thread::sleep(Duration::from_millis(4));
-                } else {
-                    buf.extend_from_slice(&more);
-                }
-            }
-            let body = decode_body(&buf, framing);
-            let message = entry::with_runtime(|context| {
-                incoming::build_incoming(context, socket, &head.headers, &head.version, None, Some((head.status, head.reason.as_str())))
-            });
-            let absent = entry::undefined_value();
-            let push_fn = entry::with_runtime(|context| entry::get_member(context, message, "push"));
-            if !body.is_empty() {
-                let chunk = entry::with_runtime(|context| entry::make_bytes(context, &body));
-                entry::call(push_fn, message, chunk, absent, absent, absent);
-            }
-            let null = entry::null_value();
-            entry::call(push_fn, message, null, absent, absent, absent);
-            entry::with_runtime(|context| set_bool(context, message, "complete", true));
-            return Some(message);
-        }
-        if start.elapsed() > Duration::from_millis(RESPONSE_TIMEOUT_MS) {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(4));
-    }
 }
 
 pub(crate) fn decode_body(buf: &[u8], framing: parser::Framing) -> Vec<u8> {
@@ -483,32 +443,11 @@ pub(crate) fn decode_body(buf: &[u8], framing: parser::Framing) -> Vec<u8> {
     }
 }
 
-/// Pulls whatever `net` has already pushed into `socket`'s Readable buffer
-/// (via `net::registry::pump`, forced the same way [`connect_blocking`]
-/// forces it) and returns it as raw bytes, leaving the stream's own
-/// bookkeeping untouched — this client reads the wire directly rather than
-/// going through `read()`/`'data'`, since it needs the raw framing bytes,
-/// not decoded chunks.
-fn drain_socket_buffer(socket: u64) -> Vec<u8> {
-    let empty = entry::with_runtime(|context| entry::make_bytes(context, &[]));
-    let absent = entry::undefined_value();
-    call_method(socket, "write", empty, absent, absent);
-    let mut out = Vec::new();
-    loop {
-        let read_fn = entry::with_runtime(|context| entry::get_member(context, socket, "read"));
-        let chunk = entry::call(read_fn, socket, absent, absent, absent, absent);
-        if chunk == entry::null_value() || chunk == absent {
-            break;
-        }
-        if let Some(bytes) = entry::with_runtime(|context| entry::bytes_of(context, chunk)) {
-            out.extend_from_slice(&bytes);
-        }
-    }
-    out
-}
-
 extern "C" fn client_destroy(_e: u64, this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let socket = get_value(this, "socket");
+    // Before the socket goes: an aborted exchange leaves a half-parsed response
+    // in `response_reader`'s table, and nothing would ever complete it.
+    response_reader::forget(socket);
     call_method(socket, "destroy", entry::undefined_value(), entry::undefined_value(), entry::undefined_value());
     entry::with_runtime(|context| set_bool(context, this, "destroyed", true));
     this

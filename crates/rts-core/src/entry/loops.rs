@@ -114,6 +114,31 @@ const BLOCKED_CAP: Duration = Duration::from_millis(1);
 /// borrow this crate aborts on, so the list is copied out first — it is a
 /// handful of `fn` pointers, and copying them is cheaper than the bug.
 pub fn pump_sources() -> Option<Duration> {
+    match one_pass() {
+        Some(wait) => Some(wait),
+        // A pass that answers "nothing outstanding" may have CREATED some during
+        // itself, for a source it had ALREADY asked — and whether it did is
+        // decided by the order the sources happen to be registered in, which no
+        // module chooses and none can see. Measured: `node:http` reports a refused
+        // connection by scheduling `setTimeout(fn, 0)` from inside `node:net`'s
+        // delivery of the socket's `'error'`; `node:timers` is asked before
+        // `node:net`, so that timer was never seen, this answered `None`, the host
+        // ended the program, and `req.on('error', …)` ran for nothing. Node 22
+        // reports `ECONNREFUSED` on the same program.
+        //
+        // One extra pass and not a loop: what it buys is independence from
+        // registration order, because after it every source has been asked AFTER
+        // every delivery of the first pass. Work deferred through a second layer
+        // of sources needs a deadline of its own to be correct anyway, and
+        // spinning here until two passes agree would hide one module queueing work
+        // the next one re-queues forever. Costs nothing in the steady state: the
+        // second pass only happens on the pass that was about to end the program.
+        None => one_pass(),
+    }
+}
+
+/// One round of asking every source, and the wait its answers imply.
+fn one_pass() -> Option<Duration> {
     let sources: Vec<Source> = super::current::with_current(|context| {
         context
             .loop_sources
