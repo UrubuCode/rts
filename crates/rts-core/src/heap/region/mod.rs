@@ -698,17 +698,22 @@ impl Region {
     /// is for the runtime's own reads, and it exists so nothing else has to
     /// know how a cell is laid out.
     pub fn field(&self, reference: u32, slot: u32) -> Option<u64> {
-        if slot >= self.width_of(reference)? {
+        // Decompose once and bound against the width that index gives, where
+        // this asked `width_of` (which decomposes) and then decomposed again.
+        // Same two checks, same order of failure: `width_of(reference)` IS
+        // `width_at(decompose(reference)?)`, so a reference this region did
+        // not hand out still answers `None` before the width is looked at.
+        let index = self.decompose(reference)?;
+        if slot >= self.width_at(index)? {
             return None;
         }
-        let index = self.decompose(reference)?;
         self.word_checked(self.word_of(index) + 1 + slot as usize)
     }
 
     /// Writes a field of a cell.
     pub fn set_field(&mut self, reference: u32, slot: u32, value: u64) -> Option<()> {
         let index = self.decompose(reference)?;
-        if slot >= self.width_of(reference)? || index >= self.next {
+        if slot >= self.width_at(index)? || index >= self.next {
             return None;
         }
         let at = self.word_of(index) + 1 + slot as usize;
@@ -763,7 +768,36 @@ impl Region {
     /// `field`, `set_field` and the marker inherit it rather than each
     /// remembering to.
     pub fn width_of(&self, reference: u32) -> Option<u32> {
-        let index = self.decompose(reference)?;
+        self.width_at(self.decompose(reference)?)
+    }
+
+    /// The same, for a caller that has already decomposed the reference.
+    ///
+    /// # Why this exists rather than one function
+    ///
+    /// [`Self::payload_window`] needs the index AND the width, and taking the
+    /// width from [`Self::width_of`] made it decompose twice on the path an
+    /// element read and a string read both take. `text_cell::at` already
+    /// records what a second decomposition costs — *"splitting it cost 1.1 ns
+    /// on `text_at`, which is a third of what the whole read costs"* — and
+    /// worked around it by widening its own window. This removes the second
+    /// decomposition instead, so every caller inherits it rather than each one
+    /// having to find the trick.
+    ///
+    /// The rule stays in one place: `width_of` is this function with the
+    /// reference opened, not a second answer to the same question.
+    ///
+    /// `#[inline]` because this is six lines split out of a body every caller
+    /// used to inline. It was ALSO tried as the fix for a 3.1% regression on
+    /// `charCodeAt` and did not move it — stated because the next person will
+    /// have the same idea. What that shift most likely is: the two string rows
+    /// move in OPPOSITE directions by about the same amount (`charCodeAt`
+    /// +3.1%, `s[i]` −2.1%, both reproducible over five interleaved runs
+    /// against a kept binary) while the code they share strictly lost work.
+    /// Opposite signs on one mechanism is code layout, not cost — and the
+    /// array rows this was written for move 9–10% all one way, far outside it.
+    #[inline]
+    fn width_at(&self, index: u32) -> Option<u32> {
         if self.is_spanned_interior(index) {
             return None;
         }
@@ -944,17 +978,25 @@ impl Region {
         count: u32,
     ) -> Option<*mut u64> {
         let end = from.checked_add(count)?;
-        if end > self.width_of(reference)? {
+        let index = self.decompose(reference)?;
+        if end > self.width_at(index)? {
             return None;
         }
-        let index = self.decompose(reference)?;
         let at = self.word_of(index) + 1 + from as usize;
         // `get` rather than arithmetic on `as_ptr`: the width check above is
         // about the CELL, and this one is about the buffer. A spanning cell's
         // width can exceed what the words actually cover if anything ever
         // disagrees, and the two checks catch different mistakes.
-        self.words.get(at..at + count as usize)?;
-        Some(self.words[at].get())
+        //
+        // The pointer comes from the slice that check just answered, where it
+        // used to come from indexing `words` again — a THIRD bounds check of
+        // what had already been checked twice, on the path `held` and
+        // `text_cell::at` take per read. It also removes a panic the old form
+        // could reach and this one cannot: `payload_window(cell, from, 0)` at
+        // the very end of the buffer passed the empty range check and then
+        // indexed one past the end.
+        let words = self.words.get(at..at + count as usize)?;
+        Some(std::cell::UnsafeCell::raw_get(words.as_ptr()))
     }
 
     /// Records that `index` is a trailing cell of a spanning allocation, not an

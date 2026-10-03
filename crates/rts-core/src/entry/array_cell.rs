@@ -226,8 +226,15 @@ fn length_of(context: &Context, cell: u32) -> Option<u32> {
     // answering `None` sends the caller to the `Slab` rather than making a
     // slice of nonsense. `a.length = 1.5` is a `RangeError` long before here,
     // so this is a floor and not a path.
-    if count < 0.0 || count.fract() != 0.0 || count > f64::from(CAPACITY) {
+    //
+    // One round trip rather than `fract()` and two comparisons, because this
+    // runs once per element read. A float-to-int cast SATURATES in Rust at
+    // both ends, so the single `!=` refuses a negative, a fraction, a `NaN`
+    // and a value past `u32` alike — `-1.0` saturates to `0`, `1.5` truncates
+    // to `1`, `NaN` becomes `0`, and none of the three reads back equal.
+    let count_u32 = count as u32;
+    if f64::from(count_u32) != count || count_u32 > CAPACITY {
         return None;
     }
-    Some(count as u32)
+    Some(count_u32)
 }
