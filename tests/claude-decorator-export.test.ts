@@ -10,6 +10,26 @@ import * as mod from "./_claude_decorator_exported";
 // bun 1.4.0: `typeof Target` answered `"undefined"` here and `"function"`
 // there, while `Plain` beside it exported correctly.
 
+// A namespace publishes its exported members onto an object, and asks the same
+// question through a THIRD reader — `parse::item::names_bound_by`. It had the
+// same answer: nothing. `new N.C()` answered `TypeError: undefined is not a
+// constructor` while `C` itself had been built and decorated correctly.
+const nsLog: string[] = [];
+function Nested(name: string) {
+  return (target: any) => {
+    nsLog.push(name + ":" + typeof target);
+  };
+}
+namespace Container {
+  @Nested("Inner")
+  export class Inner {
+    value = 9;
+  }
+  export class Bare {
+    value = 8;
+  }
+}
+
 describe("claude-decorator-export", () => {
   test("a decorated class is published under its own name", () => {
     expect(typeof Target).toBe("function");
@@ -38,5 +58,12 @@ describe("claude-decorator-export", () => {
     const keys = Object.keys(mod).sort().join(",");
     expect(keys).toBe("Mark,Plain,Replaced,Target,trace");
     expect(new Replaced().z).toBe(3);
+  });
+
+  test("a namespace publishes a decorated class it exports", () => {
+    expect(typeof Container.Inner).toBe("function");
+    expect(new Container.Inner().value).toBe(9);
+    expect(new Container.Bare().value).toBe(8);
+    expect(nsLog.join(",")).toBe("Inner:function");
   });
 });

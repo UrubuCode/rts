@@ -59,13 +59,13 @@
 //!
 //! Because a decorator adds no operation. Everything it needs — a call, an
 //! assignment, `Object.getOwnPropertyDescriptor`, `Object.defineProperty`, a
-//! `var` that escapes a block — is already a node this tree has and both
+//! `let` in a block of its own — is already a node this tree has and both
 //! pipelines already compile. Lowering it to those nodes means the MIR path and
 //! the `emit/` path cannot disagree about it, which is the failure RULE 0a
 //! exists to prevent; writing it as a stage would have been a seventh language
 //! feature implemented twice.
 //!
-//! # What the previous version did, and the two defects it had
+//! # What the previous version did, and the three defects it had
 //!
 //! It lowered a class decorator and dropped every member decorator silently.
 //! Of the two things it did do, both were wrong, and the module's own
@@ -82,6 +82,29 @@
 //!   because the assignment was unconditional. Legacy semantics keep the class
 //!   unless a value came back, which is why `__decorate` is written `r = d(r)
 //!   || r`.
+//! - Member decorators — method, field, accessor, parameter, and a constructor
+//!   parameter, which is the dependency-injection case — were parsed and
+//!   dropped. And the ROUTING was wrong beside them: a class carrying a
+//!   decorator only on a member took the undecorated path entirely, so the
+//!   lowering existing would not have been enough.
+//!
+//! # The cost of answering a block, and the three readers of it
+//!
+//! A decorated class lowers to a `StmtKind::Block`, and **three** separate
+//! places ask "what does this declaration declare" and had to be taught that a
+//! block is one of them:
+//!
+//! - `emit::module::declared_names` — what the module publishes;
+//! - `check::module::declared_names` — the duplicate-export check;
+//! - `parse::item::names_bound_by` — what a `namespace` assigns onto its object.
+//!
+//! Each one answered nothing before, and each failure was silent in its own
+//! way: an importer read `undefined`, a duplicate went unnoticed, and
+//! `new N.C()` answered `TypeError: undefined is not a constructor`. If a
+//! fourth reader of that question appears, it is this list that is incomplete,
+//! not the desugaring — the alternative was a dedicated `StmtKind` for a
+//! decorated class, which would have made the question unmissable at the cost
+//! of a variant every reader of the tree has to handle.
 use swc_ecma_ast as swc;
 
 use super::expr::expr;

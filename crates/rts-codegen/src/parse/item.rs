@@ -824,6 +824,32 @@ fn names_bound_by(kind: &StmtKind) -> Vec<crate::names::Name> {
             .collect(),
         StmtKind::Function(function) => function.name.iter().copied().collect(),
         StmtKind::Class(class) => class.name.iter().copied().collect(),
+        // A decorated class, whose `var C;` is the declaration — the DIRECT
+        // statements of the block and no deeper, for the reason
+        // `emit::module::declared_names` gives.
+        //
+        // This is the THIRD reader of "what does an exported declaration
+        // declare", and all three had to be taught the same thing: the other
+        // two are in `emit::module` and `check::module`. Missing it here made
+        // `namespace N { @D export class C {} }` assign nothing onto `N`, so
+        // `new N.C()` answered `TypeError: undefined is not a constructor`
+        // while the class itself had been built and decorated correctly.
+        // Measured 2026-10-03 against bun 1.4.0, which answers `object`.
+        StmtKind::Block(inner) => inner
+            .iter()
+            .flat_map(|statement| match &statement.kind {
+                StmtKind::Declare { bindings, .. } => bindings
+                    .iter()
+                    .filter_map(|binding| match &binding.target {
+                        Pattern::Name(bound) => Some(*bound),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                StmtKind::Function(function) => function.name.iter().copied().collect(),
+                StmtKind::Class(class) => class.name.iter().copied().collect(),
+                _ => Vec::new(),
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
