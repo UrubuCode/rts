@@ -269,14 +269,24 @@ pub(crate) fn claim(cx: &mut Cx, annotation: &swc::TsType) -> Claim {
 }
 
 /// A class expression.
+/// A class written as an EXPRESSION.
+///
+/// A decorator on one is refused rather than dropped. TypeScript refuses the
+/// same program — decorators are a declaration form there — and dropping one
+/// silently is the failure this engine had: a registry that never happens and a
+/// program that carries on. `parse::decorator`'s desugaring needs a binding to
+/// reassign, which an expression has not got.
 pub(crate) fn class_expr(cx: &mut Cx, class: &swc::ClassExpr) -> Result<Class> {
+    if super::decorator::is_decorated_class(&class.class) {
+        return unsupported("a decorator on a class expression", position(class.class.span));
+    }
     Ok(Class {
         name: class.ident.as_ref().map(|i| cx.name(&i.sym)),
         ..class_parts(cx, &class.class)?
     })
 }
 
-pub(super) fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
+pub(crate) fn class_parts(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
     cx.enter_class(private_names_of(class));
     let parts = class_members(cx, class);
     cx.leave_class();
@@ -646,117 +656,6 @@ pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Re
         },
         at,
     })
-}
-
-/// `@d1 @d2 class C { … }` — the **legacy** `experimentalDecorators` design,
-/// established from the fixtures rather than assumed: `decorator_method_tolerated`
-/// requires method/property/parameter decorators to parse and do nothing at
-/// runtime, and a class decorator receives one `i64` (the class, tagged
-/// through the same untyped lane every native uses) and RETURNS one — both
-/// are the legacy shape. The ES2022 standard form is a different, incompatible
-/// contract (a class decorator there receives `(value, context)`, a `context`
-/// object nothing here constructs), so it is not what these fixtures ask for.
-/// `npx tsc` was not available in this environment ([reported: not on PATH]),
-/// so this reads the two proposals' shapes from ECMA-262 / the TypeScript
-/// decorators RFC rather than checking a real compiler's output.
-///
-/// Lowered to `var C; C = class C { … }; C = dN(C); … ; C = d1(C);` — a `var`
-/// so the binding escapes a block the same way a namespace's does (see
-/// `namespace_declaration`), and reassignment because a legacy decorator's
-/// return value replaces the class it decorated. Applied bottom-up: the
-/// decorator nearest the declaration runs first, which is what
-/// `decorator_multiple` pins ("third", "second", "first").
-///
-/// One decision this MVP takes and states rather than hides: a decorator
-/// **factory call** (`@entity("usuario")`) is evaluated once and NOT invoked a
-/// second time on the class. Full legacy semantics call the factory to get
-/// the actual decorator function and then call THAT on the class — but
-/// `decorator_factory`'s own `entity` returns `0`, which is not callable, so
-/// reading the fixture literally would make every factory-decorated class
-/// throw. Read as the fixture's comment states it ("recebe args em
-/// compile-time"), the call form is treated as the whole decoration: it runs
-/// for its side effect and the class passes through unchanged. A bare
-/// identifier (`@register`) has no such call to be "the whole decoration", so
-/// it is invoked directly on the class, which is the one case that still
-/// matches full legacy semantics exactly.
-pub(super) fn decorated_class_declaration(
-    cx: &mut Cx,
-    class: &swc::ClassDecl,
-    at: rts_cranelift::fault::Position,
-) -> Result<Stmt> {
-    let name = cx.name(&class.ident.sym);
-    let class_value = Class {
-        name: Some(name),
-        ..class_parts(cx, &class.class)?
-    };
-
-    let mut stmts = vec![
-        Stmt::new(
-            StmtKind::Declare {
-                kind: BindingKind::Var,
-                bindings: vec![Binding {
-                    target: Pattern::Name(name),
-                    value: None,
-                    claim: None,
-                }],
-            },
-            at,
-        ),
-        Stmt::new(
-            StmtKind::Expr(Expr {
-                kind: ExprKind::Assign {
-                    target: AssignTarget::Place(Box::new(Expr {
-                        kind: ExprKind::Ident(name),
-                        at,
-                    })),
-                    value: Box::new(Expr {
-                        kind: ExprKind::Class(Box::new(class_value)),
-                        at,
-                    }),
-                    op: AssignOp::Plain,
-                },
-                at,
-            }),
-            at,
-        ),
-    ];
-
-    for decorator in class.class.decorators.iter().rev() {
-        let decorator_at = position(decorator.span);
-        let converted = expr(cx, &decorator.expr)?;
-        let is_factory_call = matches!(&*decorator.expr, swc::Expr::Call(_));
-        let application = if is_factory_call {
-            Stmt::new(StmtKind::Expr(converted), decorator_at)
-        } else {
-            Stmt::new(
-                StmtKind::Expr(Expr {
-                    kind: ExprKind::Assign {
-                        target: AssignTarget::Place(Box::new(Expr {
-                            kind: ExprKind::Ident(name),
-                            at: decorator_at,
-                        })),
-                        value: Box::new(Expr {
-                            kind: ExprKind::Call {
-                                callee: Box::new(converted),
-                                arguments: vec![Spreadable::Single(Expr {
-                                    kind: ExprKind::Ident(name),
-                                    at: decorator_at,
-                                })],
-                                optional: false,
-                            },
-                            at: decorator_at,
-                        }),
-                        op: AssignOp::Plain,
-                    },
-                    at: decorator_at,
-                }),
-                decorator_at,
-            )
-        };
-        stmts.push(application);
-    }
-
-    Ok(Stmt::new(StmtKind::Block(stmts), at))
 }
 
 /// Whether this module or namespace declaration is AMBIENT — a type-only

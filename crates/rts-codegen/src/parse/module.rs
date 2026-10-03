@@ -163,6 +163,21 @@ pub(super) fn export_decl(cx: &mut Cx, declaration: &swc::ModuleDecl) -> Result<
                         StmtKind::Function(Box::new(function_expr(cx, function)?)),
                         at,
                     ),
+                    // `export default @D class C {}` is refused rather than
+                    // emitted, because `class_expr` drops the decorators and
+                    // the program would run with the registration a decorator
+                    // IS silently not happening — the exact failure #2903 is.
+                    // Supporting it needs the desugaring of
+                    // `parse::decorator` over a declaration that may have no
+                    // name, which is the next lot.
+                    swc::DefaultDecl::Class(class)
+                        if super::decorator::is_decorated_class(&class.class) =>
+                    {
+                        return unsupported(
+                            "a decorator on an `export default` class",
+                            position(class.class.span),
+                        );
+                    }
                     swc::DefaultDecl::Class(class) => {
                         Stmt::new(StmtKind::Class(Box::new(class_expr(cx, class)?)), at)
                     }

@@ -635,6 +635,23 @@ pub fn lower_export(
 
 /// Every name a statement introduces, for the declaration forms an `export` may
 /// wrap.
+///
+/// `StmtKind::Block` is one of them, and leaving it out published nothing.
+/// `export @D class C {}` reaches here as the block
+/// `{ var C; C = class C {…}; C = D(C) || C; }` that `parse::decorator` builds,
+/// whose `var` is the declaration — a `var` precisely so it escapes the block.
+/// With the block unmatched this answered no names, so the module published no
+/// `C` and an importer read `undefined` from a class that had been built
+/// correctly. Measured 2026-10-03 against bun 1.4.0: `typeof Alvo` answered
+/// `"undefined"` here against `"function"` there, while an undecorated class
+/// beside it exported fine.
+///
+/// The block's DIRECT statements and no deeper, which is a rule about the
+/// language and not a shortcut: a `let`, `const` or `class` inside a nested
+/// block is invisible outside it, so nothing nested can be what an exported
+/// declaration declares. `parse::decorator` relies on exactly that — each
+/// member's scratch descriptor is a `let` in a nested block, so it is not
+/// mistaken here for a second export of the module.
 fn declared_names(statement: &crate::syntax::Stmt) -> Vec<Name> {
     use crate::syntax::StmtKind;
     let mut names = Vec::new();
@@ -646,6 +663,20 @@ fn declared_names(statement: &crate::syntax::Stmt) -> Vec<Name> {
         }
         StmtKind::Function(function) => names.extend(function.name),
         StmtKind::Class(class) => names.extend(class.name),
+        StmtKind::Block(inner) => {
+            for statement in inner {
+                match &statement.kind {
+                    StmtKind::Declare { bindings, .. } => {
+                        for binding in bindings {
+                            binding.target.bound_names(&mut names);
+                        }
+                    }
+                    StmtKind::Function(function) => names.extend(function.name),
+                    StmtKind::Class(class) => names.extend(class.name),
+                    _ => {}
+                }
+            }
+        }
         // Nothing else is a declaration, and the parser does not produce one
         // here — an `export` over anything else is a syntax error before this.
         _ => {}

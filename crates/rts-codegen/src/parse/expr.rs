@@ -458,7 +458,7 @@ pub(crate) fn property_key(cx: &mut Cx, key: &swc::PropName) -> Result<PropertyK
 /// `f64` formatting agrees for integers, which is the case that matters for
 /// array-like keys; §5.5 records that the general algorithm is the shortest
 /// round-tripping decimal, and this is where that will have to arrive.
-fn number_key(value: f64) -> String {
+pub(super) fn number_key(value: f64) -> String {
     if value.fract() == 0.0 && value.is_finite() && value.abs() < 1e21 {
         format!("{}", value as i64)
     } else {

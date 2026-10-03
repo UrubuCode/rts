@@ -7,7 +7,7 @@ function print(value: string): void {
 
 // Class decorator: executa como side-effect na declaracao.
 
-function register(target: i64): i64 {
+function register(target: any): any {
   print("classe registrada");
   return target;
 }
