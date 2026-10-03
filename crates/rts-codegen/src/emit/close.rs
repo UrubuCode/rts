@@ -23,18 +23,16 @@ use crate::names::Name;
 use crate::syntax::{BinaryOp, Expr, ExprKind, Literal, Stmt};
 use crate::values::Singleton;
 
-/// `true`, as the guard for a close that has already been decided.
-pub(super) fn always(at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Literal(Literal::Boolean(true)),
-        at,
-    }
-}
-
-/// `it !== undefined` — the iterator was abandoned rather than exhausted.
+/// `it !== undefined` — there is an iterator here, and it was abandoned rather
+/// than exhausted.
 ///
 /// The flag IS the binding: exhaustion is the one thing that clears it, so
 /// nothing else has to be kept agreeing with it.
+///
+/// Asked of the write-once alias it answers the first half alone — whether this
+/// loop is stepping an iterator at all, since a `for`-`of` over an array binds
+/// `undefined` there and never writes it again. `foreach.rs` says at both of
+/// those call sites why that is the question a cleanup path has to ask.
 pub(super) fn still_open(iterator: Name, at: Position) -> Expr {
     Expr {
         kind: ExprKind::Binary {
