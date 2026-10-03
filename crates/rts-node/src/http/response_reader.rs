@@ -47,6 +47,25 @@
 //! `'response'` is emitted from a later pump, so `req.on('response', …)` written
 //! after `end()` is reached in time — it never was before.
 //!
+//! # And one event that was missing entirely: `'upgrade'`
+//!
+//! A `101 Switching Protocols` was read as an ordinary bodyless response, so
+//! `req.on('upgrade', (res, socket, head) => …)` never fired. That is the one
+//! event `ws` from `node_modules` waits for — `websocket.js` builds its
+//! handshake with `https.request` and calls `setSocket` from its `'upgrade'`
+//! listener and nowhere else — so every `new WebSocket("wss://…")` through
+//! `node_modules` sat silent forever, which is where
+//! `@whiskeysockets/baileys` stopped after its first `connection.update`.
+//! Measured 2026-10-03.
+//!
+//! The handover is the whole of it: this module pushes the socket and whatever
+//! it has already buffered past the headers to the listener, marks the
+//! connection `Done` — so [`drain`] does not put it back in the table and
+//! [`on_data`] becomes inert for it — and reads nothing more. It does NOT
+//! remove its own `'data'` listener: `events`' `removeListener` would be a
+//! second way to reach the same inertness, and an entry that is not in the
+//! table already answers nothing.
+//!
 //! And a response with neither `Content-Length` nor `Transfer-Encoding: chunked`
 //! is now terminated by EOF, which is what HTTP/1.1 says for a response (never
 //! for a request, which is why `server.rs` keeps treating that framing as "no
@@ -147,6 +166,9 @@ extern "C" fn on_end(_e: u64, socket: u64, _a: u64, _b: u64, _c: u64, _d: u64) -
 
 enum Effect {
     Response { request: u64, message: u64 },
+    /// `'upgrade'` — the response is a `101`, so this module hands the socket
+    /// over and stops reading it. See [`upgrading`].
+    Upgrade { request: u64, message: u64, socket: u64, head: Vec<u8> },
     Body { message: u64, bytes: Vec<u8> },
     End { message: u64 },
 }
@@ -172,6 +194,14 @@ fn drain(id: u64, eof: bool) {
         match effect {
             Effect::Response { request, message } => {
                 emit(request, "response", message, absent, absent);
+            }
+            Effect::Upgrade { request, message, socket, head } => {
+                // A BUFFER, like every other body delivery here: `ws` calls
+                // `head.length` and concatenates it in front of the first frame,
+                // and a `Uint8Array` would answer its `toString` as a
+                // comma-separated list of numbers.
+                let head = entry::with_runtime(|context| entry::make_buffer(context, &head));
+                emit(request, "upgrade", message, socket, head);
             }
             Effect::Body { message, bytes } => {
                 let push_fn = entry::with_runtime(|context| entry::get_member(context, message, "push"));
@@ -217,6 +247,16 @@ fn advance(conn: &mut ClientConn, eof: bool, effects: &mut Vec<Effect>) {
                     set_value(context, request, "__response__", message);
                     message
                 });
+                if head.status == 101 && upgrading(request) {
+                    // Everything still buffered belongs to the PROTOCOL that
+                    // takes over, not to this response: Node hands it to the
+                    // listener as `head` rather than pushing it into the
+                    // message, because the message has no body at all.
+                    let rest: Vec<u8> = conn.buf.drain(..).collect();
+                    effects.push(Effect::Upgrade { request, message, socket, head: rest });
+                    conn.stage = ClientStage::Done;
+                    return;
+                }
                 let framing = match parser::framing_of(&head.headers) {
                     parser::Framing::Chunked => registry::Framing::Chunked(parser::ChunkedDecoder::new()),
                     parser::Framing::Length(n) => registry::Framing::Length(n),
@@ -287,6 +327,29 @@ fn advance(conn: &mut ClientConn, eof: bool, effects: &mut Vec<Effect>) {
             ClientStage::Done => return,
         }
     }
+}
+
+/// Whether the program asked for the socket by listening for `'upgrade'`.
+///
+/// Asked, and not assumed: Node emits `'upgrade'` INSTEAD of `'response'`, and
+/// a program with no `'upgrade'` listener would then see nothing at all for a
+/// `101`. So without this test, handing the socket over would turn one
+/// contract into a silence — `ws` is the caller that needs the handover and
+/// `fetch` over a `101` is the caller that must keep reading a response.
+///
+/// Read off `__events__` by property rather than by calling
+/// `listenerCount('upgrade')`: [`advance`] is the pure-parsing step and its own
+/// doc says it calls no user code, and `__events__` is an ordinary object this
+/// crate's `init_emitter` built, so a property read on it cannot run a getter.
+fn upgrading(request: u64) -> bool {
+    let absent = entry::undefined_value();
+    entry::with_runtime(|context| {
+        let events = entry::get_member(context, request, "__events__");
+        if events == absent {
+            return false;
+        }
+        entry::get_member(context, events, "upgrade") != absent
+    })
 }
 
 /// Whether this status, for this request, carries no body at all.
