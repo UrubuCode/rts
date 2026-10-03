@@ -39,6 +39,10 @@ use super::frame::Message;
 /// `readyState`, com os números que a API web define (e o `ws` copia).
 const CONNECTING: f64 = 0.0;
 const OPEN: f64 = 1.0;
+/// Never a `readyState` this implementation writes — a close here completes
+/// before it answers — but the npm `ws` exports the number, and a program that
+/// compares against `WebSocket.CLOSING` must not read `undefined`.
+const CLOSING: f64 = 2.0;
 const CLOSED: f64 = 3.0;
 
 /// Chama `this.emit(evento, …)`, sempre buscando `emit` de novo e nunca com um
@@ -469,6 +473,14 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     entry::put_member(context, namespace, "Server", construtor);
     entry::put_member(context, namespace, "WebSocket", cliente);
     entry::put_member(context, cliente, "Server", construtor);
+    // And the other two names the npm `ws` hangs off its export, which matter
+    // now that the export IS the class: `index.js` writes
+    // `module.exports.WebSocketServer = WebSocketServer` and
+    // `module.exports.WebSocket = WebSocket`, so a program that destructures
+    // `const { WebSocketServer } = require("ws")` reads them and not the
+    // namespace. Only `Server` was here, so that destructuring read `undefined`.
+    entry::put_member(context, cliente, "WebSocketServer", construtor);
+    entry::put_member(context, cliente, "WebSocket", cliente);
 
     // `default` passa a ser o CLIENTE, e isto é uma correção e não uma escolha:
     // o `ws` do npm faz `module.exports = WebSocket` e pendura o servidor em
@@ -477,5 +489,29 @@ pub(super) fn namespace(context: &mut Context) -> u64 {
     // existia, e um `new WS("wss://…")` tratava a URL como um objeto de opções
     // e falhava a pedir `{ port }`.
     entry::put_member(context, namespace, "default", cliente);
+
+    // The four `readyState` numbers as STATICS of the class, which is where the
+    // npm `ws` has them: its `module.exports` is the class, so `ws.OPEN` and
+    // `WebSocket.OPEN` are one read of one object there. They were on neither,
+    // so `socket.readyState === WebSocket.OPEN` compared a number against
+    // `undefined` and was false for an open socket.
+    for (name, number) in [
+        ("CONNECTING", CONNECTING),
+        ("OPEN", OPEN),
+        ("CLOSING", CLOSING),
+        ("CLOSED", CLOSED),
+    ] {
+        let held = entry::make_number(number);
+        entry::put_member(context, cliente, name, held);
+    }
     namespace
+}
+
+/// What `require("ws")` answers, for [`super::install`] to declare.
+///
+/// Read back off the namespace rather than returned beside it, so there is one
+/// statement of which member is the package's `module.exports` — the npm `ws`
+/// does `module.exports = WebSocket`.
+pub(super) fn common_export(context: &mut Context, namespace: u64) -> u64 {
+    entry::get_member(context, namespace, "WebSocket")
 }
