@@ -216,8 +216,20 @@ pub(in crate::entry) fn built_in_with_room(
     slots: usize,
 ) -> u64 {
     let count = elements.len();
-    let store = context.arrays.insert(elements).slot();
     let cell = allocate_array_cell_with_room(context, slots);
+    // Inline when it fits, which is the whole of plan 14.3's win: no `Slab`
+    // insert and no `Vec` for the elements, which is +15 ns fixed and ~2.5 ns
+    // per element against the object curve. `array_cell` carries the table and
+    // the three invariants; `slots` being non-zero means the caller asked for
+    // property room, and an array that is about to be given forty methods is
+    // not one whose elements belong in the cell.
+    if slots == 0 && super::array_cell::fits(context, cell, count) {
+        super::array_cell::place(context, cell, &elements);
+        context.mark_array(cell, super::array_cell::IN_CELL);
+        fresh_length(context, cell, count);
+        return Value::from_slot(cell).bits();
+    }
+    let store = context.arrays.insert(elements).slot();
     context.mark_array(cell, store);
     fresh_length(context, cell, count);
     Value::from_slot(cell).bits()
@@ -367,11 +379,35 @@ impl Context {
     /// wanted a `Vec` say `.to_vec()` where they said `.cloned()`, which is the
     /// same copy under a name that admits it is one.
     pub(super) fn elements_at(&self, reference: u32) -> Option<&[u64]> {
-        self.arrays.at(self.store_of(reference)?).ok().map(Vec::as_slice)
+        // The cell FIRST, because an array small enough to be inline is the
+        // common one and the `Slab` lookup is the fallback. `array_cell::at`
+        // answers `None` for anything else, including a cell that is not an
+        // array at all.
+        if let Some(held) = super::array_cell::at(self, reference) {
+            return Some(held);
+        }
+        self.arrays
+            .at(self.store_of(reference)?)
+            .ok()
+            .map(Vec::as_slice)
     }
 
-    /// The same, to write through.
+    /// The same, to write through — spilling to the `Slab` first if the
+    /// elements are in the cell.
+    ///
+    /// # Why a mutation spills rather than writing into the cell
+    ///
+    /// It is what keeps all twenty-two callers of this unchanged. They `push`,
+    /// `pop`, `resize`, `extend` and index-assign through a `&mut Vec<u64>`,
+    /// and a cell window cannot be one: a handle supporting growth over either
+    /// backing would have meant converting every one of them. A `Str` in its
+    /// cell is immutable for the same reason.
+    ///
+    /// So an array that is built and read pays nothing and keeps the win, and
+    /// an array that is WRITTEN pays one copy on its first write and is then
+    /// exactly as it was before this existed.
     pub(super) fn elements_at_mut(&mut self, reference: u32) -> Option<&mut Vec<u64>> {
+        super::array_cell::spill(self, reference);
         let store = self.store_of(reference)?;
         self.arrays.at_mut(store).ok()
     }

@@ -329,6 +329,28 @@ impl Context {
         if self.chain_links.copied(cell).unwrap_or(false) {
             super::cache::chain_changed();
         }
+        // Invariant 2 of `array_cell`, and HERE is the only place it holds.
+        //
+        // An array's inline elements are safe exactly while the cell is at the
+        // array layout: a property is given a slot counted from zero and
+        // written straight into the cell, so the moment the shape grows, the
+        // new property lands on an element.
+        //
+        // This guard was first written in `objects::put`, whose own doc says it
+        // is *"shared by the named write and the computed one"*. That is not
+        // the same as being the only one: `cache.rs` takes its own transition
+        // for the inline-cache write path, which is the one compiled code uses,
+        // and `buffers`, `clone::build` and `object/mod` take three more. So
+        // `(b as any).foo = 99` on `[10, 20, 30]` read back `undefined
+        // undefined undefined` with all 375 unit tests green — the elements
+        // were neither in the cell nor in the `Slab`, and nothing crashed.
+        //
+        // Every one of those five funnels through here, because retyping IS
+        // what ends the array layout. A guard per transition site would have to
+        // be remembered by the next one written; this one cannot be missed.
+        if self.region.type_of(cell) != Some(ty) {
+            super::array_cell::spill(self, cell);
+        }
         self.region.set_type(cell, ty);
     }
 

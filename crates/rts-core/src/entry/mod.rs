@@ -35,6 +35,7 @@
 mod accessor;
 mod alloc;
 mod array;
+mod array_cell;
 mod arguments;
 mod array_proto;
 mod barrier;
