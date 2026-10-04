@@ -274,8 +274,39 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 130 on 2026-09-30 for `spread_list` (`spread_list.rs`): `f(...xs)`
     // hands the array written instead of a copy of it, which REMOVES the copy —
     // 300 of 350 ns.
+    // Moved to 132 on 2026-10-03 for `map_new_direct` and `set_new_direct`:
+    // `new Map()` and `new Set()` with no arguments, where the whole program
+    // leaves the class alone.
+    //
+    // The entry-level question: both allocate a cell, link its prototype and
+    // install a branded table, so neither is arithmetic wearing a call.
+    //
+    // What they REMOVE, measured rather than assumed — three theories about it
+    // were killed first. `new Map()` cost 169 ns against 47 for `new C()` on a
+    // declared class with no fields, and the gap is not the collection:
+    // `new Object()`, a native constructor with no body worth the name, cost 170
+    // in the same loop. `rts prove` says why. A declared class reaches
+    // `object_new_under` — entry 127, moved for the same kind of reason — while
+    // every NATIVE class reaches the generic `construct` door. A cumulative
+    // ladder over that door priced it: 32 ns to arrive through the two argument
+    // stacks, 23 for a constructibility decision a declared class answers from a
+    // set, 4 to resolve the callable again and push the target, 62 for the fresh
+    // object, 69 for the dispatch and the return rule. A zero-argument
+    // `new Map()` needs none of it, and `collections::fresh` is the whole
+    // operation the door reaches anyway. Measured after: 172 -> 108 ns.
+    //
+    // The LIST-level argument the ceiling asks for, which has failed to be made
+    // several times above: still not made, and these two rows do not make it.
+    // What is true is that they are the same SHAPE as 112-130 — a primordial
+    // proof in the compiler, a `*_direct` entry that skips a door — so the next
+    // native class to want this wants a thirteenth row, and the one after that a
+    // fourteenth. That is the generated view `#[rtse::class]` already has the
+    // information to produce: it knows the class, its arity and its constructor,
+    // which is everything these two rows state by hand. The next mover inherits
+    // an argument that has now failed to be made four times, and the first one
+    // who needs a THIRD class should derive the row instead of writing it.
     assert!(
-        CORE_ENTRY_COUNT <= 130,
+        CORE_ENTRY_COUNT <= 132,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

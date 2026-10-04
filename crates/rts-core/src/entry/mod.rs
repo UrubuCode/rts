@@ -162,7 +162,10 @@ pub use object_under::object_new_under;
 pub use function_direct::function_apply_listed_direct;
 pub use spread_list::spread_list;
 pub use number::{number_to_fixed_direct, number_to_string_direct};
-pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
+pub use collections::{
+    map_get_direct, map_has_direct, map_new_direct, map_set_direct, set_add_direct, set_has_direct,
+    set_new_direct,
+};
 pub use functions::{
     ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,
     construct, construct_with_args, instance_of, mark_class_constructor, rest_arguments,

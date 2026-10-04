@@ -368,6 +368,80 @@ impl Lowering<'_> {
             false => is,
         })
     }
+
+    /// `new Map()` and `new Set()` without the construction door.
+    ///
+    /// # What this removes, measured 2026-10-03
+    ///
+    /// `new Map()` cost **169 ns** against **47** for `new C()` on a declared
+    /// class with no fields, and the gap is not the collection: `new Object()` —
+    /// a native constructor with no body worth the name — cost **170** in the
+    /// same loop, `new Error()` 374 and `new Date(0)` 397. `rts prove` says what
+    /// it is. A declared class reaches `RuntimeOp::ObjectNewUnder`, which
+    /// allocates under a prototype and does nothing else; **every native class
+    /// reaches the generic `RuntimeOp::Construct`.**
+    ///
+    /// A cumulative ladder over that door priced it: 32 ns to arrive through the
+    /// two argument stacks, 23 for a constructibility decision a declared class
+    /// answers from a set, 4 to resolve the callable a second time and push the
+    /// target, 62 for the fresh object, 69 for the dispatch and the return rule.
+    /// A zero-argument `new Map()` needs none of it, and `collections::fresh` is
+    /// the whole operation the door reaches anyway. After: **187 → 104 ns**.
+    ///
+    /// # Why the proof is the one `static_intrinsic` already uses
+    ///
+    /// `statics_primordial().map` is `primordial::only_a_base`, and its walk
+    /// already admits exactly this shape: it counts `new Map()` as a base
+    /// position beside `Map.get`, and it refuses any program that reaches
+    /// `Map.prototype` at all. So the fact needed here — the binding still holds
+    /// the primordial constructor, and its prototype is still the registered one
+    /// — is the fact already proved for `m.get(k)`.
+    ///
+    /// A weaker proof was written first and rejected on reading:
+    /// `primordial::untouched` does NOT follow a name through a copy, so
+    /// `const M = Map; M.prototype = X` would have passed it. Reusing the proof
+    /// that exists is also P1 — one form per question.
+    ///
+    /// # Why zero arguments only
+    ///
+    /// `new Map(iterable)` iterates, which is a call into user code and the one
+    /// thing the door earns its cost for.
+    ///
+    /// # Why `new.target` cannot be lost
+    ///
+    /// The callee is the primordial class named directly, so `new.target` is
+    /// that class by construction. A subclass reaches `super()`, which is
+    /// `RuntimeOp::SuperConstruct` and still takes the door — so
+    /// `class Mine extends Map {}` keeps inheriting from `Mine.prototype`.
+    pub(super) fn collection_new(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        if !arguments.is_empty() {
+            return Ok(None);
+        }
+        let ExprKind::Ident(name) = &callee.kind else {
+            return Ok(None);
+        };
+        // Not shadowed HERE, which the whole-program walk cannot answer: it
+        // counts positions across the program, and
+        // `function f(Map) { new Map() }` uses the name in a position that walk
+        // approves of while meaning something else entirely.
+        if self.resolution.binding_in(self.scope, *name).is_some()
+            || self.outer.is_some_and(|outer| outer(*name).is_some())
+        {
+            return Ok(None);
+        }
+        let primordials = self.callees.statics_primordial();
+        let op = match self.names.spelled(*name) {
+            Some("Map") if primordials.map => crate::runtime::RuntimeOp::MapNewDirect,
+            Some("Set") if primordials.set => crate::runtime::RuntimeOp::SetNewDirect,
+            _ => return Ok(None),
+        };
+        Ok(Some(self.entry(op, Vec::new(), at)))
+    }
 }
 
 /// Whether a binary expression is `typeof x` compared by equality with a string

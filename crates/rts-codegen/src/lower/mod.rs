@@ -826,6 +826,13 @@ impl Lowering<'_> {
             ExprKind::Asserted { value, .. } => self.expression(value),
             // A CONSTRUCTION, with the constructor as the first argument.
             ExprKind::New { callee, arguments } => {
+                // NO DOOR AT ALL for `new Map()` and `new Set()` with no
+                // arguments, where the whole program leaves the class alone.
+                // Asked before the callee is emitted: reading the name is part
+                // of what this removes.
+                if let Some(value) = self.collection_new(callee, arguments, expr)? {
+                    return Ok(value);
+                }
                 let held = self.expression(callee)?;
                 // A SPREAD has a count only the run time knows: the vector door,
                 // `ConstructWithArgs`, which is what the running emitter takes.

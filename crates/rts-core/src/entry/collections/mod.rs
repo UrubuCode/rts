@@ -68,9 +68,10 @@ mod brand;
 mod cursor;
 mod direct;
 pub use direct::{
-    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
-    SET_HAS_DIRECT_ENTRY, map_get_direct, map_has_direct, map_set_direct, set_add_direct,
-    set_has_direct,
+    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_NEW_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY,
+    SET_ADD_DIRECT_ENTRY, SET_HAS_DIRECT_ENTRY, SET_NEW_DIRECT_ENTRY, map_get_direct,
+    map_has_direct, map_new_direct, map_set_direct, set_add_direct, set_has_direct,
+    set_new_direct,
 };
 mod finalization;
 mod map;

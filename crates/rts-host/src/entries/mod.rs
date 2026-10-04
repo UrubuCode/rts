@@ -472,6 +472,15 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ArrayIsArray => (CoreEntry::ArrayIsArray, {
             rts_core::entry::array_is_array as extern "C" fn(u64) -> bool as *const u8
         }),
+        // No operands: the class is established while compiling, so there is
+        // nothing for it to arrive as. The cast written out is the shape check,
+        // and for a nullary signature it is the whole check.
+        RuntimeOp::MapNewDirect => (CoreEntry::MapNewDirect, {
+            rts_core::entry::map_new_direct as extern "C" fn() -> u64 as *const u8
+        }),
+        RuntimeOp::SetNewDirect => (CoreEntry::SetNewDirect, {
+            rts_core::entry::set_new_direct as extern "C" fn() -> u64 as *const u8
+        }),
         RuntimeOp::MapGetDirect => (CoreEntry::MapGetDirect, {
             rts_core::entry::map_get_direct as extern "C" fn(u64, u64, i64) -> u64 as *const u8
         }),
