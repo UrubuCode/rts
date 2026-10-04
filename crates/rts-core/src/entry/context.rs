@@ -804,6 +804,36 @@ impl Context {
         self.intern_value(Str::from_utf16(&[unit])).bits()
     }
 
+    /// The primitive string a small non-negative integer spells.
+    ///
+    /// The counterpart of [`Self::single_unit_text`] for numbers, and the same
+    /// argument: the answers are immutable and finite, so retaining one value
+    /// each removes a region cell and a slab entry from every conversion.
+    /// `(i & 7).toString()` cost 64.98 ns over eight distinct answers — see
+    /// [`super::SMALL_NUMBER_TEXTS`] for where that went and why it is 256.
+    ///
+    /// `None` for everything else, so the caller keeps the path it had: a
+    /// negative, a fraction, `NaN`, an infinity and anything at or above the
+    /// bound all answer `None` here rather than being special-cased twice.
+    ///
+    /// `-0.0` answers the cached `"0"`, which is the specification: printing is
+    /// the one place the sign of zero is dropped, and `coerce::decimal_of` says
+    /// so where it decides it. The range check admits it because `-0.0 == 0.0`.
+    pub(super) fn small_number_text(&mut self, number: f64) -> Option<u64> {
+        if number.fract() != 0.0 || !(0.0..super::SMALL_NUMBER_TEXTS as f64).contains(&number) {
+            return None;
+        }
+        let index = number as usize;
+        if let Some(value) = self.small_number_texts[index] {
+            return Some(value);
+        }
+        let value = self
+            .intern_value(crate::coerce::number_to_string(number))
+            .bits();
+        self.small_number_texts[index] = Some(value);
+        Some(value)
+    }
+
     /// Whether two slots hold equal text.
     ///
     /// What `===` needs and cannot answer alone: two strings are equal when
@@ -871,6 +901,14 @@ impl Context {
             "lastIndex" => Some(18),
             "indices" => Some(19),
             super::symbol::TO_STRING_TAG => Some(20),
+            // An error's two, measured 2026-10-03: a cumulative ladder over
+            // `error_stack`'s accessor put 454 ns of a 896 ns `.stack` render in
+            // `error_describe::joined`, which asks for `"name"` — memoised at 6
+            // — and `"message"`, which was not. `error::written` asks for the
+            // same name on every construction, and the accessor and its setter
+            // ask for `"stack"`.
+            "message" => Some(21),
+            "stack" => Some(22),
             _ => None,
         };
         if let Some(at) = held

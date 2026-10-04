@@ -132,9 +132,26 @@ pub(in crate::entry) fn to_string_value(value: u64) -> Option<u64> {
     {
         return Some(primitive);
     }
-    let converted = with_current(|context| match to_text(context, Value(primitive)) {
-        Some(text) => Some(context.intern_value(text).bits()),
-        None => None,
+    let converted = with_current(|context| {
+        // A SMALL INTEGER answers from the table rather than allocating a region
+        // cell and a slab entry for text that is immutable and finite.
+        //
+        // `String(i)` arrives here and is worth 80 -> 63 ns. A TEMPLATE
+        // substitution and the non-string side of `+` do NOT arrive here, which
+        // the comment this replaces claimed they did: both were measured
+        // unmoved, because each formats the number into the result it is
+        // building instead of asking for a string value first. See
+        // `SMALL_NUMBER_TEXTS` for the table and for that correction.
+        if let Some(cached) = Value(primitive)
+            .numeric()
+            .and_then(|number| context.small_number_text(number))
+        {
+            return Some(cached);
+        }
+        match to_text(context, Value(primitive)) {
+            Some(text) => Some(context.intern_value(text).bits()),
+            None => None,
+        }
     });
     match converted {
         Some(text) => Some(text),
