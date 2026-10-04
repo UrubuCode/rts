@@ -77,7 +77,8 @@ use super::spread_list::SPREAD_LIST_ENTRY;
 use super::number::{NUMBER_TO_FIXED_DIRECT_ENTRY, NUMBER_TO_STRING_DIRECT_ENTRY};
 use super::string::STRING_CHAR_CODE_AT_DIRECT_ENTRY;
 use super::collections::{
-    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY, SET_ADD_DIRECT_ENTRY,
+    MAP_GET_DIRECT_ENTRY, MAP_HAS_DIRECT_ENTRY, MAP_NEW_DIRECT_ENTRY, MAP_SET_DIRECT_ENTRY,
+    SET_ADD_DIRECT_ENTRY, SET_NEW_DIRECT_ENTRY,
     SET_HAS_DIRECT_ENTRY,
 };
 use super::functions::ARGUMENT_AT_ENTRY;
@@ -832,6 +833,19 @@ pub enum CoreEntry {
     /// read out of it. Distinct from [`CoreEntry::ModuleNamespace`] because that
     /// one demands a namespace, and a side-effect module may have none.
     ModuleEvaluate = 130,
+    /// [`super::map_new_direct`] — `new Map()` with no arguments, where the
+    /// whole program leaves `Map` alone. Appended for the reason every entry
+    /// here is: the number is an artefact's key, so an insertion renumbers one.
+    ///
+    /// **131 and not 130**, which is what this pair was numbered on the branch:
+    /// `ModuleEvaluate` took 130 on `main` first, and a number already shipped
+    /// is a key an artefact may hold. Both sides appended correctly and the
+    /// collision is what appending twice in parallel looks like — the merge
+    /// resolves it by keeping the published number and moving the unpublished
+    /// pair, which is the only direction that cannot invalidate anything.
+    MapNewDirect = 131,
+    /// [`super::set_new_direct`] — the same for `new Set()`.
+    SetNewDirect = 132,
 }
 
 /// How many entry points exist.
@@ -839,7 +853,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 131;
+pub const CORE_ENTRY_COUNT: usize = 133;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -974,7 +988,12 @@ impl CoreEntry {
         CoreEntry::ObjectNewUnder,
         CoreEntry::FunctionApplyListedDirect,
         CoreEntry::SpreadList,
+        // In NUMBERING order, which is what `the_numbers_are_written_and_dense`
+        // asserts position by position — so this order follows the enum's
+        // renumbering above and not the order the two sides were written in.
         CoreEntry::ModuleEvaluate,
+        CoreEntry::MapNewDirect,
+        CoreEntry::SetNewDirect,
     ];
 
     /// The number a call site holds.
@@ -1103,6 +1122,8 @@ impl CoreEntry {
             CoreEntry::SameValue => SAME_VALUE_ENTRY,
             CoreEntry::ArrayIsArray => ARRAY_IS_ARRAY_ENTRY,
             CoreEntry::MapGetDirect => MAP_GET_DIRECT_ENTRY,
+            CoreEntry::MapNewDirect => MAP_NEW_DIRECT_ENTRY,
+            CoreEntry::SetNewDirect => SET_NEW_DIRECT_ENTRY,
             CoreEntry::MapHasDirect => MAP_HAS_DIRECT_ENTRY,
             CoreEntry::MapSetDirect => MAP_SET_DIRECT_ENTRY,
             CoreEntry::SetHasDirect => SET_HAS_DIRECT_ENTRY,

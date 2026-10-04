@@ -185,6 +185,32 @@ impl RtEntry {
         RtEntry::CacheResolveKeyed,
     ];
 
+    /// The entry point with the highest number.
+    ///
+    /// # Why this exists, and what it cost to learn — twice
+    ///
+    /// Because the two tests below cannot see a variant that is MISSING from
+    /// [`RtEntry::ALL`], and the comment on the second one already records this
+    /// happening once, to `CacheResolveKeyed`. It happened again on 2026-10-03,
+    /// to an entry point added and then abandoned: the variant went into the
+    /// enum and into `symbol` and `signature` — both total matches, so the
+    /// compiler demanded them — and was left out of the list. `COUNT` stayed as
+    /// it was, every table sized by it stayed one slot short, the density test
+    /// checked only the numbers the list already covered, and **all 86 unit
+    /// tests passed**.
+    ///
+    /// What failed was a program: lowering asked for the new entry's number and
+    /// indexed the short array, which is an out-of-bounds panic inside code
+    /// generation. A hand-maintained list is a place a thing can be missing
+    /// from — `rts-core`'s rule 10 says the same of its root lists — and this
+    /// crate's rule 6 names the search that finds it: audit for producers, do
+    /// not wait for the build.
+    ///
+    /// So this is the one fact an author has to restate, chosen because it is
+    /// the cheapest one to check: forgetting to bump it is a failing TEST
+    /// instead of a panic in a compiled program.
+    pub const LAST: RtEntry = RtEntry::CacheResolveKeyed;
+
     /// How many entry points exist.
     pub const COUNT: usize = Self::ALL.len();
 
@@ -335,6 +361,27 @@ mod tests {
         // table will be indexed by name something. It only works while the
         // numbering is dense, which is exactly the invariant the pair enforces
         // together.
+        // THE THIRD CHECK, and it is the only one that catches an omission from
+        // `ALL` — which is what the paragraph above describes happening, twice.
+        // Both times the symptom was identical: every test green, and a
+        // compiled program panicking out of bounds in `target::declare`.
+        //
+        // It works because `LAST` is a fact about the ENUM rather than about the
+        // list, so a variant numbered above everything listed makes the two
+        // disagree. It still asks an author to restate one thing, and that is
+        // the trade: a failing test instead of a panic inside code generation.
+        assert_eq!(
+            RtEntry::COUNT,
+            RtEntry::LAST.index() + 1,
+            "LAST is {:?} at index {}, so there should be {} entries and ALL \
+             lists {} — a variant is in the enum and missing from the list, \
+             which sizes every table by COUNT one slot too short",
+            RtEntry::LAST,
+            RtEntry::LAST.index(),
+            RtEntry::LAST.index() + 1,
+            RtEntry::COUNT,
+        );
+
         for number in 0..RtEntry::COUNT {
             assert!(
                 RtEntry::ALL.iter().any(|entry| entry.index() == number),

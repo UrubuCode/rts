@@ -49,6 +49,15 @@ pub(super) fn spelled_in_radix(number: f64, radix: u64) -> u64 {
         return with_current(|context| undefined_of(context));
     }
     with_current(|context| {
+        // DECIMAL AND SMALL answers from the table. Only base ten: the cache is
+        // keyed by the number, and `(255).toString(16)` is a different answer
+        // for the same key — reading it from here would spell `"255"` for
+        // `"ff"`, which is a wrong answer that runs.
+        if matches!(base, None | Some(10))
+            && let Some(cached) = context.small_number_text(number)
+        {
+            return cached;
+        }
         let text = match base {
             None | Some(10) => crate::coerce::number_to_string(number),
             Some(base) => format::in_radix_str(number, base as u32),

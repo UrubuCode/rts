@@ -2,8 +2,8 @@
 
 // Keyed by numbers this crate mints — a shape, a key, a representation — so
 // there is no untrusted input to be resistant to and SipHash is buying nothing.
-// The MAP a JavaScript `Map` is built on is a different question with a
-// different answer, and it is not this one.
+// A map a client exposes to keys the PROGRAM supplies is a different question
+// with a different answer, and it is not this one.
 use rustc_hash::FxHashMap as HashMap;
 
 use super::Key;

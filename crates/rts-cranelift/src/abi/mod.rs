@@ -66,8 +66,9 @@ pub enum AbiType {
     /// equally well, so two functions with genuinely different boundaries had
     /// the same descriptor and nothing could tell them apart.
     ///
-    /// That matters here more than it would elsewhere, because **a JavaScript
-    /// string is a sequence of UTF-16 code units** and Rust\x27s `&str` is UTF-8.
+    /// That matters here more than it would elsewhere, because **a client whose
+    /// strings are sequences of UTF-16 code units** meets a Rust `&str` that is
+    /// UTF-8.
     /// A caller holding one and a callee expecting the other must re-encode, and
     /// a descriptor that cannot express the difference cannot tell anyone the
     /// cost is there: the call compiles, runs, and copies on every crossing.

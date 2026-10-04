@@ -210,7 +210,7 @@ pub enum Inst {
     /// Comparison of two proven operands of identical representation.
     Compare(CmpOp, ValueId, ValueId),
 
-    /// A double as the 32-bit integer JavaScript's bitwise operators read it as.
+    /// A double as the 32-bit integer a client's bitwise operators read it as.
     ///
     /// Takes a proven `F64` and answers a proven `I32`. It is one instruction here
     /// and a SEQUENCE in the lowering, which is the whole reason it exists as an

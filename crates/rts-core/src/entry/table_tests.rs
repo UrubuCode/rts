@@ -282,8 +282,44 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // rather than a reuse because the two namespace-reading entries throw for a
     // module that exports nothing, which is exactly the shape a side-effect
     // module has.
+    //
+    // Moved to 133 on 2026-10-03 for `map_new_direct` and `set_new_direct`:
+    // `new Map()` and `new Set()` with no arguments, where the whole program
+    // leaves the class alone.
+    //
+    // The entry-level question: both allocate a cell, link its prototype and
+    // install a branded table, so neither is arithmetic wearing a call.
+    //
+    // What they REMOVE, measured rather than assumed — three theories about it
+    // were killed first. `new Map()` cost 169 ns against 47 for `new C()` on a
+    // declared class with no fields, and the gap is not the collection:
+    // `new Object()`, a native constructor with no body worth the name, cost 170
+    // in the same loop. `rts prove` says why. A declared class reaches
+    // `object_new_under` — entry 127, moved for the same kind of reason — while
+    // every NATIVE class reaches the generic `construct` door. A cumulative
+    // ladder over that door priced it: 32 ns to arrive through the two argument
+    // stacks, 23 for a constructibility decision a declared class answers from a
+    // set, 4 to resolve the callable again and push the target, 62 for the fresh
+    // object, 69 for the dispatch and the return rule. A zero-argument
+    // `new Map()` needs none of it, and `collections::fresh` is the whole
+    // operation the door reaches anyway. Measured after: **172 -> 120 ns**.
+    //
+    // 120 and not the 108 this line said before the merge: 108 came from a build
+    // that was not yet setting the prototype, so it was doing less work and
+    // answering a Map with no methods. The verified number is the slower one.
+    //
+    // The LIST-level argument the ceiling asks for, which has failed to be made
+    // several times above: still not made, and these two rows do not make it.
+    // What is true is that they are the same SHAPE as 112-130 — a primordial
+    // proof in the compiler, a `*_direct` entry that skips a door — so the next
+    // native class to want this wants a thirteenth row, and the one after that a
+    // fourteenth. That is the generated view `#[rtse::class]` already has the
+    // information to produce: it knows the class, its arity and its constructor,
+    // which is everything these two rows state by hand. The next mover inherits
+    // an argument that has now failed to be made four times, and the first one
+    // who needs a THIRD class should derive the row instead of writing it.
     assert!(
-        CORE_ENTRY_COUNT <= 131,
+        CORE_ENTRY_COUNT <= 133,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

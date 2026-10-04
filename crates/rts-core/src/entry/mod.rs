@@ -78,6 +78,7 @@ mod construct_plain;
 mod object_under;
 mod spread_list;
 mod light_call;
+mod machine_trace;
 mod function_direct;
 mod functions;
 mod generator;
@@ -161,7 +162,10 @@ pub use object_under::object_new_under;
 pub use function_direct::function_apply_listed_direct;
 pub use spread_list::spread_list;
 pub use number::{number_to_fixed_direct, number_to_string_direct};
-pub use collections::{map_get_direct, map_has_direct, map_set_direct, set_add_direct, set_has_direct};
+pub use collections::{
+    map_get_direct, map_has_direct, map_new_direct, map_set_direct, set_add_direct, set_has_direct,
+    set_new_direct,
+};
 pub use functions::{
     ARGUMENT_SLOTS, NO_CALL_NAME, argument_at, call, call_counted, call_with_args, closure_new,
     construct, construct_with_args, instance_of, mark_class_constructor, rest_arguments,
@@ -262,7 +266,7 @@ pub use errors::{
 };
 pub use unhandled::unhandled_error;
 pub use throw::{
-    call_frames, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
+    call_frames, declare_code_map, declare_function_names, make_named_error, pending, take_thrown, throw, throw_type_error,
     throw_value, thrown, thrown_address,
 };
 
@@ -292,7 +296,7 @@ pub const TEXT_LENGTH_SLOT: u32 = 1;
 /// everything else, and moving a name on or off changes only the cost.
 /// `length` is asked before every property write, `prototype` by every `new`,
 /// and the last three are stamped onto every typed array as it is built.
-pub const CACHED_KEYS: [&str; 21] = [
+pub const CACHED_KEYS: [&str; 23] = [
     "length",
     "prototype",
     "byteLength",
@@ -352,7 +356,63 @@ pub const CACHED_KEYS: [&str; 21] = [
     // function that mentions the name: the spelling was formatted and hashed
     // on each of them.
     symbol::TO_STRING_TAG,
+    // The two an ERROR is built and read through, and `"name"` above was
+    // already here while these were not — so the pair that always travels
+    // together was half memoised. `error::written` asks for `"message"` on
+    // every construction, `error_describe::joined` asks for it again on every
+    // `.stack` render, and `error_stack`'s accessor and setter ask for
+    // `"stack"`. Each unmemoised ask is `Str::from_str` plus a cold
+    // `Interner::intern` — the units hashed and two `HashMap` probes — for a
+    // name the compiler knew before the program ran.
+    //
+    // APPENDED. The position is the index and `LENGTH_KEY_AT` pins it, which
+    // the comment above `"value"` already says; inserting would renumber the
+    // three `*_KEY_AT` constants and `integrity` compares against them.
+    "message",
+    "stack",
 ];
+
+/// How many small integers keep the string they spell.
+///
+/// # Why a table at all, measured 2026-10-03
+///
+/// `(i & 7).toString()` cost **64.98 ns** over eight distinct answers repeated
+/// three hundred thousand times — so nothing was being reused, and the cost was
+/// not the formatting: `coerce::decimal_of` already has an integer fast path
+/// that divides into a stack buffer. It was `Context::intern_value`, whose own
+/// documentation says it "does not intern despite its name — it inserts into the
+/// slab and calls the allocator", so a digit built per operation is a CELL per
+/// operation.
+///
+/// # What it buys, and the three rows it was PREDICTED to buy and does not
+///
+/// Measured interleaved against a kept baseline, two passes each:
+///
+/// | | before | after |
+/// |---|---:|---:|
+/// | `(i & 7).toString()` | 70 | **12** |
+/// | `(i & 1023).toString()` | 83 | 63 |
+/// | `String(i & 1023)` | 80 | 63 |
+///
+/// The second and third are partial for the reason the bound gives: one value
+/// in four is under 256.
+///
+/// **`` `${n}` ``, `"" + n` and `arr.join` do NOT come through here, and the
+/// prediction that they would was wrong** — all three were unmoved, and
+/// `` `${n}` `` measured 129 against 125. They need no intermediate string
+/// VALUE: each formats the number straight into the result it is building, so
+/// there is no cell for a cell cache to save. Their cost is the result's own
+/// allocation, which is a different problem and is still open — `arr.join` is
+/// 44 ns an element.
+///
+/// # Why 256, the same bound `single_unit_texts` has
+///
+/// Because it is the bound that device already chose for the same reason, and a
+/// second number here would be a second answer to "how much immutable text is
+/// worth retaining". 256 values is 2 KiB a context. Loop counters, digits, small
+/// identifiers and lengths sit under it; a program spelling larger numbers takes
+/// the ordinary path, which is what it did before.
+pub(super) const SMALL_NUMBER_TEXTS: usize = 256;
 
 /// Where `"length"` sits in [`CACHED_KEYS`].
 ///
@@ -723,6 +783,21 @@ pub struct Context {
     /// a callable holds, and filled by the host after placement for the reason
     /// `frames` is: the addresses do not exist until then.
     function_names: Vec<(u64, String, u32, bool, bool)>,
+    /// Where every compiled function is, for attributing a RETURN ADDRESS.
+    ///
+    /// # Why this is not `function_names`
+    ///
+    /// That table is keyed by a function's ENTRY address, because that is the
+    /// number a callable holds. A stack walk hands back addresses from the
+    /// MIDDLE of a function — a return address points just past a call — so a
+    /// lookup by entry address misses every frame. This answers which function
+    /// contains an address, by bisection, and carries the position map with it.
+    ///
+    /// Filled by the host after placement, from `InMemory::code_map`, for the
+    /// same reason the two tables above are: no address exists until then. A
+    /// program this was never installed for walks nothing and falls back to
+    /// `callees`, which is what `machine_trace` is written around.
+    code_map: Option<rts_cranelift::observe::CodeMap>,
     /// The code addresses of the functions the compiler marked light — what
     /// `functions::called` asks before it pushes the argument stacks.
     /// Addresses, not references: nothing here is a root.
@@ -1141,6 +1216,13 @@ pub struct Context {
     /// only as an allocation reduction; boxed strings still create their own
     /// wrapper object. Wide units remain on the ordinary path.
     pub(super) single_unit_texts: [Option<u64>; 256],
+    /// The primitive string each small integer spells, once something asked.
+    ///
+    /// Rooted by [`roots`] beside `single_unit_texts`, and for the same reason:
+    /// nothing else holds these, so a collection between two uses would free
+    /// the one the next use hands back. Rule 10 — a list is a place a thing can
+    /// be missing from, and this one is new.
+    pub(super) small_number_texts: [Option<u64>; SMALL_NUMBER_TEXTS],
     /// The string CELL each interned key text has been handed out as.
     ///
     /// # Why a second table beside the interner, rather than a field in it
@@ -1478,6 +1560,7 @@ impl Context {
             driving: Vec::new(),
             frames: Vec::new(),
             function_names: Vec::new(),
+            code_map: None,
             light_codes: light_call::CodeSet::default(),
             empty_layout: None,
             spare_arrays: Default::default(),
@@ -1520,6 +1603,7 @@ impl Context {
             well_known_keys: [None; CACHED_KEYS.len()],
             well_known_texts: [None; CACHED_TEXTS.len()],
             single_unit_texts: [None; 256],
+            small_number_texts: [None; SMALL_NUMBER_TEXTS],
             key_texts_as_values: std::collections::HashMap::new(),
             remembered_keys: Vec::new(),
             literals: Vec::new(),

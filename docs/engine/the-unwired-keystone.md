@@ -156,12 +156,78 @@ crate that asks the OS about this thread's stack and is already written per
 platform. Not in `rts-core`, which has no business naming an OS API, and not in
 `rts-cranelift`, whose rule 2 forbids it knowing who is asking.
 
-**This is why no walker is written here.** An `rbp` chain is ten lines and would
-work in the cases anyone would first test — a compiled function calling a
-compiled function — and would silently truncate the moment a native sat between
-them, which is most real traces. Writing it that way to have something is how a
-trace that is quietly wrong ships.
+**CORRECTED 2026-10-03, and a walker is now written.** Two of the three claims
+above are false, and `docs/engine/what-the-literature-does-not-buy.md` finding 2
+had already recorded both while this section went on asserting them:
 
+- **`unwind/` does not produce our unwind tables.** It is the planner for
+  protected regions and has nothing to do with `.pdata`/`.xdata`. Neither
+  `cranelift-jit` nor `cranelift-object` 0.131 emits or registers unwind
+  information, so `RtlVirtualUnwind` would treat every compiled function as a
+  leaf and read `[rsp]` as the return address — wrong for any frame with
+  locals. **The recommended design was the one that cannot be built**, and the
+  one called inadequate is what a production engine uses.
+- **A host frame is crossed, not decoded.** wasmtime walks this exact case on
+  Windows with `preserve_frame_pointers` and two loads per frame, and never
+  traverses a host frame at all: the frame pointer recorded at the crossing says
+  where to resume. Per ACTIVATION, not per call — three stores at a boundary.
+  And the premise is removable anyway, since `-C force-frame-pointers=yes` makes
+  every Rust frame keep `rbp`.
+
+What survives is the SKIP rule, and it survives for a better reason than the one
+given: not because an unwinder crosses host frames, but because nothing needs to
+— an address the map does not attribute is not reported, and the walk continues
+outward.
+
+`rts_cranelift::observe::Chain` is the walk: the frame-pointer chain, with the
+three refusals that make it terminate (outward only, inside the bound, aligned)
+and a frame cap behind them. It takes its reads as a parameter, so the chain
+logic is tested against a fabricated stack carrying a cycle, a hole and an
+unaligned link — rule 3, with no client present — and the one unsafe read
+belongs to whoever owns the thread and therefore knows the bound.
+
+**And then it was wired, and MEASURED, on the same day — which found a third
+thing both documents had wrong.** The join is small: `InMemory::code_map` is
+already built at placement, `rts-host` seeds it into the `Context` beside the
+function names it already seeds, and `machine_trace::census` walks and
+attributes. On `inner`/`middle`/`outer` throwing an `Error` it answers
+`[] (1 frames walked, 0 attributed)` against `callees`' `["inner"]`, and the
+link dump says why:
+
+```text
+link fp=0xf3e73ebda0 next=0x24d2be01860 ret=0x24d2bdffcb0 high=0xf3e7400000
+```
+
+`fp` is a stack address and `next` is a HEAP address. The word at `[rbp]` is not
+a saved frame pointer, because nothing made `rbp` one: `registers.rs` captures
+it as a VALUE for the collector, which is correct whatever it holds, and a walk
+needs it to be a LINK. `-C force-frame-pointers=yes` was tried and changed
+nothing, which refutes the remedy the literature survey offers for this exact
+premise.
+
+So this section's original worry was right about host frames and wrong about
+which part. The problem is not a host frame keeping no frame pointer in the
+MIDDLE of the chain — it is that the walk has no trustworthy place to BEGIN,
+because every capture point is a host frame. Skipping cannot help with the
+first frame.
+
+**What is left is one machine capability**, and it is what the cited engines
+actually do rather than what this document inferred they do. None of them starts
+in a host frame: V8 writes `c_entry_fp_`, JSC `VM::topCallFrame`, wasmtime
+`last_wasm_exit_fp`. Compiled code stores its own frame pointer where the
+runtime can find it before calling out, and from there every frame is compiled
+and every link is real, because `preserve_frame_pointers` is set for those.
+
+That belongs in the machine layer — a store of the frame pointer is something
+only the layer that emits prologues can name — and per ACTIVATION rather than
+per call, which is the same property that makes the direct call worth having: a
+compiled-to-compiled call records nothing.
+
+**What is still unwired is the JOIN, which is this document's own point.** The
+walk is in the machine layer and the trace is a language's; `CodeMap` is held by
+the compiler and `throw::stack_text_of` runs in the runtime, and the two cannot
+see each other. `rts-host` is where that agreement is made, the way `stack.rs`
+already installs `Context::stack_high`.
 ## What the conservative scan actually costs, measured (2026-10-03)
 
 Everything in this document argues that a moving collector needs precise roots,
@@ -286,10 +352,11 @@ Not attempted here, and stated so the size is not underestimated:
 - **A frame table in the artifact.** `describe_frames` answers per function at
   compile time; the answer has to survive into the running program, for the JIT
   and for an object file, and be findable from a return address.
-- **A stack walker**, and the section above settles which kind: unwind
-  information rather than an `rbp` chain, in `rts-host` beside `stack.rs`,
-  because the frames between two compiled ones are Rust and may keep no frame
-  pointer at all.
+- ~~**A stack walker**, and the section above settles which kind: unwind
+  information rather than an `rbp` chain~~ — **written 2026-10-03 as
+  `observe::Chain`, and as an `rbp` chain**, for the reasons the corrected
+  section above gives. What is left is the reader that owns the thread, and the
+  bound it passes.
 - **Two consumers switched over.** `collect_cycle` stops scanning conservatively
   where a frame is described; `throw::stack_text` stops reading `callees`.
 - **And the conservative scan stays.** `roots.rs` (B) is explicit that a Rust or

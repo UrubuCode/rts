@@ -90,6 +90,10 @@ impl Context {
     /// Remembers what an Error was made from, for a `.stack` nobody may read.
     pub(in crate::entry) fn defer_stack(&mut self, cell: u32, class: &'static str) {
         let frames = self.callees.clone();
+        // The capture point for `new Error`, so the comparison belongs here as
+        // much as in `error_stack::kept`: this is where the live stack still
+        // describes the construction.
+        super::machine_trace::compare(self, &frames);
         self.pending_stacks.set(cell, (class, frames));
     }
 

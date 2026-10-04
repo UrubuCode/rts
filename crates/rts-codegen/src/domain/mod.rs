@@ -228,6 +228,13 @@ impl Js {
         // `lower/object_rest.rs`.
         RuntimeOp::ObjectNew,
         RuntimeOp::OwnKeys,
+        // APPENDED, and the position is the index: inserting these two after
+        // `SpreadList` on the first attempt shifted `ObjectNew` and `OwnKeys`
+        // by two, and `new Map()` then produced an object whose typed reads
+        // answered `undefined` and whose `get` was not a function. The rule is
+        // written on `PRIMS` three lines below and holds here identically.
+        RuntimeOp::MapNewDirect,
+        RuntimeOp::SetNewDirect,
     ];
 
     /// The index the IR carries for an entry point.

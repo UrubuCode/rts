@@ -100,6 +100,14 @@ pub struct Compiled {
     /// For a stack trace. Computed once, where the addresses become known, and
     /// seeded into every context that runs the program.
     function_names: Vec<(u64, String, u32, bool, bool)>,
+    /// Where every compiled function is, for a machine-derived stack trace.
+    ///
+    /// Kept beside `function_names` rather than merged into it: that table is
+    /// keyed by a function's ENTRY address, which is the number a callable
+    /// holds, and this answers which function CONTAINS an address, which is what
+    /// a return address needs. Two questions, two tables, one authority for the
+    /// name — see `rts_core::entry::declare_code_map`.
+    code_map: rts_cranelift::observe::CodeMap,
     /// The text the last run's answer had, read while its heap still existed.
     described: Option<String>,
     /// What `import.meta` answers, per module of the graph.
@@ -169,6 +177,7 @@ impl Compiled {
             &self.templates,
             &self.frames,
             &self.function_names,
+            &self.code_map,
             &self.module_metas,
             region,
         );
@@ -233,6 +242,7 @@ impl Compiled {
         let templates = &self.templates;
         let frames = &self.frames;
         let function_names = &self.function_names;
+        let code_map = &self.code_map;
 
         let finished: Vec<(u64, rts_core::heap::Region)> = std::thread::scope(|scope| {
             let handles: Vec<_> = taken
@@ -242,7 +252,7 @@ impl Compiled {
                         let outcome =
                             run_region(
                                 entry, &[], nothing, singletons, kinds, keys, literals,
-                                templates, frames, function_names, &[], region,
+                                templates, frames, function_names, code_map, &[], region,
                             );
                         (outcome.value, outcome.region)
                     })
@@ -317,6 +327,17 @@ fn run_region(
     frames: &[rts_core::entry::FrameShape],
     // What each compiled function is called, for a stack trace to name a frame.
     function_names: &[(u64, String, u32, bool, bool)],
+    // Where every compiled function IS, so a trace can be read from the machine
+    // stack instead of from the runtime's `callees` list. Built at placement by
+    // `InMemory::code_map` and seeded here for the same reason the names are:
+    // the addresses did not exist until then.
+    //
+    // This crate is where the agreement belongs. The walk is the machine's
+    // (`observe::Chain`), the trace is the language's (`throw::stack_text_of`),
+    // and neither crate can see the other — which is precisely the unwired join
+    // `docs/engine/the-unwired-keystone.md` says has no owner. README rule 2:
+    // make the agreements between the three explicit.
+    code_map: &rts_cranelift::observe::CodeMap,
     // What `import.meta` answers, per module. Seeded like the literals: the
     // object is built in THIS region, and one from another is a dead cell.
     module_metas: &[crate::graph::ModuleMeta],
@@ -345,6 +366,7 @@ fn run_region(
     rts_core::entry::declare_templates(&mut context, templates);
     rts_core::entry::declare_frames(&mut context, frames.to_vec());
     rts_core::entry::declare_function_names(&mut context, function_names.to_vec());
+    rts_core::entry::declare_code_map(&mut context, code_map.clone());
     // Before the context is installed, and every namespace here is built from
     // the `context` it is HANDED. A module reaching the ambient one instead
     // would be asking for a borrow this call already holds, which is a panic in
@@ -1265,6 +1287,8 @@ pub(crate) fn assemble(
     // what each function is called, for a stack trace, and what each generator's
     // parked frame looks like.
     let (function_names, frames) = addressed(&prepared, &placed);
+    // Cloned before `placed` moves into the `Compiled`, which owns it.
+    let code_map = placed.code_map().clone();
 
     let address = placed
         .address_of(prepared.script)
@@ -1295,6 +1319,7 @@ pub(crate) fn assemble(
         resolves: 0,
         frames,
         function_names,
+        code_map,
         described: None,
         module_metas,
         literals: prepared.emitted.literals,

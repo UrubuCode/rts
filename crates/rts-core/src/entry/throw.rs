@@ -457,6 +457,22 @@ pub fn declare_function_names(context: &mut Context, names: Vec<(u64, String, u3
     context.index_functions_by_code();
 }
 
+/// Where every compiled function is, for a trace read from the machine stack.
+///
+/// Seeded by the host from `InMemory::code_map`, beside
+/// [`declare_function_names`] and for the same reason: no address exists until
+/// placement has chosen one. A program this was never installed for has no
+/// machine-derived trace and uses `callees`, which is what
+/// `machine_trace::running` answers `None` for.
+///
+/// It does NOT carry the names. The map knows one per function and using it
+/// would make two tables answer what a function is called; the map answers
+/// which function CONTAINS an address, which is the question
+/// [`declare_function_names`]' table cannot, being keyed by entry addresses.
+pub fn declare_code_map(context: &mut Context, map: rts_cranelift::observe::CodeMap) {
+    context.code_map = Some(map);
+}
+
 /// The call stack, in the shape Node and Bun print it.
 ///
 /// ```text

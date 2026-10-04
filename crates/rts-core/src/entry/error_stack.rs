@@ -135,6 +135,8 @@ fn kept(context: &Context, hide_from: u64, limit: usize) -> Vec<u64> {
         // functions to a program, and the caller passed the one it has.
         frames.truncate(frames.iter().rposition(|callee| *callee == hide_from).unwrap_or(0));
     }
+    super::machine_trace::compare(context, &frames);
+
     let over = frames.len().saturating_sub(limit);
     frames.drain(..over);
     frames
@@ -195,6 +197,35 @@ pub(in crate::entry) fn install_stack_accessor(context: &mut Context) {
 /// so a second read is an ordinary cached property read rather than a second
 /// call through here. That also means a program that reads `.stack` twice pays
 /// what it used to pay once, and one that never reads it pays nothing.
+/// # Where the render's time goes, by a cumulative ladder (2026-10-03)
+///
+/// The first read costs **896 ns** on top of a 502 ns construction, and only
+/// 21 ns of it is per FRAME and 1.14 ns per CHARACTER of the message — so it is
+/// almost all fixed. Reading `.message` on the same error costs 5 ns, so it is
+/// not the property side either. The ladder, rung by rung:
+///
+/// | + | ns |
+/// |---|---:|
+/// | `take_stack` | — |
+/// | the header, [`super::error_describe::joined`] | **+454** |
+/// | the frame lines | ~0 |
+/// | `format!` | +71 |
+/// | the UTF-16 conversion | ~0 |
+/// | `put` | +43 |
+/// | `hidden` | **+104** |
+///
+/// **The header was the render.** `joined` asks for two keys, and `"name"` was
+/// memoised in `CACHED_KEYS` while `"message"` was not — so the pair that always
+/// travels together was half memoised, and the unmemoised half cost
+/// `Str::from_str` plus a cold `Interner::intern` on every render. Appending
+/// `"message"` and `"stack"` to that table is worth **188 ns here and 78 ns on
+/// every `Error` construction**, measured interleaved against a kept baseline.
+///
+/// What the ladder leaves named and unfixed: `hidden` at 104 ns is the per-object
+/// attribute map `object/mod.rs` already records as debt, and this function pays
+/// it once while `error::written` pays it again for `message`. The header still
+/// round-trips UTF-16 → `String` → two `format!`s → UTF-16, which is four
+/// conversions for text that was already UTF-16.
 extern "C" fn stack_get(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {

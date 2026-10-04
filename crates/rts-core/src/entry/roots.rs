@@ -209,6 +209,12 @@ pub fn context_roots(context: &Context) -> Vec<Slot> {
     // lazy, but every populated entry is retained for the lifetime of the
     // context so a later index read never observes a recycled cell.
     words.extend(context.single_unit_texts.iter().flatten().copied());
+    // The small-integer texts, beside the single-unit ones and for the same
+    // reason: the table is the only holder, so a collection between two uses
+    // would free the cell the next use hands back. Rule 10 — this list is where
+    // a new cache has to be named, and `docs/engine/lost-roots.md` is what the
+    // omission looks like: not a crash, a `for`-`of` that ends early.
+    words.extend(context.small_number_texts.iter().flatten().copied());
     // And the string handed back for each key an enumeration has named. Same
     // argument once more, and the consequence of getting it wrong is sharper
     // here than above: this cache is what `Object.keys` answers WITH, so a

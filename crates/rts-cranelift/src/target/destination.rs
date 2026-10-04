@@ -32,9 +32,9 @@ pub fn executable_memory() -> Result<JITModule, TargetError> {
 /// [`crate::symbols::EntryImports`] is not the same mechanism and does not replace
 /// this. It serves [`crate::symbols::RtEntry`] — the operations **this layer**
 /// cannot emit as instructions — and a language's own runtime is not in that
-/// set, by the same rule that keeps it short. A host compiling JavaScript has to
-/// hand over the address of `__rts_add`, and there was no argument to hand it
-/// through.
+/// set, by the same rule that keeps it short. A host compiling a language has to
+/// hand over the address of that language's own `__rts_add`, and there was no
+/// argument to hand it through.
 ///
 /// The object-file destination needs none of this, and the asymmetry is real
 /// rather than an oversight: there, an undefined symbol is the linker's to

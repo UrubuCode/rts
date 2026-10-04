@@ -25,7 +25,7 @@ not background reading, and the rules in it are binding for changes inside it.
 | `crates/rts-host/` | its `README.md` (6 rules) + `PLAN.md` |
 | `crates/rts-egui/`, DOM, render, input | `docs/ui/html-engine/` + `docs/ui/egui-crate.md`; for the NEW engine's side of it, `docs/ui/new-engine-port.md` |
 | `crates/rts-dom/`, `crates/rts-dom-bridge/` | the row above, PLUS `crates/rts-dom/PLAN.md` — §0 is the state (which lot is in flight, on which branch, measured how) and §1–§2 are the rules and the three rulers — and the verdict in `docs/ui/html-engine/analises/2026-09-04-auditoria-estrutural/README.md`, which is the current picture of the engine where the roadmap of June is the picture from before. **For anything that touches the LAYOUT itself, also read `docs/ui/html-engine/box-tree.md`** — the box tree is the layer this engine does not have and every other CSS engine does, and that document is binding for the five `BT-*` lots of PLAN.md §9. It carries the nine invariants that break SILENTLY when box identity stops being the DOM node; seven of them compile and lie |
-| the PIPELINE itself — a new stage, a new IR, a type domain, a guard, speculation, deoptimisation | `docs/engine/four-stages.md`, and `docs/engine/deopt-lateral.md` for the second tier. The first records why `AST → machine IR` is two stages short, and the measured wrong answer that shortfall produces |
+| the PIPELINE itself — a new stage, a new IR, a type domain, a guard, speculation, deoptimisation | `docs/engine/four-stages.md`, and `docs/engine/deopt-lateral.md` for the second tier. The first records why `AST → machine IR` is two stages short, and the measured wrong answer that shortfall produces. `docs/engine/profile-oracle.md` is what tells a guard WHAT to bet on, and why the answer is neutral in two of its three levels and must not be in the third |
 | **anything in the BASE — how a value is created, allocated, identified, traced or moved — or any new predicate, type test or fast path** | `docs/engine/principles.md` (P1–P8, each with the test a change is held against) and `docs/engine/one-form-per-question.md` (which form is canonical, and **for which actions**). Invoke `reuse-check` first: its section 0 is the search for the question rather than for the function |
 | anything else | this file, and `docs/README.md` for where things live |
 
@@ -667,8 +667,10 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-**Twenty-one crates, counted on 2026-09-20 rather than carried forward.** Every
-one of them is on the path a program takes. Sixteen
+**Twenty-four crates, counted on 2026-10-03 rather than carried forward.** Every
+one of them is on the path a program takes — and `rts-profile` was added and
+deleted the same day for failing exactly that test, which is the rule working
+rather than a mistake tidied up. Sixteen
 were deleted on 2026-08-10 — the whole old runtime and its tooling — so a name
 that is not here does not exist, and `git log --diff-filter=D` is where it went.
 
@@ -701,6 +703,11 @@ crates/
   rts-physics/       `rts:rigid` — the rayon rigid-body solver, the CPU
                      fallback for a GPU-first scene; its own crate because wasm
                      has no threads
+  rts-audio/ rts-particles/ rts-text/   absent from this block until 2026-10-03,
+                     and the reason the count was FOUR short this time. Same
+                     failure as the two above, so the fix is the same: the
+                     number comes from `ls crates | wc -l`, and anything the
+                     block does not name is checked rather than assumed
 
   rts-egui/ rts-dom/ rts-render/ rts-input/   the UI engine, engine-agnostic
   rts-dom-bridge/    `rts:dom` — the document reachable from TypeScript without

@@ -55,6 +55,23 @@ Why: a per-client namespace would let this layer answer "which client owns this
 value", and no machine operation needs the answer. A capability that cannot
 express a client's identity cannot accidentally depend on it.
 
+**And it is checked, since 2026-10-03, by `tests/neutrality.rs`.** This rule had
+been true and unverified, which is the state rule 7 says degrades — and it had
+degraded: the scan found **five** occurrences the first time it ran. An
+instruction documented as the integer "JavaScript's bitwise operators" read, a
+verifier comment calling a tagged value "a JavaScript value", a UTF-16 fact
+attributed to a language rather than to a client, a host "compiling JavaScript",
+and a hash-map note naming a built-in class. Every one was a comment; none would
+ever have failed a build.
+
+`rts-mir` states the same rule as a `grep` a person runs, and that crate is clean
+while this one was not. The difference was not discipline — it was that nobody
+ran the grep. So the grep is a test, with an allowance list carrying a reason per
+entry, and two kinds of naming are permitted and no others: this crate stating
+its own **non-scope** (`lib.rs` cannot exclude what it may not name), and
+**citing another implementation as evidence**, which rule 4 asks for. Describing
+this layer's own semantics in a language's terms is the defect.
+
 ### 3. Every module is testable with no client present
 
 If a module cannot be exercised without a front-end, it is in the wrong crate.

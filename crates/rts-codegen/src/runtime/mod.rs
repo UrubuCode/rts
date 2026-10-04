@@ -1186,6 +1186,13 @@ pub enum RuntimeOp {
     /// array, what [`RuntimeOp::Iterate`] answers otherwise. **Appended**, the
     /// same reason.
     SpreadList,
+    /// `new Map()` with no arguments, where the whole program leaves `Map`
+    /// alone: the generic construction door replaced by the one function it
+    /// reaches anyway. No operands — the class is the proof, not an argument.
+    /// **Appended**, the same reason.
+    MapNewDirect,
+    /// `new Set()` on the same terms. See [`RuntimeOp::MapNewDirect`].
+    SetNewDirect,
 }
 
 impl RuntimeOp {
@@ -1327,6 +1334,8 @@ impl RuntimeOp {
         RuntimeOp::ObjectNewUnder,
         RuntimeOp::FunctionApplyListedDirect,
         RuntimeOp::SpreadList,
+        RuntimeOp::MapNewDirect,
+        RuntimeOp::SetNewDirect,
     ];
 
     /// The linker name the runtime must define.
@@ -1468,6 +1477,8 @@ impl RuntimeOp {
             RuntimeOp::ObjectNewUnder => "__rts_object_new_under",
             RuntimeOp::FunctionApplyListedDirect => "__rts_function_apply_listed_direct",
             RuntimeOp::SpreadList => "__rts_spread_list",
+            RuntimeOp::MapNewDirect => "__rts_map_new_direct",
+            RuntimeOp::SetNewDirect => "__rts_set_new_direct",
         }
     }
 
@@ -1503,6 +1514,9 @@ impl RuntimeOp {
             RuntimeOp::GreaterEqual => (vec![UNPROVEN, UNPROVEN], vec![Repr::Bool]),
             RuntimeOp::ObjectNew => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MathRandom => (vec![], vec![Repr::F64]),
+            // Nothing in, the collection out. The class is established while
+            // compiling, so there is no operand for it to arrive as.
+            RuntimeOp::MapNewDirect | RuntimeOp::SetNewDirect => (vec![], vec![UNPROVEN]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
