@@ -99,8 +99,7 @@ use rts_cranelift::fault::Position;
 use rts_cranelift::ir::{FuncBuilder, ValueId};
 
 use super::close::{
-    always, assign_stmt, close_iterator_stmt, ident, member_expr, still_open, text_expr,
-    undefined_expr,
+    assign_stmt, close_iterator_stmt, ident, member_expr, still_open, text_expr, undefined_expr,
 };
 use super::loops::{Loops, emit_for};
 use super::{Ctx, EmitResult, Scope, UNPROVEN};
@@ -652,11 +651,28 @@ pub fn emit_for_each(
         // discipline for it, the same as every other handler here.
         let thrown = builder.add_block_param(handler, rts_cranelift::repr::Repr::Tagged);
         builder.switch_to(handler);
-        // Unconditional: the handler is reached only by a throw, and a throw
-        // means the loop never reached exhaustion, so the iterator is open. The
-        // name it reads is the write-once alias, for the SSA reason recorded
-        // where that alias is declared.
-        let close = close_iterator_stmt(ctx, at, closing, always(at), false);
+        // Guarded on the ALIAS, not on `it`, and both halves of that matter.
+        //
+        // The name is the write-once alias for the SSA reason recorded where
+        // that alias is declared: the handler is reached from a throw rather
+        // than from an edge, so a binding the loop reassigns has no value here.
+        //
+        // The guard exists because this close used to be unconditional, on the
+        // argument that "a throw means the loop never reached exhaustion, so the
+        // iterator is open". That argument is true of the STEPPED arm and false
+        // of the array-walked one, which has no iterator at all — the module doc
+        // says so four hundred lines up: "an array-walked one gets `it`
+        // undefined". So every `for`-`of` over an array that left by a `return`
+        // or a throw read `.return` off `undefined` and raised
+        // `TypeError: Cannot read properties of undefined (reading 'return')`
+        // instead of leaving. `closing !== undefined` is exactly "this loop is
+        // stepping an iterator", because the alias is written once at entry and
+        // never again — the exhaustion sentinel moves `it`, not this.
+        //
+        // Skipping the close on the array arm is not an omission: the value
+        // IteratorClose would be called on is the array's own iterator, which
+        // has no `return`, so the specification's call is a no-op there.
+        let close = close_iterator_stmt(ctx, at, closing, still_open(closing, at), false);
         let terminated =
             super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
         if !terminated {
@@ -669,13 +685,13 @@ pub fn emit_for_each(
         // the inside out. `protect.rs` ends its own returning copy the same way,
         // and the two have to agree because they share the stack.
         //
-        // It reads the write-once alias for the same SSA reason the handler
-        // does, and closes unconditionally for the same reason: a `return` out
-        // of the body means the loop did not reach exhaustion, so the iterator
-        // is open by construction.
+        // It reads the write-once alias, and is guarded on it, for the two
+        // reasons the handler above states — and it is the path the defect was
+        // actually reported through: a `return` out of a `for`-`of` over an
+        // array.
         if let Some((block, held)) = returning {
             builder.switch_to(block);
-            let close = close_iterator_stmt(ctx, at, closing, always(at), false);
+            let close = close_iterator_stmt(ctx, at, closing, still_open(closing, at), false);
             let left = super::stmt::emit_stmt(builder, scope, ctx, &mut Loops::default(), &close)?;
             if !left {
                 match ctx.finally_returns.last().copied() {

@@ -39,6 +39,12 @@ server.listen(port);
 const response = await fetch("http://127.0.0.1:" + port + "/");
 const body = await response.text();
 
+// Closed because a listening server now keeps the program running (#2893), as
+// it does in Node. This file had no `close()` and did not need one only while
+// the engine ended a program with a bound listener still in it — so the missing
+// call was never correct, it was unobservable.
+server.close();
+
 describe("http res.write/res.end without a callback", () => {
     test("nothing in the handler threw", () => expect(faults.join(" | ")).toBe(""));
     test("the handler ran to its end", () => expect(reached).toBe("the end of the handler"));

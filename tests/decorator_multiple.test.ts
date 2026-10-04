@@ -8,17 +8,17 @@ function print(value: string): void {
 // Multiplos decorators na mesma classe — executam em ordem inversa
 // (TS: bottom-up). Aqui validamos a ordem de execucao.
 
-function first(target: i64): i64 {
+function first(target: any): any {
   print("first");
   return target;
 }
 
-function second(target: i64): i64 {
+function second(target: any): any {
   print("second");
   return target;
 }
 
-function third(target: i64): i64 {
+function third(target: any): any {
   print("third");
   return target;
 }

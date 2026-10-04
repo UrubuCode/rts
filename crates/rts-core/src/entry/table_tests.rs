@@ -274,7 +274,16 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // Moved to 130 on 2026-09-30 for `spread_list` (`spread_list.rs`): `f(...xs)`
     // hands the array written instead of a copy of it, which REMOVES the copy —
     // 300 of 350 ns.
-    // Moved to 132 on 2026-10-03 for `map_new_direct` and `set_new_direct`:
+    //
+    // Moved to 131 on 2026-10-03 for `module_evaluate`: `import "m"` emitted
+    // NOTHING, so a side-effect module was compiled into the program and never
+    // run. This one does not remove a cost — it is the first on this list added
+    // for a wrong ANSWER rather than for a measured one — and it is a new entry
+    // rather than a reuse because the two namespace-reading entries throw for a
+    // module that exports nothing, which is exactly the shape a side-effect
+    // module has.
+    //
+    // Moved to 133 on 2026-10-03 for `map_new_direct` and `set_new_direct`:
     // `new Map()` and `new Set()` with no arguments, where the whole program
     // leaves the class alone.
     //
@@ -293,7 +302,11 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // set, 4 to resolve the callable again and push the target, 62 for the fresh
     // object, 69 for the dispatch and the return rule. A zero-argument
     // `new Map()` needs none of it, and `collections::fresh` is the whole
-    // operation the door reaches anyway. Measured after: 172 -> 108 ns.
+    // operation the door reaches anyway. Measured after: **172 -> 120 ns**.
+    //
+    // 120 and not the 108 this line said before the merge: 108 came from a build
+    // that was not yet setting the prototype, so it was doing less work and
+    // answering a Map with no methods. The verified number is the slower one.
     //
     // The LIST-level argument the ceiling asks for, which has failed to be made
     // several times above: still not made, and these two rows do not make it.
@@ -306,7 +319,7 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // an argument that has now failed to be made four times, and the first one
     // who needs a THIRD class should derive the row instead of writing it.
     assert!(
-        CORE_ENTRY_COUNT <= 132,
+        CORE_ENTRY_COUNT <= 133,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

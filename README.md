@@ -24,22 +24,22 @@
 <!-- CROSS_RUNTIME_STATS_START -->
 ## 🌐 Cross-runtime parity
 
-JS spec compatibility validated against **Bun** and **Node** over 1516 standalone TS fixtures.
+JS spec compatibility validated against **Bun** and **Node** over 1517 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱] 85%   1288/1515 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱] 85%   1289/1516 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **85%** (1288/1515) |
-| ✅ RTS = Bun = Node | 1288 |
+| **Parity** | **85%** (1289/1516) |
+| ✅ RTS = Bun = Node | 1289 |
 | ❌ RTS diverges | 176 |
 | 💥 RTS runtime error | 51 |
 | 🛠️  **Left to fix** | **227** |
 | ⚠️ Bun ≠ Node (skip) | 0 |
 | 🚫 Rejected (RTS-only) | 0 |
-| 📦 Total fixtures | 1516 |
+| 📦 Total fixtures | 1517 |
 
 _Updated: 2026-10-03 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
@@ -221,7 +221,7 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `18bf9b2`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `ae2bc0a`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|

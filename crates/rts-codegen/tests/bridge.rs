@@ -903,8 +903,25 @@ fn class_decorators_apply_bottom_up() {
             else {
                 panic!("expected an assignment applying a decorator: {stmt:?}");
             };
-            let ExprKind::Call { callee, .. } = &value.kind else {
-                panic!("expected a call: {value:?}");
+            // `C = d(C) || C`, and the `|| C` is load-bearing: a decorator that
+            // returns nothing is an observer and the class survives it. An
+            // unconditional assignment destroyed the class instead, which is
+            // what made `@Observer class A {}` answer `typeof A ===
+            // "undefined"` while the decorator itself ran correctly.
+            let ExprKind::Logical {
+                op: LogicalOp::Or,
+                left,
+                right,
+            } = &value.kind
+            else {
+                panic!("expected `d(C) || C`, not a bare assignment: {value:?}");
+            };
+            assert!(
+                matches!(right.kind, ExprKind::Ident(_)),
+                "the fallback is the class binding itself: {right:?}"
+            );
+            let ExprKind::Call { callee, .. } = &left.kind else {
+                panic!("expected a call: {left:?}");
             };
             let ExprKind::Ident(callee_name) = &callee.kind else {
                 panic!("expected the decorator called by name: {callee:?}");
@@ -916,5 +933,82 @@ fn class_decorators_apply_bottom_up() {
         applications,
         vec!["second", "first"],
         "the decorator nearest the class runs first"
+    );
+}
+
+#[test]
+fn a_member_decorator_routes_the_class_down_the_desugaring() {
+    // The routing question, and it is the one a half-finished implementation
+    // gets wrong: a class with a decorator on a MEMBER and none on itself used
+    // to take the plain `StmtKind::Class` path, so every member decorator in it
+    // was dropped. Measured 2026-10-03 — `class Svc { @Wrap go() {} }` ran no
+    // decorator at all while `@Dec class Svc { @Wrap go() {} }` ran both.
+    let mut names = Names::new();
+    let program = parse_module("class Svc { @Wrap go() {} }", &mut names)
+        .expect("a member decorator lowers rather than being refused");
+    let body = statements(&program);
+    assert!(
+        matches!(body[0].kind, StmtKind::Block(_)),
+        "a decorated member must reach the desugaring, not `StmtKind::Class`: {:?}",
+        body[0].kind
+    );
+}
+
+#[test]
+fn a_decorator_with_nowhere_to_put_the_result_is_refused() {
+    // Three forms have no named binding the desugaring can reassign, so each is
+    // refused by name. Dropping one instead is the silent half of the defect
+    // this module was written for: a registry that does not happen, which no
+    // assertion about a result can see.
+    let cases = [
+        (
+            "export default @Dec class Widget { x = 1 }",
+            "export default",
+        ),
+        ("const X = @Dec class { x = 1 };", "class expression"),
+        ("const X = class { @Dec m() {} };", "class expression"),
+    ];
+    for (source, expected) in cases {
+        let mut names = Names::new();
+        match parse_module(source, &mut names) {
+            Err(ParseError::Unsupported { construct, .. }) => {
+                assert!(construct.contains(expected), "for `{source}`: {construct}");
+            }
+            other => panic!("expected a named refusal for `{source}`, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_decorated_member_keeps_its_descriptor_in_a_nested_let() {
+    // Not a `var` beside the class binding, and the difference is an export:
+    // `emit::module::declared_names` publishes every name an exported
+    // declaration binds, so a `var` there would have made
+    // `export @Dec class C {}` publish the scratch name as a second export of
+    // the module. A `let` in a block of its own cannot be seen from outside it.
+    let mut names = Names::new();
+    let program =
+        parse_module("class Svc { @Wrap go() {} }", &mut names).expect("a member decorator lowers");
+    let body = statements(&program);
+    let StmtKind::Block(stmts) = &body[0].kind else {
+        panic!("expected the desugaring's block: {:?}", body[0].kind);
+    };
+    let group = stmts
+        .iter()
+        .find_map(|stmt| match &stmt.kind {
+            StmtKind::Block(inner) => Some(inner),
+            _ => None,
+        })
+        .expect("the member's decoration is a block of its own");
+    assert!(
+        matches!(
+            group[0].kind,
+            StmtKind::Declare {
+                kind: BindingKind::Let,
+                ..
+            }
+        ),
+        "the scratch descriptor is a `let`, not a `var`: {:?}",
+        group[0].kind
     );
 }

@@ -36,6 +36,7 @@
 //! nothing is approximated, because a tree that is quietly missing a subtree is
 //! the failure mode that produces a wrong program instead of an error.
 
+mod decorator;
 mod expr;
 mod item;
 mod members;
@@ -83,6 +84,30 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl ParseError {
+    /// What the failure was, with nothing framing it.
+    ///
+    /// [`fmt::Display`] prefixes `syntax error: ` for a person reading a
+    /// compiler's output, where the line has to say what kind of error it is. A
+    /// JavaScript `SyntaxError` already says that in its `name`, so a runtime
+    /// that built its message out of `Display` would print the words twice —
+    /// `SyntaxError: syntax error: Unexpected token`. This is the same text
+    /// without the frame, for a caller that supplies its own.
+    ///
+    /// Rejected: having `new Function` strip a known prefix off `Display`. That
+    /// puts a second statement of this module's wording in the crate that
+    /// consumes it, which is exactly the drift two answers to one question
+    /// produce.
+    pub fn reason(&self) -> String {
+        match self {
+            ParseError::Syntax(message) => message.clone(),
+            ParseError::Unsupported { construct, .. } => {
+                format!("not yet lowered by the bridge: {construct}")
+            }
+        }
+    }
+}
 
 /// What every conversion in this module returns.
 pub type Result<T> = std::result::Result<T, ParseError>;

@@ -50,9 +50,12 @@ use crate::value::Value;
 /// live in — `undefined` for an INDIRECT `eval`, which the specification says
 /// runs in the global scope and which therefore has no caller frame to see.
 ///
-/// The answer is the value the source completed with, or `None` for source that
-/// did not parse, emit or place — which the caller turns into a `SyntaxError`,
-/// the same failure Node reports for the same input.
+/// The answer is the value the source completed with, or `Err(reason)` for
+/// source that did not parse, emit or place — which the caller turns into a
+/// `SyntaxError`, the same failure Node reports for the same input, and now
+/// with the same kind of message. [`FunctionCompiler`] carries why the reason
+/// is text rather than a type, and this one shares that answer because the two
+/// reasons come from one parser.
 ///
 /// # Why this is not [`FunctionCompiler`]
 ///
@@ -63,9 +66,18 @@ use crate::value::Value;
 /// names resolve against the environment handed here. Giving `eval` the function
 /// compiler is exactly what this module refused before this existed, and the
 /// reason is in [`eval_direct`].
-pub type EvalCompiler = fn(&str, u64) -> Option<u64>;
+pub type EvalCompiler = fn(&str, u64) -> Result<u64, String>;
 
 /// The host callback shape for evaluating source with an explicit receiver.
+///
+/// Still `Option`, and deliberately: its callers — `node:vm`'s
+/// `runInContext` family and `rts-dom-bridge`'s page `<script>` door — do not
+/// raise a `SyntaxError` at all, so a reason handed to them would have nowhere
+/// to go. `rts-runtime-boot` also installs an implementation of this exact
+/// type for an AOT binary, and widening a signature whose every consumer
+/// discards the extra half is churn rather than a fix. That those two callers
+/// answer `undefined` for a program that did not compile is a separate defect,
+/// not this one.
 pub type EvalCompilerWithReceiver = fn(&str, u64, u64) -> Option<u64>;
 
 /// Installs the host's evaluator for `eval`. See [`EvalCompiler`].
@@ -87,9 +99,15 @@ pub fn declare_eval_compiler_with_receiver(
 /// facilities such as `node:vm`. The compiler is still owned by `rts-host`; this
 /// function only forwards the source and environment through the installed seam,
 /// so the runtime does not duplicate compilation or placement policy.
+///
+/// `Option` and not the callback's `Result`, and the reason is this function's
+/// own shape rather than its callers': it already folds "no evaluator
+/// installed" into the same absence, so a `Result` here would have to invent a
+/// reason for that case. The only place a reason is turned into something
+/// observable is [`evaluate`], which reads the callback directly.
 pub fn evaluate_in_scope(source: &str, environment: u64) -> Option<u64> {
     let compiler = with_current(|context| context.eval_compiler)?;
-    compiler(source, environment)
+    compiler(source, environment).ok()
 }
 
 /// Evaluates source against an environment and an explicit JavaScript receiver.
@@ -215,16 +233,13 @@ fn evaluate(source: u64, environment: u64) -> u64 {
         return with_current(|context| undefined_of(context));
     };
     match compiler(&text, environment) {
-        Some(completed) => completed,
-        None => {
+        Ok(completed) => completed,
+        Err(reason) => {
             // A throw already in flight is the source's own — re-raising over
             // it would replace the program's error with ours, which is rule 8
             // read from the reporting side.
             if !super::throw::in_flight() {
-                super::throw::syntax_error(&format!(
-                    "the eval source did not compile: {}",
-                    super::eval::shortened(&text)
-                ));
+                super::throw::syntax_error(&reason);
             }
             with_current(|context| undefined_of(context))
         }

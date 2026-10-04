@@ -25,12 +25,52 @@
 /// Cloning one is an `Arc` bump in both engines, which is what lets
 /// [`super::compiled`] hand the same program to every object that spells the
 /// pattern the same way.
+
+/// A top-level alternation, one branch at a time, so a lookbehind may lead a
+/// BRANCH rather than only the whole pattern.
+mod branches;
+/// The flag letters, as the structure the builder and the matcher both read.
+mod flags;
+/// The lookbehind the runtime checks itself, and why one is refused.
+mod guard;
+
+use branches::Arm;
+pub(in crate::entry) use flags::Flags;
+pub(in crate::entry::regex) use guard::refusal_detail;
+
 #[derive(Clone)]
 pub(in crate::entry) enum Engine {
     /// The linear-time one. What almost every pattern gets.
     Plain(regex::Regex),
     /// The backtracking one, for a pattern the first declined.
     Fancy(fancy_regex::Regex),
+    /// A pattern whose LEADING lookbehind neither engine can compile, because
+    /// its width is not fixed, with the lookbehind checked here instead.
+    ///
+    /// See [`super::lookbehind`] for why this is a split rather than one of
+    /// `translate`'s rewrites, and for the three things it costs.
+    Guarded {
+        /// `(?:inner)\z` — asks whether the lookbehind's content ends exactly
+        /// at a position, by being given the text before that position and
+        /// nothing else.
+        ///
+        /// Always the backtracking engine: `\z` is the only part `regex` would
+        /// take, and the content is whatever a lookbehind may hold.
+        look: fancy_regex::Regex,
+        /// `(?<!` rather than `(?<=`.
+        negated: bool,
+        /// The rest of the pattern, which is what actually matches and whose
+        /// group numbering is therefore the whole pattern's — the lookbehind
+        /// captures nothing, which `lookbehind::split` refuses to let it.
+        body: Box<Engine>,
+    },
+    /// A pattern neither engine compiles whose TOP-LEVEL ALTERNATION is taken
+    /// apart, so that a lookbehind leading a branch governs that branch alone.
+    ///
+    /// See [`branches`] for why this is not merely a widening of `Guarded`:
+    /// `Guarded` applied a leading lookbehind to every branch of the body and
+    /// answered a wrong result for `/(?<=\.\s*)[a-z]+|z/`.
+    Alternation(Vec<Arm>),
 }
 
 /// Where a capture group matched, in **bytes**.
@@ -48,6 +88,43 @@ impl Engine {
     /// `SyntaxError` there; see [`super::regex_new`] for why this answers rather
     /// than throws.
     pub(super) fn compile(pattern: &str, flags: Flags) -> Option<Engine> {
+        Engine::of_translated(&Engine::translated(pattern, flags), flags)
+    }
+
+    /// The two engines, over a pattern [`translated`] has already rewritten.
+    ///
+    /// Separate from [`Self::compile`] because the lookbehind split below
+    /// compiles the two halves of an already-translated pattern, and running
+    /// the rewrites a second time over text they wrote is exactly what
+    /// `translate`'s own ordering comments warn against.
+    pub(super) fn of_translated(pattern: &str, flags: Flags) -> Option<Engine> {
+        match regex::RegexBuilder::new(pattern)
+            .case_insensitive(flags.ignore_case)
+            .multi_line(flags.multiline)
+            .dot_matches_new_line(flags.dot_all)
+            .build()
+        {
+            Ok(compiled) => Some(Engine::Plain(compiled)),
+            // Declined — which is usually a feature it does not have rather than
+            // a pattern nobody can read, so the second engine is asked before
+            // giving up.
+            Err(_) => match fancy_regex::Regex::new(&flags.inline(pattern)) {
+                Ok(compiled) => Some(Engine::Fancy(compiled)),
+                // And the one thing the second engine does not have either: a
+                // lookbehind whose width is not fixed. Asked LAST so that
+                // nothing either engine already takes changes shape.
+                Err(_) => guard::fallback(pattern, flags).ok(),
+            },
+        }
+    }
+
+    /// The pattern with every rewrite `translate` owns applied.
+    ///
+    /// Taken out of [`Self::compile`] so that [`refusal_detail`] words its
+    /// message about the same text the engines were offered, rather than about
+    /// what the program wrote — a `SyntaxError` naming a construct the
+    /// rewrites had already removed would send its reader to the wrong place.
+    fn translated(pattern: &str, flags: Flags) -> String {
         // The rewrites that are EXACT — see [`super::translate`] for why each
         // one is there and what is deliberately left alone.
         use super::translate::{
@@ -82,20 +159,7 @@ impl Engine {
             // With `s` the builder below already says the whole set is allowed.
             false => wide_dot(&pattern),
         };
-        match regex::RegexBuilder::new(&pattern)
-            .case_insensitive(flags.ignore_case)
-            .multi_line(flags.multiline)
-            .dot_matches_new_line(flags.dot_all)
-            .build()
-        {
-            Ok(compiled) => Some(Engine::Plain(compiled)),
-            // Declined — which is usually a feature it does not have rather than
-            // a pattern nobody can read, so the second engine is asked before
-            // giving up.
-            Err(_) => fancy_regex::Regex::new(&flags.inline(&pattern))
-                .ok()
-                .map(Engine::Fancy),
-        }
+        pattern
     }
 
     /// Where the first match at or after `start` is, and where each group is.
@@ -127,6 +191,13 @@ impl Engine {
                 .ok()
                 .flatten()
                 .is_some(),
+            // No short answer here: which candidate the lookbehind accepts is
+            // decided by WHERE the body matched, so the spans are part of
+            // reaching the boolean rather than extra work beside it.
+            Engine::Guarded { .. } => self.find_at(haystack, start).is_some(),
+            // No leftmost and no ordering needed for a boolean: any branch
+            // matching anywhere is the answer.
+            Engine::Alternation(arms) => branches::matches_at(arms, haystack, start),
         }
     }
 
@@ -147,6 +218,13 @@ impl Engine {
                 .capture_names()
                 .map(|name| name.map(str::to_owned))
                 .collect(),
+            // The body's, unchanged: the lookbehind holds no group at all —
+            // `lookbehind::split` refuses one — so the numbering the body has
+            // is the whole pattern's.
+            Engine::Guarded { body, .. } => body.names(),
+            // Spliced, because a group is numbered by where its `(` appears in
+            // the WHOLE pattern and the branches were compiled apart.
+            Engine::Alternation(arms) => branches::names(arms),
         }
     }
 
@@ -162,6 +240,8 @@ impl Engine {
         match self {
             Engine::Plain(compiled) => compiled.capture_names().any(|name| name.is_some()),
             Engine::Fancy(compiled) => compiled.capture_names().any(|name| name.is_some()),
+            Engine::Guarded { body, .. } => body.has_names(),
+            Engine::Alternation(arms) => branches::has_names(arms),
         }
     }
 
@@ -188,144 +268,24 @@ impl Engine {
                         .collect(),
                 )
             }
+            // The search is `guard`'s, beside the check it drives: which
+            // candidate is accepted is the same question as how a rejected one
+            // is skipped, and splitting them puts one rule in two files.
+            Engine::Guarded {
+                look,
+                negated,
+                body,
+            } => guard::find(look, *negated, body, haystack, start),
+            // Likewise the branch search and the rule that picks between two
+            // branches are one question, so they live together.
+            Engine::Alternation(arms) => branches::find(arms, haystack, start),
         }
     }
 }
-
-/// What the letters after the closing slash mean.
-///
-/// A structure rather than the text, because three of them change how the
-/// pattern is compiled and three change how a match is *driven* — and reading
-/// the string again at every match to find out which is a table stated twice.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub(in crate::entry) struct Flags {
-    /// `i`.
-    pub(super) ignore_case: bool,
-    /// `m` — `^` and `$` match at a line break.
-    pub(super) multiline: bool,
-    /// `s` — `.` matches a line break too.
-    pub(super) dot_all: bool,
-    /// `g` — the search resumes from `lastIndex` and advances it.
-    pub(super) global: bool,
-    /// `y` — the match must begin exactly at `lastIndex`.
-    pub(super) sticky: bool,
-    /// `d` — a match also says WHERE each group was, in `indices`.
-    ///
-    /// Nothing about compiling the pattern changes: both engines already answer
-    /// the span of every group and the runtime was throwing all but the first
-    /// away. So this is a flag about what a match ANSWERS, which is why it sits
-    /// beside `global` and `sticky` rather than beside the three the builder
-    /// reads.
-    pub(super) has_indices: bool,
-    /// The Unicode-mode grammar.
-    ///
-    /// Kept, and read in exactly one place: `translate::identity_escapes`
-    /// asks it because a property escape is one WITH the flag and two
-    /// ordinary letters without it, while Rust read the property either way.
-    pub(super) unicode: bool,
-}
-
-impl Flags {
-    /// Reads the flag letters, refusing one the language does not have.
-    ///
-    /// `None` for an unknown letter rather than ignoring it: `/a/q` is a
-    /// `SyntaxError` in JavaScript, and silently accepting it would make a typo
-    /// into a regular expression that quietly means something else.
-    ///
-    /// The two Unicode flags are **acted on in one place only**, which is
-    /// [`Flags::unicode`]. The rest is a stated divergence: the flag also
-    /// subject has astral characters. Refusing them would refuse programs this
-    /// engine otherwise runs correctly for every input they actually have.
-    ///
-    /// `d` was in that list and no longer is — see [`Flags::has_indices`].
-    pub(super) fn parse(text: &str) -> Option<Flags> {
-        let mut flags = Flags::default();
-        let mut seen: Vec<char> = Vec::new();
-        for letter in text.chars() {
-            // A REPEATED letter is a `SyntaxError`, and so is `u` beside `v`.
-            // Both were accepted, and both are the shape a hand-edited flag
-            // string takes: `/a/gg` read as `/a/g`, and `/a/uv` as a pattern in
-            // two mutually exclusive class grammars at once. Accepting either
-            // turns a typo into a regular expression that quietly runs.
-            if seen.contains(&letter) {
-                return None;
-            }
-            if (letter == 'u' && seen.contains(&'v')) || (letter == 'v' && seen.contains(&'u')) {
-                return None;
-            }
-            seen.push(letter);
-            match letter {
-                'i' => flags.ignore_case = true,
-                'm' => flags.multiline = true,
-                's' => flags.dot_all = true,
-                'g' => flags.global = true,
-                'y' => flags.sticky = true,
-                'd' => flags.has_indices = true,
-                'u' | 'v' => flags.unicode = true,
-                _ => return None,
-            }
-        }
-        Some(flags)
-    }
-
-    /// The letters in the order `RegExp.prototype.flags` answers them.
-    ///
-    /// `re.flags` is BUILT by the specification's getter, one flag at a time in
-    /// a fixed order — it is not the text the program wrote. So `/a/yusimgd`
-    /// answers `"dgimsuy"`, and echoing the written order made every program
-    /// that compares two patterns by their flags string disagree with itself
-    /// over the same set. `u` and `v` are read from the letters because
-    /// [`Flags`] has no field for them; see [`Flags::parse`].
-    pub(super) fn canonical(self, letters: &str) -> String {
-        let order: [(char, bool); 8] = [
-            ('d', self.has_indices),
-            ('g', self.global),
-            ('i', self.ignore_case),
-            ('m', self.multiline),
-            ('s', self.dot_all),
-            ('u', letters.contains('u')),
-            ('v', letters.contains('v')),
-            ('y', self.sticky),
-        ];
-        order
-            .into_iter()
-            .filter_map(|(letter, on)| on.then_some(letter))
-            .collect()
-    }
-
-    /// Whether a match resumes from `lastIndex` rather than from the start.
-    pub(super) fn tracks_last_index(self) -> bool {
-        self.global || self.sticky
-    }
-
-    /// The pattern with the flags written into it, for the engine that has no
-    /// builder.
-    ///
-    /// `fancy-regex` takes options as inline groups, so the same three facts are
-    /// spelled as a prefix. Written from the same structure the builder is
-    /// configured from, so the two cannot disagree about what `i` means.
-    fn inline(self, pattern: &str) -> String {
-        let mut prefix = String::new();
-        if self.ignore_case {
-            prefix.push('i');
-        }
-        if self.multiline {
-            prefix.push('m');
-        }
-        if self.dot_all {
-            prefix.push('s');
-        }
-        if prefix.is_empty() {
-            pattern.to_string()
-        } else {
-            format!("(?{prefix}){pattern}")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
 
     #[test]
     fn a_dot_excludes_the_four_line_terminators_and_not_only_the_newline() {
@@ -355,27 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_flag_letter_is_refused_rather_than_ignored() {
-        // `/a/q` is a SyntaxError, and a typo that silently compiled would be a
-        // regular expression quietly meaning something else.
-        assert!(Flags::parse("q").is_none());
-        assert!(Flags::parse("gimsy").is_some());
-        // Repeated, and the two class grammars at once — both `SyntaxError`.
-        assert!(Flags::parse("gg").is_none());
-        assert!(Flags::parse("uv").is_none());
-        assert!(Flags::parse("vu").is_none());
-    }
-
-    #[test]
-    fn the_d_letter_is_read_rather_than_swallowed() {
-        // It was in the same arm as `u` and `v` — accepted so a program is not
-        // refused, and then forgotten — so `m.indices` was `undefined` for a
-        // pattern that asked for it by name.
-        assert!(Flags::parse("d").expect("a known letter").has_indices);
-        assert!(!Flags::parse("g").expect("a known letter").has_indices);
-    }
-
-    #[test]
     fn a_lookahead_compiles_through_the_second_engine() {
         // The whole reason there are two: `regex` refuses this by construction,
         // and refusing it here would refuse ordinary JavaScript.
@@ -401,4 +340,5 @@ mod tests {
         assert_eq!(spans[1], None, "`undefined`, which is not the empty string");
         assert_eq!(spans[2], Some((0, 1)));
     }
+
 }

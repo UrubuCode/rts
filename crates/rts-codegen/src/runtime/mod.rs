@@ -479,6 +479,22 @@ pub enum RuntimeOp {
 
     /// The whole namespace, for `import * as ns from "m"`.
     ModuleNamespace,
+
+    /// `import "m"` — run the module, read nothing out of it.
+    ///
+    /// # Why it is not [`RuntimeOp::ModuleNamespace`] with the answer dropped
+    ///
+    /// Because a side-effect import is the one import whose module may have no
+    /// namespace at all. `entry::module_publish` creates one on the first
+    /// export, so a module that only CALLS things — a polyfill, a format
+    /// registry, `import "./setup"` — has none, and both namespace-reading
+    /// entry points throw `cannot resolve module` when `module_at` answers
+    /// nothing. Asking for a namespace in order to discard it would turn the
+    /// commonest side-effect module into a run-time failure.
+    ///
+    /// So the operation is "evaluate", which is the half of those entry points
+    /// a side-effect import actually needs: `ensure_module_ran` and no lookup.
+    ModuleEvaluate,
     /// One exported binding, published into the specifier table under the
     /// module being compiled.
     ///
@@ -1229,6 +1245,7 @@ impl RuntimeOp {
         RuntimeOp::TemplateStrings,
         RuntimeOp::ModuleBinding,
         RuntimeOp::ModuleNamespace,
+        RuntimeOp::ModuleEvaluate,
         RuntimeOp::ModulePublish,
         RuntimeOp::TypeOf,
         RuntimeOp::TypeOfIs,
@@ -1371,6 +1388,7 @@ impl RuntimeOp {
             RuntimeOp::TemplateStrings => "__rts_template_strings",
             RuntimeOp::ModuleBinding => "__rts_module_binding",
             RuntimeOp::ModuleNamespace => "__rts_module_namespace",
+            RuntimeOp::ModuleEvaluate => "__rts_module_evaluate",
             RuntimeOp::ModulePublish => "__rts_module_publish",
             RuntimeOp::TypeOf => "__rts_type_of",
             RuntimeOp::TypeOfIs => "__rts_type_of_is",
@@ -1580,6 +1598,10 @@ impl RuntimeOp {
             RuntimeOp::TemplateStrings => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ModuleBinding => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ModuleNamespace => (vec![Repr::I64], vec![UNPROVEN]),
+            // Answers `undefined` and nothing is proved of it: the value is
+            // dropped, and a signature claiming otherwise would be a claim
+            // about a value no caller reads.
+            RuntimeOp::ModuleEvaluate => (vec![Repr::I64], vec![UNPROVEN]),
             // Answers the value it was given, so a caller can publish and bind
             // in one expression. Nothing is proved about it: it is whatever the
             // program exported.

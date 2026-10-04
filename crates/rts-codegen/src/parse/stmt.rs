@@ -8,11 +8,9 @@
 use swc_common::Spanned;
 use swc_ecma_ast as swc;
 
+use super::decorator::{decorated_class_declaration, is_decorated_class};
 use super::expr::expr;
-use super::item::{
-    class_parts, decorated_class_declaration, enum_declaration, function_parts,
-    namespace_declaration, type_of,
-};
+use super::item::{class_parts, enum_declaration, function_parts, namespace_declaration, type_of};
 use super::pat::{binding, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
@@ -211,11 +209,46 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
         //
         // The failure reads as the global not existing: `declare const print`
         // followed by `print(x)` died with "print is not a function", while the
-        // same call one line above the declaration worked. `declare function f`
-        // was never affected, because a function with no body is already
-        // nothing to emit — which is why this looked like a global that only
-        // sometimes existed.
+        // same call one line above the declaration worked.
+        //
+        // This comment used to end by excusing `declare function f`: "never
+        // affected, because a function with no body is already nothing to
+        // emit". That was false, and measured false on 2026-10-03 — see the
+        // arm below, which is the other half of the same rule.
         swc::Decl::Var(variables) if variables.declare => StmtKind::Empty,
+
+        // A function declaration with no BODY is a type and nothing else: an
+        // overload signature, or `declare function`. TypeScript erases it and
+        // keeps only the implementation, so this does too.
+        //
+        // `block_body` turns a missing body into `FunctionBody::Block(vec![])`,
+        // which is how the signature became a real function returning
+        // `undefined` — the invented empty body. Three measured consequences,
+        // all against bun 1.4.0 on 2026-10-03:
+        //
+        //   - `declare function parseInt(s: string): number;` bound `parseInt`
+        //     locally and SHADOWED the global, exactly as `declare const` did
+        //     above. `parseInt("42")` answered `undefined` against 42.
+        //   - `export function pick(v: number): number;` beside its
+        //     implementation reached `check::module::duplicate_export` as a
+        //     second runtime declaration of `pick`, and the file was refused:
+        //     ``Syntax("`pick` is exported twice")``.
+        //   - a signature-only `function f(v: string): string;` with no
+        //     implementation at all answered `typeof f === "function"` against
+        //     bun's `"undefined"`.
+        //
+        // Erasing it answers bun on all three. The last one is the case
+        // TypeScript itself reports as `Function implementation is missing`,
+        // and erasing is what the reference runtime does with it: the name is
+        // simply never declared, so `typeof f` is `"undefined"` and a CALL is
+        // refused at compile time by the rule `emit/sloppy.rs` already applies
+        // to any name nothing declares. Rejected: refusing it here as a
+        // SyntaxError. That needs to know whether some LATER declaration of the
+        // same name carries a body, which is a whole-module name survey and a
+        // question this bridge does not ask — and it would refuse
+        // `declare function`, which is spelled the same way, for programs that
+        // are correct today.
+        swc::Decl::Fn(function) if function.function.body.is_none() => StmtKind::Empty,
         swc::Decl::Var(variables) => StmtKind::Declare {
             kind: binding_kind(variables.kind),
             bindings: declarators(cx, &variables.decls)?,
@@ -224,7 +257,7 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
             name: Some(cx.name(&function.ident.sym)),
             ..function_parts(cx, &function.function)?
         })),
-        swc::Decl::Class(class) if class.class.decorators.is_empty() => {
+        swc::Decl::Class(class) if !is_decorated_class(&class.class) => {
             StmtKind::Class(Box::new(Class {
                 name: Some(cx.name(&class.ident.sym)),
                 ..class_parts(cx, &class.class)?

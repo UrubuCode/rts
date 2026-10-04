@@ -282,10 +282,199 @@ jobs:
             dist/rts-*
           if-no-files-found: error
 
+  # O portao antivirus, e ele corre ANTES de qualquer regua: o que `build`
+  # produziu e varrido, e so se sair limpo e que a suite TS, as reguas do DOM,
+  # as cross-runtime e a RELEASE chegam a existir. Todas elas levam
+  # `needs: malware-scan` por isso — um `needs` que falha SALTA o resto, que e
+  # a forma que "parar o CI deste commit" toma aqui.
+  #
+  # Duas perguntas e nao uma, porque respondem a coisas diferentes:
+  #
+  #   ClamAV, do apt, corre SEMPRE e e o que bloqueia. Nao precisa de segredo,
+  #   nao sai da maquina, e esta disponivel num fork — um portao que depende de
+  #   uma chave que um fork nao tem e um portao que nao existe metade das vezes.
+  #
+  #   VirusTotal (~70 motores) corre quando o segredo VIRUSTOTAL_API_KEY esta
+  #   definido. NAO vem do apt, e isso nao e um descuido: nao ha pacote dele em
+  #   repositorio Debian/Ubuntu nenhum, porque os motores correm no servidor
+  #   deles — o apt so teria um cliente. O `vt-cli` oficial e esse cliente, um
+  #   binario do GitHub, e exige exatamente a mesma chave. Sem a chave o passo
+  #   diz que NAO consultou, e isso e diferente de dizer que esta limpo.
+  #
+  # O limiar de VirusTotal e DOIS motores. Um binario Rust com JIT escreve
+  # paginas executaveis em tempo de execucao e motores heuristicos marcam essa
+  # forma por si so; um unico motor nao distingue "nao gosto de JITs" de
+  # "artefacto contaminado". ClamAV nao leva limiar: ele e uma assinatura ou
+  # nada.
+  malware-scan:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Os tres binarios da matriz, nao so o do Linux: o que vai para a release
+      # sao os tres, e varrer um e dar por limpos outros dois que ninguem viu.
+      - name: Download the built binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rts-*
+          path: artifacts
+
+      - name: List what is going to be scanned
+        run: find artifacts -type f | sort
+
+      # Retry no apt pela mesma razao que os outros jobs deste ficheiro: o apt
+      # do runner flakeia, e um portao que falha por rede e um portao que se
+      # aprende a ignorar.
+      - name: Install ClamAV (apt)
+        run: |
+          for i in 1 2 3; do sudo apt-get update && sudo apt-get install -y clamav clamav-freshclam jq && break || sleep 5; done
+          clamscan --version
+
+      # O daemon do freshclam ja corre na imagem e segura o lock; sem o parar,
+      # `freshclam` morre com "can't lock" e a varredura correria com a base que
+      # veio na imagem — velha, e sem dizer que e velha.
+      - name: Update the signature database
+        run: |
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam --quiet || sudo freshclam || true
+          sudo systemctl start clamav-freshclam || true
+          ls -l /var/lib/clamav/
+
+      # A prova de que o portao FUNCIONA, em todas as execucoes: o ficheiro
+      # EICAR e o padrao de teste que todos os motores reconhecem por acordo.
+      # Sem este passo, um clamscan avariado responde "limpo" a tudo e o portao
+      # fica verde a medir nada — a mesma classe de falha que o CLAUDE.md
+      # descreve para uma suite que nao corre.
+      - name: Prove the scanner detects (EICAR)
+        run: |
+          mkdir -p /tmp/eicar
+          printf 'X5O!P%%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar/eicar.com
+          set +e
+          clamscan --infected /tmp/eicar/eicar.com
+          rc=$?
+          set -e
+          if [ "$rc" != "1" ]; then
+            echo "::error::clamscan NAO detetou o EICAR (rc=$rc) — o portao nao esta a medir nada."
+            exit 1
+          fi
+
+      - name: ClamAV scan
+        id: clamav
+        run: |
+          set +e
+          clamscan --recursive --infected --max-filesize=1024M --max-scansize=4096M \
+                   --log=clamav.log artifacts
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # 0 = limpo, 1 = infetado, 2 = erro da propria ferramenta. Os tres sao
+          # respostas diferentes e o job trata-os como tal: um erro de
+          # ferramenta nao e um artefacto limpo.
+          if [ "$rc" = "2" ]; then echo "::error::clamscan falhou a correr (rc=2)"; exit 2; fi
+          exit 0
+
+      - name: VirusTotal scan
+        id: vt
+        env:
+          VT_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          REPORT_FILE: vt-report.json
+        run: |
+          set +e
+          bash scripts/virustotal_scan.sh $(find artifacts -type f ! -name '*-NOTICE.txt' | sort) | tee vt.log
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload the scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: malware-scan-${{ needs.version.outputs.version }}
+          path: |
+            clamav.log
+            vt-report.json
+            vt.log
+          if-no-files-found: warn
+
+      # A issue abre-se so quando ha deteccao, e nomeia a branch, o commit e o
+      # ficheiro — a branch e a pergunta de quem a le ("o que e que entrou no
+      # merge?"), e por isso esta no titulo e nao so no corpo.
+      - name: Open an issue naming the branch
+        if: steps.clamav.outputs.rc == '1' || steps.vt.outputs.rc == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          {
+            echo "O portao antivirus parou o CI do commit \`$SHA\`."
+            echo
+            echo "- Branch: \`$BRANCH\`"
+            echo "- Evento: \`$EVENT\`"
+            echo "- Versao que NAO foi publicada: \`$VERSION\`"
+            echo "- Execucao: $RUN_URL"
+            echo
+            echo "### ClamAV"
+            echo '~~~'
+            grep -E 'FOUND|Infected files' clamav.log 2>/dev/null | head -50 || echo "(sem log)"
+            echo '~~~'
+            echo
+            echo "### VirusTotal"
+            echo '~~~'
+            tail -40 vt.log 2>/dev/null || echo "(nao consultado)"
+            echo '~~~'
+            echo
+            echo "A release, a suite TS e as reguas do DOM foram SALTADAS: dependem deste job."
+            echo
+            echo "Se isto for falso positivo — um binario com JIT escreve paginas"
+            echo "executaveis e motores heuristicos marcam essa forma — a resposta e"
+            echo "subir \`VT_MIN_DETECTIONS\` com a razao escrita, nunca apagar o passo."
+          } > issue.md
+          gh issue create \
+            --title "CI parado: antivirus detetou algo no build de $BRANCH ($VERSION)" \
+            --body-file issue.md
+
+      # E se ja existir uma release com esta tag — um re-run, ou um
+      # `workflow_dispatch` sobre algo ja publicado — ela leva o aviso no corpo.
+      # Nao se apaga a release: apagar tira a prova a quem ja a descarregou.
+      - name: Warn on the release, if one already exists
+        if: steps.clamav.outputs.rc == '1' || steps.vt.outputs.rc == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release view "$TAG" --json body -q .body > body.md
+            {
+              echo
+              echo "> **AVISO — deteccao de malware.** A varredura de $RUN_URL marcou"
+              echo "> binarios desta tag. Nao os use ate a issue aberta nesse run"
+              echo "> estar resolvida."
+            } >> body.md
+            gh release edit "$TAG" --notes-file body.md
+          else
+            echo "Nenhuma release com a tag $TAG — nada a comentar (e ela nao chega a ser criada)."
+          fi
+
+      - name: Fail the gate
+        if: steps.clamav.outputs.rc == '1' || steps.vt.outputs.rc == '1'
+        run: |
+          echo "::error::Antivirus detetou algo nos binarios — CI parado para este commit."
+          exit 1
+
   # Reuse the binary `build` already compiled — no second toolchain/compile.
   # Runs the TS suite + an AOT smoke against the downloaded release binary.
   ts-suite:
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     # Non-blocking: macOS/Linux have a pre-existing TS-suite failure (#1288) and
     # are left red on purpose. Keeping it out of the workflow conclusion means it
     # does not gate the release job or the Benchmarks workflow (which fires only
@@ -345,7 +534,7 @@ jobs:
   # o CLAUDE.md diz porquê — mas uma fixture que deixe de passar fica VERMELHA
   # aqui em vez de só no terminal de quem se lembrar de correr o corredor.
   dom-rulers:
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     # `needs: build` é a MATRIZ inteira, e o macOS está vermelho no smoke de
     # AOT desde 471bbbd2 (2026-09-03, anterior a este job): sem isto, este job
     # era SALTADO em todos os runs e a régua nunca corria — o primeiro run
@@ -544,7 +733,7 @@ jobs:
   # job replica — em vez de um `cargo build -p rts-runtime` que custaria
   # minutos por corrida sem produzir nada que o `build` não tenha já.
   rts-vs-electron:
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     # A mesma razão do `dom-rulers` acima: `needs: build` refere-se à MATRIZ
     # inteira, e uma perna (ex.: macOS) pode estar vermelha por algo alheio a
     # Windows — sem isto este job seria SALTADO sempre que isso acontecesse. O
@@ -710,7 +899,7 @@ jobs:
   # Reuses the Linux binary from `build` (no recompile). Runs as part of this
   # workflow so it keeps the PR/push context its badge/issue/comment steps need.
   cross-runtime:
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     uses: ./.github/workflows/cross-runtime.yml
     with:
       version: ${{ needs.version.outputs.version }}
@@ -725,7 +914,7 @@ jobs:
   # a espera toda para medir o mesmo número.
   node-suite:
     if: github.event_name == 'schedule'
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     uses: ./.github/workflows/node-suite.yml
     with:
       version: ${{ needs.version.outputs.version }}
@@ -735,7 +924,7 @@ jobs:
   # O `test/mjsunit` do V8, a mesma matriz de oito fatias.
   mjsunit:
     if: github.event_name == 'schedule'
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     uses: ./.github/workflows/mjsunit.yml
     with:
       version: ${{ needs.version.outputs.version }}
@@ -746,7 +935,7 @@ jobs:
   # O `JSTests/stress` do JavaScriptCore, a mesma matriz.
   jsc:
     if: github.event_name == 'schedule'
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     uses: ./.github/workflows/jsc.yml
     with:
       version: ${{ needs.version.outputs.version }}
@@ -757,7 +946,7 @@ jobs:
   release:
     # Only create a release on push to main (not on PRs or dispatch).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [version, build]
+    needs: [version, build, malware-scan]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

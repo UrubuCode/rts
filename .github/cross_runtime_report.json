@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4432) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4431) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -15754,13 +15754,13 @@
   "status": "rts_error",
   "bun": "fixed=@7 [42]\nfixed-miss=null\nfixed-at-start=@0 [a]\nfixed-replace=$N and 7\nneg=@2 [2]\nneg-replace=$4N N\nneg-empty-prefix=@0 [a]\nneg-hit=null\nvar-alt=@1 [d]\nvar-alt2=@2 [d]\nvar-quant=@4 [b]\nvar-star=@0 [b]\nvar-opt=@1 [b]\nvar-unbounded=@6 [!]\nrtl-greedy=@3 [b|aaa]\nrtl-lazy=@3 [b|a]\nrtl-order=@2 [x|1|2]\nrtl-anchor=@3 [b|aaa]\ncap=@2 [c|a|b]\ncap-named=a\ncap-in-neg=@0 [a|undefined]\nboth=@1 [b]\nboth-miss=null\nzero-width=ab-cab-c\nzero-width-neg=a.b.c\nthousands=1,234,567\nthousands-short=12\nastral=@2 [b]\nastral-nou=@2 [b]\nstart=null\nstart-neg=@0 [b]\nsliced=null\nsticky=true:2\nsticky-fail=false:0\nsource=(?<=a+)b\nctor=true\nnested=@1 [b]\nin-class-literal=true",
   "node": "fixed=@7 [42]\nfixed-miss=null\nfixed-at-start=@0 [a]\nfixed-replace=$N and 7\nneg=@2 [2]\nneg-replace=$4N N\nneg-empty-prefix=@0 [a]\nneg-hit=null\nvar-alt=@1 [d]\nvar-alt2=@2 [d]\nvar-quant=@4 [b]\nvar-star=@0 [b]\nvar-opt=@1 [b]\nvar-unbounded=@6 [!]\nrtl-greedy=@3 [b|aaa]\nrtl-lazy=@3 [b|a]\nrtl-order=@2 [x|1|2]\nrtl-anchor=@3 [b|aaa]\ncap=@2 [c|a|b]\ncap-named=a\ncap-in-neg=@0 [a|undefined]\nboth=@1 [b]\nboth-miss=null\nzero-width=ab-cab-c\nzero-width-neg=a.b.c\nthousands=1,234,567\nthousands-short=12\nastral=@2 [b]\nastral-nou=@2 [b]\nstart=null\nstart-neg=@0 [b]\nsliced=null\nsticky=true:2\nsticky-fail=false:0\nsource=(?<=a+)b\nctor=true\nnested=@1 [b]\nin-class-literal=true",
-  "rts": "fixed=@7 [42]\nfixed-miss=null\nfixed-at-start=@0 [a]\nfixed-replace=$N and 7\nneg=@2 [2]\nneg-replace=$4N N\nneg-empty-prefix=@0 [a]\nneg-hit=null\nvar-alt=@1 [d]\nvar-alt2=@2 [d]",
+  "rts": "fixed=@7 [42]\nfixed-miss=null\nfixed-at-start=@0 [a]\nfixed-replace=$N and 7\nneg=@2 [2]\nneg-replace=$4N N\nneg-empty-prefix=@0 [a]\nneg-hit=null\nvar-alt=@1 [d]\nvar-alt2=@2 [d]\nvar-quant=@4 [b]\nvar-star=@0 [b]\nvar-opt=@1 [b]\nvar-unbounded=@6 [!]",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=a+)b/"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=(a+))b/: a capture group inside a lookbehind of unbounded width is not supported"
 }
 ,
 {
@@ -15783,6 +15783,20 @@
   "bun": "last=@0 [a1b2c3|c]\nlast-pair=@0 [a1b2|b2]\nlast-two=@0 [a1b2|b|2]\nalt-ab=@0 [ab|undefined|b]\nalt-ba=@0 [ba|a|undefined]\nalt-aa=@0 [aa|a|undefined]\nalt-once=@0 [a|a|undefined]\nopt-reset=@0 [a|undefined|a]\nopt-taken=@0 [zxa|z|a]\nopt-quest=@0 [b|undefined]\nopt-quest-hit=@0 [ab|a]\ngreedy=@0 [<a><b>|a><b]\nlazy=@0 [<a>|a]\ngreedy-star=@0 [abaca|bac]\nlazy-star=@0 [aba|b]\ngreedy-backoff=@0 [12345|1234|5]\nlazy-forward=@0 [12|1|2]\nempty-star=@0 [|undefined]\nempty-star-hit=@0 [aa|a]\nempty-plus=@0 [|]\nempty-group-star=@0 [|]\nempty-inner=@0 [aa|a]\nexact=@0 [abc|c]\nrange=@0 [abc|c]\nrange-lazy=@0 [ab|b]\natmost=@0 [ab|b]\nbrace-literal=@0 [a{,2}]\nbrace-open=@0 [a{2]\nnested=@0 [ab;cd;|c|d]\nnested2=@0 [abc|abc|c]\nbacktrack=@0 [aaa|aa|a]\nbacktrack-fail=null\nbacktrack-alt=@0 [ab|ab|undefined|]\natomic=@0 [aaab|aaa]\natomic-fail=null\nglobal-repl=[undefined,b] [a,undefined]\nmatchall-caps=a1 b2",
   "node": "last=@0 [a1b2c3|c]\nlast-pair=@0 [a1b2|b2]\nlast-two=@0 [a1b2|b|2]\nalt-ab=@0 [ab|undefined|b]\nalt-ba=@0 [ba|a|undefined]\nalt-aa=@0 [aa|a|undefined]\nalt-once=@0 [a|a|undefined]\nopt-reset=@0 [a|undefined|a]\nopt-taken=@0 [zxa|z|a]\nopt-quest=@0 [b|undefined]\nopt-quest-hit=@0 [ab|a]\ngreedy=@0 [<a><b>|a><b]\nlazy=@0 [<a>|a]\ngreedy-star=@0 [abaca|bac]\nlazy-star=@0 [aba|b]\ngreedy-backoff=@0 [12345|1234|5]\nlazy-forward=@0 [12|1|2]\nempty-star=@0 [|undefined]\nempty-star-hit=@0 [aa|a]\nempty-plus=@0 [|]\nempty-group-star=@0 [|]\nempty-inner=@0 [aa|a]\nexact=@0 [abc|c]\nrange=@0 [abc|c]\nrange-lazy=@0 [ab|b]\natmost=@0 [ab|b]\nbrace-literal=@0 [a{,2}]\nbrace-open=@0 [a{2]\nnested=@0 [ab;cd;|c|d]\nnested2=@0 [abc|abc|c]\nbacktrack=@0 [aaa|aa|a]\nbacktrack-fail=null\nbacktrack-alt=@0 [ab|ab|undefined|]\natomic=@0 [aaab|aaa]\natomic-fail=null\nglobal-repl=[undefined,b] [a,undefined]\nmatchall-caps=a1 b2",
   "rts": "last=@0 [a1b2c3|c]\nlast-pair=@0 [a1b2|b2]\nlast-two=@0 [a1b2|b|2]\nalt-ab=@0 [ab|a|b]\nalt-ba=@0 [ba|a|b]\nalt-aa=@0 [aa|a|undefined]\nalt-once=@0 [a|a|undefined]\nopt-reset=@0 [a|undefined|a]\nopt-taken=@0 [zxa|z|a]\nopt-quest=@0 [b|undefined]\nopt-quest-hit=@0 [ab|a]\ngreedy=@0 [<a><b>|a><b]\nlazy=@0 [<a>|a]\ngreedy-star=@0 [abaca|bac]\nlazy-star=@0 [aba|b]\ngreedy-backoff=@0 [12345|1234|5]\nlazy-forward=@0 [12|1|2]\nempty-star=@0 [|]\nempty-star-hit=@0 [aa|a]\nempty-plus=@0 [|]\nempty-group-star=@0 [|]\nempty-inner=@0 [aa|a]\nexact=@0 [abc|c]\nrange=@0 [abc|c]\nrange-lazy=@0 [ab|b]\natmost=@0 [ab|b]\nbrace-literal=@0 [a]\nbrace-open=@0 [a{2]\nnested=@0 [ab;cd;|c|d]\nnested2=@0 [abc|abc|c]\nbacktrack=@0 [aaa|aa|a]\nbacktrack-fail=null\nbacktrack-alt=@0 [ab|ab|undefined|]\natomic=@0 [aaab|aaa]\natomic-fail=null\nglobal-repl=[a,b] [a,b]\nmatchall-caps=a1 b2",
+  "bun_exit": 0,
+  "node_exit": 0,
+  "rts_exit": 0,
+  "bun_error": "",
+  "node_error": "",
+  "rts_error": ""
+}
+,
+{
+  "name": "claude-regex-lookbehind-variable-width",
+  "status": "pass",
+  "bun": "[\"foo\",\"x\",\"bar\"]\n[\"b\"]\nnull\n[\"y\"]\nnull\n[\"a\",\"oo\"]\n[\"a\"]\n[\"a\",\"a\"]\n[\"b\"]\n[\"\"]\n[[\"foo\",3,6],[\"x\",9,10],[\"bar\",15,18]]\n[\"x\",9,10]\n[[\"foo\",3],[\"x\",9],[\"bar\",15]]\n[\"foo\",\"foo\"]\n\"foo\"",
+  "node": "[\"foo\",\"x\",\"bar\"]\n[\"b\"]\nnull\n[\"y\"]\nnull\n[\"a\",\"oo\"]\n[\"a\"]\n[\"a\",\"a\"]\n[\"b\"]\n[\"\"]\n[[\"foo\",3,6],[\"x\",9,10],[\"bar\",15,18]]\n[\"x\",9,10]\n[[\"foo\",3],[\"x\",9],[\"bar\",15]]\n[\"foo\",\"foo\"]\n\"foo\"",
+  "rts": "[\"foo\",\"x\",\"bar\"]\n[\"b\"]\nnull\n[\"y\"]\nnull\n[\"a\",\"oo\"]\n[\"a\"]\n[\"a\",\"a\"]\n[\"b\"]\n[\"\"]\n[[\"foo\",3,6],[\"x\",9,10],[\"bar\",15,18]]\n[\"x\",9,10]\n[[\"foo\",3],[\"x\",9],[\"bar\",15]]\n[\"foo\",\"foo\"]\n\"foo\"",
   "bun_exit": 0,
   "node_exit": 0,
   "rts_exit": 0,
@@ -15956,7 +15970,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=^(\\w+))c/"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=^(\\w+))c/: a capture group inside a lookbehind of unbounded width is not supported"
 }
 ,
 {
@@ -16376,7 +16390,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=([ab]+)([bc]+))$/"
+  "rts_error": "rts: uncaught exception (tag 1): SyntaxError: invalid regular expression: /(?<=([ab]+)([bc]+))$/: a capture group inside a lookbehind of unbounded width is not supported"
 }
 ,
 {
@@ -19624,7 +19638,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "/home/runner/work/rts/rts/tests/cross-runtime/syntax/claude-unicode-escape-forms.ts:53\n// --- the two forms ADJACENT in one literal ---\nconst mix1 = \"\\uD83D\\u{1F600}\";\n              ^^^^^^^^\nconsole.log(\"mix-hi-then-brace-len=\" + mix1.length);\n\nSyntaxError [ERR_INVALID_TYPESCRIPT_SYNTAX]: Bad character escape sequence, expected 4 hex characters\n    at parseTypeScript (node:internal/modules/typescript:67:36)\n    at processTypeScriptCode (node:internal/modules/typescript:133:42)\n    at stripTypeScriptModuleTypes (node:internal/modules/typescript:163:10)\n    at Module._compile (node:internal/modules/cjs/loader:1733:15)\n    at Object..js (node:internal/modules/cjs/loader:1913:10)\n    at Module.load (node:internal/modules/cjs/loader:1505:32)\n    at Function._load (node:internal/modules/cjs/loader:1309:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:36:49 {\n  code: 'ERR_INVALID_TYPESCRIPT_SYNTAX'\n}\n\nNode.js v22.23.3",
-  "rts_error": "error: Parse(\"Syntax(\\\"Bad character escape sequence, expected 4 hex characters\\\")\")\n      at run of tests/cross-runtime/syntax/claude-unicode-escape-forms.ts failed"
+  "rts_error": "error: Parse(\"Bad character escape sequence, expected 4 hex characters\")\n      at run of tests/cross-runtime/syntax/claude-unicode-escape-forms.ts failed"
 }
 ,
 {
@@ -20604,7 +20618,7 @@
   "rts_exit": 1,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'return')"
+  "rts_error": "rts: uncaught exception (tag 1): TypeError: Cannot read properties of undefined (reading 'get')"
 }
 ,
 {
@@ -21223,4 +21237,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1516,"pass":1288,"reachable":1515,"rts_diverge":176,"bun_node_diverge":0,"errors":51,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1517,"pass":1289,"reachable":1516,"rts_diverge":176,"bun_node_diverge":0,"errors":51,"rejected":0,"upstream_defect":1}}

@@ -35,6 +35,12 @@ const plain = await send({ "Content-Type": "application/json", "X-Token": "abc" 
 const built = await send(new Headers({ "Content-Type": "application/json" }));
 const paired = await send([["Content-Type", "application/json"]]);
 
+// Closed because a listening server now keeps the program running (#2893), as
+// it does in Node. This file had no `close()` and did not need one only while
+// the engine ended a program with a bound listener still in it — so the missing
+// call was never correct, it was unobservable.
+server.close();
+
 describe("fetch sends request headers (#2833)", () => {
     test("plain object: content-type", () => expect(plain["content-type"]).toBe("application/json"));
     test("plain object: second header", () => expect(plain["x-token"]).toBe("abc"));

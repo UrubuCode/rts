@@ -113,7 +113,7 @@ use super::arguments::ARGUMENTS_OBJECT_ENTRY;
 use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
 use super::common_js::{MODULE_PUBLISH_COMMON_ENTRY, REQUIRE_FUNCTION_ENTRY};
-use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_IMPORT_ENTRY};
+use super::dynamic_module::{IMPORT_META_ENTRY, MODULE_EVALUATE_ENTRY, MODULE_IMPORT_ENTRY};
 use super::modules::MODULE_PUBLISH_ALL_ENTRY;
 use super::array::ELEMENT_AT_ENTRY;
 use super::throw::{TAKE_THROWN_ENTRY, THROWN_ADDRESS_ENTRY, THROWN_ENTRY};
@@ -829,12 +829,23 @@ pub enum CoreEntry {
     /// [`super::spread_list`] — the list `f(...xs)` hands the door, as written
     /// where it already is one.
     SpreadList = 129,
+    /// [`super::module_evaluate`] — `import "m"`: the module runs and nothing is
+    /// read out of it. Distinct from [`CoreEntry::ModuleNamespace`] because that
+    /// one demands a namespace, and a side-effect module may have none.
+    ModuleEvaluate = 130,
     /// [`super::map_new_direct`] — `new Map()` with no arguments, where the
     /// whole program leaves `Map` alone. Appended for the reason every entry
     /// here is: the number is an artefact's key, so an insertion renumbers one.
-    MapNewDirect = 130,
+    ///
+    /// **131 and not 130**, which is what this pair was numbered on the branch:
+    /// `ModuleEvaluate` took 130 on `main` first, and a number already shipped
+    /// is a key an artefact may hold. Both sides appended correctly and the
+    /// collision is what appending twice in parallel looks like — the merge
+    /// resolves it by keeping the published number and moving the unpublished
+    /// pair, which is the only direction that cannot invalidate anything.
+    MapNewDirect = 131,
     /// [`super::set_new_direct`] — the same for `new Set()`.
-    SetNewDirect = 131,
+    SetNewDirect = 132,
 }
 
 /// How many entry points exist.
@@ -842,7 +853,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 132;
+pub const CORE_ENTRY_COUNT: usize = 133;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -977,6 +988,10 @@ impl CoreEntry {
         CoreEntry::ObjectNewUnder,
         CoreEntry::FunctionApplyListedDirect,
         CoreEntry::SpreadList,
+        // In NUMBERING order, which is what `the_numbers_are_written_and_dense`
+        // asserts position by position — so this order follows the enum's
+        // renumbering above and not the order the two sides were written in.
+        CoreEntry::ModuleEvaluate,
         CoreEntry::MapNewDirect,
         CoreEntry::SetNewDirect,
     ];
@@ -1126,6 +1141,7 @@ impl CoreEntry {
             CoreEntry::ObjectNewUnder => OBJECT_NEW_UNDER_ENTRY,
             CoreEntry::FunctionApplyListedDirect => FUNCTION_APPLY_LISTED_DIRECT_ENTRY,
             CoreEntry::SpreadList => SPREAD_LIST_ENTRY,
+            CoreEntry::ModuleEvaluate => MODULE_EVALUATE_ENTRY,
         }
     }
 

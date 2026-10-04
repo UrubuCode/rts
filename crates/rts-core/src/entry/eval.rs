@@ -63,10 +63,38 @@ use crate::value::Value;
 /// into the body would make `new Function("a = 1", "return a")` mean something
 /// the specification does not.
 ///
-/// `None` for source that did not compile, which is what makes the caller able
-/// to raise a `SyntaxError` naming the text rather than answering something
-/// uncallable — the failure `new Function` had before this existed.
-pub type FunctionCompiler = fn(&[String], &str) -> Option<u64>;
+/// `Err` for source that did not compile, carrying WHY.
+///
+/// This was `Option`, and a `None` had nowhere to put the reason — so the only
+/// message the caller could build repeated the body back at the program:
+/// `the Function body did not compile: let const = 1;`. The parser knew the
+/// answer — `Expected ';', '}' or <eof>`, where node says `Unexpected token
+/// 'const'` — and the signature threw it away.
+///
+/// # Why the reason is a `String` and not a type
+///
+/// Because the only crate that can name a JavaScript syntax fault is the one
+/// that parsed it, and that crate is ABOVE this one — `rts-codegen` cannot be
+/// named here without a dependency cycle. The two types both sides can see are
+/// in `rts-cranelift`, which by its rule 3 knows no language at all, so a
+/// JavaScript diagnostic cannot live there either.
+///
+/// Rejected: `rts_cranelift::fault::Position`, which CLAUDE.md names as where a
+/// span will come from. It is a `u32` byte offset and carries no text, so it
+/// could only sit beside the message rather than replace it — and nothing
+/// threads it here today: `parse_with` in `rts-codegen` keeps
+/// `error.kind().msg()` and drops `error.span()`, and the two error enums
+/// between here and there (`ParseError`, `HostError`) are both rendered into
+/// CLI output with `{:?}`, so widening them re-decides what every command
+/// prints. Stated rather than faked, which is the honesty floor: a wrong
+/// column is worse than no column, and node's own `.message` carries none
+/// either.
+///
+/// Also rejected: an error enum declared here. The variants would be a list of
+/// the ways JavaScript source can be wrong, which is the language deciding what
+/// to say — this crate's rule 4. The reason is produced where it is known and
+/// carried verbatim.
+pub type FunctionCompiler = fn(&[String], &str) -> Result<u64, String>;
 
 /// Installs the host's function compiler. See [`FunctionCompiler`].
 pub fn declare_function_compiler(context: &mut Context, compiler: FunctionCompiler) {
@@ -320,26 +348,15 @@ extern "C" fn compile_from_text(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, 
         return with_current(|context| undefined_of(context));
     };
     match compiler(&parameters, &body) {
-        Some(made) => made,
-        None => {
-            super::throw::syntax_error(&format!(
-                "the Function body did not compile: {}",
-                shortened(&body)
-            ));
+        Ok(made) => made,
+        Err(reason) => {
+            // A throw already in flight is the body's own and says more than
+            // this would — replacing it is rule 8 read from the reporting side,
+            // the same call `eval_scope::evaluate` makes.
+            if !super::throw::in_flight() {
+                super::throw::syntax_error(&reason);
+            }
             with_current(|context| undefined_of(context))
         }
-    }
-}
-
-/// The body as a diagnostic prints it.
-///
-/// A whole body can be a page, and a `SyntaxError` whose message is a page is
-/// one nobody reads. The first line, cut, is what names the failure.
-pub(in crate::entry) fn shortened(body: &str) -> String {
-    let first = body.lines().find(|line| !line.trim().is_empty()).unwrap_or("");
-    let trimmed = first.trim();
-    match trimmed.char_indices().nth(60) {
-        Some((at, _)) => format!("{}…", &trimmed[..at]),
-        None => trimmed.to_owned(),
     }
 }

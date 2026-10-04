@@ -225,6 +225,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ModuleNamespace => (CoreEntry::ModuleNamespace, {
             rts_core::entry::module_namespace as extern "C" fn(i64) -> u64 as *const u8
         }),
+        RuntimeOp::ModuleEvaluate => (CoreEntry::ModuleEvaluate, {
+            rts_core::entry::module_evaluate as extern "C" fn(i64) -> u64 as *const u8
+        }),
         // Which literal holds the asking module's own specifier, exactly as
         // `ModulePublish`'s first argument is.
         RuntimeOp::ImportMeta => (CoreEntry::ImportMeta, {
