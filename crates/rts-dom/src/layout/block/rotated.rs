@@ -180,8 +180,9 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
         let wm = body.and_then(|b| dom.computed_style_idx(b)).map_or(own, |b| b.writing_mode.unwrap_or_default());
         return is_vertical(wm).then_some(wm);
     }
-    // A vertical parent outside a frame is a box the out-of-flow pass lays
-    // out on its own: it stays as it was (WM-3).
+    if is_out_of_flow(dom, id) {
+        return Some(own);
+    }
     let parent = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
     if parent.is_some_and(|p| is_vertical(p.writing_mode.unwrap_or_default())) {
         return None;
@@ -254,11 +255,11 @@ fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedSt
         Side::Len(Dimension::Percent(p)) => Side::Len(Dimension::Px(basis * p / 100.0)),
         other => other,
     };
-    let edges = |e: Edges| Edges { top: px(e.top), right: px(e.right), bottom: px(e.bottom), left: px(e.left) };
-    let (margin, padding) = (edges(css.margin), edges(css.padding));
-    if margin == css.margin && padding == css.padding {
-        return Rc::clone(css);
-    }
+    let (margin, padding) = (
+        Edges { top: px(css.margin.top), right: px(css.margin.right), bottom: px(css.margin.bottom), left: px(css.margin.left) },
+        Edges { top: px(css.padding.top), right: px(css.padding.right), bottom: px(css.padding.bottom), left: px(css.padding.left) },
+    );
+    if margin == css.margin && padding == css.padding { return Rc::clone(css); }
     let mut out = (**css).clone();
     (out.margin, out.padding) = (margin, padding);
     Rc::new(out)
@@ -489,10 +490,9 @@ fn rotate_out(
     for c in ortho_children { final_pieces.extend(merge(c, &mut own)); }
     own.pieces = final_pieces;
 
-    let DisplayList { pieces, box_rects, static_anchors, grid_column_tracks, scroll_regions, .. } = own;
-    list.pieces.extend(pieces);
-    list.box_rects.extend(box_rects);
-    list.static_anchors.extend(static_anchors);
-    list.grid_column_tracks.extend(grid_column_tracks);
-    list.scroll_regions.extend(scroll_regions);
+    list.pieces.extend(own.pieces);
+    list.box_rects.extend(own.box_rects);
+    list.static_anchors.extend(own.static_anchors);
+    list.grid_column_tracks.extend(own.grid_column_tracks);
+    list.scroll_regions.extend(own.scroll_regions);
 }

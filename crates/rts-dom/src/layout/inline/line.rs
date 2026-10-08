@@ -246,7 +246,7 @@ pub(in crate::layout) fn layout_inline_flow(
         // absolute box is out of flow and generates none (CSS 2.1 §9.5).
         // `a<br><float>` made a phantom second line — a full line of height, and
         // the LAST line box an enclosing inline-block then took its baseline from.
-        if super::static_anchor::anchors_only_line(dom, &line, x, cy, list) {
+        if super::static_anchor::anchors_only_line(dom, &line, x, cy, list, content_w, cb_h, ctx) {
             continue;
         }
         // largura total da linha (texto no SEU peso + widgets) p/ text-align.

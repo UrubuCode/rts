@@ -70,7 +70,11 @@ pub(in crate::layout) fn content_box(border_box: Rect, css: &ComputedStyle, ctx:
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let cb = crate::style::ContainingBlock::horizontal_tb(border_box.w, Some(border_box.h));
+    let axes = crate::style::values::AxisMap::new(
+        css.writing_mode.unwrap_or_default(),
+        css.direction.unwrap_or_default(),
+    );
+    let cb = crate::style::ContainingBlock::physical(border_box.w, Some(border_box.h), axes);
     let padding = |lado: crate::style::Side| match lado {
         crate::style::Side::Len(d) => cb
             .resolve(d, crate::style::Axis::Inline, &resolve)

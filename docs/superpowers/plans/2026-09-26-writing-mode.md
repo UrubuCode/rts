@@ -133,7 +133,7 @@ or `rts-egui` learns about frames except the text orientation.
   named targets. No orthogonal flows yet (a differing child mode is laid out
   as if the parent's — stated).
 - [x] **WM-2 — orthogonal flows** (§7.3), nested composition.
-- [ ] **WM-3 — floats, positioned boxes and static positions in a rotated
+- [x] **WM-3 — floats, positioned boxes and static positions in a rotated
   frame** (the css-position `static-position/vlr-*` families need the
   anchors rotated out; `containing_block.rs` finally built from `AxisMap`).
 - [ ] **WM-4 — flex and grid containers in vertical modes** (F3, measured on

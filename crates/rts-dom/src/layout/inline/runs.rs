@@ -165,7 +165,7 @@ pub(in crate::layout) fn collect_runs(
                 // A FLOAT in the middle of the flow: only an anchor (`in_line.rs`).
                 // An absolutely positioned box: the anchor of its static position.
                 let anchor_run = crate::layout::float::in_line::anchor(dom, id, box_id, inherited_color)
-                    .or_else(|| super::static_anchor::anchor(dom, id, box_id, inherited_color));
+                    .or_else(|| super::static_anchor::anchor(dom, id, box_id, inherited_color, inherited_owners));
                 if let Some(anchor_run) = anchor_run {
                     out.push(anchor_run);
                     return;

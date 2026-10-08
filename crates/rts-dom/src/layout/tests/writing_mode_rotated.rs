@@ -114,3 +114,22 @@ fn orthogonal_horizontal_inside_vertical_fixed() {
     assert_eq!((inner.x, inner.y), (outer.x + 3.0, outer.y + 3.0), "inner offset");
 }
 
+/// Lot WM-3: static position of absolute box inside vertical-rl line.
+#[test]
+fn vertical_rl_static_position_anchor_rotated() {
+    let html = "<style>body{margin:0;writing-mode:vertical-rl;font:16px/1 Ahem}\
+                .container{position:relative;width:100px;height:400px;border:3px solid;padding:2px}\
+                .abs{position:absolute;display:inline;width:20px;height:20px}\
+                </style>\
+                <div class=container id=c>\
+                  <span id=s>XX<span class=abs id=a></span></span>\
+                </div>";
+    let r = rects(html, &["c", "s", "a"]);
+    let (c, _s, a) = (r[0], r[1], r[2]);
+    // Container c has border 3 + padding 2 = 5px frame.
+    // Content box starts at right edge: 800 - 5 = 795.
+    // Text XX has 2 glyphs of 16px along the line (inline axis, physical Y: 5 + 32 = 37).
+    // In vertical-rl, line right edge is 795, so a.x = 795 - 20 = 775.
+    assert_eq!((c.x, c.y, c.w, c.h), (800.0 - 110.0, 0.0, 110.0, 410.0), "container {c:?}");
+    assert_eq!((a.x, a.y, a.w, a.h), (775.0, 37.0, 20.0, 20.0), "abs {a:?}");
+}

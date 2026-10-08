@@ -46,9 +46,6 @@ pub(in crate::layout) fn static_position_of(
     let Some(parent) = dom.node(id).parent else {
         return flow_rects.get(&id).map_or((0.0, 0.0), |a| (a.x, a.y));
     };
-    if let Some(place) = boxless_inline_place(dom, parent, flow_rects, ctx) {
-        return place;
-    }
     let parent_css = dom.computed_style_idx(parent).unwrap_or_default();
     let rtl = parent_css.direction == Some(crate::style::Direction::Rtl);
     if let Some(anchor) = flow_rects.get(&id) {
@@ -70,7 +67,15 @@ pub(in crate::layout) fn static_position_of(
             };
             return (if rtl { at - outer_w } else { at }, anchor.y);
         }
-        return (anchor.x, anchor.y);
+        let wm = parent_css.writing_mode.unwrap_or_default();
+        let x = match wm {
+            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl => anchor.x - outer_w,
+            _ => anchor.x,
+        };
+        return (x, anchor.y);
+    }
+    if let Some(place) = boxless_inline_place(dom, parent, flow_rects, ctx) {
+        return place;
     }
     let parent_box = flow_rects
         .get(&parent)

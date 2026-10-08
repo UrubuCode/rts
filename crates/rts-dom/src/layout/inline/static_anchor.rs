@@ -33,14 +33,14 @@ use crate::boxes::BoxId;
 /// line and the inlines around it do not count it as content. Returning early
 /// here is also what keeps the walk from descending into the box and leaking
 /// its text into the line.
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u32) -> Option<InlineRun> {
+pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u32, owners: &[NodeIdx]) -> Option<InlineRun> {
     is_out_of_flow(dom, id).then(|| InlineRun {
         text: String::new(),
         color,
         bold: false,
         italic: false,
         deco: 0,
-        owners: Vec::new(),
+        owners: owners.to_vec(),
         atomic: Some((id, box_id, AtomicKind::StaticAnchor)),
         ww: 0.0,
         wh: 0.0,
@@ -98,12 +98,24 @@ pub(in crate::layout) fn outside_line(
 /// no line box and the caller skips it; but the static positions still have to
 /// be said, and with no line they are all the same place: where the line would
 /// have started (Blink, `claude-absoluto-posicao-estatica-linha-vazia` case 5).
-pub(in crate::layout) fn anchors_only_line(dom: &Dom, line: &[Segment], flow_x: f32, cy: f32, list: &mut DisplayList) -> bool {
+pub(in crate::layout) fn anchors_only_line(
+    dom: &Dom,
+    line: &[Segment],
+    flow_x: f32,
+    cy: f32,
+    list: &mut DisplayList,
+    content_w: f32,
+    cb_h: Option<f32>,
+    ctx: &LayoutCtx,
+) -> bool {
     let anchors_only = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::StaticAnchor))));
     if anchors_only {
         let start = list.pieces.len();
-        for atomic in line.iter().filter_map(|s| s.atomic) {
-            outside_line(dom, atomic, flow_x, flow_x, cy, cy, start, list);
+        for s in line {
+            if let Some(atomic) = s.atomic {
+                let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, s.owners.last().copied(), content_w, cb_h, ctx);
+                outside_line(dom, atomic, flow_x + rx, flow_x + rx, cy + ry, cy + ry, start, list);
+            }
         }
     }
     anchors_only

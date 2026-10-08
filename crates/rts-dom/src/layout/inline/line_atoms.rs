@@ -41,11 +41,12 @@ pub(in crate::layout) fn emit_atom(
     let Some((a_idx, box_id, kind)) = seg.atomic else {
         return;
     };
+    let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), content_w, cb_h, ctx);
     // Float and static-position anchors have nothing on the line (`static_anchor.rs`).
-    if super::static_anchor::outside_line(dom, (a_idx, box_id, kind), *seg_x, x, cy, cy + line_advance, line_at, list) {
+    if super::static_anchor::outside_line(dom, (a_idx, box_id, kind), *seg_x + rx, x + rx, cy + ry, cy + line_advance + ry, line_at, list) {
         return;
     }
-    let (start_index, (rx, ry)) = (list.pieces.len(), crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), content_w, cb_h, ctx));
+    let start_index = list.pieces.len();
     match kind {
         AtomicKind::Widget => {
             // WIDGET inline: pinta a caixa no lugar (botão via layout_button;
