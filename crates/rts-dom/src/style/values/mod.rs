@@ -7,6 +7,7 @@ mod texto;
 mod caixa;
 mod display;
 mod grelha;
+mod template_grelha;
 mod fluxo;
 mod dimensao;
 /// The CONTAINING BLOCK as an entity — two extents, each DEFINITE or
@@ -28,6 +29,7 @@ pub use texto::*;
 pub use caixa::*;
 pub use display::*;
 pub use grelha::*;
+pub use template_grelha::*;
 pub use fluxo::*;
 pub use dimensao::*;
 pub use containing_block::*;

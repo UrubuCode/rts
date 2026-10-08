@@ -90,7 +90,7 @@ pub enum GridTrack {
     /// variant `Bounded`), e o mínimo — a única coisa que a contagem
     /// pergunta — já não estaria lá para reler.
     AutoRepeat {
-        tracks: Vec<GridTrack>,
+        tracks: TrackList,
         fit: bool,
         count_unit: f32,
     },
@@ -157,53 +157,22 @@ impl GridTrack {
         super::lengths::parse_dimension_pub(v).map(GridTrack::Fixed)
     }
 
+    /// Contribuição para contagem de repetições automáticas.
+    pub fn count_unit(&self) -> f32 {
+        match self {
+            GridTrack::Fixed(Dimension::Px(p)) => *p,
+            GridTrack::Bounded { min: Dimension::Px(p), .. } => *p,
+            _ => 0.0,
+        }
+    }
+
     /// Parseia uma LISTA de trilhas (`grid-template-columns`), expandindo
     /// `repeat(N, tracks…)`. Devolve o Vec de trilhas na ordem. Vazio → None.
     pub fn parse_list(v: &str) -> Option<Vec<GridTrack>> {
-        let v = v.trim();
-        if v.is_empty() || v.eq_ignore_ascii_case("none") {
-            return None;
-        }
-        let mut out = Vec::new();
-        // tokeniza respeitando parênteses (repeat/minmax têm vírgulas internas).
-        for tok in split_top_level(v) {
-            let t = tok.trim();
-            let low = t.to_ascii_lowercase();
-            if let Some(inner) = low
-                .strip_prefix("repeat(")
-                .and_then(|s| s.strip_suffix(')'))
-            {
-                let mut parts = inner.splitn(2, ',');
-                let count = parts.next().unwrap_or("").trim();
-                let tracks = parts.next().unwrap_or("").trim();
-                if count == "auto-fill" || count == "auto-fit" {
-                    // Quantas vezes repetir é uma pergunta de LAYOUT (depende
-                    // do espaço disponível) — não se expande aqui; fica um
-                    // único `AutoRepeat` que `layout::grid_tracks` resolve
-                    // contra `content_w`.
-                    if let Some(inner_tracks) = GridTrack::parse_list(tracks) {
-                        let count_unit: f32 =
-                            split_top_level(tracks).iter().map(|t| track_count_unit(t)).sum();
-                        out.push(GridTrack::AutoRepeat {
-                            tracks: inner_tracks,
-                            fit: count == "auto-fit",
-                            count_unit,
-                        });
-                    }
-                } else {
-                    // repeat(N, tracks) — N vezes as trilhas internas.
-                    let n: usize = count.parse().unwrap_or(1);
-                    if let Some(inner_tracks) = GridTrack::parse_list(tracks) {
-                        for _ in 0..n.max(1) {
-                            out.extend(inner_tracks.iter().cloned());
-                        }
-                    }
-                }
-            } else if let Some(track) = GridTrack::parse_one(t) {
-                out.push(track);
-            }
-        }
-        (!out.is_empty()).then_some(out)
+        GridTemplate::parse(v).and_then(|gt| match gt {
+            GridTemplate::Tracks(tl) => Some(tl.tracks_vec()),
+            _ => None,
+        })
     }
 }
 

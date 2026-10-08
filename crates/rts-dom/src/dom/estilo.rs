@@ -140,27 +140,72 @@ impl Dom {
         // medido, e um `getComputedStyle` chamado com janela aberta deve
         // responder com a MESMA geometria que está a ser pintada, não com a
         // aproximação headless.
-        if name.trim().eq_ignore_ascii_case("grid-template-columns")
-            && style.grid_template_columns.is_some()
-        {
-            let (viewport_w, viewport_h) = self.viewport.get();
-            let tracks_str = crate::layout::measure::active_measurer::with_active(|measurer| {
-                let context = crate::layout::LayoutCtx {
-                    viewport_w,
-                    viewport_h,
-                    measurer,
-                };
-                let list = crate::layout::layout_cached(self, &context);
-                list.grid_column_tracks.get(&idx).map(|tracks| {
-                    tracks
-                        .iter()
-                        .map(|track| crate::style::fmt_values::fmt_px(*track))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-            });
-            if let Some(tracks_str) = tracks_str {
-                return tracks_str;
+        if name.trim().eq_ignore_ascii_case("grid-template-columns") {
+            if let Some(template) = style.grid_template_columns.as_deref() {
+                match template {
+                    crate::style::GridTemplate::Tracks(_) => {
+                        let (viewport_w, viewport_h) = self.viewport.get();
+                        let tracks_str = crate::layout::measure::active_measurer::with_active(|measurer| {
+                            let context = crate::layout::LayoutCtx {
+                                viewport_w,
+                                viewport_h,
+                                measurer,
+                            };
+                            let list = crate::layout::layout_cached(self, &context);
+                            list.grid_column_tracks.get(&idx).map(|tracks| {
+                                tracks
+                                    .iter()
+                                    .map(|track| crate::style::fmt_values::fmt_px(*track))
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            })
+                        });
+                        if let Some(tracks_str) = tracks_str {
+                            return tracks_str;
+                        }
+                    }
+                    crate::style::GridTemplate::Subgrid(_) => {
+                        let is_grid = style.effective_display().map_or(false, |d| d.is_grid_container());
+                        if is_grid {
+                            let parent_is_grid = self.nodes[idx]
+                                .parent
+                                .and_then(|p| self.computed_style_idx(p))
+                                .and_then(|ps| ps.effective_display())
+                                .map_or(false, |d| d.is_grid_container());
+                            if !parent_is_grid {
+                                return "none".to_string();
+                            }
+                        }
+                        return crate::style::fmt_values::fmt_grid_template(Some(template));
+                    }
+                    crate::style::GridTemplate::None => {
+                        return "none".to_string();
+                    }
+                }
+            }
+        }
+        if name.trim().eq_ignore_ascii_case("grid-template-rows") {
+            if let Some(template) = style.grid_template_rows.as_deref() {
+                match template {
+                    crate::style::GridTemplate::Subgrid(_) => {
+                        let is_grid = style.effective_display().map_or(false, |d| d.is_grid_container());
+                        if is_grid {
+                            let parent_is_grid = self.nodes[idx]
+                                .parent
+                                .and_then(|p| self.computed_style_idx(p))
+                                .and_then(|ps| ps.effective_display())
+                                .map_or(false, |d| d.is_grid_container());
+                            if !parent_is_grid {
+                                return "none".to_string();
+                            }
+                        }
+                        return crate::style::fmt_values::fmt_grid_template(Some(template));
+                    }
+                    crate::style::GridTemplate::None => {
+                        return "none".to_string();
+                    }
+                    _ => {}
+                }
             }
         }
 

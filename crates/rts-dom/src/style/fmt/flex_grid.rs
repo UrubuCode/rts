@@ -88,8 +88,8 @@ impl ComputedStyle {
             // 150px`). Aqui saem na forma DECLARADA, porque o computed não tem o
             // container à mão — a resolução é do layout. É um desvio conhecido
             // contra o Chrome, e fica escrito em vez de responder vazio.
-            "grid-template-columns" => fmt_tracks(self.grid_template_columns.as_deref()),
-            "grid-template-rows" => fmt_tracks(self.grid_template_rows.as_deref()),
+            "grid-template-columns" => fmt_grid_template(self.grid_template_columns.as_deref()),
+            "grid-template-rows" => fmt_grid_template(self.grid_template_rows.as_deref()),
             "grid-area" => self.grid_area.clone().unwrap_or_default(),
             // O browser reporta a matriz re-serializada linha a linha entre aspas.
             // Aqui ela é reportada a partir do RETÂNGULO de cada nome (a matriz crua

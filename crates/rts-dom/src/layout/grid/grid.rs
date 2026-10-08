@@ -55,25 +55,19 @@ pub(in crate::layout) fn layout_children_grid(
     // google: single-column grid). Com N colunas do grid_columns legado (repeat) →
     // N trilhas 1fr.
     let areas = css.grid_template_areas.clone();
-    let col_tracks: Vec<crate::style::GridTrack> = match &css.grid_template_columns {
-        Some(t) => (**t).clone(),
-        // Sem trilhas declaradas mas COM áreas, é a matriz que diz quantas colunas
-        // existem — cair no default de 1 coluna empilharia lado e conteúdo, que é
-        // exatamente o sintoma que as áreas existem para resolver.
-        None => {
+    let (col_tracks, col_collapsible, col_lines) = match css.grid_template_columns.as_deref() {
+        Some(crate::style::GridTemplate::Tracks(t)) => {
+            tracks::expand_auto_repeats(t, content_w, col_gap)
+        }
+        _ => {
             let n = match &areas {
                 Some(a) => a.cols,
                 None => css.grid_columns.unwrap_or(1).max(1) as usize,
             };
-            vec![crate::style::GridTrack::Fr(1.0); n]
+            let tl = crate::style::TrackList::from_tracks(vec![crate::style::GridTrack::Fr(1.0); n]);
+            tracks::expand_auto_repeats(&tl, content_w, col_gap)
         }
     };
-    // `repeat(auto-fill|auto-fit, …)`: o Nº de repetições é decidido AGORA,
-    // contra `content_w` — antes da colocação, porque a colocação já precisa
-    // de saber quantas colunas existem (CSS Grid 1 §7.2.3.3, "the number of
-    // times to repeat the track list"). Ver `layout::grid::tracks`.
-    let (col_tracks, col_collapsible) =
-        tracks::expand_auto_repeats(col_tracks, content_w, col_gap);
     // O número de colunas vem da LISTA de trilhas e não dos tamanhos: os
     // tamanhos ainda não estão decididos, porque uma trilha intrínseca precisa de
     // saber que itens lhe calham — e para isso é preciso ter colocado os itens.
@@ -89,21 +83,29 @@ pub(in crate::layout) fn layout_children_grid(
     // As LINHAS também repetem `auto-fill|auto-fit`, contra a altura do
     // contentor quando ela é definida; sem ela a spec dá uma repetição só, que
     // é o que `expand_auto_repeats` responde a um contentor de 0.
-    let (explicit_rows, row_collapsible) = match &css.grid_template_rows {
-        Some(t) => tracks::expand_auto_repeats(
-            (**t).clone(),
+    let (explicit_rows, row_collapsible, row_lines) = match css.grid_template_rows.as_deref() {
+        Some(crate::style::GridTemplate::Tracks(t)) => tracks::expand_auto_repeats(
+            t,
             container_content_h.unwrap_or(0.0),
             row_gap,
         ),
-        None => (Vec::new(), Vec::new()),
+        _ => (Vec::new(), Vec::new(), Vec::new()),
     };
     let explicit_rows_n = explicit_rows.len();
     let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
         column: false,
         dense: false,
     });
-    let (cells, ncols_colocados) =
-        place_grid_items(dom, &children, areas.as_deref(), ncols, explicit_rows_n, auto_flow);
+    let (cells, ncols_colocados) = place_grid_items(
+        dom,
+        &children,
+        areas.as_deref(),
+        &col_lines,
+        &row_lines,
+        ncols,
+        explicit_rows_n,
+        auto_flow,
+    );
     // COLUNAS IMPLÍCITAS: um `grid-area`/`grid-column` que aponta lá da última
     // coluna explícita fez `place_grid_items` devolver mais colunas do que as
     // declaradas — estende `col_tracks` com `grid-auto-columns` (por omissão
