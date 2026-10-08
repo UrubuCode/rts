@@ -194,4 +194,29 @@ impl DisplayList {
         crate::paint::pieces::count_items(&self.pieces)
     }
 
+    /// Desloca todos os itens e geometrias desta lista por `(dx, dy)`.
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        self.box_rects.translate(dx, dy);
+        for piece in self.pieces.iter_mut() {
+            match piece {
+                Piece::Item(item) => translate_item(item, dx, dy),
+                Piece::Child(c) => {
+                    c.dx += dx;
+                    c.dy += dy;
+                }
+                Piece::Rect(_) => {}
+            }
+        }
+        for anchor in self.static_anchors.iter_mut() {
+            anchor.1 += dx;
+            anchor.2 += dy;
+        }
+        for region in self.scroll_regions.iter_mut() {
+            region.visible.x += dx;
+            region.visible.y += dy;
+        }
+    }
 }
