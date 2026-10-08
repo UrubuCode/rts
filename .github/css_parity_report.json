@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-04",
+  "date": "2026-10-08",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -12,12 +12,12 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 598,
+    "passing": 597,
     "total": 870,
-    "pct": 68.7,
+    "pct": 68.6,
     "by_subfolder": {
       "balance": {
-        "passing": 15,
+        "passing": 14,
         "total": 39
       },
       "intrinsic-size": {
@@ -43,7 +43,7 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 134,
+        "passing": 133,
         "total": 160
       },
       "item": {
@@ -59,7 +59,7 @@
         "total": 53
       },
       "gap": {
-        "passing": 37,
+        "passing": 39,
         "total": 46
       },
       "percentage": {
@@ -95,7 +95,7 @@
         "total": 28
       },
       "writing-mode": {
-        "passing": 13,
+        "passing": 12,
         "total": 24
       },
       "justify": {
@@ -252,7 +252,9 @@
       "dom-ciclo-de-vida-scripts — `loadDocument` (navegação), `<script>` corre ao ligar por `appendChild`/`insertBefore`, `DOMContentLoaded`/`load`, `document.readyState`",
       "css2-normal-flow-unidades — `css/CSS2/normal-flow` do WPT (306/788, o maior balde do CSS2.1) tinha `in`/`cm`/`mm`/`q` — as quatro unidades absolutas de CSS Values §6.2 além de `pt`/`pc` — ausentes de TODOS os parsers de comprimento, não só de `normal-flow`: o corpus CSS2.1 inteiro usa essas unidades como RÉGUA (comparar `height:2.54cm` contra `border-top:1in solid`, ambos exatamente 96px a 96dpi), e sem elas `width`/`height`/`margin`/`padding`/`font-size`/`inset` (via `parse_dimension`) caíam em `auto`, e `border-width`/`border-radius` (via `parse_len`) caíam no `medium` (3px) — a régua media outra coisa que o teste",
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)",
-      "AOT-1 — a página compilada carrega os seus recursos de DENTRO do binário"
+      "AOT-1 — a página compilada carrega os seus recursos de DENTRO do binário",
+      "WM-1 — vertical writing modes: o rotated frame para block flow, Ahem e conteúdo substituído",
+      "WM-2 — fluxos ortogonais (Writing Modes 4 §7.3): composição aninhada"
     ],
     "parciais": [
       "select-caixa-natural — `<select>` vazio: altura natural e stretch cruzado no flex",
