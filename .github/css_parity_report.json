@@ -254,7 +254,8 @@
       "borda-unidades — `CSS2/borders` continuava em 223/504 depois das unidades absolutas (227 antes, 223 depois — a régua de `css2-normal-flow-unidades` já tinha isolado o balde)",
       "AOT-1 — a página compilada carrega os seus recursos de DENTRO do binário",
       "WM-1 — vertical writing modes: o rotated frame para block flow, Ahem e conteúdo substituído",
-      "WM-2 — fluxos ortogonais (Writing Modes 4 §7.3): composição aninhada"
+      "WM-2 — fluxos ortogonais (Writing Modes 4 §7.3): composição aninhada",
+      "WM-3 — posicionados, floats e static position no rotated frame"
     ],
     "parciais": [
       "select-caixa-natural — `<select>` vazio: altura natural e stretch cruzado no flex",
