@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 
 use crate::style::grid_lines::{GridAutoFlow, GridLine};
-use crate::style::GridAreas;
+use crate::style::{GridAreas, LineNames};
 use crate::{Dom, NodeIdx};
 use crate::boxes::BoxId;
 
@@ -58,28 +58,84 @@ fn resolve_abs(n: i32, explicit: usize) -> Option<i32> {
     }
 }
 
-/// The 1-based line a NAME denotes on one axis, from the only named lines this
-/// engine knows: the implicit `<area>-start`/`<area>-end` of
-/// `grid-template-areas` (§7.3.2). A bare `foo` means `foo-start` on a start
-/// edge and `foo-end` on an end edge (§8.3.1). `grid-template-columns: [a]`
-/// line names are not parsed by the track parser, so such a name resolves to
-/// nothing here, and neither does an `nth` beyond 1 (each implicit name exists
-/// once). The spec would then place on an IMPLICIT line past the grid; this
-/// answers `None`, which puts that edge back to `auto`.
-fn named_line(name: &str, nth: i32, end_edge: bool, cols: bool, areas: Option<&GridAreas>) -> Option<i32> {
-    if nth != 1 && nth != -1 {
+/// Combines explicit line names with implicit area names into an ordered list of lines.
+fn effective_lines(
+    explicit: &[LineNames],
+    track_count: usize,
+    areas: Option<&GridAreas>,
+    cols: bool,
+) -> Vec<LineNames> {
+    let mut num_lines = (track_count + 1).max(explicit.len());
+    if let Some(areas) = areas {
+        for (_, area) in areas.iter() {
+            let end_line = if cols { area.c1 + 1 } else { area.r1 + 1 };
+            num_lines = num_lines.max(end_line);
+        }
+    }
+    let mut out: Vec<LineNames> = vec![Vec::new(); num_lines];
+    for (i, names) in explicit.iter().enumerate() {
+        if i < out.len() {
+            out[i].extend(names.iter().cloned());
+        }
+    }
+    if let Some(areas) = areas {
+        for (name, area) in areas.iter() {
+            let (start_idx, end_idx) = if cols {
+                (area.c0, area.c1)
+            } else {
+                (area.r0, area.r1)
+            };
+            let start_name = format!("{}-start", name);
+            let end_name = format!("{}-end", name);
+            if start_idx < out.len() && !out[start_idx].contains(&start_name) {
+                out[start_idx].push(start_name);
+            }
+            if end_idx < out.len() && !out[end_idx].contains(&end_name) {
+                out[end_idx].push(end_name);
+            }
+        }
+    }
+    out
+}
+
+/// The 1-based line a NAME denotes on one axis (CSS Grid 1 §8.3.1).
+/// Matches against explicit line names, then falls back to implicit -start/-end suffixes.
+fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Option<i32> {
+    if nth == 0 {
         return None;
     }
-    let areas = areas?;
-    let (area, end) = if let Some(a) = name.strip_suffix("-start").and_then(|n| areas.area(n)) {
-        (a, false)
-    } else if let Some(a) = name.strip_suffix("-end").and_then(|n| areas.area(n)) {
-        (a, true)
+    let mut matches: Vec<usize> = Vec::new();
+    for (idx, line) in lines.iter().enumerate() {
+        if line.iter().any(|l| l == name) {
+            matches.push(idx);
+        }
+    }
+    if matches.is_empty() && !name.ends_with("-start") && !name.ends_with("-end") {
+        let suffixed = if end_edge {
+            format!("{}-end", name)
+        } else {
+            format!("{}-start", name)
+        };
+        for (idx, line) in lines.iter().enumerate() {
+            if line.iter().any(|l| l == &suffixed) {
+                matches.push(idx);
+            }
+        }
+    }
+    if matches.is_empty() {
+        return None;
+    }
+    if nth > 0 {
+        let k = (nth - 1) as usize;
+        matches.get(k).map(|&idx| idx as i32 + 1)
     } else {
-        (areas.area(name)?, end_edge)
-    };
-    let (s, e) = if cols { (area.c0, area.c1) } else { (area.r0, area.r1) };
-    Some(if end { e as i32 + 1 } else { s as i32 + 1 })
+        let k = (-nth - 1) as usize;
+        if k < matches.len() {
+            Some(matches[matches.len() - 1 - k] as i32 + 1)
+        } else {
+            None
+        }
+    }
 }
 
 /// One edge after name resolution: an absolute line, a span count, a span TO
@@ -91,39 +147,32 @@ enum Edge {
     Auto,
 }
 
-fn resolve_edge(l: &GridLine, end_edge: bool, cols: bool, explicit: usize, areas: Option<&GridAreas>) -> Edge {
+fn resolve_edge(l: &GridLine, end_edge: bool, explicit: usize, lines: &[LineNames]) -> Edge {
     match l {
         GridLine::Auto => Edge::Auto,
         GridLine::Line(n) => resolve_abs(*n, explicit).map_or(Edge::Auto, Edge::Abs),
         GridLine::Span(n) => Edge::Span(*n),
         GridLine::Named(id, nth) => {
-            named_line(id, nth.unwrap_or(1), end_edge, cols, areas).map_or(Edge::Auto, Edge::Abs)
+            named_line(id, nth.unwrap_or(1), end_edge, lines).map_or(Edge::Auto, Edge::Abs)
         }
-        // `span <name>` counts to the first line of that name beyond the other
-        // edge; with no such line the spec would use implicit lines, and one
-        // track is the reading that stays inside what this engine resolves.
         GridLine::SpanNamed(id, n) => {
-            named_line(id, *n as i32, !end_edge, cols, areas).map_or(Edge::Span(1), Edge::SpanTo)
+            named_line(id, *n as i32, end_edge, lines).map_or(Edge::Span(1), Edge::SpanTo)
         }
     }
 }
 
 /// A colocação explícita de UM eixo a partir das duas extremidades já
 /// parseadas — `None` quando o eixo não tem informação suficiente para
-/// resolver sozinho (as duas pontas `auto`, ou um `span` sem âncora), caso em
-/// que o item cai na colocação automática desse eixo (spec §8.5 passo 3: aqui
-/// simplificado para "ambos os eixos automáticos", já que este motor auto-
-/// coloca em duas dimensões de uma vez).
+/// resolver sozinho (as duas pontas `auto`, ou um `span` sem âncora).
 fn axis_placement(
     start: &GridLine,
     end: &GridLine,
     explicit: usize,
-    areas: Option<&GridAreas>,
-    cols: bool,
+    lines: &[LineNames],
 ) -> Option<(usize, usize)> {
     use Edge::*;
-    let s = resolve_edge(start, false, cols, explicit, areas);
-    let e = resolve_edge(end, true, cols, explicit, areas);
+    let s = resolve_edge(start, false, explicit, lines);
+    let e = resolve_edge(end, true, explicit, lines);
     let (a, b): (i32, i32) = match (s, e) {
         (Abs(a), Abs(b)) => {
             if b > a {
@@ -217,6 +266,8 @@ pub(in crate::layout) fn place_grid_items(
     dom: &Dom,
     children: &[GridItem],
     areas: Option<&GridAreas>,
+    col_lines: &[LineNames],
+    row_lines: &[LineNames],
     explicit_cols: usize,
     explicit_rows: usize,
     auto_flow: GridAutoFlow,
@@ -224,6 +275,9 @@ pub(in crate::layout) fn place_grid_items(
     let mut cells: Vec<GridCell> = Vec::with_capacity(children.len());
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut ncols = explicit_cols.max(1);
+
+    let eff_col_lines = effective_lines(col_lines, explicit_cols, areas, true);
+    let eff_row_lines = effective_lines(row_lines, explicit_rows, areas, false);
 
     let mut numeric: Vec<GridItem> = Vec::new();
     let mut auto: Vec<GridItem> = Vec::new();
@@ -252,15 +306,13 @@ pub(in crate::layout) fn place_grid_items(
             css.grid_column_start.as_ref().unwrap_or(&auto_line),
             css.grid_column_end.as_ref().unwrap_or(&auto_line),
             explicit_cols,
-            areas,
-            true,
+            &eff_col_lines,
         );
         let rowp = axis_placement(
             css.grid_row_start.as_ref().unwrap_or(&auto_line),
             css.grid_row_end.as_ref().unwrap_or(&auto_line),
             explicit_rows,
-            areas,
-            false,
+            &eff_row_lines,
         );
         match (colp, rowp) {
             (Some((c0, c1)), Some((r0, r1))) => {

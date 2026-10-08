@@ -122,23 +122,41 @@ pub(in crate::layout) fn intrinsic_floor(
     let row_gap = gap(css.row_gap.or(css.gap));
     let own_h = resolve_height(css.height, None, &resolve);
     let areas = css.grid_template_areas.clone();
-    let ncols = match &css.grid_template_columns {
-        Some(t) => super::tracks::expand_auto_repeats((**t).clone(), 0.0, col_gap).0.len(),
-        None => match &areas {
-            Some(a) => a.cols,
-            None => css.grid_columns.unwrap_or(1).max(1) as usize,
-        },
-    }
-    .max(1);
-    let rows = match &css.grid_template_rows {
-        Some(t) => super::tracks::expand_auto_repeats((**t).clone(), own_h.unwrap_or(0.0), row_gap).0,
-        None => Vec::new(),
+    let (ncols, col_lines) = match css.grid_template_columns.as_deref() {
+        Some(crate::style::GridTemplate::Tracks(t)) => {
+            let (tr, _, cl) = super::tracks::expand_auto_repeats(t, 0.0, col_gap);
+            (tr.len(), cl)
+        }
+        _ => {
+            let n = match &areas {
+                Some(a) => a.cols,
+                None => css.grid_columns.unwrap_or(1).max(1) as usize,
+            };
+            (n, vec![Vec::new(); n + 1])
+        }
+    };
+    let ncols = ncols.max(1);
+    let (rows, row_lines) = match css.grid_template_rows.as_deref() {
+        Some(crate::style::GridTemplate::Tracks(t)) => {
+            let (tr, _, rl) = super::tracks::expand_auto_repeats(t, own_h.unwrap_or(0.0), row_gap);
+            (tr, rl)
+        }
+        _ => (Vec::new(), Vec::new()),
     };
     let flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
         column: false,
         dense: false,
     });
-    let (cells, ncols) = place_grid_items(dom, &items, areas.as_deref(), ncols, rows.len(), flow);
+    let (cells, ncols) = place_grid_items(
+        dom,
+        &items,
+        areas.as_deref(),
+        &col_lines,
+        &row_lines,
+        ncols,
+        rows.len(),
+        flow,
+    );
     let ncols = ncols.max(1);
     let mut floors = vec![0.0f32; ncols];
     for c in cells.iter().filter(|c| c.c1 - c.c0 == 1 && c.c0 < ncols) {

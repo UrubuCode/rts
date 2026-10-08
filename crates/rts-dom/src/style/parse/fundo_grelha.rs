@@ -77,11 +77,11 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "grid-template-columns" => {
             set_if(&mut css.grid_columns, parse_grid_columns(val));
             set_ou_limpa(&mut css.grid_template_columns, val,
-                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new));
+                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new));
         }
         "grid-template-rows" => {
             set_ou_limpa(&mut css.grid_template_rows, val,
-                crate::style::GridTrack::parse_list(val).map(std::sync::Arc::new));
+                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new));
         }
         "grid-auto-rows" => {
             set_if(&mut css.grid_auto_rows, crate::style::GridTrack::parse_one(val));
@@ -101,9 +101,9 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             let tracks = crate::style::grid_areas::strip_quoted(val);
             if let Some((rows, cols)) = tracks.split_once('/') {
                 css.grid_template_rows =
-                    crate::style::GridTrack::parse_list(rows).map(std::sync::Arc::new);
+                    crate::style::GridTemplate::parse(rows).map(std::sync::Arc::new);
                 css.grid_template_columns =
-                    crate::style::GridTrack::parse_list(cols).map(std::sync::Arc::new);
+                    crate::style::GridTemplate::parse(cols).map(std::sync::Arc::new);
                 set_if(&mut css.grid_columns, parse_grid_columns(cols));
             }
         }

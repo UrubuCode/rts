@@ -24,29 +24,30 @@ use super::*;
 /// aqui) — a diferença entre os dois é só se as repetições SEM item colapsam
 /// depois da colocação, que é `collapsible` (devolvido ao lado) e não esta
 /// função.
-pub(in crate::layout) fn expand_auto_repeats(
-    tracks: Vec<crate::style::GridTrack>,
+pub(crate) fn expand_auto_repeats(
+    track_list: &crate::style::TrackList,
     container: f32,
     gap: f32,
-) -> (Vec<crate::style::GridTrack>, Vec<bool>) {
+) -> (Vec<crate::style::GridTrack>, Vec<bool>, Vec<crate::style::LineNames>) {
     use crate::style::GridTrack as T;
-    if !tracks.iter().any(|t| matches!(t, T::AutoRepeat { .. })) {
-        let n = tracks.len();
-        return (tracks, vec![false; n]);
-    }
-    let mut out = Vec::with_capacity(tracks.len());
-    let mut collapsible = Vec::with_capacity(tracks.len());
-    for t in tracks {
-        match t {
+    let mut out_tracks = Vec::with_capacity(track_list.entries.len());
+    let mut collapsible = Vec::with_capacity(track_list.entries.len());
+    let mut out_lines = Vec::with_capacity(track_list.entries.len() + 1);
+
+    let mut current_line: crate::style::LineNames = Vec::new();
+
+    for (entry_lines, track) in &track_list.entries {
+        current_line.extend(entry_lines.iter().cloned());
+        match track {
             T::AutoRepeat {
                 tracks: pattern,
                 fit,
                 count_unit,
             } => {
-                if pattern.is_empty() {
+                if pattern.entries.is_empty() {
                     continue;
                 }
-                let internal_gaps = (pattern.len().saturating_sub(1)) as f32 * gap;
+                let internal_gaps = (pattern.entries.len().saturating_sub(1)) as f32 * gap;
                 let per_rep = (count_unit + internal_gaps).max(0.0);
                 let n = if per_rep <= 0.0 || container <= 0.0 {
                     1
@@ -54,20 +55,28 @@ pub(in crate::layout) fn expand_auto_repeats(
                     (((container + gap) / (per_rep + gap)).floor() as i64).max(1) as usize
                 };
                 for _ in 0..n {
-                    for p in &pattern {
-                        out.push(p.clone());
-                        collapsible.push(fit);
+                    for (p_lines, p_track) in &pattern.entries {
+                        current_line.extend(p_lines.iter().cloned());
+                        out_lines.push(std::mem::take(&mut current_line));
+                        out_tracks.push(p_track.clone());
+                        collapsible.push(*fit);
                     }
+                    current_line.extend(pattern.trailing.iter().cloned());
                 }
             }
             other => {
-                out.push(other);
+                out_lines.push(std::mem::take(&mut current_line));
+                out_tracks.push(other.clone());
                 collapsible.push(false);
             }
         }
     }
-    (out, collapsible)
+    current_line.extend(track_list.trailing.iter().cloned());
+    out_lines.push(current_line);
+
+    (out_tracks, collapsible, out_lines)
 }
+
 
 /// A LARGURA (ou altura) de cada trilha de uma grade — CSS Grid 1 §11,
 /// reduzido ao que este motor sustenta: sem itens a atravessar trilhas (essa

@@ -89,11 +89,11 @@ macro_rules! css_props {
             /// cabe na macro simples); herança N/A (grid não herda). O layout roda
             /// o track-sizing sobre isto.
             pub grid_template_columns:
-                Option<std::sync::Arc<Vec<crate::style::GridTrack>>>,
+                Option<std::sync::Arc<crate::style::GridTemplate>>,
             /// GRID: trilhas de LINHA (`grid-template-rows`). `None` = linhas
             /// implícitas (via `grid_auto_rows`).
             pub grid_template_rows:
-                Option<std::sync::Arc<Vec<crate::style::GridTrack>>>,
+                Option<std::sync::Arc<crate::style::GridTemplate>>,
             /// GRID: tamanho das linhas IMPLÍCITAS (`grid-auto-rows`) — uma trilha
             /// aplicada a toda linha não coberta por `grid-template-rows`. `None` =
             /// auto (altura do conteúdo).
@@ -123,8 +123,8 @@ macro_rules! css_props {
         pub enum Decl {
             $( $ofield(Option<$oty>), )*
             $( $efield(Edges), )*
-            grid_template_columns(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
-            grid_template_rows(Option<std::sync::Arc<Vec<crate::style::GridTrack>>>),
+            grid_template_columns(Option<std::sync::Arc<crate::style::GridTemplate>>),
+            grid_template_rows(Option<std::sync::Arc<crate::style::GridTemplate>>),
             grid_auto_rows(Option<crate::style::GridTrack>),
             grid_template_areas(Option<std::sync::Arc<crate::style::GridAreas>>),
             grid_justify_items(Option<crate::style::AlignItems>),

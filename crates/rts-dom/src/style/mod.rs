@@ -98,6 +98,8 @@ mod newprops_tests;
 mod selector_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod subgrid_tests;
 
 // A API pública é a MESMA da antiga `style.rs` monolítica — os consumidores
 // (`dom.rs`, `layout.rs`, `abi.rs`, `scrollbar.rs`, `anim.rs`, rts-egui) seguem
@@ -137,7 +139,7 @@ pub use text_metrics::{
 pub use values::{
     AlignItems, Axis, AxisMap, BorderStyle, CalcLen, ContainingBlock, DIM_BASE_EM, DIM_BASE_PERCENT,
     DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges,
-    FlexDirection, FlexWrap, FloatSide, GridTrack, JustifyContent, LineHeight, PercentBasis,
-    PhysicalAxis, Position, ResolveCtx, Rgba, Side, TextAlign,
-    TrackBound, TextTransform, WhiteSpace, clamp_size, dimensao_absoluta,
+    FlexDirection, FlexWrap, FloatSide, GridTrack, GridTemplate, JustifyContent, LineHeight,
+    LineNames, PercentBasis, PhysicalAxis, Position, ResolveCtx, Rgba, Side, SubgridLine,
+    TextAlign, TrackBound, TrackList, TextTransform, WhiteSpace, clamp_size, dimensao_absoluta,
 };

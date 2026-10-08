@@ -59,6 +59,12 @@ impl GridAreas {
             .map(|(n, _)| n.as_str())
     }
 
+    /// Itera sobre os pares (nome, GridArea) declarados.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, GridArea)> {
+        self.named.iter().map(|(n, a)| (n.as_str(), *a))
+    }
+
+
     /// Parseia `'a b' 'c d'` (ou com aspas duplas). Cada string é uma LINHA; os
     /// tokens separados por espaço são as colunas.
     ///

@@ -217,37 +217,78 @@ pub(crate) fn fmt_flex_wrap(w: crate::style::FlexWrap) -> String {
 /// `{:?}` (geraria `flexwrap`, inválido).
 /// O keyword CSS de um `Overflow`. Vive aqui (e não em `scrollbar.rs`) porque
 /// serializar um valor computado é o trabalho DESTE módulo — o `scrollbar` sabe
-/// rolar, não sabe imprimir.
-/// Uma lista de trilhas de grid → a forma CSS (`100px 1fr auto`). `None` = a
-/// propriedade não foi declarada.
-pub(crate) fn fmt_tracks(t: Option<&Vec<crate::style::GridTrack>>) -> String {
+/// Uma declaração de grid-template → a forma CSS (`100px 1fr auto`, `subgrid [a]`, etc.).
+pub(crate) fn fmt_grid_template(t: Option<&crate::style::GridTemplate>) -> String {
     match t {
         None => String::new(),
-        Some(v) => v
-            .iter()
-            .map(|track| match track {
-                crate::style::GridTrack::Fixed(d) => fmt_dim(*d),
-                crate::style::GridTrack::Fr(f) => format!("{f}fr"),
-                crate::style::GridTrack::Auto => "auto".to_string(),
-                crate::style::GridTrack::Bounded { min, max } => {
-                    format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))
-                }
-                crate::style::GridTrack::Intrinsic { min, max } => {
-                    format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
-                }
-                // Nunca chega aqui em uso normal: `dom/estilo.rs` serializa
-                // `grid-template-columns`/`-rows` a partir dos tamanhos JÁ
-                // RESOLVIDOS em `list.grid_column_tracks` (ver o comentário
-                // lá), nunca chamando `fmt_tracks` sobre a declaração crua
-                // quando ela contém um `repeat(auto-fill|auto-fit, …)` por
-                // resolver. A forma crua fica aqui só para não deixar o
-                // `match` incompleto.
-                crate::style::GridTrack::AutoRepeat { fit, .. } => {
-                    format!("repeat({}, …)", if *fit { "auto-fit" } else { "auto-fill" })
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
+        Some(crate::style::GridTemplate::None) => "none".to_string(),
+        Some(crate::style::GridTemplate::Tracks(tl)) => fmt_track_list(tl),
+        Some(crate::style::GridTemplate::Subgrid(lines)) => {
+            if lines.is_empty() {
+                "subgrid".to_string()
+            } else {
+                let formatted = lines
+                    .iter()
+                    .map(|item| match item {
+                        crate::style::SubgridLine::Line(names) => {
+                            if names.is_empty() {
+                                "[]".to_string()
+                            } else {
+                                format!("[{}]", names.join(" "))
+                            }
+                        }
+                        crate::style::SubgridLine::AutoFill(pat) => {
+                            let p_str = pat
+                                .iter()
+                                .map(|names| {
+                                    if names.is_empty() {
+                                        "[]".to_string()
+                                    } else {
+                                        format!("[{}]", names.join(" "))
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            format!("repeat(auto-fill, {p_str})")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("subgrid {formatted}")
+            }
+        }
+    }
+}
+
+pub(crate) fn fmt_track_list(tl: &crate::style::TrackList) -> String {
+    let mut parts = Vec::new();
+    for (names, track) in &tl.entries {
+        if !names.is_empty() {
+            parts.push(format!("[{}]", names.join(" ")));
+        }
+        parts.push(fmt_track(track));
+    }
+    if !tl.trailing.is_empty() {
+        parts.push(format!("[{}]", tl.trailing.join(" ")));
+    }
+    parts.join(" ")
+}
+
+pub(crate) fn fmt_track(track: &crate::style::GridTrack) -> String {
+    match track {
+        crate::style::GridTrack::Fixed(d) => fmt_dim(*d),
+        crate::style::GridTrack::Fr(f) => format!("{f}fr"),
+        crate::style::GridTrack::Auto => "auto".to_string(),
+        crate::style::GridTrack::Bounded { min, max } => {
+            format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))
+        }
+        crate::style::GridTrack::Intrinsic { min, max } => {
+            format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+        }
+        crate::style::GridTrack::AutoRepeat { tracks, fit, .. } => {
+            let kw = if *fit { "auto-fit" } else { "auto-fill" };
+            format!("repeat({}, {})", kw, fmt_track_list(tracks))
+        }
     }
 }
 
