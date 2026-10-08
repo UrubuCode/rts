@@ -171,9 +171,9 @@ pub(in crate::frame::render) fn paint_list(
             // squares — is drawn as its squares stacked down the line, which
             // is exact; any other face is drawn UPRIGHT where the rotated run
             // starts. Turning the item through `paint/transform.rs` is WM-5.
-            DisplayItem::Text { x, y, text, color, size, is_ahem, letter_spacing, orientation, .. }
-                if *orientation != rts_dom::paint::Orientation::Horizontal =>
-            {
+            DisplayItem::Text {
+                x, y, text, color, size, is_ahem, letter_spacing, orientation, mono, family, bold, italic, ..
+            } if *orientation != rts_dom::paint::Orientation::Horizontal => {
                 let (px, py) = match mat {
                     Some(m) => m.apply(*x, *y),
                     None => (*x, *y),
@@ -192,9 +192,12 @@ pub(in crate::frame::render) fn paint_list(
                         painter.rect_filled(r, 0.0, col);
                     }
                 } else {
-                    let font = egui::FontId::proportional(*size);
-                    let (rx, ry) = if lr { (px, py - *size) } else { (px - *size, py) };
-                    painter.text(at + egui::vec2(rx, ry), egui::Align2::LEFT_TOP, text, font, col);
+                    let fam = super::medida::painted_family(painter.ctx(), family.as_deref(), *mono, *bold, *italic);
+                    let font = egui::FontId::new(*size, fam);
+                    let angle = if lr { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
+                    let galley = painter.layout_no_wrap(text.to_string(), font, col);
+                    let (rx, ry) = if lr { (px, py) } else { (px, py) };
+                    painter.add(egui::epaint::TextShape::new(at + egui::vec2(rx, ry), galley, col).with_angle(angle));
                 }
             }
             DisplayItem::Text { x, y, text, color, size, mono, family, bold, italic, letter_spacing, decoration, .. } => {

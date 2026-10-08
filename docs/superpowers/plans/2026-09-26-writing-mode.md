@@ -138,7 +138,7 @@ or `rts-egui` learns about frames except the text orientation.
   anchors rotated out; `containing_block.rs` finally built from `AxisMap`).
 - [x] **WM-4 — flex and grid containers in vertical modes** (F3, measured on
   the 196 flexbox and 418 grid files).
-- [ ] **WM-5 — egui paints sideways text** through a rotation on the item.
+- [x] **WM-5 — egui paints sideways text** through a rotation on the item.
 
 ## Constraints
 
