@@ -136,7 +136,7 @@ or `rts-egui` learns about frames except the text orientation.
 - [x] **WM-3 — floats, positioned boxes and static positions in a rotated
   frame** (the css-position `static-position/vlr-*` families need the
   anchors rotated out; `containing_block.rs` finally built from `AxisMap`).
-- [ ] **WM-4 — flex and grid containers in vertical modes** (F3, measured on
+- [x] **WM-4 — flex and grid containers in vertical modes** (F3, measured on
   the 196 flexbox and 418 grid files).
 - [ ] **WM-5 — egui paints sideways text** through a rotation on the item.
 

@@ -177,7 +177,15 @@ pub(in crate::layout) fn child_outer_width(
             match css.width.and_then(|d| d.resolve(&resolve)) {
                 Some(w) if css.border_box.unwrap_or(false) => w + css.margin.resolve_h(&resolve),
                 Some(w) => w + frame,
-                None => content_natural_width(dom, id, font, ctx) + frame,
+                None => {
+                    if super::block::rotated::opens_frame(dom, id, &css) {
+                        if let Some(&caixa) = dom.box_tree().boxes_of(id).first() {
+                            let (w, _) = measure_block(dom, id, caixa, container_w, None, None, None, true, ctx);
+                            return w;
+                        }
+                    }
+                    content_natural_width(dom, id, font, ctx) + frame
+                }
             }
         }
         // A loose text node measures as `intrinsic_outer_width` measures it:

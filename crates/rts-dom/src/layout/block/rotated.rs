@@ -166,7 +166,7 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
     use crate::style::DisplayKind as D;
     if matches!(
         css.effective_display(),
-        Some(D::Flex | D::FlexWrap | D::InlineFlex | D::InlineFlexWrap | D::Grid | D::InlineGrid)
+        Some(D::Flex | D::FlexWrap | D::InlineFlex | D::InlineFlexWrap)
             | Some(D::Table | D::InlineTable | D::TableRowGroup | D::TableHeaderGroup | D::TableFooterGroup)
             | Some(D::TableRow | D::TableCell | D::TableCaption | D::Inline)
     ) {
