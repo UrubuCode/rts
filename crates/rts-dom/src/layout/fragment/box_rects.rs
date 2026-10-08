@@ -191,6 +191,19 @@ impl BoxRects {
         }
     }
 
+    /// Translates every fragment of every box by `(dx, dy)`.
+    pub(crate) fn translate(&mut self, dx: f32, dy: f32) {
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        for e in self.map.values_mut() {
+            for r in e.fragments.iter_mut() {
+                r.x += dx;
+                r.y += dy;
+            }
+        }
+    }
+
     /// Takes `other`'s boxes; a box in both keeps `other`'s, as the map's
     /// `extend` always did.
     pub(crate) fn extend(&mut self, other: BoxRects) {

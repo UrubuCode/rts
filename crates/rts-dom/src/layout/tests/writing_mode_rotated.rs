@@ -95,3 +95,22 @@ fn a_horizontal_page_is_laid_out_as_before() {
     let stated = parse_html_to_dom(&format!("<style>body{{margin:0;writing-mode:horizontal-tb}}</style>{TWO_BLOCKS}"));
     assert_eq!(layout_document(&plain, &ctx).materialized(), layout_document(&stated, &ctx).materialized());
 }
+
+/// Lot WM-2: an orthogonal flow (horizontal-tb inside vertical-rl).
+/// The outer box has definite block size 160px (10em).
+/// The inner horizontal box sizes against it and shrinks to fit.
+#[test]
+fn orthogonal_horizontal_inside_vertical_fixed() {
+    let html = "<style>body{margin:0}</style>\
+                <div id=outer style='writing-mode:vertical-rl; width:10em; border:3px solid; background:red;'>\
+                  <div id=inner style='writing-mode:horizontal-tb; padding:3px; background:yellow;'>\
+                    This text should be inside a box with a yellow background and a black border. There should be no red.\
+                  </div>\
+                </div>";
+    let r = rects(html, &["outer", "inner"]);
+    let (outer, inner) = (r[0], r[1]);
+    assert_eq!((outer.w, outer.h), (166.0, 102.0), "outer {outer:?}");
+    assert_eq!((inner.w, inner.h), (160.0, 96.0), "inner {inner:?}");
+    assert_eq!((inner.x, inner.y), (outer.x + 3.0, outer.y + 3.0), "inner offset");
+}
+

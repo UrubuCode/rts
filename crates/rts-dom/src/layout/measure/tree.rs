@@ -371,6 +371,9 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
                     return measure_block(dom, id, caixa, ctx.viewport_w, None, None, None, true, ctx).0;
                 }
             }
+            if let Some(h) = crate::layout::block::rotated::ortho_measure_in_frame(dom, tree, id, box_id, ctx) {
+                return h;
+            }
             let f = font_px(&css, parent_font);
             let border_box = css.border_box.unwrap_or(false);
             let resolve = ResolveCtx {

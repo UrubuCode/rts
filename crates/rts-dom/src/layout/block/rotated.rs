@@ -39,11 +39,18 @@
 //! outside it, or the reverse. The boundary box itself is cached normally —
 //! its output is already physical.
 //!
+//! # Orthogonal flows (Writing Modes 4 §7.3, lot WM-2)
+//!
+//! A descendant whose writing mode differs from the frame's (e.g. `horizontal-tb`
+//! inside `vertical-rl`) is an orthogonal flow. `install` leaves its subtree's
+//! styles unrotated. During layout, `layout_orthogonal` sizes the child with
+//! shrink-to-fit against the containing block's block size, lays it out in its
+//! own physical display list, and queues it. During `rotate_out`, the child's list
+//! is translated to its physical bounding box and spliced into paint order without
+//! rotation.
+//!
 //! # What this lot does not do, stated
 //!
-//! - A descendant whose writing mode differs from the frame's (an orthogonal
-//!   flow, Writing Modes §7.3) is laid out AS IF it had the frame's mode: its
-//!   style is rotated with the rest of the subtree. That is WM-2.
 //! - `position: absolute/fixed` boxes are laid out by the document's
 //!   out-of-flow pass, outside any frame, as before (WM-3).
 //! - Flex, grid and table containers never OPEN a frame (flex keeps its own
@@ -65,6 +72,15 @@ use crate::paint::transform::Mat2d;
 use crate::style::values::AxisMap;
 use crate::style::{Dimension, WritingMode};
 
+struct OrthoChild {
+    box_id: crate::boxes::BoxId,
+    frame_x: f32,
+    frame_y: f32,
+    frame_w: f32,
+    frame_h: f32,
+    list: DisplayList,
+}
+
 thread_local! {
     /// The mode of the frame being laid out: `None` outside one.
     static IN_FRAME: Cell<Option<WritingMode>> = const { Cell::new(None) };
@@ -75,6 +91,12 @@ thread_local! {
     /// be reused by another style while the entry lives.
     static ROTATED: RefCell<crate::fasthash::FastMap<(usize, u8), (Rc<ComputedStyle>, Rc<ComputedStyle>)>> =
         RefCell::new(Default::default());
+    /// Stack of orthogonal children lists per active rotated frame.
+    static ORTHO_STACK: RefCell<Vec<Vec<OrthoChild>>> = RefCell::new(Vec::new());
+    /// Stack of orthogonal root NodeIdxs per active rotated frame.
+    static ORTHO_ROOTS: RefCell<Vec<Vec<NodeIdx>>> = RefCell::new(Vec::new());
+    /// Definite block size (physical width) of the active rotated frame.
+    static FRAME_BLOCK_SIZE: Cell<Option<f32>> = const { Cell::new(None) };
 }
 
 /// `true` while a rotated frame is being laid out.
@@ -89,6 +111,28 @@ pub(crate) fn in_rotated_frame() -> bool {
 /// like its parent's, so the style alone cannot say so.
 pub(crate) fn is_frame_root(id: NodeIdx) -> bool {
     FRAME_ROOT.with(Cell::get) == Some(id)
+}
+
+pub(crate) fn is_ortho_in_frame(id: NodeIdx) -> bool {
+    in_rotated_frame() && ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)))
+}
+
+pub(crate) fn ortho_measure_in_frame(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    id: NodeIdx,
+    box_id: Option<crate::boxes::BoxId>,
+    ctx: &LayoutCtx,
+) -> Option<f32> {
+    if !is_ortho_in_frame(id) {
+        return None;
+    }
+    let caixa = box_id.or_else(|| tree.boxes_of(id).first().copied())?;
+    let avail_w = FRAME_BLOCK_SIZE.with(Cell::get).unwrap_or(ctx.viewport_w);
+    let prev = IN_FRAME.with(|f| f.replace(None));
+    let (_, h) = crate::layout::measure_block(dom, id, caixa, avail_w, None, None, None, true, ctx);
+    IN_FRAME.with(|f| f.set(prev));
+    Some(h)
 }
 
 /// The writing mode of the frame being laid out, `None` outside one — for
@@ -161,11 +205,28 @@ pub(in crate::layout) fn opens_frame(dom: &Dom, id: NodeIdx, css: &ComputedStyle
 /// horizontal parent's width, `pct_basis` — where inside the frame they would
 /// resolve against the frame's inline size. They are resolved to pixels
 /// here, on that one style.
-fn install(dom: &Dom, id: NodeIdx, frame: AxisMap, pct_basis: f32) -> Vec<(NodeIdx, Option<Rc<ComputedStyle>>)> {
+fn install(
+    dom: &Dom,
+    id: NodeIdx,
+    frame: AxisMap,
+    pct_basis: f32,
+) -> (Vec<(NodeIdx, Option<Rc<ComputedStyle>>)>, Vec<NodeIdx>) {
     let mode = frame.writing_mode();
     let mut saved = Vec::new();
+    let mut ortho_roots = Vec::new();
     let mut stack = vec![id];
     while let Some(n) = stack.pop() {
+        if n != id {
+            if let Some(phys) = dom.computed_style_idx(n) {
+                let n_mode = phys.writing_mode.unwrap_or_default();
+                if n_mode.is_horizontal() != mode.is_horizontal() {
+                    // Orthogonal descendant: do NOT rotate its style into the frame,
+                    // and do NOT descend into its children (WM-2).
+                    ortho_roots.push(n);
+                    continue;
+                }
+            }
+        }
         if let Some(phys) = dom.computed_style_idx(n) {
             let key = (Rc::as_ptr(&phys) as usize, mode as u8);
             let rotated = ROTATED.with(|m| {
@@ -184,7 +245,7 @@ fn install(dom: &Dom, id: NodeIdx, frame: AxisMap, pct_basis: f32) -> Vec<(NodeI
         }
         stack.extend(dom.node(n).children.iter().copied());
     }
-    saved
+    (saved, ortho_roots)
 }
 
 fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedStyle> {
@@ -228,6 +289,17 @@ pub(in crate::layout) fn layout_if_boundary(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
+    if in_rotated_frame() {
+        let is_ortho = ORTHO_ROOTS.with(|s| {
+            s.borrow().last().is_some_and(|roots| roots.contains(&id))
+        });
+        if is_ortho && !opens_no_frame(tag) {
+            return layout_orthogonal(
+                dom, id, box_id, css, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+            );
+        }
+        return None;
+    }
     let wm = frame_mode(dom, id, css, tag)?;
     let is_root = dom.node(id).parent == Some(dom.root);
     // The frame's constraints. Its available inline size is the physical
@@ -243,9 +315,19 @@ pub(in crate::layout) fn layout_if_boundary(
     } else {
         (avail_h.unwrap_or(ctx.viewport_h), Some(avail_w), forced_outer_h, forced_outer_w, true)
     };
-    let saved = install(dom, id, AxisMap::new(wm, css.direction.unwrap_or_default()), avail_w);
+    let r_ctx = ResolveCtx {
+        parent_content_w: avail_w,
+        node_font_size: crate::layout::font_px(css, 16.0),
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+    let prev_bs = FRAME_BLOCK_SIZE.with(|b| b.replace(css.width.and_then(|w| w.resolve(&r_ctx))));
+    let (saved, ortho_roots) = install(dom, id, AxisMap::new(wm, css.direction.unwrap_or_default()), avail_w);
     IN_FRAME.with(|f| f.set(Some(wm)));
     FRAME_ROOT.with(|f| f.set(Some(id)));
+    ORTHO_STACK.with(|s| s.borrow_mut().push(Vec::new()));
+    ORTHO_ROOTS.with(|s| s.borrow_mut().push(ortho_roots));
     let lines = crate::layout::inline::line_baseline::mark();
     let mut own = DisplayList::for_dom(dom);
     let (fw, fh) = layout_block(
@@ -267,6 +349,9 @@ pub(in crate::layout) fn layout_if_boundary(
     crate::layout::inline::line_baseline::discard(lines);
     IN_FRAME.with(|f| f.set(None));
     FRAME_ROOT.with(|f| f.set(None));
+    ORTHO_ROOTS.with(|s| s.borrow_mut().pop());
+    FRAME_BLOCK_SIZE.with(|b| b.set(prev_bs));
+    let ortho_children = ORTHO_STACK.with(|s| s.borrow_mut().pop().unwrap_or_default());
     restore(dom, saved);
 
     let (outer_w, outer_h) = (fh, fw);
@@ -279,12 +364,85 @@ pub(in crate::layout) fn layout_if_boundary(
         WritingMode::SidewaysLr => Mat2d { a: 0.0, b: -1.0, c: 1.0, d: 0.0, e: x, f: y + outer_h },
         _ => Mat2d { a: 0.0, b: 1.0, c: -1.0, d: 0.0, e: right, f: y },
     };
-    rotate_out(own, box_id, &frame, list);
+    rotate_out(own, box_id, &frame, ortho_children, list);
     Some((outer_w, outer_h))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn layout_orthogonal(
+    dom: &Dom,
+    id: NodeIdx,
+    box_id: crate::boxes::BoxId,
+    _css: &ComputedStyle,
+    x: f32,
+    y: f32,
+    _avail_w: f32,
+    avail_h: Option<f32>,
+    forced_outer_w: Option<f32>,
+    forced_outer_h: Option<f32>,
+    ctx: &LayoutCtx,
+    list: &mut DisplayList,
+) -> Option<(f32, f32)> {
+    // In the parent vertical frame:
+    // - frame block axis is y (physical X). avail_h is containing block block-size.
+    // - frame inline axis is x (physical Y).
+    // An orthogonal horizontal child has its inline axis on physical X.
+    // CSS Writing Modes 4 §7.3.1:
+    // available inline size is containing block block size if definite, else ICB width.
+    let child_avail_w = forced_outer_h.or(avail_h).unwrap_or(ctx.viewport_w);
+    let (child_avail_h, child_forced_w, child_forced_h) = (forced_outer_w, forced_outer_h, forced_outer_w);
+
+    let prev_frame = IN_FRAME.with(|f| f.replace(None));
+    let prev_root = FRAME_ROOT.with(|r| r.replace(None));
+
+    let mut child_list = DisplayList::for_dom(dom);
+    let (child_phys_w, child_phys_h) = layout_block(
+        dom,
+        id,
+        box_id,
+        0.0,
+        0.0,
+        child_avail_w,
+        child_avail_h,
+        child_forced_w,
+        child_forced_h,
+        false,
+        true, // shrink-to-fit (Writing Modes 4 §7.3)
+        &BlockFormattingContext::new(), // independent BFC (§7.3)
+        ctx,
+        &mut child_list,
+    );
+
+    IN_FRAME.with(|f| f.set(prev_frame));
+    FRAME_ROOT.with(|r| r.set(prev_root));
+
+    let (frame_w, frame_h) = (child_phys_h, child_phys_w);
+
+    list.pieces.push(Piece::Rect(box_id));
+    ORTHO_STACK.with(|s| {
+        if let Some(stack) = s.borrow_mut().last_mut() {
+            stack.push(OrthoChild {
+                box_id,
+                frame_x: x,
+                frame_y: y,
+                frame_w,
+                frame_h,
+                list: child_list,
+            });
+        }
+    });
+
+    Some((frame_w, frame_h))
+}
+
 /// Maps everything `own` recorded through `frame` and appends it to `list`.
-fn rotate_out(mut own: DisplayList, box_id: crate::boxes::BoxId, frame: &Mat2d, list: &mut DisplayList) {
+fn rotate_out(
+    mut own: DisplayList,
+    box_id: crate::boxes::BoxId,
+    frame: &Mat2d,
+    mut ortho_children: Vec<OrthoChild>,
+    list: &mut DisplayList,
+) {
     // No subtree is reused inside a frame, so this is a no-op but for a
     // producer this lot does not know of; flattening keeps its items right.
     own.materialize();
@@ -303,6 +461,34 @@ fn rotate_out(mut own: DisplayList, box_id: crate::boxes::BoxId, frame: &Mat2d, 
         (region.content_w, region.content_h) = (region.content_h, region.content_w);
         (region.overflow_x, region.overflow_y) = (region.overflow_y, region.overflow_x);
     }
+
+    for child in ortho_children.iter_mut() {
+        let phys_rect = frame.transform_rect_bbox(Rect::new(child.frame_x, child.frame_y, child.frame_w, child.frame_h));
+        child.list.materialize();
+        child.list.translate(phys_rect.x, phys_rect.y);
+    }
+
+    let merge = |child: OrthoChild, own: &mut DisplayList| {
+        own.box_rects.extend(child.list.box_rects);
+        own.static_anchors.extend(child.list.static_anchors);
+        own.scroll_regions.extend(child.list.scroll_regions);
+        own.grid_column_tracks.extend(child.list.grid_column_tracks);
+        child.list.pieces
+    };
+    let orig_pieces = std::mem::take(&mut own.pieces);
+    let mut final_pieces = Vec::with_capacity(orig_pieces.len() + 16);
+    for piece in orig_pieces {
+        if let Piece::Rect(bid) = piece {
+            if let Some(pos) = ortho_children.iter().position(|c| c.box_id == bid) {
+                final_pieces.extend(merge(ortho_children.remove(pos), &mut own));
+                continue;
+            }
+        }
+        final_pieces.push(piece);
+    }
+    for c in ortho_children { final_pieces.extend(merge(c, &mut own)); }
+    own.pieces = final_pieces;
+
     let DisplayList { pieces, box_rects, static_anchors, grid_column_tracks, scroll_regions, .. } = own;
     list.pieces.extend(pieces);
     list.box_rects.extend(box_rects);

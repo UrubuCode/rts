@@ -256,7 +256,7 @@ pub enum WritingMode {
 impl WritingMode {
     pub fn parse(v: &str) -> Option<WritingMode> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "horizontal-tb" => WritingMode::HorizontalTb,
+            "horizontal-tb" | "initial" => WritingMode::HorizontalTb,
             "vertical-rl" => WritingMode::VerticalRl,
             "vertical-lr" => WritingMode::VerticalLr,
             "sideways-rl" => WritingMode::SidewaysRl,
