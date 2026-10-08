@@ -133,3 +133,45 @@ fn vertical_rl_static_position_anchor_rotated() {
     assert_eq!((c.x, c.y, c.w, c.h), (800.0 - 110.0, 0.0, 110.0, 410.0), "container {c:?}");
     assert_eq!((a.x, a.y, a.w, a.h), (775.0, 37.0, 20.0, 20.0), "abs {a:?}");
 }
+
+/// Lot WM-4: orthogonal items in flex container with vertical-rl and vertical-lr.
+#[test]
+fn flex_item_orthogonal_writing_mode_stretches() {
+    let html = "<style>\
+                body{margin:0}\
+                .container { display: flex; width: 250px; }\
+                .vertical-rl { writing-mode: vertical-rl; }\
+                .vertical-lr { writing-mode: vertical-lr; }\
+                .square { height: 50px; width: 50px; }\
+                </style>\
+                <div class=container id=c>\
+                  <div class='horizontal item' id=i1><div class=square></div><div class=square></div></div>\
+                  <div class='vertical-rl item' id=i2><div class=square></div><div class=square></div></div>\
+                  <div class='vertical-lr item' id=i3><div class=square></div><div class=square></div></div>\
+                </div>";
+    let r = rects(html, &["c", "i1", "i2", "i3"]);
+    let (c, i1, i2, i3) = (r[0], r[1], r[2], r[3]);
+    assert_eq!((c.w, c.h), (250.0, 100.0), "container {c:?}");
+    assert_eq!((i1.x, i1.y, i1.w, i1.h), (0.0, 0.0, 50.0, 100.0), "i1 {i1:?}");
+    assert_eq!((i2.x, i2.y, i2.w, i2.h), (50.0, 0.0, 100.0, 100.0), "i2 {i2:?}");
+    assert_eq!((i3.x, i3.y, i3.w, i3.h), (150.0, 0.0, 100.0, 100.0), "i3 {i3:?}");
+}
+
+/// Lot WM-4: grid container in vertical-rl writing mode.
+#[test]
+fn grid_container_in_vertical_rl() {
+    let html = "<style>\
+                body{margin:0}\
+                .grid { display: grid; writing-mode: vertical-rl; grid-template-columns: 50px 50px; grid-template-rows: 40px 40px; width: 80px; height: 100px; }\
+                .cell { background: blue; }\
+                </style>\
+                <div class=grid id=g>\
+                  <div class=cell id=c1></div>\
+                  <div class=cell id=c2></div>\
+                </div>";
+    let r = rects(html, &["g", "c1", "c2"]);
+    let (g, c1, c2) = (r[0], r[1], r[2]);
+    assert_eq!((g.w, g.h), (80.0, 100.0), "grid {g:?}");
+    assert_eq!((c1.w, c1.h), (40.0, 50.0), "c1 {c1:?}");
+    assert_eq!((c2.w, c2.h), (40.0, 50.0), "c2 {c2:?}");
+}
