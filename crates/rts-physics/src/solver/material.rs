@@ -30,6 +30,9 @@
 
 /// Layout do cabeçalho do buffer world (8 floats / 2 vec4s)
 pub const WORLD_HEADER_FLOATS: usize = 8;
+pub const WORLD_PARAM_MASS_SPLITTING: usize = 7;
+pub const WORLD_PARAM_CONTACT_SOFTNESS: usize = 6;
+pub const CONTACT_SOFTNESS_CODE_BASE: u32 = 1_000_000;
 pub const WORLD_PARAM_DT: usize = 0;
 pub const WORLD_PARAM_NUM_STATICS: usize = 1;
 pub const WORLD_PARAM_CELL_SIZE: usize = 2;
@@ -118,6 +121,7 @@ const LEGACY_FIXED: Fixed = Fixed {
 pub(super) struct Materials<'a> {
     region: Option<&'a [f32]>,
     any_mask: bool,
+    bodies: usize,
 }
 
 impl<'a> Materials<'a> {
@@ -134,7 +138,33 @@ impl<'a> Materials<'a> {
         Self {
             region: (world.len() >= needed).then(|| &world[MATERIALS_AT..]),
             any_mask,
+            bodies,
         }
+    }
+
+    #[inline]
+    fn orientation(&self, at: usize) -> [f32; 4] {
+        let Some(region) = self.region else {
+            return [0.0, 0.0, 0.0, 1.0];
+        };
+        let base = STATIC_CAPACITY * STATIC_RECORD + self.bodies * BODY_RECORD;
+        if region.len() < base + (STATIC_CAPACITY + self.bodies) * 4
+            || at + 4 > (STATIC_CAPACITY + self.bodies) * 4
+        {
+            return [0.0, 0.0, 0.0, 1.0];
+        }
+        let q = base + at;
+        [region[q], region[q + 1], region[q + 2], region[q + 3]]
+    }
+
+    #[inline]
+    pub fn body_orientation(&self, body: usize) -> [f32; 4] {
+        self.orientation(STATIC_CAPACITY * 4 + body * 4)
+    }
+
+    #[inline]
+    pub fn fixed_orientation(&self, fixed: usize) -> [f32; 4] {
+        self.orientation(fixed.min(STATIC_CAPACITY - 1) * 4)
     }
 
     #[inline]
@@ -167,7 +197,9 @@ impl<'a> Materials<'a> {
     }
 
     pub fn body(&self, body: usize) -> Body {
-        let Some(region) = self.region else { return LEGACY_BODY };
+        let Some(region) = self.region else {
+            return LEGACY_BODY;
+        };
         let at = STATIC_CAPACITY * STATIC_RECORD + body * BODY_RECORD;
         let raw_type = region[at + 5];
         let body_type = if raw_type == BODY_STATIC {
@@ -203,7 +235,9 @@ impl<'a> Materials<'a> {
     }
 
     pub fn fixed(&self, fixed: usize) -> Fixed {
-        let Some(region) = self.region else { return LEGACY_FIXED };
+        let Some(region) = self.region else {
+            return LEGACY_FIXED;
+        };
         let at = fixed.min(STATIC_CAPACITY - 1) * STATIC_RECORD;
         let layer = region[at + 2].to_bits();
         let mask = region[at + 3].to_bits();
@@ -259,6 +293,35 @@ pub(super) fn bounce(approach: f32, a: f32, b: f32) -> f32 {
 /// (0.08 on the ground, 0.10 in a stack); the geometric mean is what lets ice
 /// dominate a pair without making it frictionless.
 pub(super) fn friction_loss(strength: f32, a: f32, b: f32) -> f32 {
-    let relative = ((a / REFERENCE_FRICTION) * (b / REFERENCE_FRICTION)).max(0.0).sqrt();
+    let relative = ((a / REFERENCE_FRICTION) * (b / REFERENCE_FRICTION))
+        .max(0.0)
+        .sqrt();
     (strength * relative).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod orientation_tests {
+    use super::*;
+
+    #[test]
+    fn appended_orientations_are_read_and_legacy_worlds_default_to_identity() {
+        let bodies = 2;
+        let material_words = STATIC_CAPACITY * STATIC_RECORD + bodies * BODY_RECORD;
+        let old_len = MATERIALS_AT + material_words;
+        let mut old = vec![0.0; old_len];
+        let legacy = Materials::of(&old, bodies);
+        assert_eq!(legacy.body_orientation(0), [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(legacy.fixed_orientation(0), [0.0, 0.0, 0.0, 1.0]);
+
+        old.resize(old_len + (STATIC_CAPACITY + bodies) * 4, 0.0);
+        let tail = material_words;
+        old[MATERIALS_AT + tail + STATIC_CAPACITY * 4 + 4
+            ..MATERIALS_AT + tail + STATIC_CAPACITY * 4 + 8]
+            .copy_from_slice(&[0.0, 0.25, 0.0, 0.96824586]);
+        old[MATERIALS_AT + tail + 8..MATERIALS_AT + tail + 12]
+            .copy_from_slice(&[0.0, 0.5, 0.0, 0.8660254]);
+        let oriented = Materials::of(&old, bodies);
+        assert_eq!(oriented.fixed_orientation(2), [0.0, 0.5, 0.0, 0.8660254]);
+        assert_eq!(oriented.body_orientation(1), [0.0, 0.25, 0.0, 0.96824586]);
+    }
 }
