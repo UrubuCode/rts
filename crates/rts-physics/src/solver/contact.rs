@@ -73,38 +73,168 @@ fn axis_sign(x: f32) -> f32 {
 /// encoding the kernel reads out of `vel.w`, so a buffer written for one backend
 /// is readable by the other with no conversion step to get wrong.
 pub fn contact(pa: V3, ha: V3, sa: f32, pb: V3, hb: V3, sb: f32) -> Option<(V3, f32)> {
+    contact_oriented(
+        pa,
+        ha,
+        sa,
+        [0.0, 0.0, 0.0, 1.0],
+        pb,
+        hb,
+        sb,
+        [0.0, 0.0, 0.0, 1.0],
+    )
+}
+
+/// Quaternion-aware narrow phase. Quaternions are `(x, y, z, w)` and use the
+/// same local-to-world convention as `Transform` and the WGSL backend.
+pub fn contact_oriented(
+    pa: V3,
+    ha: V3,
+    sa: f32,
+    qa: [f32; 4],
+    pb: V3,
+    hb: V3,
+    sb: f32,
+    qb: [f32; 4],
+) -> Option<(V3, f32)> {
     let d = sub(pa, pb);
 
     if sa > 0.5 && sb > 0.5 {
-        return box_box(d, ha, hb);
+        return obb_box_box(d, ha, axes(qa), hb, axes(qb));
     }
     if sa < 0.5 && sb < 0.5 {
         return sphere_sphere(d, ha, hb);
     }
-    sphere_box(pa, ha, pb, hb, sb)
+    sphere_obb(pa, ha, axes(qa), pb, hb, axes(qb), sb)
 }
 
-/// Box against box, resolved on the axis of LEAST penetration.
-///
-/// That choice is what makes a cube falling onto a wide floor be pushed up
-/// rather than sideways: every axis overlaps, and the shallowest one is the one
-/// the body actually came through.
-fn box_box(d: V3, ha: V3, hb: V3) -> Option<(V3, f32)> {
-    let o = [
-        (ha[0] + hb[0]) - d[0].abs(),
-        (ha[1] + hb[1]) - d[1].abs(),
-        (ha[2] + hb[2]) - d[2].abs(),
+fn axes(q: [f32; 4]) -> [V3; 3] {
+    let norm = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    let (x, y, z, w) = if norm > 1.0e-8 {
+        (q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm)
+    } else {
+        (0.0, 0.0, 0.0, 1.0)
+    };
+    [
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y + z * w),
+            2.0 * (x * z - y * w),
+        ],
+        [
+            2.0 * (x * y - z * w),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z + x * w),
+        ],
+        [
+            2.0 * (x * z + y * w),
+            2.0 * (y * z - x * w),
+            1.0 - 2.0 * (x * x + y * y),
+        ],
+    ]
+}
+
+fn cross(a: V3, b: V3) -> V3 {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn obb_box_box(d: V3, ha: V3, aa: [V3; 3], hb: V3, ab: [V3; 3]) -> Option<(V3, f32)> {
+    let mut best = f32::INFINITY;
+    let mut best_axis = [0.0, 1.0, 0.0];
+    for index in 0..15 {
+        let raw = if index < 3 {
+            aa[index]
+        } else if index < 6 {
+            ab[index - 3]
+        } else {
+            cross(aa[(index - 6) / 3], ab[(index - 6) % 3])
+        };
+        let len2 = dot(raw, raw);
+        if index >= 6 && len2 < 1.0e-8 {
+            continue;
+        }
+        let axis = if index < 6 {
+            raw
+        } else {
+            scale(raw, 1.0 / len2.sqrt())
+        };
+        let ra = ha[0] * dot(axis, aa[0]).abs()
+            + ha[1] * dot(axis, aa[1]).abs()
+            + ha[2] * dot(axis, aa[2]).abs();
+        let rb = hb[0] * dot(axis, ab[0]).abs()
+            + hb[1] * dot(axis, ab[1]).abs()
+            + hb[2] * dot(axis, ab[2]).abs();
+        let signed = dot(d, axis);
+        let overlap = ra + rb - signed.abs();
+        if overlap <= 0.0 {
+            return None;
+        }
+        if overlap < best {
+            best = overlap;
+            best_axis = scale(axis, axis_sign(signed));
+        }
+    }
+    Some((best_axis, best))
+}
+
+fn sphere_obb(
+    pa: V3,
+    ha: V3,
+    aa: [V3; 3],
+    pb: V3,
+    hb: V3,
+    ab: [V3; 3],
+    sb: f32,
+) -> Option<(V3, f32)> {
+    let (bc, bh, ba, sc, r, sign) = if sb > 0.5 {
+        (pb, hb, ab, pa, radius(ha), 1.0)
+    } else {
+        (pa, ha, aa, pb, radius(hb), -1.0)
+    };
+    let rel = sub(sc, bc);
+    let local = [dot(rel, ba[0]), dot(rel, ba[1]), dot(rel, ba[2])];
+    let q = [
+        local[0].clamp(-bh[0], bh[0]),
+        local[1].clamp(-bh[1], bh[1]),
+        local[2].clamp(-bh[2], bh[2]),
     ];
-    if o[0] <= 0.0 || o[1] <= 0.0 || o[2] <= 0.0 {
+    let delta = [local[0] - q[0], local[1] - q[1], local[2] - q[2]];
+    let d2 = dot(delta, delta);
+    if d2 >= r * r {
         return None;
     }
-    if o[1] <= o[0] && o[1] <= o[2] {
-        return Some(([0.0, axis_sign(d[1]), 0.0], o[1]));
-    }
-    if o[0] <= o[2] {
-        return Some(([axis_sign(d[0]), 0.0, 0.0], o[0]));
-    }
-    Some(([0.0, 0.0, axis_sign(d[2])], o[2]))
+    let (normal, depth) = if d2 > 1.0e-6 {
+        let dist = d2.sqrt();
+        (
+            scale(
+                add(
+                    add(scale(ba[0], delta[0]), scale(ba[1], delta[1])),
+                    scale(ba[2], delta[2]),
+                ),
+                sign / dist,
+            ),
+            r - dist,
+        )
+    } else {
+        let gaps = [bh[0] - q[0].abs(), bh[1] - q[1].abs(), bh[2] - q[2].abs()];
+        let axis = if gaps[1] <= gaps[0] && gaps[1] <= gaps[2] {
+            1
+        } else if gaps[0] <= gaps[2] {
+            0
+        } else {
+            2
+        };
+        let mut n = scale(ba[axis], axis_sign(q[axis]) * sign);
+        if !n.iter().all(|v| v.is_finite()) {
+            n = [0.0, 1.0, 0.0];
+        }
+        (n, gaps[axis] + r)
+    };
+    Some((normal, depth))
 }
 
 /// Sphere against sphere: centre distance against the sum of the radii.
@@ -119,46 +249,6 @@ fn sphere_sphere(d: V3, ha: V3, hb: V3) -> Option<(V3, f32)> {
     }
     let dist = d2.sqrt();
     Some((scale(d, 1.0 / dist), rs - dist))
-}
-
-/// Sphere against box: the point of the box closest to the sphere's centre.
-///
-/// `sign` converts the normal — which leaves the box towards the sphere — into
-/// the B-towards-A convention: `+1` when A is the sphere, `-1` when A is the box.
-fn sphere_box(pa: V3, ha: V3, pb: V3, hb: V3, sb: f32) -> Option<(V3, f32)> {
-    let (bc, bh, sc, r, sign) = match sb > 0.5 {
-        true => (pb, hb, pa, radius(ha), 1.0f32),
-        false => (pa, ha, pb, radius(hb), -1.0f32),
-    };
-    let rel = sub(sc, bc);
-    let q = [
-        rel[0].clamp(-bh[0], bh[0]),
-        rel[1].clamp(-bh[1], bh[1]),
-        rel[2].clamp(-bh[2], bh[2]),
-    ];
-    let w = sub(sc, add(bc, q));
-    let d2 = dot(w, w);
-    if d2 >= r * r {
-        return None;
-    }
-    if d2 > 0.000001 {
-        let dist = d2.sqrt();
-        return Some((scale(w, sign / dist), r - dist));
-    }
-    // The centre is INSIDE the box: there is no closest-point direction, so it
-    // leaves through the face with the least clearance.
-    let g = [
-        bh[0] - q[0].abs(),
-        bh[1] - q[1].abs(),
-        bh[2] - q[2].abs(),
-    ];
-    if g[1] <= g[0] && g[1] <= g[2] {
-        return Some(([0.0, axis_sign(q[1]) * sign, 0.0], g[1] + r));
-    }
-    if g[0] <= g[2] {
-        return Some(([axis_sign(q[0]) * sign, 0.0, 0.0], g[0] + r));
-    }
-    Some(([0.0, 0.0, axis_sign(q[2]) * sign], g[2] + r))
 }
 
 #[cfg(test)]
@@ -218,5 +308,51 @@ mod tests {
         // NaN never sleeps and spreads to every neighbour in the next gather,
         // which is the failure the kernel's guard was added for.
         assert!(contact([0.0; 3], [1.0; 3], SPHERE, [0.0; 3], [1.0; 3], SPHERE).is_none());
+    }
+
+    #[test]
+    fn oriented_boxes_reject_an_aabb_only_overlap() {
+        let s = (std::f32::consts::FRAC_PI_4 * 0.5).sin();
+        let c = (std::f32::consts::FRAC_PI_4 * 0.5).cos();
+        let q = [0.0, s, 0.0, c];
+        let centre = [
+            std::f32::consts::FRAC_1_SQRT_2 * 0.5,
+            0.0,
+            std::f32::consts::FRAC_1_SQRT_2 * 0.5,
+        ];
+        assert!(contact_oriented(
+            [0.0; 3],
+            [2.0, 0.2, 0.2],
+            BOX,
+            q,
+            centre,
+            [2.0, 0.2, 0.2],
+            BOX,
+            q
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn sphere_contact_uses_the_box_orientation_and_world_normal() {
+        let s = (std::f32::consts::FRAC_PI_4 * 0.5).sin();
+        let c = (std::f32::consts::FRAC_PI_4 * 0.5).cos();
+        let q = [0.0, s, 0.0, c];
+        let centre = [0.0, 0.0, 0.0];
+        // Local +X face is turned 45 degrees toward world +X/+Z.
+        let sphere = [0.778, 0.0, -0.778];
+        let (normal, depth) = contact_oriented(
+            sphere,
+            [0.2; 3],
+            SPHERE,
+            [0.0, 0.0, 0.0, 1.0],
+            centre,
+            [1.0, 0.5, 0.25],
+            BOX,
+            q,
+        )
+        .expect("sphere overlaps the rotated face");
+        assert!(normal[0] > 0.6 && normal[2] < -0.6, "normal={normal:?}");
+        assert!(depth > 0.0);
     }
 }
