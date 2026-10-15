@@ -149,7 +149,7 @@ pub(in crate::layout) fn record_out_of_flow(
     row_shift: i32,
     explicit_cols: usize,
     explicit_rows: usize,
-    list: &mut DisplayList,
+    _list: &mut DisplayList,
 ) {
     let eff_col_lines = effective_lines(col_lines, explicit_cols, areas, true, col_sub.is_some());
     let eff_row_lines = effective_lines(row_lines, explicit_rows, areas, false, row_sub.is_some());
@@ -179,56 +179,14 @@ pub(in crate::layout) fn record_out_of_flow(
     let mut oof_boxes = Vec::new();
     collect_oof_descendants(dom, tree, container, true, &mut oof_boxes);
 
-    for (child_box, child_node, is_direct) in oof_boxes {
+    for (child_box, child_node, _) in oof_boxes {
         let child_css = dom.computed_style_idx(child_node).unwrap_or_default();
         let cs = child_css.grid_column_start.as_ref().unwrap_or(&auto_line);
         let ce = child_css.grid_column_end.as_ref().unwrap_or(&auto_line);
         let rs = child_css.grid_row_start.as_ref().unwrap_or(&auto_line);
         let re = child_css.grid_row_end.as_ref().unwrap_or(&auto_line);
 
-        let colp = axis_placement(cs, ce, explicit_cols, &eff_col_lines, col_sub.is_some())
-            .map(|(c0, c1)| ((c0 + col_shift).max(0) as usize, (c1 + col_shift).max(0) as usize));
-        let rowp = axis_placement(rs, re, explicit_rows, &eff_row_lines, row_sub.is_some())
-            .map(|(r0, r1)| ((r0 + row_shift).max(0) as usize, (r1 + row_shift).max(0) as usize));
 
-        if is_direct && establishes_cb && (colp.is_some() || rowp.is_some()) {
-            let (area_x, _area_w) = match colp {
-                Some((c0, c1)) => {
-                    if let Some(cs) = col_sub {
-                        let (rel_x, w) = cs.cell_pos_and_span(c0, c1);
-                        (content_x + rel_x, w)
-                    } else if !col_x.is_empty() {
-                        let idx = if is_rtl {
-                            c1.saturating_sub(1).min(col_x.len().saturating_sub(1))
-                        } else {
-                            c0.min(col_x.len().saturating_sub(1))
-                        };
-                        let w = col_sizes.get(c0..c1).map_or(0.0, |s| s.iter().sum());
-                        (col_x[idx], w)
-                    } else {
-                        (content_x, 0.0)
-                    }
-                }
-                None => (if is_rtl { pad_right } else { pad_left }, 0.0),
-            };
-
-            let area_y = match rowp {
-                Some((r0, r1)) => {
-                    if let Some(rs) = row_sub {
-                        let (rel_y, _) = rs.cell_pos_and_span(r0, r1);
-                        content_y + rel_y
-                    } else if !row_y.is_empty() {
-                        let idx = r0.min(row_y.len().saturating_sub(1));
-                        row_y[idx]
-                    } else {
-                        content_y
-                    }
-                }
-                None => pad_top,
-            };
-
-            list.static_anchors.push((child_box, area_x, area_y, 0.0));
-        }
 
         if establishes_cb {
             let col_s_line = match resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {

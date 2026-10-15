@@ -383,7 +383,11 @@ pub(in crate::layout) fn layout_children_grid(
         } else {
             nat_h
         };
-        let x = cell_x + cell_align_offset(justify, cell_w, iw);
+        let x = if is_rtl {
+            cell_x + cell_w - iw - cell_align_offset(justify, cell_w, iw)
+        } else {
+            cell_x + cell_align_offset(justify, cell_w, iw)
+        };
         let y = cell_y + cell_align_offset(align, cell_h, ih);
         let forced_w = if is_col_sub {
             Some(cell_w)

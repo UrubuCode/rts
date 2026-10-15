@@ -335,3 +335,31 @@ fn test_descendant_002() {
         assert_eq!(l_t.rect_of(it), l_r.rect_of(ir));
     }
 }
+
+#[test]
+fn test_bg_rtl_001() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-positioned-items-background-rtl-001.html",
+    ).unwrap();
+    let grid_css = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css",
+    ).unwrap();
+    let mut d_t = crate::parse_html_to_dom(&test_html);
+    d_t.add_stylesheet(&grid_css);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::measure::text_measurer::ApproxMeasurer,
+    };
+    let l_t = crate::layout::layout_document(&d_t, &ctx);
+    let items = d_t.query_all(".grid > div");
+    let reds = d_t.query_all(".red");
+    println!("items: {}, reds: {}", items.len(), reds.len());
+    for (i, (&it_node, &red_node)) in items.iter().zip(reds.iter()).enumerate() {
+        let it = d_t.resolve(it_node).unwrap();
+        let red = d_t.resolve(red_node).unwrap();
+        let r_it = l_t.rect_of(it);
+        let r_red = l_t.rect_of(red);
+        assert_eq!(r_it, r_red, "item {i} mismatch");
+    }
+}
