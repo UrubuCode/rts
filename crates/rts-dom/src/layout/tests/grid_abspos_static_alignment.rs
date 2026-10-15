@@ -55,3 +55,75 @@ fn rtl_starts_the_inline_axis_at_the_right_edge() {
     assert_eq!(place("direction:rtl", ""), (86.0, 97.0));
     assert_eq!(place("direction:rtl;justify-items:end", ""), (36.0, 97.0));
 }
+
+#[test]
+fn debug_positioned_grid_items_009() {
+    let html = r#"<style>
+#grid {
+  display: grid;
+  grid: 150px 100px / 200px 300px;
+  width: 550px;
+  height: 400px;
+  position: relative;
+}
+#grid > div {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+#firstItem { background: magenta; grid-column: 1 / 2; grid-row: 1 / 2; }
+#secondItem { background: cyan; grid-column: 2 / 3; grid-row: 1 / 2; }
+#thirdItem { background: yellow; grid-column: 1 / 2; grid-row: 2 / 3; }
+#fourthItem { background: lime; grid-column: 2 / 3; grid-row: 2 / 3; }
+</style>
+<div id="grid">
+  <div id="firstItem">First item</div>
+  <div id="secondItem">Second item</div>
+  <div id="thirdItem">Third item</div>
+  <div id="fourthItem">Fourth item</div>
+</div>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r1 = rect(&dom, &list, "#firstItem", 0);
+    let r2 = rect(&dom, &list, "#secondItem", 0);
+    let r3 = rect(&dom, &list, "#thirdItem", 0);
+    let r4 = rect(&dom, &list, "#fourthItem", 0);
+    println!("r1: {r1:?}");
+    println!("r2: {r2:?}");
+    println!("r3: {r3:?}");
+    println!("r4: {r4:?}");
+    assert_eq!((r1.w, r1.h), (200.0, 150.0));
+    assert_eq!((r2.w, r2.h), (300.0, 150.0));
+    assert_eq!((r3.w, r3.h), (200.0, 100.0));
+    assert_eq!((r4.w, r4.h), (300.0, 100.0));
+}
+
+#[test]
+fn test_sized_to_grid_area_with_left() {
+    let html = r#"<style>
+#grid {
+  display: grid;
+  grid-template-columns: 100px 200px;
+  grid-template-rows: 50px 150px;
+  width: 500px;
+  height: 300px;
+  position: relative;
+}
+#item {
+  position: absolute;
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  width: 100%;
+  height: 100%;
+  left: 5px;
+}
+</style>
+<div id="grid">
+  <div id="item"></div>
+</div>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r = rect(&dom, &list, "#item", 0);
+    println!("item rect: {r:?}");
+    assert_eq!((r.x, r.y, r.w, r.h), (5.0, 0.0, 100.0, 50.0));
+}

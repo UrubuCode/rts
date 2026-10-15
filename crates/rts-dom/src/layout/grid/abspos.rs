@@ -31,7 +31,7 @@ fn col_line_x(
     line: i32,
     ncols: usize,
     col_x: &[f32],
-    col_sizes: &[f32],
+    _col_sizes: &[f32],
     col_sub: Option<&SubgriddedAxis>,
     content_x: f32,
     content_w: f32,
@@ -49,10 +49,10 @@ fn col_line_x(
         } else {
             col_x.get(idx - 1).copied().unwrap_or(content_x)
         }
-    } else if idx >= ncols {
-        col_x.last().copied().unwrap_or(content_x) + col_sizes.last().copied().unwrap_or(0.0)
+    } else if let Some(&x) = col_x.get(idx) {
+        x
     } else {
-        col_x.get(idx).copied().unwrap_or(content_x)
+        col_x.last().copied().unwrap_or(content_x)
     }
 }
 
@@ -60,7 +60,7 @@ fn row_line_y(
     line: i32,
     nrows: usize,
     row_y: &[f32],
-    row_sizes: &[f32],
+    _row_sizes: &[f32],
     row_sub: Option<&SubgriddedAxis>,
     content_y: f32,
 ) -> f32 {
@@ -70,10 +70,37 @@ fn row_line_y(
     let idx = (line - 1).clamp(0, nrows as i32) as usize;
     if let Some(rs) = row_sub {
         content_y + rs.line_pos.get(idx).copied().unwrap_or(0.0)
-    } else if idx >= nrows {
-        row_y.last().copied().unwrap_or(content_y) + row_sizes.last().copied().unwrap_or(0.0)
+    } else if let Some(&y) = row_y.get(idx) {
+        y
     } else {
-        row_y.get(idx).copied().unwrap_or(content_y)
+        row_y.last().copied().unwrap_or(content_y)
+    }
+}
+
+fn collect_oof_descendants(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    current_box: BoxId,
+    is_direct: bool,
+    out: &mut Vec<(BoxId, crate::NodeIdx, bool)>,
+) {
+    for &child_box in tree.children_without_generated(current_box) {
+        if let Some(child_node) = tree.node_of(child_box) {
+            if is_out_of_flow(dom, child_node) {
+                out.push((child_box, child_node, is_direct));
+            } else {
+                let css = dom.computed_style_idx(child_node);
+                let establishes_cb = css.as_ref().map_or(false, |c| {
+                    c.position.map_or(false, |p| p != crate::style::Position::Static)
+                        || c.transform.is_some()
+                });
+                if !establishes_cb {
+                    collect_oof_descendants(dom, tree, child_box, false, out);
+                }
+            }
+        } else {
+            collect_oof_descendants(dom, tree, child_box, is_direct, out);
+        }
     }
 }
 
@@ -127,13 +154,10 @@ pub(in crate::layout) fn record_out_of_flow(
     let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static)
         || css.transform.is_some();
 
-    for &child_box in tree.children_without_generated(container) {
-        let Some(child_node) = tree.node_of(child_box) else {
-            continue;
-        };
-        if !is_out_of_flow(dom, child_node) {
-            continue;
-        };
+    let mut oof_boxes = Vec::new();
+    collect_oof_descendants(dom, tree, container, true, &mut oof_boxes);
+
+    for (child_box, child_node, is_direct) in oof_boxes {
         let child_css = dom.computed_style_idx(child_node).unwrap_or_default();
         let cs = child_css.grid_column_start.as_ref().unwrap_or(&auto_line);
         let ce = child_css.grid_column_end.as_ref().unwrap_or(&auto_line);
@@ -143,7 +167,7 @@ pub(in crate::layout) fn record_out_of_flow(
         let colp = axis_placement(cs, ce, ncols, &eff_col_lines, col_sub.is_some());
         let rowp = axis_placement(rs, re, nrows, &eff_row_lines, row_sub.is_some());
 
-        if colp.is_some() || rowp.is_some() {
+        if is_direct && (colp.is_some() || rowp.is_some()) {
             let area_x = match colp {
                 Some((c0, c1)) => {
                     if let Some(cs) = col_sub {
