@@ -454,7 +454,8 @@ pub(in crate::layout) fn layout_children_grid(
             row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gap)
         })
         .max(0.0);
-    if has_oof {
+    let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static) || css.transform.is_some();
+    if has_oof || establishes_cb {
         abspos::record_out_of_flow(
             dom,
             &tree,
