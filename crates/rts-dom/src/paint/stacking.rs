@@ -132,6 +132,8 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
                 crate::style::DisplayKind::Flex
                     | crate::style::DisplayKind::FlexWrap
                     | crate::style::DisplayKind::Grid
+                    | crate::style::DisplayKind::InlineGrid
+                    | crate::style::DisplayKind::InlineFlex
             )
         })
 }

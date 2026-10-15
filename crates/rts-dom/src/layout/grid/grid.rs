@@ -311,6 +311,11 @@ pub(in crate::layout) fn layout_children_grid(
     } else {
         Vec::new()
     };
+    cells.sort_by_key(|c| {
+        dom.computed_style_idx(c.child)
+            .and_then(|css| css.z_index)
+            .unwrap_or(0)
+    });
     for cell in &cells {
         let child = cell.child;
         let (cell_x, cell_w) = if let Some(cs) = col_sub {
