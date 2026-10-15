@@ -94,7 +94,7 @@ fn find_free_col_major(
 fn span_of(start: &GridLine, end: &GridLine) -> usize {
     match (start, end) {
         (GridLine::Span(n), _) | (_, GridLine::Span(n)) => (*n as usize).max(1),
-        (GridLine::SpanNamed(..), _) | (_, GridLine::SpanNamed(..)) => 1,
+        (GridLine::SpanNamed(_, n), _) | (_, GridLine::SpanNamed(_, n)) => (*n as usize).max(1),
         _ => 1,
     }
 }

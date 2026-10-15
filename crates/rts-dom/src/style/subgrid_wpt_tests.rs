@@ -352,3 +352,75 @@ fn test_abs_pos_002() {
         assert_eq!(ra, rb, "x {i}");
     }
 }
+
+#[test]
+fn test_item_percentage_height_001() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let html_t = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\item-percentage-height-001.html",
+    )
+    .unwrap();
+    let html_r = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\item-percentage-height-001-ref.html",
+    )
+    .unwrap();
+    let dom_t = crate::parse_html_to_dom(&html_t);
+    let dom_r = crate::parse_html_to_dom(&html_r);
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+
+    for (i, &it) in dom_t.query_all(".item").iter().enumerate() {
+        let n = dom_t.resolve(it).unwrap();
+        println!("test item {i}: {:?}", list_t.rect_of(n));
+    }
+    for (i, &g) in dom_t.query_all(".grid, .subgrid").iter().enumerate() {
+        let n = dom_t.resolve(g).unwrap();
+        println!("test grid {i}: rect={:?}", list_t.rect_of(n));
+    }
+    for (i, &it) in dom_r.query_all(".item").iter().enumerate() {
+        let n = dom_r.resolve(it).unwrap();
+        println!("ref item {i}: {:?}", list_r.rect_of(n));
+    }
+    for (i, &g) in dom_r.query_all(".grid").iter().enumerate() {
+        let n = dom_r.resolve(g).unwrap();
+        println!("ref grid {i}: rect={:?}", list_r.rect_of(n));
+    }
+}
+
+#[test]
+fn test_line_names_008() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-008.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-008-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (xt, xr) = (dom_t.query_all("x"), dom_r.query_all("x"));
+    assert_eq!(xt.len(), xr.len());
+    for (i, (&a, &b)) in xt.iter().zip(&xr).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        println!("x {i}: test={ra:?} ref={rb:?}");
+    }
+}
+
+

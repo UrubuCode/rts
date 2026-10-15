@@ -148,13 +148,59 @@ fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Opti
     }
 }
 
-/// One edge after name resolution: an absolute line, a span count, a span TO
-/// a named line, or nothing (`auto`, or a name that resolved to no line).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::layout) fn find_named_line_forward(
+    name: &str,
+    after_line: i32,
+    nth: u32,
+    lines: &[LineNames],
+) -> Option<i32> {
+    if nth == 0 {
+        return None;
+    }
+    let start_idx = after_line.max(0) as usize;
+    let suffixed = format!("{}-end", name);
+    let mut count = 0;
+    for (idx, line) in lines.iter().enumerate().skip(start_idx) {
+        if line.iter().any(|l| l == &suffixed || l == name) {
+            count += 1;
+            if count == nth {
+                return Some(idx as i32 + 1);
+            }
+        }
+    }
+    None
+}
+
+pub(in crate::layout) fn find_named_line_backward(
+    name: &str,
+    before_line: i32,
+    nth: u32,
+    lines: &[LineNames],
+) -> Option<i32> {
+    if nth == 0 || before_line <= 1 {
+        return None;
+    }
+    let end_idx = (before_line - 1).min(lines.len() as i32) as usize;
+    let suffixed = format!("{}-start", name);
+    let mut count = 0;
+    for idx in (0..end_idx).rev() {
+        if lines[idx].iter().any(|l| l == &suffixed || l == name) {
+            count += 1;
+            if count == nth {
+                return Some(idx as i32 + 1);
+            }
+        }
+    }
+    None
+}
+
+/// One edge after name resolution: an absolute line, a span count, a named span,
+/// or nothing (`auto`, or a name that resolved to no line).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::layout) enum Edge {
     Abs(i32),
     Span(u32),
-    SpanTo(i32),
+    SpanNamed(std::sync::Arc<str>, u32),
     Auto,
 }
 
@@ -181,9 +227,7 @@ pub(in crate::layout) fn resolve_edge(
                 }
             }))
         }
-        GridLine::SpanNamed(id, n) => {
-            named_line(id, *n as i32, end_edge, lines).map_or(Edge::Span(1), Edge::SpanTo)
-        }
+        GridLine::SpanNamed(id, n) => Edge::SpanNamed(id.clone(), *n),
     }
 }
 
@@ -210,8 +254,20 @@ pub(in crate::layout) fn axis_placement(
                 (a, a + 1)
             }
         }
-        (Abs(a), SpanTo(l)) => (a, if l > a { l } else { a + 1 }),
-        (SpanTo(l), Abs(b)) => (if l < b { l } else { (b - 1).max(1) }, b),
+        (Abs(a), SpanNamed(id, n)) => {
+            let l = find_named_line_forward(&id, a, n, lines).unwrap_or_else(|| {
+                if is_subgrid {
+                    lines.len() as i32
+                } else {
+                    (explicit as i32 + 1).max(a + n as i32)
+                }
+            });
+            (a, if l > a { l } else { a + 1 })
+        }
+        (SpanNamed(id, n), Abs(b)) => {
+            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(1);
+            (if l < b { l } else { (b - 1).max(1) }, b)
+        }
         (Abs(a), Span(n)) => (a, a + n as i32),
         (Span(n), Abs(b)) => {
             let a = (b - n as i32).max(1);

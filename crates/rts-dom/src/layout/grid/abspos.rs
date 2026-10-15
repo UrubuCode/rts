@@ -1,6 +1,9 @@
 //! Static position anchors and grid-area containing blocks for out-of-flow items inside a grid container.
 
-use super::lines::{axis_placement, effective_lines, resolve_edge, Edge};
+use super::lines::{
+    axis_placement, effective_lines, find_named_line_backward, find_named_line_forward,
+    resolve_edge, Edge,
+};
 use crate::boxes::BoxId;
 use crate::dom::Dom;
 use crate::layout::grid::subgrid::SubgriddedAxis;
@@ -181,10 +184,24 @@ pub(in crate::layout) fn record_out_of_flow(
         if establishes_cb {
             let col_s_line = match resolve_edge(cs, false, ncols, &eff_col_lines, col_sub.is_some()) {
                 Edge::Abs(n) => Some(n),
+                Edge::SpanNamed(id, n) => {
+                    if let Edge::Abs(b) = resolve_edge(ce, true, ncols, &eff_col_lines, col_sub.is_some()) {
+                        find_named_line_backward(&id, b, n, &eff_col_lines)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             let col_e_line = match resolve_edge(ce, true, ncols, &eff_col_lines, col_sub.is_some()) {
                 Edge::Abs(n) => Some(n),
+                Edge::SpanNamed(id, n) => {
+                    if let Edge::Abs(a) = resolve_edge(cs, false, ncols, &eff_col_lines, col_sub.is_some()) {
+                        find_named_line_forward(&id, a, n, &eff_col_lines)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             let (col_s_line, col_e_line) = match (col_s_line, col_e_line) {
@@ -204,10 +221,24 @@ pub(in crate::layout) fn record_out_of_flow(
 
             let row_s_line = match resolve_edge(rs, false, nrows, &eff_row_lines, row_sub.is_some()) {
                 Edge::Abs(n) => Some(n),
+                Edge::SpanNamed(id, n) => {
+                    if let Edge::Abs(b) = resolve_edge(re, true, nrows, &eff_row_lines, row_sub.is_some()) {
+                        find_named_line_backward(&id, b, n, &eff_row_lines)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             let row_e_line = match resolve_edge(re, true, nrows, &eff_row_lines, row_sub.is_some()) {
                 Edge::Abs(n) => Some(n),
+                Edge::SpanNamed(id, n) => {
+                    if let Edge::Abs(a) = resolve_edge(rs, false, nrows, &eff_row_lines, row_sub.is_some()) {
+                        find_named_line_forward(&id, a, n, &eff_row_lines)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             let (row_s_line, row_e_line) = match (row_s_line, row_e_line) {
