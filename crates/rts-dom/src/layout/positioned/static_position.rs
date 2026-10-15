@@ -116,10 +116,9 @@ pub(in crate::layout) fn static_position_of(
     // sole item of an area spanning the container's padding box. So the
     // lines cut applies only to a positioned container (the `-002`/`-004`
     // variants of `grid-abspos-staticpos-*` pin the other half).
-    let container_is_cb = parent_css
-        .position
-        .is_some_and(|p| p != crate::style::Position::Static)
-        || parent_css.transform.is_some();
+    let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
+    let container_is_cb = parent_css.transform.is_some()
+        || (!is_fixed && parent_css.position.is_some_and(|p| p != crate::style::Position::Static));
     if parent_css
         .effective_display()
         .is_some_and(|d| d.is_grid_container())
@@ -344,35 +343,37 @@ fn static_position_grid(
 ) -> (f32, f32) {
     use crate::layout::flex::offsets::align_offset;
     use crate::style::AlignItems as A;
-    let start_if_stretch = |a: Option<A>| match a.unwrap_or(A::FlexStart) {
-        A::Stretch => A::FlexStart,
-        a => a,
-    };
-    let align = start_if_stretch(css.align_self.or(parent_css.align_items));
-    let justify = start_if_stretch(css.justify_self.or(parent_css.grid_justify_items));
+    let s = |a: Option<A>| match a.unwrap_or(A::FlexStart) { A::Stretch => A::FlexStart, a => a };
+    let align = s(css.align_self.or(parent_css.align_items));
+    let justify = s(css.justify_self.or(parent_css.grid_justify_items));
     let wm = parent_css.writing_mode.unwrap_or_default();
+    let item_wm = css.writing_mode.unwrap_or_default();
+    let p_rtl = parent_css.direction == Some(crate::style::Direction::Rtl);
+    let i_rtl = css.direction == Some(crate::style::Direction::Rtl);
     if wm.is_vertical() {
+        let align_rl = matches!(wm, crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl);
+        let same_start = if item_wm.is_horizontal() { i_rtl == align_rl } else {
+            matches!(item_wm, crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl) == align_rl
+        };
+        let eff_align = match align {
+            A::SelfStart => if same_start { A::FlexStart } else { A::FlexEnd },
+            A::SelfEnd => if same_start { A::FlexEnd } else { A::FlexStart },
+            other => other,
+        };
         let dy = align_offset(justify, content.h, outer_h);
-        let y = if parent_css.direction == Some(crate::style::Direction::Rtl) {
-            content.y + content.h - outer_h - dy
-        } else {
-            content.y + dy
-        };
-        let dx = align_offset(align, content.w, outer_w);
-        let x = match wm {
-            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl => {
-                content.x + content.w - outer_w - dx
-            }
-            _ => content.x + dx,
-        };
+        let y = if p_rtl { content.y + content.h - outer_h - dy } else { content.y + dy };
+        let dx = align_offset(eff_align, content.w, outer_w);
+        let x = if align_rl { content.x + content.w - outer_w - dx } else { content.x + dx };
         (x, y)
     } else {
         let y = content.y + align_offset(align, content.h, outer_h);
-        let dx = align_offset(justify, content.w, outer_w);
-        let x = if parent_css.direction == Some(crate::style::Direction::Rtl) {
-            content.x + content.w - outer_w - dx
-        } else {
-            content.x + dx
+        let x = match justify {
+            A::Left => content.x,
+            A::Right => content.x + content.w - outer_w,
+            A::SelfStart => if i_rtl { content.x + content.w - outer_w } else { content.x },
+            A::SelfEnd => if i_rtl { content.x } else { content.x + content.w - outer_w },
+            _ if p_rtl => content.x + content.w - outer_w - align_offset(justify, content.w, outer_w),
+            _ => content.x + align_offset(justify, content.w, outer_w),
         };
         (x, y)
     }

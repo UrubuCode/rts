@@ -1,8 +1,7 @@
 //! Static position anchors and grid-area containing blocks for out-of-flow items inside a grid container.
 
 use super::lines::{
-    axis_placement, effective_lines, find_named_line_backward, find_named_line_forward,
-    resolve_edge, Edge,
+    effective_lines, find_named_line_backward, find_named_line_forward, resolve_edge, Edge,
 };
 use crate::boxes::BoxId;
 use crate::dom::Dom;
@@ -52,7 +51,7 @@ fn col_line_x(
     col_sizes: &[f32],
     col_sub: Option<&SubgriddedAxis>,
     content_x: f32,
-    content_w: f32,
+    _content_w: f32,
     is_rtl: bool,
 ) -> f32 {
     if ncols == 0 {
@@ -63,7 +62,7 @@ fn col_line_x(
         content_x + cs.line_pos.get(idx).copied().unwrap_or(0.0)
     } else if is_rtl {
         if idx == 0 {
-            content_x + content_w
+            col_x.first().copied().unwrap_or(content_x) + col_sizes.first().copied().unwrap_or(0.0)
         } else {
             col_x.get(idx - 1).copied().unwrap_or(content_x)
         }
@@ -133,6 +132,7 @@ pub(in crate::layout) fn record_out_of_flow(
     content_y: f32,
     total_w: f32,
     total_h: f32,
+    container_content_h: Option<f32>,
     is_rtl: bool,
     col_sub: Option<&SubgriddedAxis>,
     row_sub: Option<&SubgriddedAxis>,
@@ -169,10 +169,13 @@ pub(in crate::layout) fn record_out_of_flow(
     } else {
         total_w
     };
+    let container_h = container_content_h
+        .or_else(|| crate::layout::positioned::positioned::resolve_height(css.height, None, resolve))
+        .unwrap_or(total_h);
     let pad_left = content_x - pl;
     let pad_right = content_x + container_w + pr;
     let pad_top = content_y - pt;
-    let pad_bottom = content_y + total_h + pb;
+    let pad_bottom = content_y + container_h + pb;
     let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static)
         || css.transform.is_some();
 
@@ -227,6 +230,7 @@ pub(in crate::layout) fn record_out_of_flow(
             };
             let (col_s_line, col_e_line) = match (col_s_line, col_e_line) {
                 (Some(s), Some(e)) if s > e => (Some(e), Some(s)),
+                (Some(s), Some(e)) if s == e => (Some(s), Some(s + 1)),
                 other => other,
             };
             let edge_start_x = match col_s_line {
@@ -278,6 +282,7 @@ pub(in crate::layout) fn record_out_of_flow(
             };
             let (row_s_line, row_e_line) = match (row_s_line, row_e_line) {
                 (Some(s), Some(e)) if s > e => (Some(e), Some(s)),
+                (Some(s), Some(e)) if s == e => (Some(s), Some(s + 1)),
                 other => other,
             };
             let edge_start_y = match row_s_line {

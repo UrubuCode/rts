@@ -452,8 +452,9 @@ pub(crate) fn layout_block(
     // container (WPT `floats-clear/float-non-replaced-width-001` e
     // `float-replaced-width-001`, ambos com `n` idêntico — a mesma causa).
     let is_float = crate::layout::float::float::float_of(dom, id) != crate::style::FloatSide::None;
+    let is_oof = crate::layout::positioned::positioned::is_out_of_flow(dom, id);
     let has_width = css.width.is_some() || css.max_width.is_some();
-    if is_float {
+    if is_float || is_oof {
         if m.left.is_auto() {
             margin_left = 0.0;
         }

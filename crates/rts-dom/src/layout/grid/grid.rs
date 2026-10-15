@@ -383,10 +383,25 @@ pub(in crate::layout) fn layout_children_grid(
         } else {
             nat_h
         };
-        let x = if is_rtl {
-            cell_x + cell_w - iw - cell_align_offset(justify, cell_w, iw)
-        } else {
-            cell_x + cell_align_offset(justify, cell_w, iw)
+        let x = match justify {
+            crate::style::AlignItems::Left => cell_x,
+            crate::style::AlignItems::Right => cell_x + cell_w - iw,
+            crate::style::AlignItems::SelfStart => {
+                if item_css.direction == Some(crate::style::Direction::Rtl) {
+                    cell_x + cell_w - iw
+                } else {
+                    cell_x
+                }
+            }
+            crate::style::AlignItems::SelfEnd => {
+                if item_css.direction == Some(crate::style::Direction::Rtl) {
+                    cell_x
+                } else {
+                    cell_x + cell_w - iw
+                }
+            }
+            _ if is_rtl => cell_x + cell_w - iw - cell_align_offset(justify, cell_w, iw),
+            _ => cell_x + cell_align_offset(justify, cell_w, iw),
         };
         let y = cell_y + cell_align_offset(align, cell_h, ih);
         let forced_w = if is_col_sub {
@@ -456,6 +471,7 @@ pub(in crate::layout) fn layout_children_grid(
     if has_oof || establishes_cb {
         abspos::record_out_of_flow(
             dom, &tree, container, css, &resolve, content_x, content_y, total_w, total_h,
+            container_content_h,
             is_rtl, col_sub, row_sub, &col_x, &row_y, &col_sizes, &row_sizes,
             &col_lines, &row_lines, areas.as_deref(), ncols, nrows,
             col_shift, row_shift, explicit_cols_n, explicit_rows_n, list,

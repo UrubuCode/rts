@@ -332,13 +332,17 @@ pub enum AlignItems {
     /// fallback físico nunca diverge entre um teste e a sua referência do
     /// jeito que um ascent mal medido divergiria.
     LastBaseline,
+    Left,
+    Right,
+    SelfStart,
+    SelfEnd,
 }
 
 impl AlignItems {
     pub fn parse_justify(v: &str) -> Option<AlignItems> {
         match v.trim().to_ascii_lowercase().as_str() {
-            "left" => Some(AlignItems::FlexStart),
-            "right" => Some(AlignItems::FlexEnd),
+            "left" => Some(AlignItems::Left),
+            "right" => Some(AlignItems::Right),
             _ => Self::parse(v),
         }
     }
@@ -347,24 +351,16 @@ impl AlignItems {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "normal" => AlignItems::Normal,
             "stretch" => AlignItems::Stretch,
-            // `flow-start`/`flow-end`: see the sibling aliases on
-            // `JustifyContent::parse` — same collapse, same reason.
-            "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,
-            "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
-            "center" => AlignItems::Center,
+            "self-start" | "unsafe self-start" => AlignItems::SelfStart,
+            "self-end" | "unsafe self-end" => AlignItems::SelfEnd,
+            "flex-start" | "start" | "flow-start" => AlignItems::FlexStart,
+            "flex-end" | "end" | "flow-end" => AlignItems::FlexEnd,
+            "center" | "unsafe center" => AlignItems::Center,
             "safe center" => AlignItems::SafeCenter,
             "safe end" | "safe flex-end" | "safe self-end" => AlignItems::SafeEnd,
-            // `safe start`/`unsafe <x>`: `start` never overflows its OWN
-            // start edge (the direction alignment falls back to), so "safe
-            // start" collapses to plain `start`, and "unsafe <x>" collapses
-            // to plain `<x>` — css-align-3 §4.4 makes overflow-safety a
-            // no-op for `start` and irrelevant for the "unsafe" keyword,
-            // which only spells out the default we already apply to the
-            // unprefixed `center`/`end`.
             "safe start" | "safe flex-start" | "safe self-start" | "unsafe start"
-            | "unsafe flex-start" | "unsafe self-start" => AlignItems::FlexStart,
-            "unsafe end" | "unsafe flex-end" | "unsafe self-end" => AlignItems::FlexEnd,
-            "unsafe center" => AlignItems::Center,
+            | "unsafe flex-start" => AlignItems::FlexStart,
+            "unsafe end" | "unsafe flex-end" => AlignItems::FlexEnd,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
             _ => return None,
@@ -484,7 +480,7 @@ mod flow_start_flow_end_tests {
         );
         assert_eq!(
             AlignItems::parse("unsafe self-end"),
-            Some(AlignItems::FlexEnd)
+            Some(AlignItems::SelfEnd)
         );
         assert_eq!(AlignItems::parse("unsafe center"), Some(AlignItems::Center));
     }

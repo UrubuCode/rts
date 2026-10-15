@@ -363,3 +363,25 @@ fn test_bg_rtl_001() {
         assert_eq!(r_it, r_red, "item {i} mismatch");
     }
 }
+
+#[test]
+fn test_vertwm_002() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-abspos-staticpos-align-self-vertWM-002.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-abspos-staticpos-align-self-vertWM-002-ref.html",
+    ).unwrap();
+    let (d_t, l_t) = crate::table::tests::geometria(&test_html, 800.0);
+    let (d_r, l_r) = crate::table::tests::geometria(&ref_html, 800.0);
+    let items_t = d_t.query_all(".container > div");
+    let items_r = d_r.query_all(".container > div");
+    println!("items count: test={}, ref={}", items_t.len(), items_r.len());
+    for (i, (&it_node, &ir_node)) in items_t.iter().zip(items_r.iter()).enumerate() {
+        let it = d_t.resolve(it_node).unwrap();
+        let ir = d_r.resolve(ir_node).unwrap();
+        let rt = l_t.rect_of(it);
+        let rr = l_r.rect_of(ir);
+        assert_eq!(rt, rr, "Mismatch item {i}");
+    }
+}

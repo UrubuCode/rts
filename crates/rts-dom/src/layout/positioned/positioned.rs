@@ -219,12 +219,28 @@ pub(in crate::layout) fn layout_out_of_flow(
         super::static_position::static_position_of(dom, id, &css, flow_rects, ctx, w, h, cb)
     });
     let x = match (left, right) {
-        (Some(l), _) => cb.x + l,
+        (Some(l), Some(r)) => {
+            let free_w = (cb.w - l - r - w).max(0.0);
+            match (css.margin.left.is_auto(), css.margin.right.is_auto()) {
+                (true, true) => cb.x + l + free_w / 2.0,
+                (true, false) => cb.x + l + free_w,
+                _ => cb.x + l,
+            }
+        }
+        (Some(l), None) => cb.x + l,
         (None, Some(r)) => cb.x + cb.w - w - r,
         (None, None) => static_pos.unwrap().0,
     };
     let y = match (top, bottom) {
-        (Some(t), _) => cb.y + t,
+        (Some(t), Some(b)) => {
+            let free_h = (cb.h - t - b - h).max(0.0);
+            match (css.margin.top.is_auto(), css.margin.bottom.is_auto()) {
+                (true, true) => cb.y + t + free_h / 2.0,
+                (true, false) => cb.y + t + free_h,
+                _ => cb.y + t,
+            }
+        }
+        (Some(t), None) => cb.y + t,
         (None, Some(b)) => cb.y + cb.h - h - b,
         (None, None) => static_pos.unwrap().1,
     };

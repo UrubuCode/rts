@@ -15,10 +15,12 @@ pub(super) fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f3
     let free = cell - item;
     match a {
         crate::style::AlignItems::Center => free / 2.0,
-        crate::style::AlignItems::FlexEnd => free,
+        crate::style::AlignItems::FlexEnd
+        | crate::style::AlignItems::Right
+        | crate::style::AlignItems::SelfEnd => free,
         crate::style::AlignItems::SafeCenter => (free / 2.0).max(0.0),
         crate::style::AlignItems::SafeEnd => free.max(0.0),
-        _ => 0.0, // FlexStart / Stretch
+        _ => 0.0, // FlexStart / Left / Stretch / SelfStart
     }
 }
 
