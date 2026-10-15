@@ -34,14 +34,11 @@ pub(in crate::layout) fn layout_children_grid(
     let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
     let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
 
-    let col_gap = col_sub
-        .map(|s| s.gap)
-        .unwrap_or_else(|| css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
-    let row_gap = row_sub
-        .map(|s| s.gap)
-        .unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
+    let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
+    let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
 
     let areas = css.grid_template_areas.clone();
+    let container_content_h = css.height.is_some().then_some(container_content_h).flatten();
     let is_p_grid = subgrid::is_parent_grid(dom, id);
     let (col_tracks, col_collapsible, col_lines) =
         subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid);
@@ -199,6 +196,7 @@ pub(in crate::layout) fn layout_children_grid(
             .max()
             .unwrap_or(1)
             .max(areas.as_ref().map(|a| a.rows).unwrap_or(0))
+            .max(explicit_rows.len())
             .max(1);
         let row_collapsed =
             collapse::collapsed(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
@@ -372,32 +370,40 @@ pub(in crate::layout) fn layout_children_grid(
             || (is_stretch(align)
                 && item_css.height.is_none()
                 && (!has_ratio || declared_y));
+        let use_area_h = area_h.or(Some(cell_h));
         let (nat_w, nat_h) = measure_block(
-            dom,
-            child,
-            cell.box_id,
-            cell_w,
-            area_h,
-            ratio_w,
-            None,
-            true,
-            ctx,
+            dom, child, cell.box_id, cell_w, use_area_h, ratio_w, None, true, ctx,
         );
+        use crate::scrollbar::Overflow::{Clip, Visible};
+        let axis_vis = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+        let overflow_visible = axis_vis(item_css.overflow_x) && axis_vis(item_css.overflow_y);
+        let def_px = |d| match d { Some(crate::style::Dimension::Px(p)) => Some(p), _ => None };
+        let clamp_auto = |mut base: f32, sz, mx| {
+            if let Some(p) = def_px(sz) { base = base.min(p); }
+            if let Some(m) = def_px(mx) { base = base.min(m); }
+            base
+        };
         let iw = match ratio_w {
             Some(w) => w,
             None if stretch_x => cell_w,
             None if item_css.width == Some(crate::style::Dimension::MinContent) => {
                 crate::table::min_content(dom, child, font_size, ctx).min(cell_w)
             }
-            None if item_css.width.is_some() => nat_w,
-            None => nat_w.min(cell_w),
+            None if item_css.min_width.is_none() && overflow_visible => {
+                let cnt = crate::table::min_content_with_floor(dom, child, font_size, ctx);
+                let auto = aspect::resolve_specified_suggestion(item_css.width, cnt).unwrap_or(cnt);
+                nat_w.max(clamp_auto(auto, item_css.width, item_css.max_width))
+            }
+            None => nat_w,
         };
         let ih = if stretch_y {
             cell_h
-        } else if item_css.height.is_some() {
-            nat_h
+        } else if item_css.min_height.is_none() && overflow_visible {
+            let unc_h = measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1;
+            let auto = aspect::resolve_specified_suggestion(item_css.height, unc_h).unwrap_or(unc_h);
+            nat_h.max(clamp_auto(auto, item_css.height, item_css.max_height))
         } else {
-            nat_h.min(cell_h)
+            nat_h
         };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
         let y = cell_y + cell_align_offset(align, cell_h, ih);
@@ -412,7 +418,7 @@ pub(in crate::layout) fn layout_children_grid(
         let forced_h = if is_row_sub || stretch_y {
             Some(cell_h)
         } else {
-            None
+            Some(ih)
         };
         if is_col_sub || is_row_sub {
             subgrid::register_if_subgrid(
@@ -438,7 +444,7 @@ pub(in crate::layout) fn layout_children_grid(
             x,
             y,
             cell_w,
-            area_h,
+            use_area_h,
             || (0.0, 0.0),
             forced_w,
             forced_h,

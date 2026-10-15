@@ -235,6 +235,7 @@ fn install(
     id: NodeIdx,
     frame: AxisMap,
     pct_basis: f32,
+    avail_h: Option<f32>,
 ) -> (Vec<(NodeIdx, Option<Rc<ComputedStyle>>)>, Vec<NodeIdx>) {
     let mode = frame.writing_mode();
     let mut saved = Vec::new();
@@ -266,7 +267,7 @@ fn install(
                 Rc::clone(&entry.1)
             });
             let rotated = if n == id {
-                resolve_own_percentages(&rotated, pct_basis)
+                resolve_own_percentages(&rotated, pct_basis, avail_h)
             } else {
                 rotated
             };
@@ -277,7 +278,7 @@ fn install(
     (saved, ortho_roots)
 }
 
-fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedStyle> {
+fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32, avail_h: Option<f32>) -> Rc<ComputedStyle> {
     use crate::style::values::{Edges, Side};
     let px = |s: Side| match s {
         Side::Len(Dimension::Percent(p)) => Side::Len(Dimension::Px(basis * p / 100.0)),
@@ -297,11 +298,22 @@ fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedSt
             left: px(css.padding.left),
         },
     );
-    if margin == css.margin && padding == css.padding {
+    let res_h = |d: Option<Dimension>| match d {
+        Some(Dimension::Percent(p)) => avail_h.map(|h| Dimension::Px(h * p / 100.0)),
+        Some(Dimension::Calc(c)) if c.pct != 0.0 => avail_h.map(|h| {
+            let mut c2 = c;
+            c2.px += h * c.pct / 100.0;
+            c2.pct = 0.0;
+            Dimension::Calc(c2)
+        }),
+        other => other,
+    };
+    let (w, mnw, mxw) = (res_h(css.width), res_h(css.min_width), res_h(css.max_width));
+    if margin == css.margin && padding == css.padding && w == css.width && mnw == css.min_width && mxw == css.max_width {
         return Rc::clone(css);
     }
     let mut out = (**css).clone();
-    (out.margin, out.padding) = (margin, padding);
+    (out.margin, out.padding, out.width, out.min_width, out.max_width) = (margin, padding, w, mnw, mxw);
     Rc::new(out)
 }
 
@@ -385,6 +397,7 @@ pub(in crate::layout) fn layout_if_boundary(
         id,
         AxisMap::new(wm, css.direction.unwrap_or_default()),
         avail_w,
+        avail_h,
     );
     IN_FRAME.with(|f| f.set(Some(wm)));
     FRAME_ROOT.with(|f| f.set(Some(id)));
