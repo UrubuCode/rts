@@ -327,5 +327,10 @@ pub(in crate::layout) fn collect_items(
             box_id,
         });
     }
+    items.sort_by_key(|it| {
+        dom.computed_style_idx(it.node)
+            .and_then(|c| c.order)
+            .unwrap_or(0)
+    });
     items
 }
