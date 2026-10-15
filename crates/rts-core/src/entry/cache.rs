@@ -176,6 +176,16 @@ pub(super) fn chain_changed() {
     CHAIN_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The live epoch, for a memo that validates an absence it proved itself.
+///
+/// `instance_of` remembers that a callee has no `Symbol.hasInstance` and flags
+/// every chain link it walked, exactly as the absence cache does, so any later
+/// addition of the hook bumps this and the memo stops firing. Reading it is the
+/// cheap half of that check.
+pub(super) fn chain_epoch() -> u64 {
+    CHAIN_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Whether a read of `key` on `cell` may be cached as `undefined`, and the
 /// `undefined` to cache.
 ///

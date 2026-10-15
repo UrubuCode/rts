@@ -605,6 +605,22 @@ pub struct Context {
     /// class definition time, read by `call` and `call_with_args` — never by
     /// `construct`, which is the one path allowed to reach one.
     callables: Aside<(u64, u64, bool)>,
+    /// A per-callee memo that `Symbol.hasInstance` is ABSENT, for `instanceof`.
+    ///
+    /// The whole cost of `x instanceof C` is the `Symbol.hasInstance` probe —
+    /// measured 118 ns of 119, with the chain walk barely entering it (see
+    /// `functions::instance_of`). Almost no class defines the hook, so the probe
+    /// misses on essentially every execution and pays the same price each time.
+    ///
+    /// This remembers that miss. It holds `(type_id, prototype, epoch)` observed
+    /// when the hook was proven absent, and all three must still hold for the
+    /// memo to fire: the callee's own type (an own `static [Symbol.hasInstance]`
+    /// moves it), its prototype (a slot reused by a differently-linked cell fails
+    /// it), and `cache::chain_epoch` (adding the hook to any walked link bumps it,
+    /// because the miss flags every link exactly as the absence cache does). None
+    /// of the three is a JavaScript value, so nothing here is invisible to the
+    /// collector.
+    has_instance_absent: Aside<(u32, u64, u64)>,
     /// What an Error was constructed FROM, until something asks for `.stack`.
     ///
     /// The class name and the call stack as it stood at construction. Rendering
@@ -1524,6 +1540,7 @@ impl Context {
             text_type,
             spill_type,
             callables: Aside::in_region(bits),
+            has_instance_absent: Aside::in_region(bits),
             proxies: Aside::in_region(bits),
             cursors: Aside::in_region(bits),
             prototypes: Aside::in_region(bits),

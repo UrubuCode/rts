@@ -1947,11 +1947,39 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         if context.proxy_at(slot).is_some() {
             return Probe::Slowly;
         }
+        // The memo first: if this callee was proven to have no `Symbol.hasInstance`
+        // when it had this same type and prototype, and nothing has changed a link
+        // since (the epoch), the probe below is the 118 ns it was last time for an
+        // answer that cannot have moved. All three must match — see
+        // `Context::has_instance_absent` for why each is load-bearing.
+        let epoch = super::cache::chain_epoch();
+        let ty = context.region.type_of(slot);
+        let proto = context.prototype_at(slot).unwrap_or(0);
+        if let Some(ty) = ty
+            && context.has_instance_absent.copied(slot) == Some((ty, proto, epoch))
+        {
+            return Probe::None;
+        }
         let key = context.well_known(super::symbol::HAS_INSTANCE);
         match super::accessor::resolve(context, slot, key) {
             // Nothing, along the whole chain. This is the answer for every
-            // ordinary constructor in every program.
-            super::accessor::Found::Absent => Probe::None,
+            // ordinary constructor in every program — so remember it, flagging
+            // every link the way the absence cache does so that whichever one
+            // later gains the hook bumps the epoch and retires this memo. The
+            // callee itself is not flagged: gaining an own `static
+            // [Symbol.hasInstance]` moves its type, which the memo already checks.
+            super::accessor::Found::Absent => {
+                let mut link = super::objects::inherited_from(context, slot);
+                for _ in 0..super::objects::CHAIN_LIMIT {
+                    let Some(at) = link else { break };
+                    context.mark_chain_link(at);
+                    link = super::objects::inherited_from(context, at);
+                }
+                if let Some(ty) = ty {
+                    context.has_instance_absent.set(slot, (ty, proto, epoch));
+                }
+                Probe::None
+            }
             super::accessor::Found::Value(found) => Probe::Held(found),
             // A getter is user code and may not run inside this borrow.
             super::accessor::Found::Getter(_) => Probe::Slowly,
