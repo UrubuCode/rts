@@ -256,7 +256,7 @@ pub(in crate::layout) fn intrinsic_floor(
             column: false,
             dense: false,
         });
-    let (cells, ncols) = place_grid_items(
+    let placement = place_grid_items(
         dom,
         &items,
         areas.as_deref(),
@@ -268,6 +268,7 @@ pub(in crate::layout) fn intrinsic_floor(
         false,
         false,
     );
+    let (cells, ncols) = (placement.cells, placement.ncols);
     let ncols = ncols.max(1);
     let mut floors = vec![0.0f32; ncols];
     for c in cells.iter().filter(|c| c.c1 - c.c0 == 1 && c.c0 < ncols) {

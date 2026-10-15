@@ -28,6 +28,7 @@ pub(in crate::layout) struct GridItem {
 /// 0-based com o fim EXCLUSIVO. É o único que o resto do layout de grid
 /// consome, o que é o que permite às três colocações (nome, linha, auto)
 /// coexistirem sem um segundo caminho de posicionamento.
+#[derive(Clone, Copy, Debug)]
 pub(in crate::layout) struct GridCell {
     pub child: NodeIdx,
     pub box_id: BoxId,
@@ -52,7 +53,7 @@ fn resolve_abs(n: i32, explicit: usize) -> Option<i32> {
     } else if n < 0 {
         let total_lines = explicit as i32 + 1;
         let r = total_lines + n + 1;
-        (r >= 1).then_some(r)
+        Some(r)
     } else {
         None // `0` não é da gramática (grid_lines::GridLine::parse já o recusa)
     }
@@ -240,7 +241,7 @@ pub(in crate::layout) fn axis_placement(
     explicit: usize,
     lines: &[LineNames],
     is_subgrid: bool,
-) -> Option<(usize, usize)> {
+) -> Option<(i32, i32)> {
     use Edge::*;
     let s = resolve_edge(start, false, explicit, lines, is_subgrid);
     let e = resolve_edge(end, true, explicit, lines, is_subgrid);
@@ -259,35 +260,28 @@ pub(in crate::layout) fn axis_placement(
             (a, if l > a { l } else { a + 1 })
         }
         (SpanNamed(id, n), Abs(b)) => {
-            let l = find_named_line_backward(&id, b, n, lines).unwrap_or((b - 1).max(1));
-            (if l < b { l } else { (b - 1).max(1) }, b)
+            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(b - 1);
+            (if l < b { l } else { b - 1 }, b)
         }
         (Abs(a), Span(n)) => (a, a + n as i32),
-        (Span(n), Abs(b)) => {
-            let a = (b - n as i32).max(1);
-            (a, b.max(a + 1))
-        }
+        (Span(n), Abs(b)) => (b - n as i32, b),
         (Abs(a), Auto) => (a, a + 1),
-        (Auto, Abs(b)) => {
-            let a = (b - 1).max(1);
-            (a, a + 1)
-        }
-        // Two spans, or a span with no anchor, or both `auto`: no definite
-        // position on this axis, and the item goes back to auto-placement.
+        (Auto, Abs(b)) => (b - 1, b),
         _ => return None,
     };
-    let mut c0 = (a - 1).max(0) as usize;
-    let mut c1 = (b - 1).max(0) as usize;
+    let (mut a, mut b) = if a <= b { (a, b) } else { (b, a) };
+    if b == a { b = a + 1; }
     if is_subgrid && explicit > 0 {
-        let span = c1.saturating_sub(c0).max(1);
-        if c0 >= explicit {
-            c1 = explicit;
-            c0 = c1.saturating_sub(span);
-        } else if c1 > explicit {
-            c1 = explicit;
+        let span = (b - a).max(1);
+        let exp = explicit as i32;
+        if a - 1 >= exp {
+            b = exp + 1;
+            a = (b - span).max(1);
+        } else if b - 1 > exp {
+            b = exp + 1;
         }
     }
-    Some((c0, c1))
+    Some((a - 1, b - 1))
 }
 
 pub(in crate::layout) use super::placement::place_grid_items;

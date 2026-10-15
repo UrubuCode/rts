@@ -111,6 +111,14 @@ fn span_of(start: &GridLine, end: &GridLine, lines: &[LineNames]) -> usize {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(in crate::layout) struct PlacementResult {
+    pub cells: Vec<GridCell>,
+    pub ncols: usize,
+    pub col_shift: i32,
+    pub row_shift: i32,
+}
+
 struct ItemPlacementInfo {
     item: GridItem,
     colp: Option<(usize, usize)>,
@@ -119,7 +127,7 @@ struct ItemPlacementInfo {
     r_span: usize,
 }
 
-/// Coloca os filhos e devolve `(células, nº de colunas final)` (CSS Grid §8.5).
+/// Coloca os filhos e devolve `PlacementResult` (CSS Grid §8.5).
 pub(in crate::layout) fn place_grid_items(
     dom: &Dom,
     children: &[GridItem],
@@ -131,7 +139,7 @@ pub(in crate::layout) fn place_grid_items(
     auto_flow: GridAutoFlow,
     is_col_sub: bool,
     is_row_sub: bool,
-) -> (Vec<GridCell>, usize) {
+) -> PlacementResult {
     let mut cells: Vec<GridCell> = Vec::with_capacity(children.len());
     let mut taken: HashSet<(usize, usize)> = HashSet::new();
     let mut ncols = explicit_cols.max(1);
@@ -144,6 +152,10 @@ pub(in crate::layout) fn place_grid_items(
     let mut phase3 = Vec::new();
     let auto_line = GridLine::Auto;
 
+    let mut min_col = 0i32;
+    let mut min_row = 0i32;
+    let mut raw_infos = Vec::with_capacity(children.len());
+
     for &child in children {
         let css = dom.computed_style_idx(child.node).unwrap_or_default();
         let cs = css.grid_column_start.as_ref().unwrap_or(&auto_line);
@@ -153,12 +165,27 @@ pub(in crate::layout) fn place_grid_items(
 
         let colp = axis_placement(cs, ce, explicit_cols, &eff_col_lines, is_col_sub);
         let rowp = axis_placement(rs, re, explicit_rows, &eff_row_lines, is_row_sub);
+        if let Some((c0, _)) = colp {
+            min_col = min_col.min(c0);
+        }
+        if let Some((r0, _)) = rowp {
+            min_row = min_row.min(r0);
+        }
         let c_span = colp
-            .map(|(c0, c1)| c1 - c0)
+            .map(|(c0, c1)| (c1 - c0).max(1) as usize)
             .unwrap_or_else(|| span_of(cs, ce, &eff_col_lines));
         let r_span = rowp
-            .map(|(r0, r1)| r1 - r0)
+            .map(|(r0, r1)| (r1 - r0).max(1) as usize)
             .unwrap_or_else(|| span_of(rs, re, &eff_row_lines));
+        raw_infos.push((child, colp, rowp, c_span, r_span));
+    }
+
+    let col_shift = if min_col < 0 { -min_col } else { 0 };
+    let row_shift = if min_row < 0 { -min_row } else { 0 };
+
+    for (child, colp, rowp, c_span, r_span) in raw_infos {
+        let colp = colp.map(|(c0, c1)| ((c0 + col_shift) as usize, (c1 + col_shift) as usize));
+        let rowp = rowp.map(|(r0, r1)| ((r0 + row_shift) as usize, (r1 + row_shift) as usize));
 
         let info = ItemPlacementInfo {
             item: child,
@@ -337,5 +364,10 @@ pub(in crate::layout) fn place_grid_items(
         });
     }
 
-    (cells, ncols)
+    PlacementResult {
+        cells,
+        ncols,
+        col_shift,
+        row_shift,
+    }
 }

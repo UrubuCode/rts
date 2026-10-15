@@ -113,7 +113,7 @@ fn grid_content_width(
             column: false,
             dense: false,
         });
-    let (cells, placed_cols) = place_grid_items(
+    let placement = place_grid_items(
         dom,
         &items,
         areas.as_deref(),
@@ -125,6 +125,7 @@ fn grid_content_width(
         false,
         false,
     );
+    let (cells, placed_cols) = (placement.cells, placement.ncols);
     let explicit_cols_n = col_tracks.len();
     let mut col_tracks = col_tracks;
     let ncols = ncols.max(placed_cols);

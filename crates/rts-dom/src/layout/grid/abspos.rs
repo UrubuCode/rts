@@ -14,13 +14,25 @@ use crate::paint::Rect;
 use crate::style::grid_lines::GridLine;
 use crate::style::{ComputedStyle, GridAreas};
 
+#[derive(Clone, Copy, Debug)]
+pub(in crate::layout) struct GridCbRel {
+    pub rel_x: f32,
+    pub rel_y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
 thread_local! {
-    static GRID_CB_RECTS: std::cell::RefCell<crate::fasthash::FastMap<BoxId, Rect>> =
+    static GRID_CB_RECTS: std::cell::RefCell<crate::fasthash::FastMap<BoxId, GridCbRel>> =
         std::cell::RefCell::new(crate::fasthash::FastMap::default());
 }
 
-pub(in crate::layout) fn get_grid_cb(box_id: BoxId) -> Option<Rect> {
-    GRID_CB_RECTS.with(|cell| cell.borrow().get(&box_id).copied())
+pub(in crate::layout) fn get_grid_cb(box_id: BoxId, parent_cb: Rect) -> Option<Rect> {
+    GRID_CB_RECTS.with(|cell| {
+        cell.borrow().get(&box_id).map(|rel| {
+            Rect::new(parent_cb.x + rel.rel_x, parent_cb.y + rel.rel_y, rel.w, rel.h)
+        })
+    })
 }
 
 pub(in crate::layout) fn clear_grid_cb() {
@@ -31,7 +43,7 @@ fn col_line_x(
     line: i32,
     ncols: usize,
     col_x: &[f32],
-    _col_sizes: &[f32],
+    col_sizes: &[f32],
     col_sub: Option<&SubgriddedAxis>,
     content_x: f32,
     content_w: f32,
@@ -52,7 +64,7 @@ fn col_line_x(
     } else if let Some(&x) = col_x.get(idx) {
         x
     } else {
-        col_x.last().copied().unwrap_or(content_x)
+        col_x.last().copied().unwrap_or(content_x) + col_sizes.last().copied().unwrap_or(0.0)
     }
 }
 
@@ -60,7 +72,7 @@ fn row_line_y(
     line: i32,
     nrows: usize,
     row_y: &[f32],
-    _row_sizes: &[f32],
+    row_sizes: &[f32],
     row_sub: Option<&SubgriddedAxis>,
     content_y: f32,
 ) -> f32 {
@@ -73,7 +85,7 @@ fn row_line_y(
     } else if let Some(&y) = row_y.get(idx) {
         y
     } else {
-        row_y.last().copied().unwrap_or(content_y)
+        row_y.last().copied().unwrap_or(content_y) + row_sizes.last().copied().unwrap_or(0.0)
     }
 }
 
@@ -127,10 +139,14 @@ pub(in crate::layout) fn record_out_of_flow(
     areas: Option<&GridAreas>,
     ncols: usize,
     nrows: usize,
+    col_shift: i32,
+    row_shift: i32,
+    explicit_cols: usize,
+    explicit_rows: usize,
     list: &mut DisplayList,
 ) {
-    let eff_col_lines = effective_lines(col_lines, ncols, areas, true, col_sub.is_some());
-    let eff_row_lines = effective_lines(row_lines, nrows, areas, false, row_sub.is_some());
+    let eff_col_lines = effective_lines(col_lines, explicit_cols, areas, true, col_sub.is_some());
+    let eff_row_lines = effective_lines(row_lines, explicit_rows, areas, false, row_sub.is_some());
     let auto_line = GridLine::Auto;
 
     let padding = |lado: crate::style::Side| match lado {
@@ -164,27 +180,30 @@ pub(in crate::layout) fn record_out_of_flow(
         let rs = child_css.grid_row_start.as_ref().unwrap_or(&auto_line);
         let re = child_css.grid_row_end.as_ref().unwrap_or(&auto_line);
 
-        let colp = axis_placement(cs, ce, ncols, &eff_col_lines, col_sub.is_some());
-        let rowp = axis_placement(rs, re, nrows, &eff_row_lines, row_sub.is_some());
+        let colp = axis_placement(cs, ce, explicit_cols, &eff_col_lines, col_sub.is_some())
+            .map(|(c0, c1)| ((c0 + col_shift).max(0) as usize, (c1 + col_shift).max(0) as usize));
+        let rowp = axis_placement(rs, re, explicit_rows, &eff_row_lines, row_sub.is_some())
+            .map(|(r0, r1)| ((r0 + row_shift).max(0) as usize, (r1 + row_shift).max(0) as usize));
 
         if is_direct && (colp.is_some() || rowp.is_some()) {
-            let area_x = match colp {
+            let (area_x, _area_w) = match colp {
                 Some((c0, c1)) => {
                     if let Some(cs) = col_sub {
-                        let (rel_x, _) = cs.cell_pos_and_span(c0, c1);
-                        content_x + rel_x
+                        let (rel_x, w) = cs.cell_pos_and_span(c0, c1);
+                        (content_x + rel_x, w)
                     } else if !col_x.is_empty() {
                         let idx = if is_rtl {
                             c1.saturating_sub(1).min(col_x.len().saturating_sub(1))
                         } else {
                             c0.min(col_x.len().saturating_sub(1))
                         };
-                        col_x[idx]
+                        let w = col_sizes.get(c0..c1).map_or(0.0, |s| s.iter().sum());
+                        (col_x[idx], w)
                     } else {
-                        content_x
+                        (content_x, 0.0)
                     }
                 }
-                None => content_x,
+                None => (content_x, 0.0),
             };
 
             let area_y = match rowp {
@@ -206,22 +225,36 @@ pub(in crate::layout) fn record_out_of_flow(
         }
 
         if establishes_cb {
-            let col_s_line = match resolve_edge(cs, false, ncols, &eff_col_lines, col_sub.is_some()) {
-                Edge::Abs(n) => Some(n),
+            let col_s_line = match resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                Edge::Abs(n) => Some(n + col_shift),
+                Edge::Span(n) => {
+                    if let Edge::Abs(b) = resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                        Some((b + col_shift) - n as i32)
+                    } else {
+                        None
+                    }
+                }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(b) = resolve_edge(ce, true, ncols, &eff_col_lines, col_sub.is_some()) {
-                        find_named_line_backward(&id, b, n, &eff_col_lines)
+                    if let Edge::Abs(b) = resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                        find_named_line_backward(&id, b, n, &eff_col_lines).map(|l| l + col_shift)
                     } else {
                         None
                     }
                 }
                 _ => None,
             };
-            let col_e_line = match resolve_edge(ce, true, ncols, &eff_col_lines, col_sub.is_some()) {
-                Edge::Abs(n) => Some(n),
+            let col_e_line = match resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                Edge::Abs(n) => Some(n + col_shift),
+                Edge::Span(n) => {
+                    if let Edge::Abs(a) = resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                        Some((a + col_shift) + n as i32)
+                    } else {
+                        None
+                    }
+                }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(a) = resolve_edge(cs, false, ncols, &eff_col_lines, col_sub.is_some()) {
-                        find_named_line_forward(&id, a, n, &eff_col_lines)
+                    if let Edge::Abs(a) = resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                        find_named_line_forward(&id, a, n, &eff_col_lines).map(|l| l + col_shift)
                     } else {
                         None
                     }
@@ -243,22 +276,36 @@ pub(in crate::layout) fn record_out_of_flow(
             let cb_x = edge_start_x.min(edge_end_x);
             let cb_w = (edge_start_x.max(edge_end_x) - cb_x).max(0.0);
 
-            let row_s_line = match resolve_edge(rs, false, nrows, &eff_row_lines, row_sub.is_some()) {
-                Edge::Abs(n) => Some(n),
+            let row_s_line = match resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                Edge::Abs(n) => Some(n + row_shift),
+                Edge::Span(n) => {
+                    if let Edge::Abs(b) = resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                        Some((b + row_shift) - n as i32)
+                    } else {
+                        None
+                    }
+                }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(b) = resolve_edge(re, true, nrows, &eff_row_lines, row_sub.is_some()) {
-                        find_named_line_backward(&id, b, n, &eff_row_lines)
+                    if let Edge::Abs(b) = resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                        find_named_line_backward(&id, b, n, &eff_row_lines).map(|l| l + row_shift)
                     } else {
                         None
                     }
                 }
                 _ => None,
             };
-            let row_e_line = match resolve_edge(re, true, nrows, &eff_row_lines, row_sub.is_some()) {
-                Edge::Abs(n) => Some(n),
+            let row_e_line = match resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                Edge::Abs(n) => Some(n + row_shift),
+                Edge::Span(n) => {
+                    if let Edge::Abs(a) = resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                        Some((a + row_shift) + n as i32)
+                    } else {
+                        None
+                    }
+                }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(a) = resolve_edge(rs, false, nrows, &eff_row_lines, row_sub.is_some()) {
-                        find_named_line_forward(&id, a, n, &eff_row_lines)
+                    if let Edge::Abs(a) = resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                        find_named_line_forward(&id, a, n, &eff_row_lines).map(|l| l + row_shift)
                     } else {
                         None
                     }
@@ -279,9 +326,11 @@ pub(in crate::layout) fn record_out_of_flow(
             };
             let cb_y = edge_start_y.min(edge_end_y);
             let cb_h = (edge_end_y - edge_start_y).abs();
+            let rel_x = cb_x - pad_left;
+            let rel_y = cb_y - pad_top;
 
             GRID_CB_RECTS.with(|cell| {
-                cell.borrow_mut().insert(child_box, Rect::new(cb_x, cb_y, cb_w, cb_h));
+                cell.borrow_mut().insert(child_box, GridCbRel { rel_x, rel_y, w: cb_w, h: cb_h });
             });
         }
     }

@@ -9,6 +9,7 @@
 //! so the content box starts at (36, 97) with body margin 0. Its reference
 //! puts a 50×100 box centred there at y 97 + 200.
 
+use crate::paint::Rect;
 use crate::table::tests::{geometria, rect};
 
 fn place(grid_extra: &str, item_extra: &str) -> (f32, f32) {
@@ -126,4 +127,91 @@ fn test_sized_to_grid_area_with_left() {
     let r = rect(&dom, &list, "#item", 0);
     println!("item rect: {r:?}");
     assert_eq!((r.x, r.y, r.w, r.h), (5.0, 0.0, 100.0, 50.0));
+}
+
+#[test]
+fn test_background_001_geometry() {
+    let html = r#"<style>
+.grid {
+  display: grid;
+  grid-template-columns: 100px 200px;
+  grid-template-rows: 50px 150px;
+  width: 500px;
+  height: 300px;
+  border: 5px solid black;
+  margin: 30px;
+  padding: 15px;
+  position: relative;
+}
+.container { position: relative; float: left; }
+.absolute { position: absolute; }
+.onlyFirstRowOnlyFirstColumn { grid-column: 1 / 2; grid-row: 1 / 2; }
+.onlyFirstRowOnlySecondColumn { grid-column: 2 / 3; grid-row: 1 / 2; }
+.onlySecondRowOnlyFirstColumn { grid-column: 1 / 2; grid-row: 2 / 3; }
+.onlySecondRowOnlySecondColumn { grid-column: 2 / 3; grid-row: 2 / 3; }
+.lengthSize { width: 50px; height: 20px; }
+.percentageSize { width: 50%; height: 20%; }
+.offsetsSize { left: 25px; right: 30px; top: 35px; bottom: 40px; }
+</style>
+<p>The test passes if you see 4 green boxes and no red.</p>
+<div class="container">
+  <div id="r1" class="absolute red" style="left: 55px; top: 50px; width: 100px; height: 50px"></div>
+  <div id="r2" class="absolute red" style="left: 290px; top: 50px; width: 50px; height: 20px"></div>
+  <div id="r3" class="absolute red" style="left: 50px; top: 115px; width: 50px; height: 30px"></div>
+  <div id="r4" class="absolute red" style="left: 175px; top: 135px; width: 145px; height: 75px"></div>
+  <div class="grid">
+    <div id="g1" class="absolute onlyFirstRowOnlyFirstColumn" style="width:100%;height:100%;left: 5px;"></div>
+    <div id="g2" class="absolute onlyFirstRowOnlySecondColumn lengthSize" style="right: 10px;"></div>
+    <div id="g3" class="absolute onlySecondRowOnlyFirstColumn percentageSize" style="top: 15px;"></div>
+    <div id="g4" class="absolute onlySecondRowOnlySecondColumn offsetsSize"></div>
+  </div>
+</div>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r1 = rect(&dom, &list, "#r1", 0);
+    let g1 = rect(&dom, &list, "#g1", 0);
+    assert_eq!(r1, g1);
+    let r2 = rect(&dom, &list, "#r2", 0);
+    let g2 = rect(&dom, &list, "#g2", 0);
+    assert_eq!(r2, g2);
+    let r3 = rect(&dom, &list, "#r3", 0);
+    let g3 = rect(&dom, &list, "#g3", 0);
+    assert_eq!(r3, g3);
+    let r4 = rect(&dom, &list, "#r4", 0);
+    let g4 = rect(&dom, &list, "#g4", 0);
+    assert_eq!(r4, g4);
+}
+
+#[test]
+fn test_negative_indices_003_geometry() {
+    let html = r#"<style>
+  #grid {
+    display: grid;
+    margin: 4px;
+    padding: 10px;
+    width: 500px;
+    height: 130px;
+    position: relative;
+  }
+  #absolute {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    grid-column: -3 / span 6;
+    grid-row: 1 / 2;
+    background-color: lightblue;
+  }
+  #item {
+    grid-column: -5 / span 8;
+    background-color: hotpink;
+  }
+</style>
+<div id="grid">
+  <div id="absolute"></div>
+  <div id="item"></div>
+</div>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r_item = rect(&dom, &list, "#item", 0);
+    let r_abs = rect(&dom, &list, "#absolute", 0);
+    assert_eq!(r_item, Rect::new(14.0, 14.0, 500.0, 130.0));
+    assert_eq!(r_abs, Rect::new(139.0, 14.0, 375.0, 130.0));
 }

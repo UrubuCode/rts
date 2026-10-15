@@ -147,9 +147,10 @@ pub(in crate::layout) fn layout_out_of_flow(
     // usa a viewport exceto quando um transform o captura. `cb` =
     // (origem_x, origem_y, largura, altura) do container.
     let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
-    let cb = crate::layout::grid::abspos::get_grid_cb(target.box_id)
-        .or_else(|| containing_block_rect(dom, id, flow_rects, is_fixed, ctx))
+    let parent_cb = containing_block_rect(dom, id, flow_rects, is_fixed, ctx)
         .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h));
+    let cb = crate::layout::grid::abspos::get_grid_cb(target.box_id, parent_cb)
+        .unwrap_or(parent_cb);
     let resolve = ResolveCtx {
         parent_content_w: cb.w,
         node_font_size: font_px(&css, DEFAULT_FONT_SIZE),

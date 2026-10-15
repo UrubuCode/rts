@@ -151,7 +151,7 @@ pub(super) fn collect_nested_items(
         css.grid_template_rows.as_deref(),
         Some(crate::style::GridTemplate::Subgrid(_))
     );
-    let (cells, _) = place_grid_items(
+    let placement = place_grid_items(
         dom,
         &items,
         css.grid_template_areas.as_deref(),
@@ -163,7 +163,7 @@ pub(super) fn collect_nested_items(
         is_col_sub,
         is_row_sub,
     );
-    for cell in cells {
+    for cell in placement.cells {
         let (raw_start, track_span) = if target_axis_is_col {
             (cell.c0, cell.c1.saturating_sub(cell.c0).max(1))
         } else {

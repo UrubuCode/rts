@@ -62,18 +62,12 @@ pub(in crate::layout) fn layout_children_grid(
         column: false,
         dense: false,
     });
-    let (mut cells, ncols_colocados) = place_grid_items(
-        dom,
-        &children,
-        areas.as_deref(),
-        &col_lines,
-        &row_lines,
-        explicit_cols_n,
-        explicit_rows_n,
-        auto_flow,
-        col_sub.is_some(),
-        row_sub.is_some(),
+    let placement = place_grid_items(
+        dom, &children, areas.as_deref(), &col_lines, &row_lines,
+        explicit_cols_n, explicit_rows_n, auto_flow, col_sub.is_some(), row_sub.is_some(),
     );
+    let (mut cells, ncols_colocados) = (placement.cells, placement.ncols);
+    let (col_shift, row_shift) = (placement.col_shift, placement.row_shift);
     let mut col_tracks = col_tracks;
     let mut col_collapsible = col_collapsible;
     if col_sub.is_none() {
@@ -457,28 +451,10 @@ pub(in crate::layout) fn layout_children_grid(
     let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static) || css.transform.is_some();
     if has_oof || establishes_cb {
         abspos::record_out_of_flow(
-            dom,
-            &tree,
-            container,
-            css,
-            &resolve,
-            content_x,
-            content_y,
-            total_w,
-            total_h,
-            is_rtl,
-            col_sub,
-            row_sub,
-            &col_x,
-            &row_y,
-            &col_sizes,
-            &row_sizes,
-            &col_lines,
-            &row_lines,
-            areas.as_deref(),
-            ncols,
-            nrows,
-            list,
+            dom, &tree, container, css, &resolve, content_x, content_y, total_w, total_h,
+            is_rtl, col_sub, row_sub, &col_x, &row_y, &col_sizes, &row_sizes,
+            &col_lines, &row_lines, areas.as_deref(), ncols, nrows,
+            col_shift, row_shift, explicit_cols_n, explicit_rows_n, list,
         );
     }
     (total_w, total_h)
