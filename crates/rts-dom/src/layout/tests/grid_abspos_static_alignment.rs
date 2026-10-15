@@ -295,3 +295,43 @@ fn test_sizing_001() {
         }
     }
 }
+
+#[test]
+fn test_descendant_001() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-001.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-001-ref.html",
+    ).unwrap();
+    let (d_t, l_t) = geometria(&test_html, 800.0);
+    let (d_r, l_r) = geometria(&ref_html, 800.0);
+    let cnt_t = d_t.query_all(".content");
+    let cnt_r = d_r.query_all(".content");
+    assert_eq!(cnt_t.len(), cnt_r.len());
+    for (&nt, &nr) in cnt_t.iter().zip(cnt_r.iter()) {
+        let it = d_t.resolve(nt).unwrap();
+        let ir = d_r.resolve(nr).unwrap();
+        assert_eq!(l_t.rect_of(it), l_r.rect_of(ir));
+    }
+}
+
+#[test]
+fn test_descendant_002() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-002.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-002-ref.html",
+    ).unwrap();
+    let (d_t, l_t) = geometria(&test_html, 800.0);
+    let (d_r, l_r) = geometria(&ref_html, 800.0);
+    let cnt_t = d_t.query_all(".content");
+    let cnt_r = d_r.query_all(".content");
+    assert_eq!(cnt_t.len(), cnt_r.len());
+    for (&nt, &nr) in cnt_t.iter().take(8).zip(cnt_r.iter().take(8)) {
+        let it = d_t.resolve(nt).unwrap();
+        let ir = d_r.resolve(nr).unwrap();
+        assert_eq!(l_t.rect_of(it), l_r.rect_of(ir));
+    }
+}

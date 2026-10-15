@@ -191,7 +191,7 @@ pub(in crate::layout) fn record_out_of_flow(
         let rowp = axis_placement(rs, re, explicit_rows, &eff_row_lines, row_sub.is_some())
             .map(|(r0, r1)| ((r0 + row_shift).max(0) as usize, (r1 + row_shift).max(0) as usize));
 
-        if is_direct && (colp.is_some() || rowp.is_some()) {
+        if is_direct && establishes_cb && (colp.is_some() || rowp.is_some()) {
             let (area_x, _area_w) = match colp {
                 Some((c0, c1)) => {
                     if let Some(cs) = col_sub {
@@ -209,7 +209,7 @@ pub(in crate::layout) fn record_out_of_flow(
                         (content_x, 0.0)
                     }
                 }
-                None => (content_x, 0.0),
+                None => (if is_rtl { pad_right } else { pad_left }, 0.0),
             };
 
             let area_y = match rowp {
@@ -224,7 +224,7 @@ pub(in crate::layout) fn record_out_of_flow(
                         content_y
                     }
                 }
-                None => content_y,
+                None => pad_top,
             };
 
             list.static_anchors.push((child_box, area_x, area_y, 0.0));

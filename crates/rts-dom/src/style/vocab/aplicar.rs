@@ -84,7 +84,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
                 set_if(&mut css.align_items, Some(a));
             }
-            if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
+            if let Some(j) = t.last().and_then(|s| AlignItems::parse_justify(s)) {
                 set_if(&mut css.grid_justify_items, Some(j));
             }
         }
@@ -100,7 +100,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             if let Some(j) = t.last() {
                 if j.eq_ignore_ascii_case("auto") {
                     css.justify_self = None;
-                } else if let Some(j_val) = AlignItems::parse(j) {
+                } else if let Some(j_val) = AlignItems::parse_justify(j) {
                     css.justify_self = Some(j_val);
                 }
             }
@@ -117,7 +117,7 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "justify-self" => {
             if val.trim().eq_ignore_ascii_case("auto") {
                 css.justify_self = None;
-            } else if let Some(j) = AlignItems::parse(val) {
+            } else if let Some(j) = AlignItems::parse_justify(val) {
                 css.justify_self = Some(j);
             }
         }

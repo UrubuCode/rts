@@ -177,6 +177,24 @@ pub(in crate::layout) fn layout_out_of_flow(
         top.is_some() && bottom.is_some() && css.height.is_none() && css.aspect_ratio.is_none();
     let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
     let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
+    let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
+    let initial_static = needs_static.then(|| {
+        super::static_position::static_position_of(dom, id, &css, flow_rects, ctx, 0.0, 0.0, cb)
+    });
+    let is_rtl = css.direction == Some(crate::style::Direction::Rtl);
+    let avail_w = if left.is_none() && right.is_none() {
+        if let Some((sx, _)) = initial_static {
+            if is_rtl {
+                (sx - cb.x).max(cb.w)
+            } else {
+                (cb.x + cb.w - sx).max(cb.w)
+            }
+        } else {
+            cb.w
+        }
+    } else {
+        cb.w
+    };
     // mede (w, h) numa lista descartável para resolver o eixo shrink-to-fit
     // (um só offset definido) — sem efeito no eixo esticado, que os `forced_*`
     // acima já fixam.
@@ -184,7 +202,7 @@ pub(in crate::layout) fn layout_out_of_flow(
         dom,
         id,
         target.box_id,
-        cb.w,
+        avail_w,
         Some(cb.h),
         forced_outer_w,
         forced_outer_h,
@@ -197,7 +215,6 @@ pub(in crate::layout) fn layout_out_of_flow(
     // `id` cairia se estivesse em fluxo normal, no seu PAI de verdade (que
     // pode não ser `cb`, quando o ancestral positioned está mais acima). Só
     // resolve o eixo que falta: o outro já veio de um inset declarado.
-    let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
     let static_pos = needs_static.then(|| {
         super::static_position::static_position_of(dom, id, &css, flow_rects, ctx, w, h, cb)
     });
@@ -217,7 +234,7 @@ pub(in crate::layout) fn layout_out_of_flow(
         target.box_id,
         x,
         y,
-        cb.w,
+        avail_w,
         Some(cb.h),
         forced_outer_w,
         forced_outer_h,

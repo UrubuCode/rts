@@ -335,6 +335,14 @@ pub enum AlignItems {
 }
 
 impl AlignItems {
+    pub fn parse_justify(v: &str) -> Option<AlignItems> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "left" => Some(AlignItems::FlexStart),
+            "right" => Some(AlignItems::FlexEnd),
+            _ => Self::parse(v),
+        }
+    }
+
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
             "normal" => AlignItems::Normal,

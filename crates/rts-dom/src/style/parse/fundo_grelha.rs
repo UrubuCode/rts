@@ -112,7 +112,7 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "justify-items" => {
             set_if(
                 &mut css.grid_justify_items,
-                crate::style::AlignItems::parse(val),
+                crate::style::AlignItems::parse_justify(val),
             );
         }
         "grid-template-areas" => {
