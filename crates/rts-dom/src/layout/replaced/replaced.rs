@@ -125,11 +125,18 @@ pub(in crate::layout) fn layout_svg_placeholder(
         m.bottom.resolve(&resolve).unwrap_or(0.0),
     );
     let rect = Rect::new(x + ml, y + mt, w, h);
-    // placeholder cinza-claro (a caixa do ícone) — só quando não é minúsculo demais.
+    let (color, radius) = if let Some(color) = css
+        .bg
+        .filter(|_| !crate::paint::decor::deve_suprimir_fundo(css))
+    {
+        (color, css.corner_radius.map(Corners::same).unwrap_or(Corners::ZERO))
+    } else {
+        (0xE8EAEDFF, Corners::same(2.0))
+    };
     list.push_item(DisplayItem::SolidRect {
         rect,
-        color: 0xE8EAEDFF,
-        radius: Corners::same(2.0),
+        color,
+        radius,
     });
     record_box_rect(list, box_id, rect);
     Some((w + ml + mr, h + mt + mb))

@@ -104,11 +104,8 @@ pub(in crate::layout) fn layout_children_grid(
     // esmagadora maioria das grades é só `fr` e px.
     let needs_min = col_tracks
         .iter()
-        .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. }));
-    let needs_measure = needs_min
-        || col_tracks
-            .iter()
-            .any(|t| matches!(t, crate::style::GridTrack::Auto));
+        .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. } | crate::style::GridTrack::Auto));
+    let needs_measure = needs_min;
     let (content_max, content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
         let mut wmax = vec![0.0f32; ncols];
         let mut wmin = vec![0.0f32; ncols];
@@ -123,11 +120,7 @@ pub(in crate::layout) fn layout_children_grid(
                 let w = item_w(c);
                 wmax[c.c0] = wmax[c.c0].max(w);
                 if needs_min {
-                    let min = if aspect::is_item_orthogonal(dom, c.child, css) {
-                        w
-                    } else {
-                        aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx)
-                    };
+                    let min = aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
             }
@@ -146,10 +139,8 @@ pub(in crate::layout) fn layout_children_grid(
             |c| {
                 let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve);
                 let max = aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx);
-                let (min, min_sz) = if aspect::is_item_orthogonal(dom, c.child, css) { (max, max) } else {
-                    (distribute::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx),
-                     distribute::grid_item_min_size_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx))
-                };
+                let min = distribute::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
+                let min_sz = distribute::grid_item_min_size_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
                 distribute::ItemSizes { min_size: min_sz, min_content: min, max_content: max }
             },
             &mut wmax,
@@ -371,12 +362,15 @@ pub(in crate::layout) fn layout_children_grid(
             if let Some(m) = def_px(mx) { base = base.min(m); }
             base
         };
+        let is_auto_x = (cell.c0..cell.c1).any(|c| col_tracks.get(c).map_or(true, |t| matches!(t, crate::style::GridTrack::Auto)));
+        let is_auto_y = (cell.r0..cell.r1).any(|r| explicit_rows.get(r).map_or(true, |t| matches!(t, crate::style::GridTrack::Auto)));
         let iw = match ratio_w {
             Some(w) => w,
             None if stretch_x => cell_w,
             None if item_css.width == Some(crate::style::Dimension::MinContent) => {
                 crate::table::min_content(dom, child, font_size, ctx).min(cell_w)
             }
+            None if item_css.width.is_some() && !is_auto_x => nat_w,
             None if item_css.min_width.is_none() && overflow_visible => {
                 let cnt = crate::table::min_content_with_floor(dom, child, font_size, ctx);
                 let auto = aspect::resolve_specified_suggestion(item_css.width, cnt).unwrap_or(cnt);
@@ -386,6 +380,8 @@ pub(in crate::layout) fn layout_children_grid(
         };
         let ih = if stretch_y {
             cell_h
+        } else if item_css.height.is_some() && !is_auto_y {
+            nat_h
         } else if item_css.min_height.is_none() && overflow_visible {
             let unc_h = measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1;
             let auto = aspect::resolve_specified_suggestion(item_css.height, unc_h).unwrap_or(unc_h);
@@ -398,8 +394,10 @@ pub(in crate::layout) fn layout_children_grid(
         let forced_w = if is_col_sub {
             Some(cell_w)
         } else if stretch_x {
+            let is_tbl = matches!(item_css.display, Some(crate::style::DisplayKind::Table | crate::style::DisplayKind::InlineTable))
+                || matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if tag == "table");
             let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
-            (rep || crate::layout::block::rotated::opens_frame(dom, child, &item_css) || crate::layout::block::rotated::is_ortho_in_frame(child)).then_some(cell_w)
+            (rep || is_tbl || crate::layout::block::rotated::opens_frame(dom, child, &item_css) || crate::layout::block::rotated::is_ortho_in_frame(child)).then_some(cell_w)
         } else {
             Some(iw)
         };
