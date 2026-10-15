@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-08",
+  "date": "2026-10-15",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -12,16 +12,16 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 597,
+    "passing": 602,
     "total": 870,
-    "pct": 68.6,
+    "pct": 69.2,
     "by_subfolder": {
       "balance": {
-        "passing": 14,
+        "passing": 15,
         "total": 39
       },
       "intrinsic-size": {
-        "passing": 11,
+        "passing": 12,
         "total": 24
       },
       "abspos": {
@@ -47,7 +47,7 @@
         "total": 160
       },
       "item": {
-        "passing": 51,
+        "passing": 52,
         "total": 77
       },
       "align": {
@@ -55,7 +55,7 @@
         "total": 58
       },
       "aspect-ratio": {
-        "passing": 23,
+        "passing": 22,
         "total": 53
       },
       "gap": {
@@ -75,7 +75,7 @@
         "total": 37
       },
       "min-": {
-        "passing": 22,
+        "passing": 24,
         "total": 34
       },
       "overflow": {
@@ -103,7 +103,7 @@
         "total": 21
       },
       "order": {
-        "passing": 11,
+        "passing": 12,
         "total": 15
       },
       "column": {
@@ -255,7 +255,9 @@
       "AOT-1 — a página compilada carrega os seus recursos de DENTRO do binário",
       "WM-1 — vertical writing modes: o rotated frame para block flow, Ahem e conteúdo substituído",
       "WM-2 — fluxos ortogonais (Writing Modes 4 §7.3): composição aninhada",
-      "WM-3 — posicionados, floats e static position no rotated frame"
+      "WM-3 — posicionados, floats e static position no rotated frame",
+      "WM-4 — flex e grid containers em modos verticais (F3)",
+      "WM-5 — egui pinta texto sideways através de rotação no item"
     ],
     "parciais": [
       "select-caixa-natural — `<select>` vazio: altura natural e stretch cruzado no flex",
