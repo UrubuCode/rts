@@ -215,3 +215,21 @@ fn test_negative_indices_003_geometry() {
     assert_eq!(r_item, Rect::new(14.0, 14.0, 500.0, 130.0));
     assert_eq!(r_abs, Rect::new(139.0, 14.0, 375.0, 130.0));
 }
+
+#[test]
+fn test_018_abspos_clamped_container() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-018.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\reference\ref-filled-green-100px-square-only.html",
+    ).unwrap();
+    let (d_t, l_t) = geometria(&test_html, 800.0);
+    let (d_r, l_r) = geometria(&ref_html, 800.0);
+    let abs_node = d_t.query("div > div").unwrap();
+    let ref_div = d_r.query("div").unwrap();
+    assert_eq!(
+        l_t.rect_of(d_t.resolve(abs_node).unwrap()),
+        l_r.rect_of(d_r.resolve(ref_div).unwrap()),
+    );
+}

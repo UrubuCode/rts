@@ -20,6 +20,8 @@ pub(in crate::layout) struct GridCbRel {
     pub rel_y: f32,
     pub w: f32,
     pub h: f32,
+    pub col_auto: bool,
+    pub row_auto: bool,
 }
 
 thread_local! {
@@ -30,7 +32,11 @@ thread_local! {
 pub(in crate::layout) fn get_grid_cb(box_id: BoxId, parent_cb: Rect) -> Option<Rect> {
     GRID_CB_RECTS.with(|cell| {
         cell.borrow().get(&box_id).map(|rel| {
-            Rect::new(parent_cb.x + rel.rel_x, parent_cb.y + rel.rel_y, rel.w, rel.h)
+            let x = if rel.col_auto { parent_cb.x } else { parent_cb.x + rel.rel_x };
+            let w = if rel.col_auto { parent_cb.w } else { rel.w };
+            let y = if rel.row_auto { parent_cb.y } else { parent_cb.y + rel.rel_y };
+            let h = if rel.row_auto { parent_cb.h } else { rel.h };
+            Rect::new(x, y, w, h)
         })
     })
 }
@@ -328,10 +334,18 @@ pub(in crate::layout) fn record_out_of_flow(
             let cb_h = (edge_end_y - edge_start_y).abs();
             let rel_x = cb_x - pad_left;
             let rel_y = cb_y - pad_top;
-
-            GRID_CB_RECTS.with(|cell| {
-                cell.borrow_mut().insert(child_box, GridCbRel { rel_x, rel_y, w: cb_w, h: cb_h });
-            });
+            let has_col_lines = col_s_line.is_some() || col_e_line.is_some();
+            let has_row_lines = row_s_line.is_some() || row_e_line.is_some();
+            if has_col_lines || has_row_lines {
+                let col_auto = !has_col_lines;
+                let row_auto = !has_row_lines;
+                GRID_CB_RECTS.with(|cell| {
+                    cell.borrow_mut().insert(
+                        child_box,
+                        GridCbRel { rel_x, rel_y, w: cb_w, h: cb_h, col_auto, row_auto },
+                    );
+                });
+            }
         }
     }
 }
