@@ -120,7 +120,7 @@ pub(crate) fn definite_cb_height(
     if matches!(
         cb_css.effective_display(),
         Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
-    ) {
+    ) || crate::layout::block::rotated::in_rotated_frame() {
         return avail_h;
     }
     match cb_css.height {
