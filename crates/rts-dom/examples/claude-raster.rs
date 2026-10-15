@@ -62,9 +62,9 @@ mod text;
 
 use canvas::{Canvas, H, W, rect_intersect, transformed_bbox};
 use png::write_png;
+use rts_dom::Dom;
 use rts_dom::layout;
 use rts_dom::paint::{DisplayItem, DisplayList, Mat2d, Rect};
-use rts_dom::Dom;
 use std::path::Path;
 use text::{Outcome, TextPainter, TextRun};
 
@@ -76,13 +76,18 @@ use text::{Outcome, TextPainter, TextRun};
 fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
     for id in dom.query_all("img") {
         let Some(idx) = dom.resolve(id) else { continue };
-        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else { continue };
+        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else {
+            continue;
+        };
         let decoded = if src.starts_with("data:") {
-            rts_dom::imagem::bytes_da_data_url(&src).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            rts_dom::imagem::bytes_da_data_url(&src)
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         } else if src.starts_with("http://") || src.starts_with("https://") {
             None
         } else {
-            std::fs::read(base_dir.join(&src)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            std::fs::read(base_dir.join(&src))
+                .ok()
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         };
         if let Some((rgba, w, h)) = decoded {
             dom.set_pixel_data(id, rgba, w, h);
@@ -98,16 +103,25 @@ fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
 /// estar em QUALQUER elemento, não só numa lista fechada de tags.
 fn carregar_fundos(dom: &mut Dom, base_dir: &Path) {
     for id in dom.query_all("*") {
-        let Some(css) = dom.computed_style(id) else { continue };
-        let Some(url) = css.bg_image.as_deref().and_then(rts_dom::style::background::bg_image_url) else {
+        let Some(css) = dom.computed_style(id) else {
+            continue;
+        };
+        let Some(url) = css
+            .bg_image
+            .as_deref()
+            .and_then(rts_dom::style::background::bg_image_url)
+        else {
             continue;
         };
         let decoded = if url.starts_with("data:") {
-            rts_dom::imagem::bytes_da_data_url(&url).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            rts_dom::imagem::bytes_da_data_url(&url)
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         } else if url.starts_with("http://") || url.starts_with("https://") {
             None
         } else {
-            std::fs::read(base_dir.join(&url)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            std::fs::read(base_dir.join(&url))
+                .ok()
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         };
         if let Some((rgba, w, h)) = decoded {
             dom.set_pixel_data(id, rgba, w, h);
@@ -151,10 +165,16 @@ fn main() {
     if let Some(hash) = meta_fixar_hash(&html) {
         dom.set_location_hash(&hash);
     }
-    let base_dir = Path::new(entrada).parent().unwrap_or_else(|| Path::new("."));
+    let base_dir = Path::new(entrada)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
     carregar_imagens(&mut dom, base_dir);
     let measurer = rts_text::adapter::RealMeasurer::new(text::font_store());
-    let ctx = layout::LayoutCtx { viewport_w: W as f32, viewport_h: H as f32, measurer: &measurer };
+    let ctx = layout::LayoutCtx {
+        viewport_w: W as f32,
+        viewport_h: H as f32,
+        measurer: &measurer,
+    };
     let list: DisplayList = layout::layout_document(&dom, &ctx);
     // Um `<img>` com `src` e SEM pixels a esta altura: `carregar_imagens`
     // (acima, antes do layout) já tentou PNG local e `data:image/png` — o que
@@ -200,21 +220,35 @@ fn main() {
                 }
                 pintados += 1;
             }
-            DisplayItem::Border { rect, width, color, .. } => {
+            DisplayItem::Border {
+                rect, width, color, ..
+            } => {
                 match mat {
                     Some(m) => canvas.stroke_rect_mat(*rect, &m, *width, *color, clip),
                     None => canvas.stroke_rect(shift(*rect, dx, dy), *width, *color, clip),
                 }
                 pintados += 1;
             }
-            DisplayItem::GradientRect { rect, c0, c1, angle_deg, .. } => {
+            DisplayItem::GradientRect {
+                rect,
+                c0,
+                c1,
+                angle_deg,
+                ..
+            } => {
                 match mat {
                     Some(m) => canvas.fill_gradient_mat(*rect, &m, *c0, *c1, *angle_deg, clip),
                     None => canvas.fill_gradient(shift(*rect, dx, dy), *c0, *c1, *angle_deg, clip),
                 }
                 pintados += 1;
             }
-            DisplayItem::Shadow { rect, dx: sdx, dy: sdy, color, .. } => {
+            DisplayItem::Shadow {
+                rect,
+                dx: sdx,
+                dy: sdy,
+                color,
+                ..
+            } => {
                 // O deslocamento da sombra (`sdx`/`sdy`) é sobre o RECT
                 // original, antes da matriz — a mesma ordem do CSS (a sombra
                 // desloca a caixa, DEPOIS o `transform` pinta o resultado).
@@ -225,7 +259,21 @@ fn main() {
                 }
                 pintados += 1;
             }
-            DisplayItem::Text { x, y, text, size, mono, is_ahem, family, color, bold, italic, letter_spacing, orientation, .. } => {
+            DisplayItem::Text {
+                x,
+                y,
+                text,
+                size,
+                mono,
+                is_ahem,
+                family,
+                color,
+                bold,
+                italic,
+                letter_spacing,
+                orientation,
+                ..
+            } => {
                 // Only the origin goes through a `transform`, as it always
                 // has here: glyphs are not rotated or skewed.
                 let (mx, my) = match mat {
@@ -305,7 +353,11 @@ fn main() {
                 // à parte, a mesma regra que `itens::translate_item` já
                 // aplica a um `PushTransform` mutado por uma subárvore
                 // reusada, só que calculada aqui em vez de gravada na lista.
-                let efetiva = Mat2d { e: novo.e + dx, f: novo.f + dy, ..*novo };
+                let efetiva = Mat2d {
+                    e: novo.e + dx,
+                    f: novo.f + dy,
+                    ..*novo
+                };
                 let acumulada = match xform_stack.last() {
                     Some(base) => base.then(efetiva),
                     None => efetiva,

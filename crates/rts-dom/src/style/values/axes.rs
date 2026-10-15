@@ -101,7 +101,10 @@ impl AxisMap {
     /// assumption rather than a change to it: a site that still cannot ask
     /// says so by constructing this, and is greppable.
     pub fn horizontal_tb() -> AxisMap {
-        AxisMap { wm: WritingMode::HorizontalTb, dir: Direction::Ltr }
+        AxisMap {
+            wm: WritingMode::HorizontalTb,
+            dir: Direction::Ltr,
+        }
     }
 
     /// The writing mode this map was built from.
@@ -127,7 +130,11 @@ impl AxisMap {
     /// are SWAPPED (CSS Writing Modes 4 §1.2). `direction` has no part in
     /// this — it decides a sense, never an axis.
     pub fn physical(self, axis: Axis) -> PhysicalAxis {
-        let inline = if self.wm.is_horizontal() { PhysicalAxis::X } else { PhysicalAxis::Y };
+        let inline = if self.wm.is_horizontal() {
+            PhysicalAxis::X
+        } else {
+            PhysicalAxis::Y
+        };
         match axis {
             Axis::Inline => inline,
             Axis::Block => inline.other(),
@@ -141,7 +148,11 @@ impl AxisMap {
     /// the mapping by hand, which is the per-site mirror this module exists to
     /// remove.
     pub fn logical(self, axis: PhysicalAxis) -> Axis {
-        if axis == self.physical(Axis::Inline) { Axis::Inline } else { Axis::Block }
+        if axis == self.physical(Axis::Inline) {
+            Axis::Inline
+        } else {
+            Axis::Block
+        }
     }
 
     /// `true` when a logical axis runs in the POSITIVE sense of the physical
@@ -183,9 +194,9 @@ impl AxisMap {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::containing_block::{ContainingBlock, PercentBasis};
     use super::super::dimensao::{Dimension, ResolveCtx};
+    use super::*;
 
     fn vertical_rl() -> AxisMap {
         AxisMap::new(WritingMode::VerticalRl, Direction::Ltr)
@@ -227,7 +238,11 @@ mod tests {
         assert_eq!(m.start(Axis::Inline), SideName::Right);
         assert_eq!(m.end(Axis::Inline), SideName::Left);
         assert!(!m.forward(Axis::Inline));
-        assert_eq!(m.start(Axis::Block), SideName::Top, "rtl does not touch the block axis");
+        assert_eq!(
+            m.start(Axis::Block),
+            SideName::Top,
+            "rtl does not touch the block axis"
+        );
         assert!(m.forward(Axis::Block));
     }
 
@@ -266,7 +281,11 @@ mod tests {
         let m = AxisMap::new(WritingMode::VerticalRl, Direction::Rtl);
         assert_eq!(m.start(Axis::Inline), SideName::Bottom);
         assert_eq!(m.end(Axis::Inline), SideName::Top);
-        assert_eq!(m.start(Axis::Block), SideName::Right, "the block axis still ignores direction");
+        assert_eq!(
+            m.start(Axis::Block),
+            SideName::Right,
+            "the block axis still ignores direction"
+        );
     }
 
     /// `sideways-lr` is the one value whose inline axis runs bottom→top by
@@ -333,7 +352,11 @@ mod tests {
     /// invariant that a start/end pair can never be `left`/`bottom`.
     #[test]
     fn a_logical_axis_never_names_sides_from_two_different_physical_axes() {
-        for wm in [WritingMode::HorizontalTb, WritingMode::VerticalRl, WritingMode::SidewaysLr] {
+        for wm in [
+            WritingMode::HorizontalTb,
+            WritingMode::VerticalRl,
+            WritingMode::SidewaysLr,
+        ] {
             for dir in [Direction::Ltr, Direction::Rtl] {
                 let m = AxisMap::new(wm, dir);
                 for axis in [Axis::Inline, Axis::Block] {
@@ -395,8 +418,14 @@ mod tests {
         let cb = ContainingBlock::physical(200.0, Some(50.0), vertical_rl());
         assert_eq!(cb.basis(Axis::Inline), PercentBasis::Definite(50.0));
         assert_eq!(cb.basis(Axis::Block), PercentBasis::Definite(200.0));
-        assert_eq!(cb.resolve(Dimension::Percent(50.0), Axis::Inline, &ctx(200.0)), Some(25.0));
-        assert_eq!(cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)), Some(100.0));
+        assert_eq!(
+            cb.resolve(Dimension::Percent(50.0), Axis::Inline, &ctx(200.0)),
+            Some(25.0)
+        );
+        assert_eq!(
+            cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)),
+            Some(100.0)
+        );
     }
 
     /// And an `auto` height in a vertical mode makes the INLINE axis the
@@ -407,8 +436,14 @@ mod tests {
         let axes = AxisMap::new(WritingMode::VerticalLr, Direction::Ltr);
         let cb = ContainingBlock::physical(200.0, None, axes);
         assert_eq!(cb.basis(Axis::Inline), PercentBasis::Indefinite);
-        assert_eq!(cb.resolve(Dimension::Percent(50.0), Axis::Inline, &ctx(200.0)), None);
-        assert_eq!(cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)), Some(100.0));
+        assert_eq!(
+            cb.resolve(Dimension::Percent(50.0), Axis::Inline, &ctx(200.0)),
+            None
+        );
+        assert_eq!(
+            cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)),
+            Some(100.0)
+        );
     }
 
     /// The physical view is the way back, and it is the SAME rectangle in both
@@ -417,8 +452,16 @@ mod tests {
     fn the_physical_extents_are_unchanged_by_the_writing_mode() {
         for wm in [WritingMode::HorizontalTb, WritingMode::VerticalRl] {
             let cb = ContainingBlock::physical(200.0, Some(50.0), AxisMap::new(wm, Direction::Ltr));
-            assert_eq!(cb.extent(PhysicalAxis::X), PercentBasis::Definite(200.0), "{wm:?}");
-            assert_eq!(cb.extent(PhysicalAxis::Y), PercentBasis::Definite(50.0), "{wm:?}");
+            assert_eq!(
+                cb.extent(PhysicalAxis::X),
+                PercentBasis::Definite(200.0),
+                "{wm:?}"
+            );
+            assert_eq!(
+                cb.extent(PhysicalAxis::Y),
+                PercentBasis::Definite(50.0),
+                "{wm:?}"
+            );
         }
     }
 

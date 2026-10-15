@@ -3,19 +3,6 @@
 //! resolução de unidade relativa é TARDIA ([`Dimension::resolve`] no layout, nunca
 //! no parse — north-star risco 5).
 
-mod texto;
-mod caixa;
-mod display;
-mod grelha;
-mod template_grelha;
-mod fluxo;
-mod dimensao;
-/// The CONTAINING BLOCK as an entity — two extents, each DEFINITE or
-/// INDEFINITE, and a percentage that says which axis it is on. It sits beside
-/// `dimensao` rather than inside it because the split is the same one
-/// `lengths`/`parse` already draws: whoever adds a UNIT touches `dimensao`,
-/// whoever changes what a percentage is resolved AGAINST touches this.
-mod containing_block;
 /// The map between the LOGICAL axes and the PHYSICAL ones — which physical
 /// axis a writing mode makes the inline one, and which side each logical axis
 /// starts at. It sits beside `containing_block` because the containing block
@@ -23,16 +10,29 @@ mod containing_block;
 /// because `style::logical` and `layout::eixos_flex` ask the same question
 /// with no containing block in hand.
 mod axes;
+mod caixa;
+/// The CONTAINING BLOCK as an entity — two extents, each DEFINITE or
+/// INDEFINITE, and a percentage that says which axis it is on. It sits beside
+/// `dimensao` rather than inside it because the split is the same one
+/// `lengths`/`parse` already draws: whoever adds a UNIT touches `dimensao`,
+/// whoever changes what a percentage is resolved AGAINST touches this.
+mod containing_block;
+mod dimensao;
+mod display;
+mod fluxo;
+mod grelha;
+mod template_grelha;
+mod texto;
 
 pub use axes::*;
-pub use texto::*;
 pub use caixa::*;
+pub use containing_block::*;
+pub use dimensao::*;
 pub use display::*;
+pub use fluxo::*;
 pub use grelha::*;
 pub use template_grelha::*;
-pub use fluxo::*;
-pub use dimensao::*;
-pub use containing_block::*;
+pub use texto::*;
 
 // `grelha.rs` diz `super::lengths::…`, como o ficheiro único dizia.
 // Reimportar o nome aqui é o que o mantém a resolver sem tocar no corpo movido.

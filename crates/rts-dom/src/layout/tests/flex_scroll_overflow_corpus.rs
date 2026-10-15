@@ -43,7 +43,8 @@ fn overflow_hidden_em_wrap_nao_alarga_o_ponto_de_quebra() {
         small.y > big.y,
         "o item pequeno devia estar numa 2ª linha, abaixo do grande (y={} vs y={}) — \
          indica que o wrap não quebrou na largura declarada",
-        small.y, big.y,
+        small.y,
+        big.y,
     );
 }
 

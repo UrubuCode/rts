@@ -170,7 +170,10 @@ mod tests {
 
     #[test]
     fn a_tabela_esta_ordenada_e_tem_os_148_nomes_da_spec() {
-        assert!(TABELA.windows(2).all(|w| w[0].0 < w[1].0), "a pesquisa é binária: a tabela tem de estar ordenada");
+        assert!(
+            TABELA.windows(2).all(|w| w[0].0 < w[1].0),
+            "a pesquisa é binária: a tabela tem de estar ordenada"
+        );
         // A spec lista 148 nomes, 7 deles a grafia `grey` de um `gray` que já
         // lá está; `rgb_de_nome` normaliza-a, por isso a tabela tem 148 − 7.
         assert_eq!(TABELA.len(), 141);

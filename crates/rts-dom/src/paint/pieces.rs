@@ -32,8 +32,8 @@
 use crate::boxes::BoxId;
 use crate::layout::ChildRef;
 use crate::paint::item::DisplayItem;
-use crate::paint::list::Rect;
 use crate::paint::item::translate_item;
+use crate::paint::list::Rect;
 
 /// One step of a list's output, in paint order.
 #[derive(Clone, Debug, PartialEq)]
@@ -164,7 +164,12 @@ pub(crate) fn rect_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32
 /// added. A box's line fragments all come from the ONE inline formatting
 /// context that laid it out, so they sit in one `Fragment` and the first
 /// fragment naming the box has them all.
-pub(crate) fn rects_in_children(pieces: &[Piece], box_id: BoxId, dx: f32, dy: f32) -> Option<Vec<Rect>> {
+pub(crate) fn rects_in_children(
+    pieces: &[Piece],
+    box_id: BoxId,
+    dx: f32,
+    dy: f32,
+) -> Option<Vec<Rect>> {
     children(pieces).find_map(|c| {
         let (dx, dy) = (dx + c.dx, dy + c.dy);
         let own: Vec<Rect> = c

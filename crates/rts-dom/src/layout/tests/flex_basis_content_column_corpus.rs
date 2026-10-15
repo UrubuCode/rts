@@ -34,7 +34,10 @@ fn content_basis_without_a_declared_height_keeps_the_natural_measure() {
     };
     let list = layout_document(&dom, &ctx);
     let linha = rect(&dom, &list, "#linha", 0);
-    assert!((linha.h - 22.0).abs() <= 1.0, "#linha: {linha:?}, Blink: 22px");
+    assert!(
+        (linha.h - 22.0).abs() <= 1.0,
+        "#linha: {linha:?}, Blink: 22px"
+    );
     let flutuantes = rect(&dom, &list, "#flutuantes", 0);
     assert!(
         (flutuantes.h - 16.0).abs() <= 1.0,

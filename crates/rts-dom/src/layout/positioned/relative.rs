@@ -69,7 +69,13 @@ pub(crate) fn apply_relative_offset(
 /// `left` beats `right` and `top` beats `bottom` in LTR (CSS 2.1 §9.4.3): with
 /// both of an axis present only the reading-side one shifts, and with neither
 /// the box stays where it was.
-pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avail_h: Option<f32>, font_size: f32, ctx: &LayoutCtx) -> (f32, f32) {
+pub(in crate::layout) fn relative_offset(
+    css: &ComputedStyle,
+    avail_w: f32,
+    avail_h: Option<f32>,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
     if css.position != Some(crate::style::Position::Relative) {
         return (0.0, 0.0);
     }
@@ -87,12 +93,17 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
     // auto-height block shifts by the `bottom` (Blink). `unwrap_or(0.0)` on the
     // height answered a number where the property computes to `auto`.
     let cb = crate::style::ContainingBlock::horizontal_tb(avail_w, avail_h);
-    let inset = |d: Option<crate::style::Dimension>, axis| d.and_then(|d| cb.resolve_signed(d, axis, &resolve));
+    let inset = |d: Option<crate::style::Dimension>, axis| {
+        d.and_then(|d| cb.resolve_signed(d, axis, &resolve))
+    };
     let left = inset(css.inset_left, crate::style::Axis::Inline);
     let right = inset(css.inset_right, crate::style::Axis::Inline);
     let top = inset(css.inset_top, crate::style::Axis::Block);
     let bottom = inset(css.inset_bottom, crate::style::Axis::Block);
-    (left.or(right.map(|r| -r)).unwrap_or(0.0), top.or(bottom.map(|b| -b)).unwrap_or(0.0))
+    (
+        left.or(right.map(|r| -r)).unwrap_or(0.0),
+        top.or(bottom.map(|b| -b)).unwrap_or(0.0),
+    )
 }
 
 /// The shift of an INLINE box: its own `position: relative` offset plus that
@@ -118,7 +129,13 @@ pub(in crate::layout) fn relative_offset(css: &ComputedStyle, avail_w: f32, avai
 /// The offsets of nested relative inlines are summed innermost first; the
 /// order does not change a sum, but every one of them is resolved against the
 /// same block, which is why the chain needs no per-level base.
-pub(in crate::layout) fn inline_offset(dom: &Dom, mut node: Option<NodeIdx>, cb_w: f32, cb_h: Option<f32>, ctx: &LayoutCtx) -> (f32, f32) {
+pub(in crate::layout) fn inline_offset(
+    dom: &Dom,
+    mut node: Option<NodeIdx>,
+    cb_w: f32,
+    cb_h: Option<f32>,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
     let (mut dx, mut dy) = (0.0, 0.0);
     while let Some(n) = node.filter(|&n| !is_block_level(dom, n) && !is_inline_block(dom, n)) {
         if let Some(css) = dom.computed_style_idx(n) {
@@ -138,7 +155,13 @@ pub(in crate::layout) fn inline_offset(dom: &Dom, mut node: Option<NodeIdx>, cb_
 /// `layout_block`, which knows nothing of the inline around it. `rects_of` is `None` for an atom with no body (an anchor, an edge):
 /// there is no rect of its own to move. Every atom HAS a box; the `Option`
 /// says whether it recorded a rect.
-pub(in crate::layout) fn shift_from(list: &mut DisplayList, desde: usize, rects_of: Option<BoxId>, dx: f32, dy: f32) {
+pub(in crate::layout) fn shift_from(
+    list: &mut DisplayList,
+    desde: usize,
+    rects_of: Option<BoxId>,
+    dx: f32,
+    dy: f32,
+) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
@@ -164,7 +187,8 @@ pub(in crate::layout) fn shift_box_rects(
     dy: f32,
     list: &mut DisplayList,
 ) {
-    list.box_rects.map_fragments(id, |r| Rect::new(r.x + dx, r.y + dy, r.w, r.h));
+    list.box_rects
+        .map_fragments(id, |r| Rect::new(r.x + dx, r.y + dy, r.w, r.h));
     for &child in tree.children(id) {
         shift_box_rects(tree, child, dx, dy, list);
     }

@@ -60,7 +60,14 @@ fn a_normal_family_is_measured_by_its_own_advances() {
         600.0,
     );
     let r = first_rect(&list);
-    let arial = crate::layout::ApproxMeasurer.text_width_family("XXXX", 50.0, Some("Arial"), false, false, false);
+    let arial = crate::layout::ApproxMeasurer.text_width_family(
+        "XXXX",
+        50.0,
+        Some("Arial"),
+        false,
+        false,
+        false,
+    );
     assert_eq!(r.w, arial, "{r:?}");
     assert!((arial - 133.4).abs() < 0.01 && arial < 200.0, "{arial}");
 }
@@ -99,7 +106,10 @@ fn wrap_ahem_usa_avanco_exato_para_decidir_onde_quebrar() {
     );
     let t = all_texts(&list);
     assert_eq!(t.len(), 2, "duas palavras, cada uma o seu segmento: {t:?}");
-    assert_ne!(t[0].2, t[1].2, "a 2ª palavra desce para a linha seguinte: {t:?}");
+    assert_ne!(
+        t[0].2, t[1].2,
+        "a 2ª palavra desce para a linha seguinte: {t:?}"
+    );
 }
 
 /// A mesma pergunta com uma família qualquer: as DUAS palavras cabem na
@@ -118,7 +128,11 @@ fn wrap_familia_normal_cabe_as_duas_palavras_na_mesma_linha() {
         600.0,
     );
     let t = all_texts(&list);
-    assert_eq!(t.len(), 1, "uma palavra só — colapsaram no mesmo segmento: {t:?}");
+    assert_eq!(
+        t.len(),
+        1,
+        "uma palavra só — colapsaram no mesmo segmento: {t:?}"
+    );
 }
 
 /// Lote `medidor-ahem` (fecho pedido pelo coordenador): `width: Nch` num

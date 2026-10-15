@@ -99,7 +99,12 @@ fn grandchild_ascent(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) ->
 /// caía sempre no PRIMEIRO item — o item ERRADO sob `wrap-reverse`).
 fn in_flex_order(dom: &Dom, children: &[NodeIdx]) -> Vec<NodeIdx> {
     let mut v = children.to_vec();
-    v.sort_by_key(|&c| dom.computed_style_idx(c).unwrap_or_default().order.unwrap_or(0));
+    v.sort_by_key(|&c| {
+        dom.computed_style_idx(c)
+            .unwrap_or_default()
+            .order
+            .unwrap_or(0)
+    });
     v
 }
 
@@ -118,7 +123,9 @@ fn own_width(css: &ComputedStyle, content_w: f32, font_size: f32, ctx: &LayoutCt
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    css.width.and_then(|d| d.resolve(&resolve)).unwrap_or(content_w)
+    css.width
+        .and_then(|d| d.resolve(&resolve))
+        .unwrap_or(content_w)
 }
 
 /// Agrupa `children` (já em ORDEM DE FLEX — [`in_flex_order`]) em LINHAS
@@ -127,7 +134,13 @@ fn own_width(css: &ComputedStyle, content_w: f32, font_size: f32, ctx: &LayoutCt
 /// nunca do tamanho FINAL (a mesma classe de aproximação estrutural que
 /// [`grandchild_ascent`] já assume). Um item sem `width` conta 0 (nunca
 /// força quebra sozinho) — corte declarado.
-fn lines_by_width(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Vec<Vec<NodeIdx>> {
+fn lines_by_width(
+    dom: &Dom,
+    children: &[NodeIdx],
+    content_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> Vec<Vec<NodeIdx>> {
     let mut lines: Vec<Vec<NodeIdx>> = vec![Vec::new()];
     let mut used = 0.0f32;
     for &c in children {
@@ -188,7 +201,13 @@ fn lines_by_width(dom: &Dom, children: &[NodeIdx], content_w: f32, font_size: f3
 /// generalizada de "um item" para "que linha ele ocupa". `content_w` que
 /// chega aos NETOS continua a ser o do CONTENTOR ANCESTRAL, não o deste flex
 /// — percentagens de margem num NETO ficam por essa aproximação.
-pub(in crate::layout) fn container_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn container_ascent(
+    dom: &Dom,
+    id: NodeIdx,
+    h: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     baseline_item(dom, id, content_w, ctx).map_or(h, |(_, ascent)| ascent.min(h))
 }
 
@@ -204,17 +223,30 @@ pub(in crate::layout) fn container_ascent(dom: &Dom, id: NodeIdx, h: f32, conten
 /// the source's second) and `-horiz-004` (whose reference is a
 /// `column-reverse` container and expects its top item) agree on; reading
 /// "first" as source order satisfied one of them and never both.
-fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Option<(NodeIdx, f32)> {
+fn baseline_item(
+    dom: &Dom,
+    id: NodeIdx,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> Option<(NodeIdx, f32)> {
     let children = in_flow_flex_children(dom, id);
     let css = dom.computed_style_idx(id).unwrap_or_default();
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
     let row_axis = !css.flex_direction.map(|f| f.is_column()).unwrap_or(false);
     let flex_ordered = in_flex_order(dom, &children);
-    let first_line = if row_axis && css.flex_wrap.map(crate::style::FlexWrap::wraps).unwrap_or(false) {
+    let first_line = if row_axis
+        && css
+            .flex_wrap
+            .map(crate::style::FlexWrap::wraps)
+            .unwrap_or(false)
+    {
         let font = font_px(&css, DEFAULT_FONT_SIZE);
         let width = own_width(&css, content_w, font, ctx);
         let mut lines = lines_by_width(dom, &flex_ordered, width, font, ctx);
-        if matches!(css.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
+        if matches!(
+            css.flex_wrap,
+            Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)
+        ) {
             lines.reverse();
         }
         lines.into_iter().next().unwrap_or_default()
@@ -228,9 +260,17 @@ fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Opt
         .then(|| {
             first_line
                 .iter()
-                .filter(|&&c| dom.computed_style_idx(c).unwrap_or_default().align_self.unwrap_or(align) == crate::style::AlignItems::Baseline)
+                .filter(|&&c| {
+                    dom.computed_style_idx(c)
+                        .unwrap_or_default()
+                        .align_self
+                        .unwrap_or(align)
+                        == crate::style::AlignItems::Baseline
+                })
                 .map(|&c| (c, grandchild_ascent(dom, c, content_w, ctx)))
-                .fold(None, |acc: Option<(NodeIdx, f32)>, x| Some(acc.map_or(x, |m| if x.1 > m.1 { x } else { m })))
+                .fold(None, |acc: Option<(NodeIdx, f32)>, x| {
+                    Some(acc.map_or(x, |m| if x.1 > m.1 { x } else { m }))
+                })
         })
         .flatten();
     from_group.or_else(|| Some((first, grandchild_ascent(dom, first, content_w, ctx))))
@@ -242,7 +282,13 @@ fn baseline_item(dom: &Dom, id: NodeIdx, content_w: f32, ctx: &LayoutCtx) -> Opt
 /// `align-content: center` the first line does not start at the container's
 /// top, and a container guessed from structure sat 3.6px off its reference
 /// (WPT `flexbox-baseline-multi-line-horiz-004`).
-pub(in crate::layout) fn layout_baseline(dom: &Dom, id: NodeIdx, list: &DisplayList, content_w: f32, ctx: &LayoutCtx) -> Option<f32> {
+pub(in crate::layout) fn layout_baseline(
+    dom: &Dom,
+    id: NodeIdx,
+    list: &DisplayList,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> Option<f32> {
     let (mut item, mut ascent) = baseline_item(dom, id, content_w, ctx)?;
     // A COLUMN container that wraps in reverse puts its first column at the far
     // side: the physically first item is the top of the LEFTMOST column, which
@@ -250,7 +296,12 @@ pub(in crate::layout) fn layout_baseline(dom: &Dom, id: NodeIdx, list: &DisplayL
     // here the layout already did (WPT `flexbox-baseline-multi-line-vert-002`).
     let container = dom.computed_style_idx(id).unwrap_or_default();
     let column = container.flex_direction.is_some_and(|f| f.is_column());
-    if column && matches!(container.flex_wrap, Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)) {
+    if column
+        && matches!(
+            container.flex_wrap,
+            Some(crate::style::FlexWrap::WrapReverse | crate::style::FlexWrap::BalanceReverse)
+        )
+    {
         let first_physical = in_flow_flex_children(dom, id)
             .into_iter()
             .filter_map(|c| list.rect_of_node(c).map(|r| (c, r)))
@@ -274,7 +325,13 @@ pub(in crate::layout) fn layout_baseline(dom: &Dom, id: NodeIdx, list: &DisplayL
 /// O ascent de um item de flex — do topo da sua MARGIN-BOX à baseline do seu
 /// conteúdo — para o grupo baseline de uma linha. `outer_h` é a altura OUTER
 /// já resolvida do item (`FlexItem::h`, pós grow/shrink).
-fn flex_item_ascent(dom: &Dom, node: NodeIdx, outer_h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+fn flex_item_ascent(
+    dom: &Dom,
+    node: NodeIdx,
+    outer_h: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     let css = dom.computed_style_idx(node).unwrap_or_default();
     let font = font_px(&css, DEFAULT_FONT_SIZE);
     let resolve = ResolveCtx {
@@ -346,7 +403,10 @@ pub(in crate::layout) fn compute_line(
         .zip(&ascents)
         .map(|(&p, &a)| p.then_some(max_ascent - a))
         .collect();
-    Some(LineBaseline { cross_size, offsets })
+    Some(LineBaseline {
+        cross_size,
+        offsets,
+    })
 }
 
 /// O offset cruzado final de um item: stretch vence tudo (mesma prioridade

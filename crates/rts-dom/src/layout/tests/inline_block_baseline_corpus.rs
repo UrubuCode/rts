@@ -23,13 +23,62 @@ const TOL: f32 = 1.0;
 /// `esperado-a-falhar.txt` for that drift; what this lot changes — where the
 /// box and the text sit INSIDE each line — is pinned here.
 const CASES: [(&str, f32, &[(&str, (f32, f32, f32, f32))]); 7] = [
-    ("#a", 25.0, &[("#a1", (8.8, 0.0, 20.0, 20.0)), ("#a2", (28.8, 5.0, 8.8, 19.0))]),
-    ("#b", 32.0, &[("#b1", (8.8, 0.0, 24.8, 32.0)), ("#b2", (33.59, 6.0, 8.8, 19.0))]),
-    ("#c", 45.0, &[("#c1", (8.8, 0.0, 30.0, 40.0)), ("#c2", (38.8, 25.0, 8.8, 19.0))]),
-    ("#d", 35.0, &[("#d1", (8.8, 0.0, 30.0, 30.0)), ("#d2", (38.8, 15.0, 8.8, 19.0))]),
-    ("#e", 30.0, &[("#e1", (8.8, 0.0, 20.0, 30.0)), ("#e2", (28.8, 3.92, 8.8, 19.0))]),
-    ("#f", 30.0, &[("#f1", (8.8, 0.0, 20.0, 30.0)), ("#f2", (28.8, 0.0, 8.8, 19.0))]),
-    ("#g", 30.0, &[("#g1", (8.8, 0.0, 20.0, 30.0)), ("#g2", (28.8, 10.0, 8.8, 19.0))]),
+    (
+        "#a",
+        25.0,
+        &[
+            ("#a1", (8.8, 0.0, 20.0, 20.0)),
+            ("#a2", (28.8, 5.0, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#b",
+        32.0,
+        &[
+            ("#b1", (8.8, 0.0, 24.8, 32.0)),
+            ("#b2", (33.59, 6.0, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#c",
+        45.0,
+        &[
+            ("#c1", (8.8, 0.0, 30.0, 40.0)),
+            ("#c2", (38.8, 25.0, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#d",
+        35.0,
+        &[
+            ("#d1", (8.8, 0.0, 30.0, 30.0)),
+            ("#d2", (38.8, 15.0, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#e",
+        30.0,
+        &[
+            ("#e1", (8.8, 0.0, 20.0, 30.0)),
+            ("#e2", (28.8, 3.92, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#f",
+        30.0,
+        &[
+            ("#f1", (8.8, 0.0, 20.0, 30.0)),
+            ("#f2", (28.8, 0.0, 8.8, 19.0)),
+        ],
+    ),
+    (
+        "#g",
+        30.0,
+        &[
+            ("#g1", (8.8, 0.0, 20.0, 30.0)),
+            ("#g2", (28.8, 10.0, 8.8, 19.0)),
+        ],
+    ),
 ];
 
 #[test]
@@ -42,7 +91,8 @@ fn inline_block_sits_on_the_baseline_of_the_line() {
     let (dom, list) = geometria(&src, 1280.0);
     let rect = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
-        list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"))
+        list.rect_of(idx)
+            .unwrap_or_else(|| panic!("{sel} has no geometry"))
     };
     let mut wrong = Vec::new();
     for (caso, altura, filhos) in CASES {
@@ -53,14 +103,26 @@ fn inline_block_sits_on_the_baseline_of_the_line() {
         for &(sel, e) in filhos {
             let r = rect(sel);
             let got = (r.x - c.x, r.y - c.y, r.w, r.h);
-            if !((got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL) {
-                wrong.push(format!("{sel} relative to {caso}: expected {e:?}, got {got:?}"));
+            if !((got.0 - e.0).abs() <= TOL
+                && (got.1 - e.1).abs() <= TOL
+                && (got.2 - e.2).abs() <= TOL
+                && (got.3 - e.3).abs() <= TOL)
+            {
+                wrong.push(format!(
+                    "{sel} relative to {caso}: expected {e:?}, got {got:?}"
+                ));
             }
         }
     }
-    assert!(wrong.is_empty(), "against Blink:
-{}", wrong.join("
-"));
+    assert!(
+        wrong.is_empty(),
+        "against Blink:
+{}",
+        wrong.join(
+            "
+"
+        )
+    );
 }
 
 /// The silent class this lot could have opened: an inline-block's baseline is
@@ -76,10 +138,16 @@ fn a_cached_block_inside_an_inline_block_keeps_its_baseline() {
     <div id="linha">x<span id="ib"><div>um</div><div id="dois">dois</div></span>y</div>
     <p id="outro">z</p>"#;
     let mut dom = crate::parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &ApproxMeasurer,
+    };
     fn topo(dom: &crate::Dom, ctx: &LayoutCtx) -> f32 {
         let list = layout_document(dom, ctx);
-        let idx = dom.resolve(dom.query("#linha").expect("#linha")).expect("live node");
+        let idx = dom
+            .resolve(dom.query("#linha").expect("#linha"))
+            .expect("live node");
         list.rect_of(idx).expect("geometry").h
     }
     let primeira = topo(&dom, &ctx);
@@ -87,7 +155,10 @@ fn a_cached_block_inside_an_inline_block_keeps_its_baseline() {
     // line ("dois"), so it hangs below the baseline and the line is exactly as
     // tall as the box; sitting on its bottom edge, the text's descent would
     // hang below the box and the line would be ~4.6px taller.
-    assert!((primeira - 70.0).abs() < 0.5, "the box does not sit on its last line: line h={primeira}");
+    assert!(
+        (primeira - 70.0).abs() < 0.5,
+        "the box does not sit on its last line: line h={primeira}"
+    );
     let segunda = topo(&dom, &ctx);
     assert_eq!(primeira, segunda, "the cached pass changed the line");
     // A mutation ELSEWHERE stitches the ancestors and keeps this subtree cached.

@@ -20,9 +20,28 @@ const HTML: &str = r#"<style>
 #[test]
 fn item_flex_respeita_max_min_width_e_margens_auto() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#teto"), (304.0, 0.0, 672.0, 40.0), "width 100% capado a 42em e centrado por margin auto");
-    assert_eq!(r("#piso"), (0.0, 45.0, 200.0, 40.0), "min-width acima do conteúdo");
-    assert_eq!(r("#cresce"), (200.0, 45.0, 300.0, 40.0), "flex-grow capado pelo max-width");
-    assert_eq!(r("#direita"), (1180.0, 45.0, 100.0, 40.0), "margin-left auto empurra para a direita");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#teto"),
+        (304.0, 0.0, 672.0, 40.0),
+        "width 100% capado a 42em e centrado por margin auto"
+    );
+    assert_eq!(
+        r("#piso"),
+        (0.0, 45.0, 200.0, 40.0),
+        "min-width acima do conteúdo"
+    );
+    assert_eq!(
+        r("#cresce"),
+        (200.0, 45.0, 300.0, 40.0),
+        "flex-grow capado pelo max-width"
+    );
+    assert_eq!(
+        r("#direita"),
+        (1180.0, 45.0, 100.0, 40.0),
+        "margin-left auto empurra para a direita"
+    );
 }

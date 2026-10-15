@@ -166,7 +166,10 @@ impl Fragment {
             direct_line: self.direct_line,
             last_line: self.last_line,
             static_anchors: std::rc::Rc::new(
-                self.static_anchors.iter().map(|&(b, x, y, w)| Some((map_box(b)?, x, y, w))).collect::<Option<Vec<_>>>()?,
+                self.static_anchors
+                    .iter()
+                    .map(|&(b, x, y, w)| Some((map_box(b)?, x, y, w)))
+                    .collect::<Option<Vec<_>>>()?,
             ),
             origin: self.origin,
             size: self.size,

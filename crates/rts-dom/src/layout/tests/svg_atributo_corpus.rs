@@ -14,8 +14,15 @@ const HTML: &str = r#"<style>body{margin:0;font:16px/20px monospace}#c{width:200
 #[test]
 fn atributos_do_svg_sao_comprimentos_css() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#em"), (0.0, 0.0, 16.0, 16.0), "1em = font-size");
     assert_eq!(r("#px"), (0.0, 20.0, 24.0, 24.0), "sem unidade = px");
-    assert_eq!(r("#pct"), (0.0, 48.0, 100.0, 40.0), "50% do contentor de 200");
+    assert_eq!(
+        r("#pct"),
+        (0.0, 48.0, 100.0, 40.0),
+        "50% do contentor de 200"
+    );
 }

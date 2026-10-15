@@ -37,7 +37,10 @@ pub(crate) fn by_style(css: &ComputedStyle, parent_css: Option<&ComputedStyle>) 
         )
     );
     let float_bfc = css.float_side.is_some_and(|side| side != FloatSide::None);
-    let positioned_bfc = css.position.map(|position| position.out_of_flow()).unwrap_or(false);
+    let positioned_bfc = css
+        .position
+        .map(|position| position.out_of_flow())
+        .unwrap_or(false);
     // Um ITEM de flex ou de grid estabelece o seu próprio contexto (Flexbox
     // §4, Grid §6): contém os seus floats como um `flow-root`. Sem isto o
     // `<header class="mb-auto">` do Bootstrap cover — um `float-md-start` e um

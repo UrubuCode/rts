@@ -44,59 +44,66 @@ use crate::inline_box::{AtomicKind, GeneratedPart, apara_css, e_espaco_css, so_e
 use crate::style::{ComputedStyle, ResolveCtx};
 
 pub(crate) mod block;
-pub(crate) mod inline;
 pub(crate) mod flex;
-pub(crate) mod grid;
 pub(crate) mod float;
+pub(crate) mod fragment;
+pub(crate) mod grid;
+pub(crate) mod inline;
+pub(crate) mod measure;
 pub(crate) mod positioned;
 pub(crate) mod replaced;
-pub(crate) mod measure;
-pub(crate) mod fragment;
 
-pub use measure::active_measurer;
-use self::flex::column::{align_offset, justify_offsets, layout_children_column};
-use self::flex::row::layout_children_horizontal;
-use self::grid::grid::layout_children_grid;
-use self::inline::line::layout_inline_flow;
-use self::inline::line_break::wrap_runs;
-use self::inline::runs::{InlineRun, collect_runs};
-use self::inline::pseudo_inline::pseudo_run;
-use self::inline::segment::{Segment, apply_ellipsis, collapse_ws, requested_ellipsis, push_segment};
 pub(crate) use self::block::block::layout_block;
 pub(crate) use self::block::rotated::{in_rotated_frame, rotated_frame_mode};
-pub use self::fragment::types::{ChildRef, Fragment};
-use crate::paint::pieces::Piece;
+use self::block::vertical_flow::layout_children_vertical;
+use self::flex::column::{align_offset, justify_offsets, layout_children_column};
+use self::flex::row::layout_children_horizontal;
 pub use self::fragment::box_rects::BoxRects;
 pub(crate) use self::fragment::box_rects::{LineId, LineScope};
 use self::fragment::fragment::{KeyBase, emit_fragment, layout_block_reusing};
-use self::block::vertical_flow::layout_children_vertical;
+pub use self::fragment::types::{ChildRef, Fragment};
+use self::grid::grid::layout_children_grid;
+use self::inline::line::layout_inline_flow;
+use self::inline::line_break::wrap_runs;
 use self::inline::line_inline_block::layout_inline_block_line;
+use self::inline::pseudo_inline::pseudo_run;
+use self::inline::runs::{InlineRun, collect_runs};
+use self::inline::segment::{
+    Segment, apply_ellipsis, collapse_ws, push_segment, requested_ellipsis,
+};
+use crate::paint::pieces::Piece;
+pub use measure::active_measurer;
 // `pub(crate)`, not a plain `use`: `table/relative.rs` calls it too, for the
 // table-internal boxes (`<tr>`/`<tbody>`/`<thead>`/`<tfoot>`) that never go
 // through `layout_block` and so never asked this question on their own.
 pub(crate) use self::positioned::relative::apply_relative_offset;
 
-use crate::paint::item::{Corners, DisplayItem};
-use crate::paint::list::{DisplayList, Rect, ScrollRegion};
-pub use self::measure::text_measurer::{ApproxMeasurer, TextMeasurer};
 pub(crate) use self::block::bfc::BlockFormattingContext;
+use self::block::box_kind::{
+    css_display, in_inline_context, is_block_level, is_inline_block, is_inline_text_container,
+    whitespace_is_inline_separator,
+};
 pub(crate) use self::block::box_kind::{font_px, is_non_rendered_tag, used_display};
+use self::block::box_kind::{is_text_input_tag, tag_of};
 pub(crate) use self::float::float::Exclusion;
+use self::float::float::{close_run, float_of, free_band};
 pub(crate) use self::fragment::items::{add_line_fragment, record_box_rect, reserve_box_order};
 pub(crate) use self::measure::measure::intrinsic_outer_width;
-use crate::paint::decor::border_items;
+use self::measure::measure::{
+    child_outer_height, child_outer_width, collect_text, content_natural_width,
+};
+pub use self::measure::text_measurer::{ApproxMeasurer, TextMeasurer};
 pub(crate) use self::positioned::positioned::is_out_of_flow;
-use self::block::box_kind::{css_display, in_inline_context, is_block_level, is_inline_block, is_inline_text_container, whitespace_is_inline_separator};
-use self::float::float::{free_band, close_run, float_of};
+use self::positioned::positioned::{collect_out_of_flow, is_display_none, layout_out_of_flow};
 use self::replaced::input::{layout_button, layout_input};
 use self::replaced::select::layout_select;
-use self::measure::measure::{child_outer_height, child_outer_width, collect_text, content_natural_width};
-use self::block::box_kind::{is_text_input_tag, tag_of};
+use crate::paint::decor::border_items;
 use crate::paint::decor::{body_background, deve_suprimir_fundo};
+use crate::paint::item::{Corners, DisplayItem};
+use crate::paint::list::{DisplayList, Rect, ScrollRegion};
 use crate::paint::pieces;
 use crate::paint::stacking;
 use crate::paint::style::{apply_opacity, cor_visivel, decoration_code, italico};
-use self::positioned::positioned::{collect_out_of_flow, is_display_none, layout_out_of_flow};
 // `pub(crate)` for `inline_box::replaced_inline_size`: a replaced element's
 // `height: %` is the same rule, and a second copy is where they would drift.
 pub(crate) use self::positioned::positioned::resolve_height;
@@ -252,25 +259,9 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     // memo de estilo do Dom invalida sozinho se mudou).
     dom.set_viewport(ctx.viewport_w, ctx.viewport_h);
     inline::line_baseline::clear();
+    let canvas_bg = body_background(dom).unwrap_or(0xFFFF_FFFF);
     let mut list = DisplayList::for_dom(dom);
-    // A árvore de caixas deste documento, memoizada no `Dom`. Vive na lista
-    // para que `record_node_rect`/`reserve_node_order` (em `fragment/items.rs`)
-    // traduzam nó→caixa por dentro, sem que nenhum dos chamadores mude.
-    // PROPAGAÇÃO DO FUNDO do <body>/<html> (regra especial do CSS): o background
-    // desses dois elementos "vaza" para o VIEWPORT inteiro, não só a caixa deles.
-    // Pintamos PRIMEIRO (atrás de tudo) um retângulo do tamanho do viewport com a cor
-    // do body. (Reserva uma altura generosa; o egui faz clip na sua área.)
-    //
-    // E BRANCO quando nenhum dos dois define fundo: é o que um browser pinta no
-    // canvas de uma página sem `background`. Sem isto o que aparecia era a cor
-    // de limpeza do backend (quase preta), e uma página real cujo estilo mora
-    // num `<link>` externo ficava texto preto sobre preto — o sintoma parecia
-    // "a cascata falhou" quando a cascata estava certa e o canvas é que não
-    // tinha dono.
-    // Vai no CAMPO e não como item da lista: quem pinta o canvas é o backend
-    // (é a cor de limpeza dele), e um item a mais deslocaria todos os índices
-    // que os testes de layout usam para nomear o que estão a verificar.
-    list.canvas_background = body_background(dom).unwrap_or(0xFFFF_FFFF);
+    list.canvas_background = canvas_bg;
     let mut cursor_y = 0.0f32;
     // A entrada do layout é a árvore de caixas, não a lista de filhos do
     // documento. Isto importa mesmo quando a forma atual coincide: o `BoxId`
@@ -357,6 +348,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         rects_conhecidos.extend(inline::static_anchor::all(&fragment));
         positioned.push((stacking::stacking_key(dom, alvo.node), alvo.node, fragment));
     }
+    crate::layout::grid::abspos::clear_grid_cb();
     positioned.sort_by(|(a, ..), (b, ..)| a.cmp(b));
     let mut negativos = DisplayList::for_dom(dom);
     // Layer 8 (Appendix E): an out-of-flow box with `z-index: auto`/`0` paints
@@ -374,12 +366,20 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
             // its grid tracks or scroll regions either, as it never did.
             if !(fragment.pieces.is_empty() && fragment.box_rects.is_empty()) {
                 let mut fragment = fragment;
-                negativos.box_rects.extend(std::mem::take(&mut fragment.box_rects));
+                negativos
+                    .box_rects
+                    .extend(std::mem::take(&mut fragment.box_rects));
                 stacking::merge_after(&mut negativos, fragment);
             }
             continue;
         }
-        let DisplayList { pieces, box_rects, grid_column_tracks, scroll_regions, .. } = fragment;
+        let DisplayList {
+            pieces,
+            box_rects,
+            grid_column_tracks,
+            scroll_regions,
+            ..
+        } = fragment;
         list.box_rects.extend(box_rects);
         list.grid_column_tracks.extend(grid_column_tracks);
         list.scroll_regions.extend(scroll_regions);
@@ -404,7 +404,8 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
         // used to carry cannot fire here. `stacking` merges pieces; the rects
         // are layout's (F3).
         let mut negativos = negativos;
-        list.box_rects.extend(std::mem::take(&mut negativos.box_rects));
+        list.box_rects
+            .extend(std::mem::take(&mut negativos.box_rects));
         stacking::merge_before(&mut list, negativos);
     }
     // A HashMap não carrega ordem de pintura. Materializamos uma ordem explícita
@@ -430,7 +431,6 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
 pub fn bounding_rect(dom: &Dom, node: NodeIdx, ctx: &LayoutCtx) -> Option<Rect> {
     layout_document(dom, ctx).rect_of(node)
 }
-
 
 #[cfg(test)]
 mod tests;

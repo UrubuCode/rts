@@ -2,8 +2,16 @@
 
 use super::*;
 
+pub(super) mod abspos;
+pub(super) mod align;
 pub(super) mod aspect;
 pub(super) mod collapse;
 pub(super) mod grid;
 pub(super) mod lines;
+pub(crate) mod max_content;
+pub(super) mod placement;
+pub(crate) mod subgrid;
+pub(super) mod subgrid_names;
+pub(crate) mod subgrid_contrib;
+pub(super) mod subgrid_row_contrib;
 pub(crate) mod tracks;

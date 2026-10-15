@@ -50,7 +50,9 @@ pub(in crate::layout) fn line_envelope(
     let own_fonts: Vec<(f32, f32, VerticalAlign)> = line
         .iter()
         .filter(|s| s.atomic.is_none() && !s.text.is_empty())
-        .filter_map(|s| super::run_font::of_segment(dom, &s.owners, family, font_size, ctx.measurer))
+        .filter_map(|s| {
+            super::run_font::of_segment(dom, &s.owners, family, font_size, ctx.measurer)
+        })
         .map(|f| (f.box_height, f.box_ascent, VerticalAlign::Baseline))
         .collect();
     if own_fonts.is_empty() && !line.iter().any(|s| is_inline_block_atom(s)) {
@@ -62,7 +64,13 @@ pub(in crate::layout) fn line_envelope(
         .map(|a| (a.height, a.ascent, a.valign))
         .chain(own_fonts)
         .collect();
-    Some(envelope_with_baseline(&items, font_size, line_height, family, ctx.measurer))
+    Some(envelope_with_baseline(
+        &items,
+        font_size,
+        line_height,
+        family,
+        ctx.measurer,
+    ))
 }
 
 /// The top of an atom of a line whose envelope is `env` and whose top is `cy`.
@@ -78,7 +86,16 @@ pub(in crate::layout) fn atom_top(
     ctx: &LayoutCtx,
 ) -> f32 {
     match atom(dom, seg, content_w, ctx) {
-        Some(a) => item_top_with_baseline(a.valign, a.height, a.ascent, cy, env, font_size, family, ctx.measurer),
+        Some(a) => item_top_with_baseline(
+            a.valign,
+            a.height,
+            a.ascent,
+            cy,
+            env,
+            font_size,
+            family,
+            ctx.measurer,
+        ),
         None => cy,
     }
 }
@@ -94,14 +111,27 @@ pub(in crate::layout) fn atom_top(
 /// de referência do WPT) saía com o quadrado a começar 43px ANTES do fim
 /// do parágrafo — deslocando a REFERÊNCIA de qualquer reftest que o use.
 /// Só toca `text_top`, não `line_advance`/`text_owner_anchor`.
-pub(in crate::layout) fn tall_image_without_text(line: &[Segment], line_h: f32, lh: f32, has_text: bool) -> bool {
-    line_h > lh + 0.001 && !has_text && line.iter().any(|s| matches!(s.atomic, Some((_, _, AtomicKind::Replaced))))
+pub(in crate::layout) fn tall_image_without_text(
+    line: &[Segment],
+    line_h: f32,
+    lh: f32,
+    has_text: bool,
+) -> bool {
+    line_h > lh + 0.001
+        && !has_text
+        && line
+            .iter()
+            .any(|s| matches!(s.atomic, Some((_, _, AtomicKind::Replaced))))
 }
 
 fn is_inline_block_atom(seg: &Segment) -> bool {
     matches!(
         seg.atomic,
-        Some((_, _, AtomicKind::Block | AtomicKind::Generated(_, crate::inline_box::GeneratedPart::Atom)))
+        Some((
+            _,
+            _,
+            AtomicKind::Block | AtomicKind::Generated(_, crate::inline_box::GeneratedPart::Atom)
+        ))
     )
 }
 
@@ -130,7 +160,11 @@ fn atom(dom: &Dom, seg: &Segment, content_w: f32, ctx: &LayoutCtx) -> Option<Ato
         // A replaced element has no baseline of its own: its bottom margin edge
         // sits on the line's (CSS 2.1 §10.8.1), which is where `line.rs`
         // already puts it.
-        AtomicKind::Replaced => Some(Atom { height, ascent: height, valign: VerticalAlign::Baseline }),
+        AtomicKind::Replaced => Some(Atom {
+            height,
+            ascent: height,
+            valign: VerticalAlign::Baseline,
+        }),
         AtomicKind::Widget => Some(Atom {
             height,
             ascent: super::line_inline_block::item_ascent(dom, id, height, content_w, ctx),
@@ -187,15 +221,35 @@ fn block_ascent(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let (mt, mb) = (css.margin.top.resolve(&r).unwrap_or(0.0), css.margin.bottom.resolve(&r).unwrap_or(0.0));
+    let (mt, mb) = (
+        css.margin.top.resolve(&r).unwrap_or(0.0),
+        css.margin.bottom.resolve(&r).unwrap_or(0.0),
+    );
     if flex && crate::layout::flex::baseline::has_element_items(dom, id) {
         // A flex container's baseline is its first line's item's (Flexbox
         // §8.5), read where that item really sits once the container is laid out.
         let start = mark();
         let mut scratch = DisplayList::for_dom(dom);
-        layout_block(dom, id, box_id, 0.0, 0.0, content_w, None, Some(width), None, false, true, &BlockFormattingContext::new(), ctx, &mut scratch);
+        layout_block(
+            dom,
+            id,
+            box_id,
+            0.0,
+            0.0,
+            content_w,
+            None,
+            Some(width),
+            None,
+            false,
+            true,
+            &BlockFormattingContext::new(),
+            ctx,
+            &mut scratch,
+        );
         discard(start);
-        if let Some(b) = crate::layout::flex::baseline::layout_baseline(dom, id, &scratch, content_w, ctx) {
+        if let Some(b) =
+            crate::layout::flex::baseline::layout_baseline(dom, id, &scratch, content_w, ctx)
+        {
             return b.clamp(0.0, height);
         }
     }
@@ -204,7 +258,11 @@ fn block_ascent(
         let inner = super::line_inline_block::item_ascent(dom, id, border_h, content_w, ctx);
         // `item_ascent` answers the whole border box when the box is empty:
         // then the baseline is the bottom MARGIN edge, which is `height`.
-        return if inner >= border_h { height } else { mt + inner };
+        return if inner >= border_h {
+            height
+        } else {
+            mt + inner
+        };
     }
     match last_line_baseline(dom, id, box_id, width, content_w, ctx) {
         Some(b) => b.min(height),
@@ -239,7 +297,13 @@ thread_local! {
 
 /// Records the baseline of the last line of the inline flow owned by `owner`.
 pub(in crate::layout) fn register_last_line(owner: NodeIdx, baseline: f32) {
-    LINES.with(|v| v.borrow_mut().push(LineRecord { owner, baseline, from_fragment: false }));
+    LINES.with(|v| {
+        v.borrow_mut().push(LineRecord {
+            owner,
+            baseline,
+            from_fragment: false,
+        })
+    });
 }
 
 /// Re-announces a cached fragment's last own line where it is emitted: a
@@ -247,7 +311,13 @@ pub(in crate::layout) fn register_last_line(owner: NodeIdx, baseline: f32) {
 /// holding a cached block would find no line in it and sit on its bottom edge —
 /// silently, and only on the second layout pass.
 pub(in crate::layout) fn register_from_fragment(owner: NodeIdx, baseline: f32) {
-    LINES.with(|v| v.borrow_mut().push(LineRecord { owner, baseline, from_fragment: true }));
+    LINES.with(|v| {
+        v.borrow_mut().push(LineRecord {
+            owner,
+            baseline,
+            from_fragment: true,
+        })
+    });
 }
 
 /// Where the stack stands now — what a reader passes back to [`collect_baselines`].
@@ -278,12 +348,19 @@ pub(in crate::layout) fn clear() {
 ///
 /// "Own" is [`own_flow`]: a line of `id` itself or of a block inside it,
 /// never of an atom nested in it (whose lines are its own, CSS 2.1 §10.8.1).
-pub(in crate::layout) fn collect_baselines(dom: &Dom, id: NodeIdx, marca: usize) -> (Option<f32>, Option<f32>) {
+pub(in crate::layout) fn collect_baselines(
+    dom: &Dom,
+    id: NodeIdx,
+    marca: usize,
+) -> (Option<f32>, Option<f32>) {
     LINES.with(|v| {
         let mut v = v.borrow_mut();
         let max_of = |acc: Option<f32>, b: f32| Some(acc.map_or(b, |m: f32| m.max(b)));
         let (mut direct, mut total) = (None, None);
-        for l in v[marca.min(v.len())..].iter().filter(|l| own_flow(dom, id, l.owner, l.from_fragment)) {
+        for l in v[marca.min(v.len())..]
+            .iter()
+            .filter(|l| own_flow(dom, id, l.owner, l.from_fragment))
+        {
             total = max_of(total, l.baseline);
             if !l.from_fragment {
                 direct = max_of(direct, l.baseline);
@@ -296,15 +373,27 @@ pub(in crate::layout) fn collect_baselines(dom: &Dom, id: NodeIdx, marca: usize)
 
 /// `overflow` other than `visible` on either axis.
 fn clips_overflow(css: &ComputedStyle) -> bool {
-    [css.overflow_x, css.overflow_y].iter().flatten().any(|o| o.clips())
+    [css.overflow_x, css.overflow_y]
+        .iter()
+        .flatten()
+        .any(|o| o.clips())
 }
 
 /// [`collect_baselines`] for the fragment of the BLOCK `id`, laid out at `y` with outer
 /// height `height`: a block that clips answers its bottom margin edge for both
 /// values instead of its lines (see [`own_flow`]).
-pub(in crate::layout) fn collect_from_block(dom: &Dom, id: NodeIdx, marca: usize, y: f32, height: f32) -> (Option<f32>, Option<f32>) {
+pub(in crate::layout) fn collect_from_block(
+    dom: &Dom,
+    id: NodeIdx,
+    marca: usize,
+    y: f32,
+    height: f32,
+) -> (Option<f32>, Option<f32>) {
     let lines = collect_baselines(dom, id, marca);
-    if dom.computed_style_idx(id).is_some_and(|c| clips_overflow(&c)) {
+    if dom
+        .computed_style_idx(id)
+        .is_some_and(|c| clips_overflow(&c))
+    {
         return (Some(y + height), Some(y + height));
     }
     lines
@@ -321,15 +410,23 @@ pub(in crate::layout) fn stitch_total(
     tree: &crate::boxes::BoxTree,
 ) -> Option<f32> {
     // A clipping block stands for its bottom edge, and a stitch keeps its size.
-    if dom.computed_style_idx(id).is_some_and(|c| clips_overflow(&c)) {
+    if dom
+        .computed_style_idx(id)
+        .is_some_and(|c| clips_overflow(&c))
+    {
         return previous.last_line;
     }
     let direct = previous.direct_line;
     crate::paint::pieces::children(pieces)
-        .filter(|c| tree.node_of(c.box_id).is_none_or(|n| own_flow(dom, id, n, true)))
+        .filter(|c| {
+            tree.node_of(c.box_id)
+                .is_none_or(|n| own_flow(dom, id, n, true))
+        })
         .filter_map(|c| c.fragment.last_line.map(|b| b + c.dy))
         .chain(direct)
-        .fold(None, |acc: Option<f32>, b| Some(acc.map_or(b, |m| m.max(b))))
+        .fold(None, |acc: Option<f32>, b| {
+            Some(acc.map_or(b, |m| m.max(b)))
+        })
 }
 
 /// The baseline of an atom's LAST line box, from the top of its outer box, or
@@ -379,13 +476,28 @@ fn last_line_baseline(
 fn own_flow(dom: &Dom, id: NodeIdx, owner: NodeIdx, from_fragment: bool) -> bool {
     let mut cur = owner;
     while cur != id {
-        let Some(css) = dom.computed_style_idx(cur) else { return false };
+        let Some(css) = dom.computed_style_idx(cur) else {
+            return false;
+        };
         use crate::style::DisplayKind as D;
         let atomic = matches!(
             css.effective_display(),
-            Some(D::InlineBlock | D::InlineFlex | D::InlineFlexWrap | D::InlineGrid | D::InlineTable | D::Flex | D::FlexWrap | D::Grid | D::Table)
+            Some(
+                D::InlineBlock
+                    | D::InlineFlex
+                    | D::InlineFlexWrap
+                    | D::InlineGrid
+                    | D::InlineTable
+                    | D::Flex
+                    | D::FlexWrap
+                    | D::Grid
+                    | D::Table
+            )
         );
-        let outside = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None) || css.position.is_some_and(|p| p.out_of_flow());
+        let outside = css
+            .float_side
+            .is_some_and(|f| f != crate::style::FloatSide::None)
+            || css.position.is_some_and(|p| p.out_of_flow());
         if atomic || outside || (clips_overflow(&css) && !(cur == owner && from_fragment)) {
             return false;
         }
@@ -399,7 +511,12 @@ fn own_flow(dom: &Dom, id: NodeIdx, owner: NodeIdx, from_fragment: bool) -> bool
 
 /// The same for a generated `inline-block` (`::before`/`::after`): its text's
 /// first line baseline, or its bottom margin edge when it has no text.
-fn generated_ascent(pseudo: &crate::pseudo::PseudoBox, height: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+fn generated_ascent(
+    pseudo: &crate::pseudo::PseudoBox,
+    height: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     let css = &pseudo.css;
     if clips_overflow(css) || pseudo.text.trim().is_empty() {
         return height;
@@ -416,5 +533,9 @@ fn generated_ascent(pseudo: &crate::pseudo::PseudoBox, height: f32, content_w: f
     let family = css.font_family.as_deref();
     let lh = crate::inline_box::altura_da_linha(css, font, ctx.measurer);
     let content = crate::inline_box::altura_do_conteudo(font, family, ctx.measurer);
-    (edges.mt + edges.values[0] + crate::inline_box::meia_entrelinha(lh, content) + ctx.measurer.font_ascent_family(font, family)).min(height)
+    (edges.mt
+        + edges.values[0]
+        + crate::inline_box::meia_entrelinha(lh, content)
+        + ctx.measurer.font_ascent_family(font, family))
+    .min(height)
 }

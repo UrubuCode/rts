@@ -47,8 +47,8 @@
 use crate::boxes::BoxTree;
 use crate::dom::{Dom, NodeIdx};
 use crate::paint::list::DisplayList;
-use crate::paint::pieces::Piece;
 use crate::paint::pieces;
+use crate::paint::pieces::Piece;
 
 /// O `z-index` computado de um out-of-flow, `0` para `auto`/sem estilo — a
 /// mesma leitura que `layout_document` já fazia inline no `sort_by_key`.
@@ -215,8 +215,9 @@ pub(crate) fn is_before_in_tree(dom: &Dom, a: NodeIdx, b: NodeIdx) -> bool {
 /// subtree potentially built by an earlier frame or shared with another box
 /// entirely (`layout/fragment/fragment.rs`'s cache).
 fn is_layer8_relative(dom: &Dom, node: NodeIdx) -> bool {
-    dom.computed_style_idx(node)
-        .is_some_and(|css| css.position == Some(crate::style::Position::Relative) && z_index_of(dom, node) == 0)
+    dom.computed_style_idx(node).is_some_and(|css| {
+        css.position == Some(crate::style::Position::Relative) && z_index_of(dom, node) == 0
+    })
 }
 
 /// Splices `insert` into `pieces` right before the EARLIEST layer 8
@@ -299,7 +300,9 @@ pub(crate) fn splice_layer8(
             }
             continue;
         }
-        let Piece::Child(c) = &pieces[i] else { continue };
+        let Piece::Child(c) = &pieces[i] else {
+            continue;
+        };
         if tree
             .node_of(c.box_id)
             .is_some_and(|n| is_layer8_relative(dom, n) && is_before_in_tree(dom, target, n))
@@ -309,11 +312,21 @@ pub(crate) fn splice_layer8(
             return Ok(());
         }
         let mut subtree = (*c.fragment.pieces).clone();
-        match splice_layer8(dom, &c.fragment.tree, &mut subtree, target, insert, dx + c.dx, dy + c.dy) {
+        match splice_layer8(
+            dom,
+            &c.fragment.tree,
+            &mut subtree,
+            target,
+            insert,
+            dx + c.dx,
+            dy + c.dy,
+        ) {
             Ok(()) => {
                 let mut novo = (*c.fragment).clone();
                 novo.pieces = std::rc::Rc::new(subtree);
-                let Piece::Child(c) = &mut pieces[i] else { unreachable!() };
+                let Piece::Child(c) = &mut pieces[i] else {
+                    unreachable!()
+                };
                 c.fragment = std::rc::Rc::new(novo);
                 return Ok(());
             }

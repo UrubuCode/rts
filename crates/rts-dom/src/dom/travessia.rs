@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     /// Concatena o texto de TODOS os descendentes de `id`, em ordem de documento
     /// (`element.textContent` getter). `None` se o id não resolve nesta árvore.
     /// Num nó de texto, retorna o próprio texto.
@@ -31,10 +30,14 @@ impl Dom {
     /// O elemento `<html>` top-level do documento, separado da raiz sintética
     /// `#document`. `None` para um fragmento sem `<html>`.
     pub fn document_element(&self) -> Option<NodeId> {
-        self.nodes[self.root].children.iter().copied().find_map(|idx| {
-            matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html")
-                .then(|| self.make_id(idx))
-        })
+        self.nodes[self.root]
+            .children
+            .iter()
+            .copied()
+            .find_map(|idx| {
+                matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "html")
+                    .then(|| self.make_id(idx))
+            })
     }
 
     /// Nome da tag de um elemento em minúsculas (`element.tagName`, mas o browser
@@ -150,7 +153,6 @@ impl Dom {
         None
     }
 
-
     /// `getElementsByTagName(tag)`: todos os descendentes da árvore com a tag.
     /// (`"*"` casa qualquer elemento.) Reusa o matcher de `query_all`.
     pub fn get_elements_by_tag_name(&self, tag: &str) -> Vec<NodeId> {
@@ -225,7 +227,6 @@ impl Dom {
         }
     }
 
-
     // ── Node utils — #1762 ───────────────────────────────────────────────────────
 
     /// `node.contains(other)`: `other` é o próprio nó OU um descendente dele?
@@ -243,7 +244,6 @@ impl Dom {
             .map(|i| !self.nodes[i].children.is_empty())
             .unwrap_or(false)
     }
-
 
     // ── Navegação do DOM (parentNode / first|lastChild / next|previousSibling) ───
     // O `parent`/`children` da arena já têm tudo; aqui só expomos no vocabulário do

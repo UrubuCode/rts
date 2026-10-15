@@ -62,11 +62,30 @@ fn baseline_de_flex_aninhado_propaga_para_o_contentor_exterior() {
 </style>
 <div id="outer"><div id="sib">x</div><div id="inner"><div id="a">a</div><div id="b">b</div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#a"), (40.0, 8.0, 40.0, 20.0), "grupo interno: #a tem a maior margem, fica no topo do inner");
-    assert_eq!(r("#b"), (80.0, 8.0, 40.0, 20.0), "grupo interno: #b desce até à baseline de #a");
-    assert_eq!(r("#inner"), (40.0, 0.0, 80.0, 28.0), "inner no topo do outer: é ele quem domina o grupo externo");
-    assert_eq!(r("#sib"), (0.0, 8.0, 40.0, 20.0), "sib desce 8px para partilhar a baseline do GRUPO de #inner");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#a"),
+        (40.0, 8.0, 40.0, 20.0),
+        "grupo interno: #a tem a maior margem, fica no topo do inner"
+    );
+    assert_eq!(
+        r("#b"),
+        (80.0, 8.0, 40.0, 20.0),
+        "grupo interno: #b desce até à baseline de #a"
+    );
+    assert_eq!(
+        r("#inner"),
+        (40.0, 0.0, 80.0, 28.0),
+        "inner no topo do outer: é ele quem domina o grupo externo"
+    );
+    assert_eq!(
+        r("#sib"),
+        (0.0, 8.0, 40.0, 20.0),
+        "sib desce 8px para partilhar a baseline do GRUPO de #inner"
+    );
 }
 
 #[test]
@@ -86,9 +105,20 @@ fn sem_participante_interno_a_baseline_do_contentor_e_a_do_primeiro_item() {
 </style>
 <div id="outer2"><div id="sib2">x</div><div id="inner2"><div id="x1">a</div><div id="x2">b</div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#inner2"), (40.0, 0.0, 80.0, 60.0), "inner2 domina o grupo externo (é o único com margem no 1º item)");
-    assert_eq!(r("#sib2"), (0.0, 12.0, 40.0, 20.0), "sib2 desce a margem do PRIMEIRO item de inner2 (12), não de x2 (0)");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#inner2"),
+        (40.0, 0.0, 80.0, 60.0),
+        "inner2 domina o grupo externo (é o único com margem no 1º item)"
+    );
+    assert_eq!(
+        r("#sib2"),
+        (0.0, 12.0, 40.0, 20.0),
+        "sib2 desce a margem do PRIMEIRO item de inner2 (12), não de x2 (0)"
+    );
 }
 
 #[test]
@@ -110,8 +140,15 @@ fn em_coluna_a_baseline_do_contentor_e_a_do_primeiro_item_apesar_de_align_items_
 </style>
 <div id="outer3"><div id="sib3">x</div><div id="inner3"><div id="y1">a</div><div id="y2">b</div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#sib3"), (0.0, 6.0, 40.0, 20.0), "desce a margem do PRIMEIRO item (#y1: 6), ignora #y2 (30)");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#sib3"),
+        (0.0, 6.0, 40.0, 20.0),
+        "desce a margem do PRIMEIRO item (#y1: 6), ignora #y2 (30)"
+    );
 }
 
 #[test]
@@ -134,8 +171,15 @@ fn o_primeiro_item_conta_pela_ordem_de_order_nao_pela_ordem_do_dom() {
 </style>
 <div id="outer4"><div id="sib4">x</div><div id="inner4"><div id="p1">a</div><div id="p2">b</div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#sib4"), (0.0, 4.0, 40.0, 20.0), "usa a margem de #p2 (order:1, PRIMEIRO na ordem de flex), não a de #p1 (order:2, primeiro só no DOM)");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#sib4"),
+        (0.0, 4.0, 40.0, 20.0),
+        "usa a margem de #p2 (order:1, PRIMEIRO na ordem de flex), não a de #p1 (order:2, primeiro só no DOM)"
+    );
 }
 
 #[test]
@@ -158,6 +202,13 @@ fn a_primeira_linha_sob_wrap_reverse_e_a_ultima_na_ordem_de_flex() {
 </style>
 <div id="outer5"><div id="sib5">x</div><div id="inner5"><div id="q1">a</div><div id="q2">b</div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#sib5"), (0.0, 10.0, 40.0, 20.0), "usa a margem de #q2 (linha que o wrap-reverse desenha primeiro), não a de #q1 (0)");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#sib5"),
+        (0.0, 10.0, 40.0, 20.0),
+        "usa a margem de #q2 (linha que o wrap-reverse desenha primeiro), não a de #q1 (0)"
+    );
 }

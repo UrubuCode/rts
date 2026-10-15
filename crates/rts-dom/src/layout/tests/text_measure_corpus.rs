@@ -55,7 +55,9 @@ fn min_content_of_a_pre_text_is_its_widest_forced_line() {
     // `min-width: min-content` asks the min-content walk (`table::min_content`):
     // "AB\nCDE" in `pre` never soft-wraps, so the floor is the widest line,
     // 30, not the whole text joined (60).
-    let w = width_of("<div id=t style=\"width:0;min-width:min-content;white-space:pre\">AB&#10;CDE</div>");
+    let w = width_of(
+        "<div id=t style=\"width:0;min-width:min-content;white-space:pre\">AB&#10;CDE</div>",
+    );
     assert_eq!(w, 30.0);
 }
 

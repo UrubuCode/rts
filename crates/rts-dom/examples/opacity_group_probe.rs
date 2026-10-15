@@ -79,7 +79,9 @@ fn pinta_fundo(css: &rts_dom::style::ComputedStyle) -> bool {
 /// porque é desenhada POR CIMA dele, dentro da mesma caixa — quando os dois
 /// existem, a sobreposição é certa sem olhar para rect nenhum.
 fn pinta_borda(css: &rts_dom::style::ComputedStyle) -> bool {
-    rts_dom::style::borders::resolved_sides(css).iter().any(|s| s.paints())
+    rts_dom::style::borders::resolved_sides(css)
+        .iter()
+        .any(|s| s.paints())
 }
 
 fn main() {
@@ -94,7 +96,11 @@ fn main() {
         dom.add_stylesheet(&css);
     }
     let medidor = Medidor;
-    let ctx = layout::LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &medidor };
+    let ctx = layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &medidor,
+    };
     let lista = layout::layout_document(&dom, &ctx);
 
     let (mut com_opacity, mut zero_ou_um) = (0usize, 0usize);
@@ -109,7 +115,9 @@ fn main() {
         if !matches!(dom.node(idx).kind, NodeKind::Element { .. }) {
             continue;
         }
-        let Some(css) = dom.computed_style_idx(idx) else { continue };
+        let Some(css) = dom.computed_style_idx(idx) else {
+            continue;
+        };
         let Some(op) = css.opacity else { continue };
         com_opacity += 1;
         // `0` e `1` não precisam de grupo em caso nenhum: um é identidade, e a
@@ -123,22 +131,34 @@ fn main() {
         let mut camadas: Vec<Camada> = Vec::new();
         let rect_proprio = lista.rect_of_node(idx);
         if pinta_fundo(&css) {
-            camadas.push(Camada { rect: rect_proprio, texto: false });
+            camadas.push(Camada {
+                rect: rect_proprio,
+                texto: false,
+            });
         }
         if pinta_borda(&css) {
-            camadas.push(Camada { rect: rect_proprio, texto: false });
+            camadas.push(Camada {
+                rect: rect_proprio,
+                texto: false,
+            });
         }
         // Descendentes: qualquer um que pinte é uma camada por cima.
         let mut pilha: Vec<NodeIdx> = dom.node(idx).children.clone();
         while let Some(d) = pilha.pop() {
             match &dom.node(d).kind {
                 NodeKind::Text(t) if !t.trim().is_empty() => {
-                    camadas.push(Camada { rect: None, texto: true });
+                    camadas.push(Camada {
+                        rect: None,
+                        texto: true,
+                    });
                 }
                 NodeKind::Element { .. } => {
                     if let Some(dcss) = dom.computed_style_idx(d) {
                         if pinta_fundo(&dcss) || pinta_borda(&dcss) {
-                            camadas.push(Camada { rect: lista.rect_of_node(d), texto: false });
+                            camadas.push(Camada {
+                                rect: lista.rect_of_node(d),
+                                texto: false,
+                            });
                         }
                     }
                     pilha.extend(dom.node(d).children.iter().copied());
@@ -182,7 +202,11 @@ fn main() {
             let base = rect_proprio.map(|r| r.w * r.h).filter(|a| *a > 0.0);
             fracoes.push(base.map(|a| (maior / a).min(1.0)).unwrap_or(1.0));
             if exemplos.len() < 6 {
-                exemplos.push(format!("<{}> opacity={op} {} camadas", tag(&dom, idx), camadas.len()));
+                exemplos.push(format!(
+                    "<{}> opacity={op} {} camadas",
+                    tag(&dom, idx),
+                    camadas.len()
+                ));
             }
         } else if sem_rect > 0 {
             // Havia camadas que não se conseguiu situar: a resposta seria um
@@ -200,14 +224,20 @@ fn main() {
     println!("ficheiro: {caminho}");
     println!("elementos com `opacity` declarada .... {com_opacity}");
     println!("  dos quais 0 ou 1 (grupo irrelevante)  {zero_ou_um}");
-    println!("  fracionários ......................... {}", com_opacity - zero_ou_um);
+    println!(
+        "  fracionários ......................... {}",
+        com_opacity - zero_ou_um
+    );
     println!();
     println!("dos fracionários:");
     println!("  DIFERE  (camadas sobrepostas) ....... {difere}");
     println!("  IGUAL   (uma camada, ou disjuntas) .. {igual}");
     println!("  AMBÍGUO (sem rect p/ decidir) ....... {ambiguo}");
     println!();
-    println!("sobreposição, como fração da caixa: mediana {:.0}%, com >=50% {grandes}", mediana * 100.0);
+    println!(
+        "sobreposição, como fração da caixa: mediana {:.0}%, com >=50% {grandes}",
+        mediana * 100.0
+    );
     if !exemplos.is_empty() {
         println!("exemplos:");
         for e in &exemplos {

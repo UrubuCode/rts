@@ -36,8 +36,19 @@ impl BoxTree {
     /// It does not enter `by_node`: that is what keeps it out of `boxes_of`,
     /// whose callers ask "what did this ELEMENT generate" and would take a
     /// `::before` for a fragment of the element itself.
-    pub fn push_generated(&mut self, originating: NodeIdx, pseudo: PseudoElement, parent: BoxId) -> BoxId {
-        self.push(BoxKind::Generated { originating, pseudo }, Some(parent))
+    pub fn push_generated(
+        &mut self,
+        originating: NodeIdx,
+        pseudo: PseudoElement,
+        parent: BoxId,
+    ) -> BoxId {
+        self.push(
+            BoxKind::Generated {
+                originating,
+                pseudo,
+            },
+            Some(parent),
+        )
     }
 
     /// The generated box `pseudo` directly under `parent`: its first child for
@@ -77,7 +88,11 @@ impl BoxTree {
     /// longer generates — which, with the memo key of `dom/box_tree.rs`
     /// covering what the cascade reads, does not happen inside one layout pass.
     pub fn pseudo_box(&self, dom: &crate::dom::Dom, id: BoxId) -> Option<crate::pseudo::PseudoBox> {
-        let BoxKind::Generated { originating, pseudo } = self.kind(id) else {
+        let BoxKind::Generated {
+            originating,
+            pseudo,
+        } = self.kind(id)
+        else {
             return None;
         };
         dom.pseudo_box(originating, pseudo)
@@ -109,7 +124,8 @@ impl BoxTree {
         let inicio = usize::from(self.generated_child(id, PseudoElement::Before).is_some());
         // A lone `::before` is the first AND the last child, and is not
         // trimmed twice: `generated_child` matches the pseudo, not the slot.
-        let fim = filhos.len() - usize::from(self.generated_child(id, PseudoElement::After).is_some());
+        let fim =
+            filhos.len() - usize::from(self.generated_child(id, PseudoElement::After).is_some());
         &filhos[inicio..fim]
     }
 

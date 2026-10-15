@@ -43,10 +43,7 @@ impl Dom {
                 .copied()
                 .filter(|&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
                 .collect(),
-            C::NextSibling => self
-                .next_element_sibling_idx(anchor)
-                .into_iter()
-                .collect(),
+            C::NextSibling => self.next_element_sibling_idx(anchor).into_iter().collect(),
             C::SubsequentSibling => self.subsequent_element_siblings(anchor),
         };
         let n = rel.compounds.len();
@@ -80,7 +77,11 @@ impl Dom {
         let dentro_da_fronteira = |n: NodeIdx| self.is_ancestor(boundary, n) && n != boundary;
         match combinator {
             C::Child => match self.parent_element_idx(idx) {
-                Some(p) if p != boundary && dentro_da_fronteira(p) && self.compound_matches_idx(p, prev) => {
+                Some(p)
+                    if p != boundary
+                        && dentro_da_fronteira(p)
+                        && self.compound_matches_idx(p, prev) =>
+                {
                     self.match_combinators_bounded(p, sel, i - 1, boundary)
                 }
                 _ => false,

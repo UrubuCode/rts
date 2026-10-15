@@ -48,7 +48,10 @@ pub(in crate::layout) fn row_base_outer_forced_by_content(
         viewport_h: ctx.viewport_h,
     };
     let frame = css.margin.resolve_h(&resolve)
-        + { let [_, r, _, l] = crate::style::borders::used_widths(css); l + r }
+        + {
+            let [_, r, _, l] = crate::style::borders::used_widths(css);
+            l + r
+        }
         + css.padding.resolve_h(&resolve);
     content_natural_width(dom, id, font, ctx) + frame
 }

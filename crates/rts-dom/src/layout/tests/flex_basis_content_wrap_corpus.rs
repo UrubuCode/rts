@@ -66,11 +66,21 @@ fn flex_item_altura_medida_pela_largura_final_nao_pelo_contentor() {
     let item = rect(&dom, &list, ".item", 0);
     // três inline-blocks de 15px cabem lado a lado (45 de largura) numa
     // linha SÓ — a altura é a de uma linha, não o triplo dela.
-    assert_eq!(item.w, 45.0, "a base do item é a soma dos 3 inline-blocks, não a largura de 1px do contentor");
+    assert_eq!(
+        item.w, 45.0,
+        "a base do item é a soma dos 3 inline-blocks, não a largura de 1px do contentor"
+    );
     let ib0 = rect(&dom, &list, "ib", 0);
     let ib2 = rect(&dom, &list, "ib", 2);
-    assert_eq!(ib0.y, ib2.y, "os 3 inline-blocks ficam na MESMA linha (mesmo y)");
-    assert!(item.h < 20.0, "altura de UMA linha (18, o strut da fonte), não o triplo (~54) por quebrarem 3 linhas: h={}", item.h);
+    assert_eq!(
+        ib0.y, ib2.y,
+        "os 3 inline-blocks ficam na MESMA linha (mesmo y)"
+    );
+    assert!(
+        item.h < 20.0,
+        "altura de UMA linha (18, o strut da fonte), não o triplo (~54) por quebrarem 3 linhas: h={}",
+        item.h
+    );
 }
 
 #[test]
@@ -93,7 +103,10 @@ fn intrinseco_de_bloco_com_floats_soma_os_floats_em_vez_do_maior() {
     let c = rect(&dom, &list, ".c", 0);
     // 3 floats de 32px outer (30+2 de borda) cabem lado a lado num
     // contentor bem mais largo (1280): a soma é 96, o maior seria 32.
-    assert_eq!(c.w, 96.0, "max-content de floats é a SOMA lado a lado (96), não o maior (32)");
+    assert_eq!(
+        c.w, 96.0,
+        "max-content de floats é a SOMA lado a lado (96), não o maior (32)"
+    );
 }
 
 #[test]
@@ -112,7 +125,10 @@ fn coluna_wrap_de_uma_coluna_so_tambem_estica_ao_contentor() {
 <div class="f"><div id="a" style="height:20px; border:1px solid black"></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let a = rect(&dom, &list, "#a", 0);
-    assert_eq!(a.w, 50.0, "coluna única também estica (align-items:stretch) à largura do contentor");
+    assert_eq!(
+        a.w, 50.0,
+        "coluna única também estica (align-items:stretch) à largura do contentor"
+    );
 }
 
 #[test]
@@ -133,10 +149,22 @@ fn coluna_min_height_nao_encolhe_itens_acima_do_minimo() {
 </style>
 <div class="f"><div id="a"></div><div id="b"></div><div id="c"></div><div id="d"></div><div id="e"></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    for (sel, y) in [("#a", 0.0), ("#b", 30.0), ("#c", 60.0), ("#d", 90.0), ("#e", 120.0)] {
+    for (sel, y) in [
+        ("#a", 0.0),
+        ("#b", 30.0),
+        ("#c", 60.0),
+        ("#d", 90.0),
+        ("#e", 120.0),
+    ] {
         let r = rect(&dom, &list, sel, 0);
-        assert_eq!(r.h, 30.0, "{sel}: altura natural (30), não encolhida para caber em min-height:100");
-        assert_eq!(r.y, y, "{sel}: empilhado na sua altura natural, contentor cresce acima do mínimo");
+        assert_eq!(
+            r.h, 30.0,
+            "{sel}: altura natural (30), não encolhida para caber em min-height:100"
+        );
+        assert_eq!(
+            r.y, y,
+            "{sel}: empilhado na sua altura natural, contentor cresce acima do mínimo"
+        );
     }
 }
 
@@ -161,5 +189,8 @@ fn flex_stretch_encolhe_item_quando_a_linha_tem_altura_definida() {
 <div class="f"><div id="outer"><div class="big"></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let outer = rect(&dom, &list, "#outer", 0);
-    assert_eq!(outer.h, 50.0, "estica (encolhe) à altura DEFINIDA da linha, não à altura do conteúdo (200)");
+    assert_eq!(
+        outer.h, 50.0,
+        "estica (encolhe) à altura DEFINIDA da linha, não à altura do conteúdo (200)"
+    );
 }

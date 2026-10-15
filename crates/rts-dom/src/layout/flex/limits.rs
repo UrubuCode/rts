@@ -41,7 +41,11 @@ pub(in crate::layout) fn flex_base_outer(
         // contentor, não o valor de `flex-basis`) e já valia para `auto`
         // antes deste lote.
         if let Some(w) = crate::layout::replaced::transferred_size::transferred_intrinsic_width(
-            dom, id, parent_font, None, ctx,
+            dom,
+            id,
+            parent_font,
+            None,
+            ctx,
         ) {
             return w;
         }
@@ -56,7 +60,12 @@ pub(in crate::layout) fn flex_base_outer(
         // main-size values (should be ignored)").
         if css.flex_basis == Some(crate::style::Dimension::MaxContent) {
             return super::basis_content::row_base_outer_forced_by_content(
-                dom, id, &css, container_w, parent_font, ctx,
+                dom,
+                id,
+                &css,
+                container_w,
+                parent_font,
+                ctx,
             );
         }
         return child_outer_width(dom, id, container_w, parent_font, ctx);
@@ -65,10 +74,15 @@ pub(in crate::layout) fn flex_base_outer(
     if css.border_box.unwrap_or(false) {
         basis + margin_h // border-box: a basis JÁ é a caixa (pad+borda inclusos)
     } else {
-        basis + margin_h + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r } + css.padding.resolve_h(&resolve)
+        basis
+            + margin_h
+            + {
+                let [_, r, _, l] = crate::style::borders::used_widths(&css);
+                l + r
+            }
+            + css.padding.resolve_h(&resolve)
     }
 }
-
 
 /// `(max-width, min-width)` declarados do item, resolvidos e convertidos a
 /// OUTER: em content-box somam o frame (padding + borda) e a margem; em
@@ -103,7 +117,10 @@ pub(in crate::layout) fn item_limits(
         ccss.margin.resolve_h(&rc)
     } else {
         ccss.margin.resolve_h(&rc)
-            + { let [_, r, _, l] = crate::style::borders::used_widths(ccss); l + r }
+            + {
+                let [_, r, _, l] = crate::style::borders::used_widths(ccss);
+                l + r
+            }
             + ccss.padding.resolve_h(&rc)
     };
     let resolve_side = |d: Option<crate::style::Dimension>| -> Option<f32> {
@@ -132,7 +149,15 @@ pub(in crate::layout) fn shrink_to_fit_width(
     ctx: &LayoutCtx,
 ) -> f32 {
     let floor = (crate::table::min_content(dom, id, font, ctx) - frame).max(0.0);
-    available.max(floor).min(content_natural_width(dom, id, font, ctx))
+    if dom
+        .computed_style_idx(id)
+        .is_some_and(|s| s.width == Some(crate::style::Dimension::MinContent))
+    {
+        return floor;
+    }
+    available
+        .max(floor)
+        .min(content_natural_width(dom, id, font, ctx))
 }
 
 /// GROW/SHRINK de uma linha (Flexbox §9.7): espaço livre positivo distribui
@@ -152,31 +177,60 @@ pub(in crate::layout) fn resolve_grow_shrink(
     if free_pre > 0.0 && sum_grow > 0.0 {
         // Frozen items contribute their final size to the next round (§9.7).
         // Clamping only after distribution strands the space freed by max-width.
-        let mut frozen: Vec<bool> = line.iter_mut().map(|it| {
-            let hypothetical = with_final_limits(it.base, it.min_main, it.max_main, None);
-            let freeze = it.grow == 0.0 || it.base > hypothetical;
-            if freeze { it.main = hypothetical; }
-            freeze
-        }).collect();
-        let initial_free = content_w - total_gap - line.iter().zip(&frozen)
-            .map(|(it, &f)| if f { it.main } else { it.base }).sum::<f32>();
+        let mut frozen: Vec<bool> = line
+            .iter_mut()
+            .map(|it| {
+                let hypothetical = with_final_limits(it.base, it.min_main, it.max_main, None);
+                let freeze = it.grow == 0.0 || it.base > hypothetical;
+                if freeze {
+                    it.main = hypothetical;
+                }
+                freeze
+            })
+            .collect();
+        let initial_free = content_w
+            - total_gap
+            - line
+                .iter()
+                .zip(&frozen)
+                .map(|(it, &f)| if f { it.main } else { it.base })
+                .sum::<f32>();
         loop {
-            let infinite = line.iter().zip(&frozen)
+            let infinite = line
+                .iter()
+                .zip(&frozen)
                 .filter(|(it, f)| !**f && it.grow.is_infinite())
                 .count();
-            let grow: f32 = line.iter().zip(&frozen)
-                .filter(|(_, f)| !**f).map(|(it, _)| it.grow).sum();
-            if grow <= 0.0 && infinite == 0 { break; }
-            let mut free = content_w - total_gap - line.iter().zip(&frozen)
-                .map(|(it, &f)| if f { it.main } else { it.base }).sum::<f32>();
+            let grow: f32 = line
+                .iter()
+                .zip(&frozen)
+                .filter(|(_, f)| !**f)
+                .map(|(it, _)| it.grow)
+                .sum();
+            if grow <= 0.0 && infinite == 0 {
+                break;
+            }
+            let mut free = content_w
+                - total_gap
+                - line
+                    .iter()
+                    .zip(&frozen)
+                    .map(|(it, &f)| if f { it.main } else { it.base })
+                    .sum::<f32>();
             if infinite == 0 && grow < 1.0 && (initial_free * grow).abs() < free.abs() {
                 free = initial_free * grow;
             }
             let mut violations = vec![0.0; line.len()];
             for ((it, &f), violation) in line.iter_mut().zip(&frozen).zip(&mut violations) {
-                if f { continue; }
+                if f {
+                    continue;
+                }
                 let share = if infinite > 0 {
-                    if it.grow.is_infinite() { 1.0 / infinite as f32 } else { 0.0 }
+                    if it.grow.is_infinite() {
+                        1.0 / infinite as f32
+                    } else {
+                        0.0
+                    }
                 } else {
                     it.grow / grow
                 };
@@ -185,7 +239,9 @@ pub(in crate::layout) fn resolve_grow_shrink(
                 *violation = it.main - proposed;
             }
             let total: f32 = violations.iter().sum();
-            if total == 0.0 { break; }
+            if total == 0.0 {
+                break;
+            }
             for (f, violation) in frozen.iter_mut().zip(violations) {
                 if (total > 0.0 && violation > 0.0) || (total < 0.0 && violation < 0.0) {
                     *f = true;
@@ -210,7 +266,11 @@ pub(in crate::layout) fn resolve_grow_shrink(
         // Como no grow, uma soma de fatores menor que 1 só consome essa
         // fração do espaço livre inicial (Flexbox §9.7).
         let sum_shrink: f32 = line.iter().map(|it| it.shrink).sum();
-        let mut deficit = if sum_shrink < 1.0 { free_pre * sum_shrink } else { free_pre };
+        let mut deficit = if sum_shrink < 1.0 {
+            free_pre * sum_shrink
+        } else {
+            free_pre
+        };
         loop {
             let weighted: f32 = line
                 .iter()
@@ -365,7 +425,8 @@ pub(in crate::layout) fn automatic_min(
     // fim (`min-size-auto-overflow-clip`, WPT). Só `Hidden`/`Auto`/`Scroll`
     // desligam o automático.
     use crate::scrollbar::Overflow::{Clip, Visible};
-    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    let axis_visible =
+        |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
     let overflow_visible = axis_visible(ccss.overflow_x) && axis_visible(ccss.overflow_y);
     if !overflow_visible {
         return 0.0;

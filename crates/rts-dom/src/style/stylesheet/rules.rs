@@ -21,11 +21,7 @@ struct LayerState {
 
 impl LayerState {
     fn id(&mut self, name: &str) -> u32 {
-        let name = if name.is_empty() {
-            "<anonymous>"
-        } else {
-            name
-        };
+        let name = if name.is_empty() { "<anonymous>" } else { name };
         if let Some((index, _)) = self
             .names
             .iter()
@@ -77,7 +73,8 @@ fn lower_items(
                     .map(crate::style::syntax::ComponentValue::to_css_semantic)
                     .collect();
                 let body = block.to_css_semantic();
-                let specified = std::rc::Rc::new(crate::style::syntax::SpecifiedStyle::from_block(block));
+                let specified =
+                    std::rc::Rc::new(crate::style::syntax::SpecifiedStyle::from_block(block));
                 let source_declarations = std::rc::Rc::clone(&specified.declarations);
                 let decls = std::rc::Rc::new(RuleDecls::from_block(lower_declarations(block)));
                 let content = std::cell::OnceCell::new();
@@ -86,7 +83,9 @@ fn lower_items(
                     if let Some(selector) = ComplexSelector::parse(sel_str) {
                         let content = selector.pseudo_element.and_then(|_| {
                             content
-                                .get_or_init(|| parse_content_from_body(&body).map(std::rc::Rc::new))
+                                .get_or_init(|| {
+                                    parse_content_from_body(&body).map(std::rc::Rc::new)
+                                })
                                 .clone()
                         });
                         output.push(Rule {
@@ -235,10 +234,7 @@ pub(in crate::style::stylesheet) fn parse_keyframe_ast(
     let mut stops = Vec::new();
     with_nested_items(block, |items| {
         for item in items {
-            let crate::style::syntax::AstItem::QualifiedRule {
-                prelude, block, ..
-            } = item
-            else {
+            let crate::style::syntax::AstItem::QualifiedRule { prelude, block, .. } = item else {
                 continue;
             };
             let selector: String = prelude
@@ -263,7 +259,6 @@ pub(in crate::style::stylesheet) fn parse_keyframe_ast(
     crate::anim::Keyframes { stops }
 }
 
-
 /// Parseia o corpo de um `@keyframes`: `0% { ... } 50% { ... } to { ... }` → stops
 /// ordenados por offset. `from`=0%, `to`=100%. Cada stop reusa o parser de declarações.
 /// Acha a declaração `content` no corpo CRU de uma regra e parseia-a.
@@ -283,7 +278,9 @@ fn parse_content_from_body(body: &str) -> Option<crate::pseudo::Content> {
         }
         // A ÚLTIMA declaração do bloco vence, como em qualquer bloco CSS; uma
         // que não saibamos parsear não apaga a anterior que sabíamos.
-        if let Some(content) = crate::pseudo::parse_content(value.trim_end_matches("!important").trim()) {
+        if let Some(content) =
+            crate::pseudo::parse_content(value.trim_end_matches("!important").trim())
+        {
             found = Some(content);
         }
     }
@@ -311,7 +308,6 @@ pub(crate) fn split_top_level_semicolons(s: &str) -> Vec<&str> {
     out.push(&s[inicio..]);
     out
 }
-
 
 /// `0%`/`from`/`50%`/`100%`/`to` → offset ∈ [0,1]. `None` se inválido.
 fn parse_keyframe_offset(s: &str) -> Option<f32> {
@@ -378,7 +374,6 @@ pub(crate) fn apply_resolved_decl(
     crate::style::parse::apply_declaration_final(&mut block, prop, &resolved, false);
     *css = block.normal;
 }
-
 
 // Testes da herança e da resolução de `var()` por elemento. Num ficheiro à
 // parte (via `#[path]`) e não num `mod` de `style/mod.rs`: este ficheiro já

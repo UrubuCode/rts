@@ -18,6 +18,7 @@ pub(super) mod pseudo_box;
 pub(crate) mod rotated;
 pub(super) mod rtl;
 pub(super) mod sequence;
+pub(super) mod vertical_child;
 pub(super) mod vertical_flow;
 
 // `boxes/context.rs` asks this question by the folder path.

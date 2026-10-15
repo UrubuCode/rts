@@ -63,6 +63,16 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
     widths::min_content(dom, id, font, ctx, mono, false)
 }
 
+pub(crate) fn min_content_with_floor(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let mono = css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
+    widths::min_content(dom, id, font, ctx, mono, true)
+}
+
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
 /// contra os `rowspan` que vêm de cima.
 struct Cell {
@@ -120,7 +130,13 @@ impl TableStyle {
     /// always `auto`. What it does take from `css` — the style of the element
     /// it inherits from — is `border-spacing` and `border-collapse`, which ARE
     /// inherited properties.
-    fn of(dom: &Dom, id: Option<NodeIdx>, css: &ComputedStyle, font: f32, ctx: &LayoutCtx) -> TableStyle {
+    fn of(
+        dom: &Dom,
+        id: Option<NodeIdx>,
+        css: &ComputedStyle,
+        font: f32,
+        ctx: &LayoutCtx,
+    ) -> TableStyle {
         let resolve = crate::style::ResolveCtx {
             parent_content_w: ctx.viewport_w,
             node_font_size: font,
@@ -149,7 +165,13 @@ impl TableStyle {
             // `div { display: table }`, cujo valor inicial é 0 (Blink mede 20px
             // e não 24 em `claude-table-texto-solto-sem-celula`).
             None => {
-                let Some(id) = id else { return TableStyle { spacing_h: 0.0, spacing_v: 0.0, fixed: false } };
+                let Some(id) = id else {
+                    return TableStyle {
+                        spacing_h: 0.0,
+                        spacing_v: 0.0,
+                        fixed: false,
+                    };
+                };
                 let e_table = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "table");
                 let a = dom
                     .node(id)
@@ -181,7 +203,10 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     let caixa = match tree.boxes_of(table) {
         [caixa] => *caixa,
         [] => return 0.0,
-        caixas => panic!("uma tabela gerou {} caixas; a medicao intrinseca precisa receber a caixa exata", caixas.len()),
+        caixas => panic!(
+            "uma tabela gerou {} caixas; a medicao intrinseca precisa receber a caixa exata",
+            caixas.len()
+        ),
     };
     let g = collect(dom, &tree, caixa);
     if g.cols == 0 {
@@ -199,7 +224,11 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     // apenas à soma dos máximos, encolhendo para 300px em vez de ocupar a célula.
     let minimo_percentual = cols
         .iter()
-        .filter_map(|c| c.percentagem.filter(|p| *p > 0.0).map(|p| c.min * 100.0 / p))
+        .filter_map(|c| {
+            c.percentagem
+                .filter(|p| *p > 0.0)
+                .map(|p| c.min * 100.0 / p)
+        })
         .fold(0.0f32, f32::max)
         + vaos;
     soma_maximos.max(minimo_percentual)
@@ -255,7 +284,9 @@ pub(crate) fn layout_table(
     let tree = std::rc::Rc::clone(&list.tree);
     let g = collect(dom, &tree, caixa);
     let ts = TableStyle::of(dom, Some(id), css, font_size, ctx);
-    lay_out_grid(dom, &tree, &g, &ts, content_x, content_y, content_w, definite_h, font_size, ctx, list)
+    lay_out_grid(
+        dom, &tree, &g, &ts, content_x, content_y, content_w, definite_h, font_size, ctx, list,
+    )
 }
 
 /// Lays out a grid already COLLECTED, inside a content box already sized, and
@@ -358,8 +389,17 @@ fn lay_out_grid(
                 continue;
             }
             let w = largura_de(c.col, c.colspan);
-            let (_, h) =
-                crate::layout::measure_block(dom, c.node, c.caixa, w, None, Some(w), None, false, ctx);
+            let (_, h) = crate::layout::measure_block(
+                dom,
+                c.node,
+                c.caixa,
+                w,
+                None,
+                Some(w),
+                None,
+                false,
+                ctx,
+            );
             if c.rowspan <= 1 {
                 alturas[ri] = alturas[ri].max(h);
             } else {
@@ -462,7 +502,15 @@ fn lay_out_grid(
         // Group relative offset, from its first row — same `definite_h` as
         // the row case above.
         relative::apply_table_part_relative_offset(
-            dom, node, caixa, content_w, definite_h, font_size, row_piece_start[inicio], ctx, list,
+            dom,
+            node,
+            caixa,
+            content_w,
+            definite_h,
+            font_size,
+            row_piece_start[inicio],
+            ctx,
+            list,
         );
     }
     y - content_y

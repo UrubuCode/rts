@@ -36,7 +36,10 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
                 entrelacado = *dados.get(12)?;
             }
             b"PLTE" => {
-                paleta = dados.chunks_exact(3).map(|c| [c[0], c[1], c[2], 255]).collect();
+                paleta = dados
+                    .chunks_exact(3)
+                    .map(|c| [c[0], c[1], c[2], 255])
+                    .collect();
             }
             b"tRNS" if tipo == 3 => {
                 for (i, a) in dados.iter().enumerate() {
@@ -67,7 +70,9 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         _ => return None,
     };
     let mut cru = Vec::new();
-    flate2::read::ZlibDecoder::new(&idat[..]).read_to_end(&mut cru).ok()?;
+    flate2::read::ZlibDecoder::new(&idat[..])
+        .read_to_end(&mut cru)
+        .ok()?;
     // `passo`: bytes por linha JÁ FILTRADA — para sub-byte (canais sempre 1)
     // vários píxeis partilham um byte, arredondado para cima (PNG §7.2).
     // `bpp`: bytes por píxel COMPLETO para a previsão dos filtros (§9.2) —
@@ -84,12 +89,20 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         let filtro = cru[y * (passo + 1)];
         let src = &cru[y * (passo + 1) + 1..(y + 1) * (passo + 1)];
         let (antes, atual) = linhas.split_at_mut(y * passo);
-        let anterior: &[u8] = if y == 0 { &[] } else { &antes[(y - 1) * passo..] };
+        let anterior: &[u8] = if y == 0 {
+            &[]
+        } else {
+            &antes[(y - 1) * passo..]
+        };
         let atual = &mut atual[..passo];
         for i in 0..passo {
             let a = if i >= bpp { atual[i - bpp] } else { 0 };
             let b = if y > 0 { anterior[i] } else { 0 };
-            let c = if y > 0 && i >= bpp { anterior[i - bpp] } else { 0 };
+            let c = if y > 0 && i >= bpp {
+                anterior[i - bpp]
+            } else {
+                0
+            };
             let previsto = match filtro {
                 0 => 0,
                 1 => a,
@@ -139,7 +152,11 @@ pub fn decodificar(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
 
 fn paeth(a: u8, b: u8, c: u8) -> u8 {
     let p = i16::from(a) + i16::from(b) - i16::from(c);
-    let (pa, pb, pc) = ((p - i16::from(a)).abs(), (p - i16::from(b)).abs(), (p - i16::from(c)).abs());
+    let (pa, pb, pc) = (
+        (p - i16::from(a)).abs(),
+        (p - i16::from(b)).abs(),
+        (p - i16::from(c)).abs(),
+    );
     if pa <= pb && pa <= pc {
         a
     } else if pb <= pc {
@@ -167,14 +184,21 @@ mod tests {
         let (rgba, w, h) = decodificar(&bytes).expect("png");
         assert_eq!((w, h), (4, 2));
         assert_eq!(&rgba[0..4], &[200, 30, 30, 255], "primeiro pixel vermelho");
-        assert_eq!(&rgba[16..20], &[30, 30, 200, 255], "primeiro pixel da segunda linha azul");
+        assert_eq!(
+            &rgba[16..20],
+            &[30, 30, 200, 255],
+            "primeiro pixel da segunda linha azul"
+        );
         assert_eq!(rgba.len(), 4 * 2 * 4);
     }
 
     /// O PNG de `tests/css/claude-img-ficheiro.html` (6×4), lido do disco.
     #[test]
     fn um_png_do_disco_descodifica() {
-        let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/claude-img-6x4.png");
+        let p = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/css/claude-img-6x4.png"
+        );
         let (rgba, w, h) = decodificar(&std::fs::read(p).expect("png no repo")).expect("png");
         assert_eq!((w, h), (6, 4));
         assert_eq!(&rgba[0..4], &[200, 30, 30, 255]);
@@ -188,11 +212,18 @@ mod tests {
     /// imagens-no-raster).
     #[test]
     fn um_png_de_1_bit_por_pixel_descodifica() {
-        let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/support/20x50-green.png");
-        let (rgba, w, h) = decodificar(&std::fs::read(p).expect("png no repo")).expect("png de 1 bit");
+        let p = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/css/support/20x50-green.png"
+        );
+        let (rgba, w, h) =
+            decodificar(&std::fs::read(p).expect("png no repo")).expect("png de 1 bit");
         assert_eq!((w, h), (20, 50));
         assert_eq!(rgba.len(), 20 * 50 * 4);
-        assert!(rgba.chunks_exact(4).all(|p| p == [0, 128, 0, 255]), "verde sólido (paleta de 1 entrada)");
+        assert!(
+            rgba.chunks_exact(4).all(|p| p == [0, 128, 0, 255]),
+            "verde sólido (paleta de 1 entrada)"
+        );
     }
 
     #[test]

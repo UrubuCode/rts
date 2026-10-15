@@ -13,9 +13,9 @@
 //! deixavam de contar para o mínimo da coluna.
 
 use super::{em_linha, min_content_na_arvore};
+use crate::Dom;
 use crate::boxes::{BoxId, BoxTree};
 use crate::layout::LayoutCtx;
-use crate::Dom;
 
 /// A largura MÍNIMA de uma caixa anónima: sem nó, sem `width` e sem moldura
 /// próprios — o seu conteúdo é o RUN que a gerou, medido pela mesma regra
@@ -36,7 +36,13 @@ pub(super) fn min_content_anonima(
 ) -> f32 {
     // An anonymous TABLE's minimum is its columns' minimum plus the gaps, the
     // same answer `anonymous_table_widths` gives a parent that shrinks to fit.
-    if matches!(tree.kind(caixa), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
+    if matches!(
+        tree.kind(caixa),
+        crate::boxes::BoxKind::Anonymous {
+            role: crate::boxes::AnonymousRole::Table,
+            ..
+        }
+    ) {
         return crate::table::anonymous_table_widths(dom, tree, caixa, font, ctx).0;
     }
     let mut m = 0.0f32;

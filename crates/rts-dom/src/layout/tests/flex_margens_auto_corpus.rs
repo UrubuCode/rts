@@ -25,9 +25,28 @@ const HTML: &str = r#"<style>
 #[test]
 fn margens_auto_absorvem_o_espaco_transversal_e_vencem_o_align() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#r1"), (75.0, 35.0, 50.0, 30.0), "margin: auto centra nos dois eixos");
-    assert_eq!(r("#r2"), (0.0, 180.0, 50.0, 30.0), "margin-top: auto = fundo, apesar do flex-start");
-    assert_eq!(r("#r3"), (150.0, 110.0, 50.0, 30.0), "margin-bottom: auto = topo; margin-left: auto = direita");
-    assert_eq!(r("#c1"), (75.0, 255.0, 50.0, 30.0), "em coluna centra na horizontal");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#r1"),
+        (75.0, 35.0, 50.0, 30.0),
+        "margin: auto centra nos dois eixos"
+    );
+    assert_eq!(
+        r("#r2"),
+        (0.0, 180.0, 50.0, 30.0),
+        "margin-top: auto = fundo, apesar do flex-start"
+    );
+    assert_eq!(
+        r("#r3"),
+        (150.0, 110.0, 50.0, 30.0),
+        "margin-bottom: auto = topo; margin-left: auto = direita"
+    );
+    assert_eq!(
+        r("#c1"),
+        (75.0, 255.0, 50.0, 30.0),
+        "em coluna centra na horizontal"
+    );
 }

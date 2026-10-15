@@ -121,12 +121,15 @@ fn bounding_component_repetido_sem_mutacao_da_a_mesma_resposta() {
 /// a thousand more, and so is the list (one layout).
 #[test]
 fn bounding_component_read_loop_builds_one_geometry() {
-    let dom = parse_html_to_dom("<div id='a' style='width:100px;height:20px'></div><div>texto</div>");
+    let dom =
+        parse_html_to_dom("<div id='a' style='width:100px;height:20px'></div><div>texto</div>");
     let id = dom.query("#a").unwrap();
     let slot = |dom: &Dom| {
         let cache = dom.display_cache.borrow();
         let (_, list, geometry) = cache.as_ref().expect("the slot is filled");
-        let geometry = geometry.get().expect("bounding_component built the geometry through the memo");
+        let geometry = geometry
+            .get()
+            .expect("bounding_component built the geometry through the memo");
         (std::rc::Rc::clone(list), std::rc::Rc::clone(geometry))
     };
     let expected = [
@@ -138,9 +141,18 @@ fn bounding_component_read_loop_builds_one_geometry() {
     assert_eq!(expected[2..], [100.0, 20.0]);
     let (list, geometry) = slot(&dom);
     for which in 0..1000_i64 {
-        assert_eq!(dom.bounding_component(id, which % 4), expected[(which % 4) as usize]);
+        assert_eq!(
+            dom.bounding_component(id, which % 4),
+            expected[(which % 4) as usize]
+        );
     }
     let (list_after, geometry_after) = slot(&dom);
-    assert!(std::rc::Rc::ptr_eq(&list, &list_after), "one layout for the whole loop");
-    assert!(std::rc::Rc::ptr_eq(&geometry, &geometry_after), "one geometry for the whole loop");
+    assert!(
+        std::rc::Rc::ptr_eq(&list, &list_after),
+        "one layout for the whole loop"
+    );
+    assert!(
+        std::rc::Rc::ptr_eq(&geometry, &geometry_after),
+        "one geometry for the whole loop"
+    );
 }

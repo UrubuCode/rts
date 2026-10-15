@@ -56,7 +56,9 @@ fn containing_block_rect(
             // started: the viewport is the wrong answer for it, not an
             // approximation (`nested-inline-abspos-child`). Zero-size — the
             // inline has no fragment to measure, which is the cut.
-            if let Some((x, y)) = super::static_position::boxless_inline_place(dom, p, flow_rects, ctx) {
+            if let Some((x, y)) =
+                super::static_position::boxless_inline_place(dom, p, flow_rects, ctx)
+            {
                 return Some(Rect::new(x, y, 0.0, 0.0));
             }
             // Um ancestral que estabelece o bloco SEM caixa (não foi layoutado) não serve de
@@ -106,7 +108,10 @@ pub(in crate::layout) fn collect_out_of_flow(
             return;
         }
         if is_out_of_flow(dom, child) {
-            out.push(OutOfFlowBox { node: child, box_id });
+            out.push(OutOfFlowBox {
+                node: child,
+                box_id,
+            });
         }
     }
     for &child_box in tree.children(box_id) {
@@ -142,7 +147,8 @@ pub(in crate::layout) fn layout_out_of_flow(
     // usa a viewport exceto quando um transform o captura. `cb` =
     // (origem_x, origem_y, largura, altura) do container.
     let is_fixed = matches!(css.position, Some(crate::style::Position::Fixed));
-    let cb = containing_block_rect(dom, id, flow_rects, is_fixed, ctx)
+    let cb = crate::layout::grid::abspos::get_grid_cb(target.box_id)
+        .or_else(|| containing_block_rect(dom, id, flow_rects, is_fixed, ctx))
         .unwrap_or_else(|| Rect::new(0.0, 0.0, ctx.viewport_w, ctx.viewport_h));
     let resolve = ResolveCtx {
         parent_content_w: cb.w,

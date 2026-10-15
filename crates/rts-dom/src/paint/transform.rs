@@ -98,11 +98,16 @@ impl Mat2d {
     /// `T(cx,cy) · self · T(−cx,−cy)` — a forma que `transform-origin` exige
     /// (CSS Transforms 1 §6): translada a origem para o ponto, aplica, desfaz.
     pub fn around(self, cx: f32, cy: f32) -> Mat2d {
-        Mat2d::translate(cx, cy).then(self).then(Mat2d::translate(-cx, -cy))
+        Mat2d::translate(cx, cy)
+            .then(self)
+            .then(Mat2d::translate(-cx, -cy))
     }
 
     pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
-        (self.a * x + self.c * y + self.e, self.b * x + self.d * y + self.f)
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
     }
 
     /// A bounding box dos 4 cantos transformados — o que
@@ -161,9 +166,12 @@ pub enum TransformOp {
 impl TransformOp {
     fn to_matrix(self, box_w: f32, box_h: f32) -> Mat2d {
         match self {
-            TransformOp::Translate { tx, ty, tx_pct, ty_pct } => {
-                Mat2d::translate(tx + tx_pct * box_w, ty + ty_pct * box_h)
-            }
+            TransformOp::Translate {
+                tx,
+                ty,
+                tx_pct,
+                ty_pct,
+            } => Mat2d::translate(tx + tx_pct * box_w, ty + ty_pct * box_h),
             TransformOp::Scale { sx, sy } => Mat2d::scale(sx, sy),
             TransformOp::Rotate { deg } => Mat2d::rotate_deg(deg),
             TransformOp::SkewX { deg } => Mat2d::skew_x_deg(deg),
@@ -269,8 +277,10 @@ pub(crate) fn matriz_transform(
         y: Dimension::Percent(50.0),
     });
     let root_font = crate::style::root_font_size();
-    let ox = box_rect.x + resolve_origin_axis(origin.x, box_rect.w, font_size, root_font, viewport_w);
-    let oy = box_rect.y + resolve_origin_axis(origin.y, box_rect.h, font_size, root_font, viewport_h);
+    let ox =
+        box_rect.x + resolve_origin_axis(origin.x, box_rect.w, font_size, root_font, viewport_w);
+    let oy =
+        box_rect.y + resolve_origin_axis(origin.y, box_rect.h, font_size, root_font, viewport_h);
     tf.ops.resolve(box_rect.w, box_rect.h).around(ox, oy)
 }
 
@@ -288,7 +298,12 @@ mod tests {
     #[test]
     fn composicao_direita_para_esquerda() {
         let mut l = TransformList::default();
-        l.push(TransformOp::Translate { tx: 10.0, ty: 20.0, tx_pct: 0.0, ty_pct: 0.0 });
+        l.push(TransformOp::Translate {
+            tx: 10.0,
+            ty: 20.0,
+            tx_pct: 0.0,
+            ty_pct: 0.0,
+        });
         l.push(TransformOp::Rotate { deg: 90.0 });
         let m = l.resolve(0.0, 0.0);
         // rotate(90°) manda (1,0) para (0,1); translate soma (10,20) depois.

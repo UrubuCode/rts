@@ -39,7 +39,13 @@ pub(crate) fn known_rects(list: &DisplayList) -> FastMap<NodeIdx, Rect> {
 
 /// The rects of the subtrees `pieces` reuses, offset, into `out`: each
 /// subtree's own rects, then its subtrees'.
-fn add_children(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: f32, out: &mut FastMap<NodeIdx, Rect>) {
+fn add_children(
+    tree: &BoxTree,
+    pieces: &[Piece],
+    dx: f32,
+    dy: f32,
+    out: &mut FastMap<NodeIdx, Rect>,
+) {
     for c in crate::paint::pieces::children(pieces) {
         let (dx, dy) = (dx + c.dx, dy + c.dy);
         let moved = dx != 0.0 || dy != 0.0;
@@ -49,8 +55,12 @@ fn add_children(tree: &BoxTree, pieces: &[Piece], dx: f32, dy: f32, out: &mut Fa
                 rect.x += dx;
                 rect.y += dy;
             }
-            let Some(node) = tree.node_of(*box_id) else { continue };
-            out.entry(node).and_modify(|r| *r = r.union(rect)).or_insert(rect);
+            let Some(node) = tree.node_of(*box_id) else {
+                continue;
+            };
+            out.entry(node)
+                .and_modify(|r| *r = r.union(rect))
+                .or_insert(rect);
         }
         add_children(tree, &c.fragment.pieces, dx, dy, out);
     }

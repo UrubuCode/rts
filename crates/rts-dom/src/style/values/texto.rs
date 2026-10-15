@@ -2,7 +2,6 @@
 //!
 //! Extraído de `values.rs` sem alterar uma linha.
 
-
 /// Cor RGBA empacotada `0xRRGGBBAA` num `u32`. Tipo próprio (não `Color32`).
 pub type Rgba = u32;
 
@@ -191,7 +190,10 @@ impl WhiteSpace {
     }
     /// `true` se preserva os espaços/quebras originais (pre/pre-wrap/pre-line p/ quebras).
     pub fn preserves_spaces(self) -> bool {
-        matches!(self, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces)
+        matches!(
+            self,
+            WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::BreakSpaces
+        )
     }
 
     /// `true` se um `\n` LITERAL do texto força uma quebra de linha — os três

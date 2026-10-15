@@ -194,14 +194,26 @@ impl BoxTree {
     /// properties from. Not an owner, and not reachable through `boxes_of`.
     pub fn push_anonymous(&mut self, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
         let role = AnonymousRole::Block;
-        self.push(BoxKind::Anonymous { inherits_from, role }, Some(parent))
+        self.push(
+            BoxKind::Anonymous {
+                inherits_from,
+                role,
+            },
+            Some(parent),
+        )
     }
 
     /// An anonymous TABLE box (CSS 2.1 §17.2.1) under `parent`, inheriting from
     /// the element whose misparented table parts it wraps.
     pub fn push_anonymous_table(&mut self, inherits_from: NodeIdx, parent: BoxId) -> BoxId {
         let role = AnonymousRole::Table;
-        self.push(BoxKind::Anonymous { inherits_from, role }, Some(parent))
+        self.push(
+            BoxKind::Anonymous {
+                inherits_from,
+                role,
+            },
+            Some(parent),
+        )
     }
 
     /// A tree for a given build. `build_mirror` passes the document revision,
@@ -291,7 +303,9 @@ impl BoxTree {
     /// `is_block_level_child`), which is also why Blink leaves it out of the
     /// inline's client rects.
     fn record_split(&mut self, dom: &crate::dom::Dom, block: NodeIdx, container: NodeIdx) {
-        let Some(&id) = self.boxes_of(block).last() else { return };
+        let Some(&id) = self.boxes_of(block).last() else {
+            return;
+        };
         let mut cur = dom.node(block).parent;
         while let Some(inline) = cur.filter(|&a| a != container) {
             self.split_by.entry(inline).or_default().push(id);
@@ -353,7 +367,11 @@ impl BoxTree {
     /// wrong box's style, and a copy taken at build time is stale the way
     /// `BoxKind`'s header says.
     pub fn style(&self, dom: &crate::dom::Dom, id: BoxId) -> Option<Rc<ComputedStyle>> {
-        if let BoxKind::Generated { originating, pseudo } = self.get(id).kind {
+        if let BoxKind::Generated {
+            originating,
+            pseudo,
+        } = self.get(id).kind
+        {
             return dom.pseudo_box(originating, pseudo).map(|b| Rc::new(b.css));
         }
         dom.computed_style_idx(self.style_source(id))

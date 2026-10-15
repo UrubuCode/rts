@@ -60,9 +60,9 @@ pub(crate) fn side_css_resolved(css: &ComputedStyle, s: crate::style::Side) -> S
             // (`22.1776` saía `22.177599` sem isto).
             fmt_px(arredondar_6(v as f64 * font as f64))
         }
-        crate::style::Side::Len(Dimension::Rem(v)) => {
-            fmt_px(arredondar_6(v as f64 * crate::style::root_font_size() as f64))
-        }
+        crate::style::Side::Len(Dimension::Rem(v)) => fmt_px(arredondar_6(
+            v as f64 * crate::style::root_font_size() as f64,
+        )),
         other => side_css(other),
     }
 }
@@ -299,6 +299,7 @@ fn fmt_track_bound(b: &crate::style::TrackBound) -> String {
         crate::style::TrackBound::Fixed(d) => fmt_dim(*d),
         crate::style::TrackBound::MinContent => "min-content".to_string(),
         crate::style::TrackBound::MaxContent => "max-content".to_string(),
+        crate::style::TrackBound::Auto => "auto".to_string(),
         crate::style::TrackBound::FitContent(d) => format!("fit-content({})", fmt_dim(*d)),
     }
 }

@@ -1,6 +1,5 @@
 use super::*;
 
-
 // ── TABELA ──────────────────────────────────────────────────────────────────
 
 /// Uma tabela 2x2 com larguras declaradas põe cada célula na sua coluna, e a
@@ -292,4 +291,3 @@ fn border_spacing_de_dois_valores_afasta_as_linhas_sem_mexer_nas_colunas() {
         c.y - a.y - a.h
     );
 }
-

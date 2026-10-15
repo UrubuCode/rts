@@ -62,8 +62,7 @@ pub(crate) fn resolve_colunas(cols: &[Coluna], disponivel: f32) -> Vec<f32> {
     // Sem somar padding nem bordas, e isso foi MEDIDO: o Blink só conta a
     // moldura na percentagem quando a tabela é `fixed`, e esta função serve a
     // auto. Ver a nota em [`super::Coluna`] — o termo chegou a estar aqui.
-    let resolvida =
-        |i: usize| -> f32 { (pct[i].unwrap_or(0.0) * alvo / 100.0).max(cols[i].min) };
+    let resolvida = |i: usize| -> f32 { (pct[i].unwrap_or(0.0) * alvo / 100.0).max(cols[i].min) };
 
     // As quatro somas hipotéticas, e o AUMENTO que cada degrau traz sobre o
     // anterior. É esse aumento que reparte o excedente do degrau escolhido.
@@ -134,8 +133,12 @@ pub(crate) fn resolve_colunas(cols: &[Coluna], disponivel: f32) -> Vec<f32> {
                     w[i] = resolvida(i);
                 } else if cols[i].restringida {
                     ultima = Some(i);
-                    let delta =
-                        fatia(a_dividir, cols[i].max - cols[i].min, aumento[DECLARADO], n_dec);
+                    let delta = fatia(
+                        a_dividir,
+                        cols[i].max - cols[i].min,
+                        aumento[DECLARADO],
+                        n_dec,
+                    );
                     defice -= delta;
                     w[i] = cols[i].min + delta;
                 }
@@ -164,7 +167,12 @@ pub(crate) fn resolve_colunas(cols: &[Coluna], disponivel: f32) -> Vec<f32> {
                     w[i] = cols[i].max;
                 } else {
                     ultima = Some(i);
-                    let delta = fatia(a_dividir, cols[i].max - cols[i].min, aumento[MAXIMO], n_auto);
+                    let delta = fatia(
+                        a_dividir,
+                        cols[i].max - cols[i].min,
+                        aumento[MAXIMO],
+                        n_auto,
+                    );
                     defice -= delta;
                     w[i] = cols[i].min + delta;
                 }

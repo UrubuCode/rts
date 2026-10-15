@@ -34,14 +34,26 @@ impl Spaces {
     /// One value for every run: a flow whose text has no inline owners, like
     /// a generated box's own text.
     pub(in crate::layout) fn from_css(css: &ComputedStyle) -> Spaces {
-        Spaces { base: WhiteSpaceRegime::from_css(css), per_run: Vec::new() }
+        Spaces {
+            base: WhiteSpaceRegime::from_css(css),
+            per_run: Vec::new(),
+        }
     }
 
-    pub(in crate::layout) fn from_flow(dom: &crate::Dom, runs: &[InlineRun], css: &ComputedStyle) -> Spaces {
+    pub(in crate::layout) fn from_flow(
+        dom: &crate::Dom,
+        runs: &[InlineRun],
+        css: &ComputedStyle,
+    ) -> Spaces {
         let base = WhiteSpaceRegime::from_css(css);
         let per_run = runs
             .iter()
-            .map(|r| r.owners.last().and_then(|&o| dom.computed_style_idx(o)).map_or(base, |c| WhiteSpaceRegime::from_css(&c)))
+            .map(|r| {
+                r.owners
+                    .last()
+                    .and_then(|&o| dom.computed_style_idx(o))
+                    .map_or(base, |c| WhiteSpaceRegime::from_css(&c))
+            })
             .collect();
         Spaces { base, per_run }
     }
@@ -183,11 +195,17 @@ pub(in crate::layout) fn tokens(text: &str) -> impl Iterator<Item = Token<'_>> {
 /// (`white-space-pre-wrap-trailing-spaces-014/015`), so removing it there
 /// erases a box. The right shape is a hanging width that alignment
 /// subtracts, and alignment lives in `line.rs`, outside this change.
-pub(in crate::layout) fn trim_hanging(mut line: Vec<Segment>, (hang, space): (f32, f32)) -> Vec<Segment> {
+pub(in crate::layout) fn trim_hanging(
+    mut line: Vec<Segment>,
+    (hang, space): (f32, f32),
+) -> Vec<Segment> {
     if hang <= 0.0 || space <= 0.0 {
         return line;
     }
-    if let Some(last) = line.last_mut().filter(|s| s.atomic.is_none() && s.owners.is_empty()) {
+    if let Some(last) = line
+        .last_mut()
+        .filter(|s| s.atomic.is_none() && s.owners.is_empty())
+    {
         let n = (hang / space).round() as usize;
         let whites = last.text.chars().rev().take_while(|&c| c == ' ').count();
         if n > 0 && whites >= n && last.text.len() > n {
@@ -211,7 +229,10 @@ pub(in crate::layout) fn trim_hanging(mut line: Vec<Segment>, (hang, space): (f3
 /// point it would be glued: nothing open (`cluster.is_empty()`) and nothing
 /// on the line yet (`at_line_start`) means this space opens the line and is
 /// dropped rather than becoming its first piece.
-pub(in crate::layout) fn collapses_at_line_start(cluster_is_empty: bool, at_line_start: bool) -> bool {
+pub(in crate::layout) fn collapses_at_line_start(
+    cluster_is_empty: bool,
+    at_line_start: bool,
+) -> bool {
     cluster_is_empty && at_line_start
 }
 
@@ -236,7 +257,10 @@ pub(in crate::layout) fn collapses_at_line_start(cluster_is_empty: bool, at_line
 /// extra room to push the float's anchor a whole line down). The caller
 /// consumes `pending_space` before gluing in that case, so the glued piece
 /// alone stands for the collapsed run.
-pub(in crate::layout) fn glued_space_absorbs_pending(cluster_is_empty: bool, pending_space: bool) -> bool {
+pub(in crate::layout) fn glued_space_absorbs_pending(
+    cluster_is_empty: bool,
+    pending_space: bool,
+) -> bool {
     cluster_is_empty && pending_space
 }
 

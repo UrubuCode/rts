@@ -33,7 +33,11 @@ fn img_com_src_sem_ratio_cai_no_default_300x150_e_a_largura_estica_na_coluna() {
                  </div>";
     let (dom, list) = geometria_com(html, 1280.0, |_d| {});
     let r = rect(&dom, &list, "img", 0);
-    assert_eq!((r.w, r.h), (150.0, 150.0), "largura esticada pela coluna; altura = default 300×150, sem razão a preservar");
+    assert_eq!(
+        (r.w, r.h),
+        (150.0, 150.0),
+        "largura esticada pela coluna; altura = default 300×150, sem razão a preservar"
+    );
 }
 
 /// `flex-aspect-ratio-intrinsic-padding-001` (WPT): um `<img>` com
@@ -50,5 +54,9 @@ fn img_com_padding_deriva_a_razao_do_content_box_nao_do_border_box() {
                  </div>";
     let (dom, list) = geometria_com(html, 1280.0, |_d| {});
     let r = rect(&dom, &list, "img", 0);
-    assert_eq!((r.w, r.h), (240.0, 140.0), "200×100 de conteúdo (razão 2:1 sobre a largura de conteúdo 200) + 20px de padding por lado");
+    assert_eq!(
+        (r.w, r.h),
+        (240.0, 140.0),
+        "200×100 de conteúdo (razão 2:1 sobre a largura de conteúdo 200) + 20px de padding por lado"
+    );
 }

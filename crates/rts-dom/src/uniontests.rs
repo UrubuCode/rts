@@ -27,12 +27,7 @@ use crate::table::tests::geometria;
 /// O `rect` de `table::tests` entra em pânico nesse caso, e aqui a AUSÊNCIA é
 /// precisamente um dos desfechos que se quer distinguir de `0x0`: são dois
 /// estados diferentes do motor com o mesmo sintoma no ecrã.
-fn caixa(
-    dom: &crate::Dom,
-    list: &crate::paint::DisplayList,
-    sel: &str,
-    n: usize,
-) -> Option<Rect> {
+fn caixa(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, n: usize) -> Option<Rect> {
     let ids = dom.query_all(sel);
     let id = *ids.get(n)?;
     let idx = dom.resolve(id)?;

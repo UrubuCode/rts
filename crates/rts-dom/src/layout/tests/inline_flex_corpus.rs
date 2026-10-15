@@ -32,13 +32,25 @@ fn inline_flex_sem_width_encolhe_e_flui_na_linha_do_pai() {
     };
     // #linha: uma só linha, altura = a do item mais alto (24, não a
     // line-height de 20 do `font` shorthand).
-    assert_eq!(r("#linha"), (0.0, 0.0, 400.0, 24.0), "#linha é uma linha só");
+    assert_eq!(
+        r("#linha"),
+        (0.0, 0.0, 400.0, 24.0),
+        "#linha é uma linha só"
+    );
     // #a: SEM `width` — shrink-to-fit = soma dos dois filhos de 20px, sem
     // gap. Antes desta correção saía w:400 (a largura do bloco inteiro).
-    assert_eq!(r("#a"), (0.0, 0.0, 40.0, 24.0), "inline-flex sem width encolhe ao conteúdo");
+    assert_eq!(
+        r("#a"),
+        (0.0, 0.0, 40.0, 24.0),
+        "inline-flex sem width encolhe ao conteúdo"
+    );
     // #b: width:64 declarada, imediatamente a seguir a #a NA MESMA linha —
     // antes saía em x:0,y:24 (linha própria, por baixo).
-    assert_eq!(r("#b"), (40.0, 0.0, 64.0, 24.0), "inline-flex flui ao lado do irmão, não empilha");
+    assert_eq!(
+        r("#b"),
+        (40.0, 0.0, 64.0, 24.0),
+        "inline-flex flui ao lado do irmão, não empilha"
+    );
 }
 
 const OUTER_DISPLAY_HTML: &str = r#"<style>
@@ -85,5 +97,9 @@ fn inline_flex_com_flex_wrap_quebra_como_flex_de_bloco() {
     assert_eq!(r("#a"), (0.0, 0.0, 80.0, 30.0));
     assert_eq!(r("#b"), (90.0, 0.0, 80.0, 30.0));
     // #c: 90+80+10+80=260 > 200 não cabe — quebra para a segunda linha.
-    assert_eq!(r("#c"), (0.0, 40.0, 80.0, 30.0), "quebra para a 2ª linha (30+10 abaixo da 1ª)");
+    assert_eq!(
+        r("#c"),
+        (0.0, 40.0, 80.0, 30.0),
+        "quebra para a 2ª linha (30+10 abaixo da 1ª)"
+    );
 }

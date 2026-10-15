@@ -45,7 +45,9 @@ pub(in crate::layout) fn measure_float(
     // and only that layout knows its physical size: the width below would
     // measure its text across the page.
     if crate::layout::block::rotated::opens_frame(dom, child, &ccss) {
-        return measure_block(dom, child, box_id, content_w, avail_h, None, None, true, ctx);
+        return measure_block(
+            dom, child, box_id, content_w, avail_h, None, None, true, ctx,
+        );
     }
     let rc = ResolveCtx {
         parent_content_w: content_w,
@@ -57,10 +59,16 @@ pub(in crate::layout) fn measure_float(
     let margin_h = ccss.margin.resolve_h(&rc);
     let w = crate::style::clamp_size(
         child_outer_width(dom, child, content_w, font_size, ctx),
-        ccss.min_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
-        ccss.max_width.and_then(|d| d.resolve(&rc)).map(|v| v + margin_h),
+        ccss.min_width
+            .and_then(|d| d.resolve(&rc))
+            .map(|v| v + margin_h),
+        ccss.max_width
+            .and_then(|d| d.resolve(&rc))
+            .map(|v| v + margin_h),
     );
-    let h = child_outer_height(dom, child, box_id, content_w, avail_h, parent_css, font_size, ctx);
+    let h = child_outer_height(
+        dom, child, box_id, content_w, avail_h, parent_css, font_size, ctx,
+    );
     (w, h)
 }
 
@@ -97,7 +105,11 @@ pub(in crate::layout) fn place_float(
         top = f;
         (bx, bw) = bfc.free_band(top, h, content_x, content_w);
     }
-    let x = if side == crate::style::FloatSide::Left { bx } else { bx + bw - w };
+    let x = if side == crate::style::FloatSide::Left {
+        bx
+    } else {
+        bx + bw - w
+    };
     layout_block(
         dom,
         child,
@@ -124,7 +136,11 @@ pub(in crate::layout) fn place_float(
         top,
         bottom: top + h,
         side,
-        edge: if side == crate::style::FloatSide::Left { x + w } else { x },
+        edge: if side == crate::style::FloatSide::Left {
+            x + w
+        } else {
+            x
+        },
     });
     top
 }

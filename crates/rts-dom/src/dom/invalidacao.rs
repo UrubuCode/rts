@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     /// Marca uma mudança global de estilo/estrutura: invalida os memos de todos os
     /// nós. É o fallback seguro para mudanças de stylesheet, estrutura ou regras que
     /// podem atravessar a árvore.
@@ -177,7 +176,11 @@ impl Dom {
     /// versão reusava `touch_subtrees(pai)` e ficou 118× MAIS LENTA na remoção:
     /// varrer a subárvore do PAI por nó removido é quadrático, e é o pai que tem
     /// 2000 filhos, não o nó que saiu.
-    pub(in crate::dom) fn touch_structural(&mut self, moved: NodeIdx, former_parent: Option<NodeIdx>) {
+    pub(in crate::dom) fn touch_structural(
+        &mut self,
+        moved: NodeIdx,
+        former_parent: Option<NodeIdx>,
+    ) {
         self.revision = self.revision.wrapping_add(1);
         crate::bump!(touch_subtree_calls);
         // CONSTRUÇÃO PURA (montar a árvore antes de ler qualquer estilo): não há
@@ -222,7 +225,10 @@ impl Dom {
         // pela mesma razão: os irmãos que ficaram lá também mudaram de posição.
         if self.stylesheet.position_sensitive() {
             let mut roots: Vec<NodeIdx> = Vec::with_capacity(2);
-            for pai in [self.nodes[moved].parent, former_parent].into_iter().flatten() {
+            for pai in [self.nodes[moved].parent, former_parent]
+                .into_iter()
+                .flatten()
+            {
                 if !roots.contains(&pai) {
                     roots.push(pai);
                 }
@@ -268,7 +274,6 @@ impl Dom {
             }
         }
     }
-
 
     /// Invalidação de uma mudança de ATRIBUTO — partilhada por `set_attr` e
     /// `remove_attr` (lote O; antes era o mesmo bloco escrito duas vezes).
@@ -323,7 +328,6 @@ impl Dom {
         self.dirty_self.borrow_mut().clear();
     }
 
-
     /// `true` se esta árvore PODE ter algum elemento fora do fluxo. Falso
     /// negativo é impossível: qualquer `position` inline liga a flag e qualquer
     /// regra com `absolute`/`fixed` (ou uma pendente com `var()`) liga a do
@@ -343,7 +347,6 @@ impl Dom {
     pub(crate) fn layout_epoch(&self, idx: NodeIdx) -> u64 {
         self.layout_epochs[idx]
     }
-
 
     /// Bumpa SÓ o epoch de animação (invalida o layout p/ re-pintar a interpolação),
     /// sem tocar a revisão estrutural — o `advance` chama isto por frame no lugar de

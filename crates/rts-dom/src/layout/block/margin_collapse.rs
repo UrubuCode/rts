@@ -241,6 +241,10 @@ pub(in crate::layout) fn collapsed_strut((pos, neg): Strut) -> f32 {
 /// formatação próprio (`overflow` ≠ visible, `flow-root`) NÃO se atravessa,
 /// mesmo vazia. Isso é o lote do BFC; enquanto não houver, um `<div
 /// style="overflow:hidden">` vazio e sem altura colapsa aqui e não devia.
-pub(in crate::layout) fn collapses_through(box_h: f32, top_margin: f32, bottom_margin: f32) -> bool {
+pub(in crate::layout) fn collapses_through(
+    box_h: f32,
+    top_margin: f32,
+    bottom_margin: f32,
+) -> bool {
     (box_h - (top_margin + bottom_margin)).abs() < 0.01
 }

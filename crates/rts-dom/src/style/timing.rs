@@ -30,8 +30,8 @@
 //! modelo transiciona `all` de uma vez, só o PRIMEIRO item é lido. Ignorar o
 //! resto é o mesmo que o shorthand já fazia com o nome da propriedade.
 
-use super::props::ComputedStyle;
 use super::aplica::set_if;
+use super::props::ComputedStyle;
 use crate::anim::{AnimationSpec, Easing, TransitionSpec, parse_direction, parse_time_ms};
 
 /// Os valores iniciais de `transition-*` da spec: duração 0 (= não transiciona),

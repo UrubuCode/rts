@@ -35,7 +35,11 @@ fn min_width_min_content_vence_max_width_menor() {
     <div class="f"><div id="piso"><div class="largo"></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#piso", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 128.0, 40.0), "min-content bate max-width: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 128.0, 40.0),
+        "min-content bate max-width: {r:?}"
+    );
 }
 
 /// O piso automático de `min-width:auto` (Flexbox §4.5) conta a largura
@@ -52,7 +56,11 @@ fn min_width_auto_conta_filho_bloco_sem_texto() {
     <div class="f"><div id="item"><div class="fixo"></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 100.0, 40.0), "96 do filho + 4 de borda: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 100.0, 40.0),
+        "96 do filho + 4 de borda: {r:?}"
+    );
 }
 
 /// Shrink-to-fit (CSS2 §10.3.5) pára no PISO de min-content em vez de
@@ -81,11 +89,19 @@ fn shrink_to_fit_para_no_piso_de_min_content() {
     let controlo = rect(&dom, &list, "#controlo", 0);
     let item_controlo = rect(&dom, &list, "#item-controlo", 0);
 
-    assert_eq!((zero.x, zero.y, zero.w, zero.h), (0.0, 0.0, 0.0, 0.0), "#zero: {zero:?}");
+    assert_eq!(
+        (zero.x, zero.y, zero.w, zero.h),
+        (0.0, 0.0, 0.0, 0.0),
+        "#zero: {zero:?}"
+    );
 
     // width/height do frame não dependem de texto: exactos.
     assert_eq!((teste.y, teste.h), (0.0, 40.0), "#teste y/h: {teste:?}");
-    assert_eq!((item_teste.x, item_teste.y, item_teste.h), (5.0, 5.0, 30.0), "#item-teste x/y/h: {item_teste:?}");
+    assert_eq!(
+        (item_teste.x, item_teste.y, item_teste.h),
+        (5.0, 5.0, 30.0),
+        "#item-teste x/y/h: {item_teste:?}"
+    );
 
     // width É texto ("AB" monospace): tolerância de 1px (ver `perto`). O
     // rect do `.item` é BORDA (getBoundingClientRect): conteúdo (17,5938) +
@@ -94,13 +110,23 @@ fn shrink_to_fit_para_no_piso_de_min_content() {
     perto(teste.w, 37.5938, "#teste largura (piso de min-content)");
     perto(item_teste.w, 27.5938, "#item-teste largura (rect = borda)");
     perto(controlo.w, 37.5938, "#controlo largura (referência)");
-    perto(item_controlo.w, 27.5938, "#item-controlo largura (rect = borda)");
+    perto(
+        item_controlo.w,
+        27.5938,
+        "#item-controlo largura (rect = borda)",
+    );
 
     // #teste e #controlo (o MESMO item, com e sem o pai de largura zero) têm
     // de medir IGUAL — é o ponto do teste, e não depende de nenhuma
     // constante de fonte.
-    assert!((teste.w - controlo.w).abs() < 0.01, "#teste tem de igualar #controlo: {teste:?} vs {controlo:?}");
-    assert!((item_teste.w - item_controlo.w).abs() < 0.01, "os dois .item têm de igualar: {item_teste:?} vs {item_controlo:?}");
+    assert!(
+        (teste.w - controlo.w).abs() < 0.01,
+        "#teste tem de igualar #controlo: {teste:?} vs {controlo:?}"
+    );
+    assert!(
+        (item_teste.w - item_controlo.w).abs() < 0.01,
+        "os dois .item têm de igualar: {item_teste:?} vs {item_controlo:?}"
+    );
 }
 
 /// A flex base size (Flexbox §9.2 passo 3) NÃO é capada pelo `max-width` do
@@ -123,8 +149,16 @@ fn flex_base_size_nao_capada_por_max_width_e_encolhimento_congela() {
     let (dom, list) = geometria(HTML, 1280.0);
     let capado = rect(&dom, &list, "#capado", 0);
     let livre = rect(&dom, &list, "#livre", 0);
-    assert_eq!((capado.x, capado.y, capado.w, capado.h), (0.0, 0.0, 100.0, 40.0), "#capado congela no seu max-width: {capado:?}");
-    assert_eq!((livre.x, livre.y, livre.w, livre.h), (100.0, 0.0, 200.0, 40.0), "#livre absorve o resto: {livre:?}");
+    assert_eq!(
+        (capado.x, capado.y, capado.w, capado.h),
+        (0.0, 0.0, 100.0, 40.0),
+        "#capado congela no seu max-width: {capado:?}"
+    );
+    assert_eq!(
+        (livre.x, livre.y, livre.w, livre.h),
+        (100.0, 0.0, 200.0, 40.0),
+        "#livre absorve o resto: {livre:?}"
+    );
 }
 
 /// A QUEBRA de linha (Flexbox §9.3) soma o HYPOTHETICAL main size — a base
@@ -146,7 +180,19 @@ fn quebra_de_linha_usa_o_hypothetical_main_size_nao_a_base_nua() {
     let c = rect(&dom, &list, "#c", 0);
     let a = rect(&dom, &list, "#a", 0);
     let b = rect(&dom, &list, "#b", 0);
-    assert_eq!((c.x, c.y, c.w, c.h), (0.0, 0.0, 150.0, 100.0), "#c: duas linhas de 50: {c:?}");
-    assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 150.0, 50.0), "#a: sozinho na 1ª linha, cresce a 150: {a:?}");
-    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 50.0, 150.0, 50.0), "#b: sozinho na 2ª linha, cresce a 150: {b:?}");
+    assert_eq!(
+        (c.x, c.y, c.w, c.h),
+        (0.0, 0.0, 150.0, 100.0),
+        "#c: duas linhas de 50: {c:?}"
+    );
+    assert_eq!(
+        (a.x, a.y, a.w, a.h),
+        (0.0, 0.0, 150.0, 50.0),
+        "#a: sozinho na 1ª linha, cresce a 150: {a:?}"
+    );
+    assert_eq!(
+        (b.x, b.y, b.w, b.h),
+        (0.0, 50.0, 150.0, 50.0),
+        "#b: sozinho na 2ª linha, cresce a 150: {b:?}"
+    );
 }

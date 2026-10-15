@@ -44,7 +44,11 @@ fn span_que_so_envolve_um_bloco_nao_derruba_a_altura_de_conteudo_do_item() {
     let item = rect(&dom, &list, "#flex-item", 0);
     assert_eq!(item.h, 200.0, "{item:?}");
     let canvas = rect(&dom, &list, "#target", 0);
-    assert_eq!((canvas.x, canvas.y), (item.x, item.y), "{canvas:?} vs {item:?}");
+    assert_eq!(
+        (canvas.x, canvas.y),
+        (item.x, item.y),
+        "{canvas:?} vs {item:?}"
+    );
 }
 
 /// Um `<span>` partido com TEXTO dos dois lados do bloco: a altura do
@@ -90,4 +94,3 @@ fn involucro_display_contents_deixa_passar_a_altura_do_filho() {
     let item = rect(&dom, &list, "#item", 0);
     assert_eq!(item.h, 30.0, "{item:?}");
 }
-

@@ -9,12 +9,12 @@
 //! lista de células. `grid.rs` mede/posiciona; este módulo decide ONDE cada
 //! item vive.
 
-use std::collections::HashSet;
 
+
+use crate::boxes::BoxId;
 use crate::style::grid_lines::{GridAutoFlow, GridLine};
 use crate::style::{GridAreas, LineNames};
 use crate::{Dom, NodeIdx};
-use crate::boxes::BoxId;
 
 /// Item de grid antes da colocação. A geometria usa a caixa, enquanto a
 /// colocação e o estilo continuam a consultar o nó que a gerou.
@@ -59,17 +59,20 @@ fn resolve_abs(n: i32, explicit: usize) -> Option<i32> {
 }
 
 /// Combines explicit line names with implicit area names into an ordered list of lines.
-fn effective_lines(
+pub(in crate::layout) fn effective_lines(
     explicit: &[LineNames],
     track_count: usize,
     areas: Option<&GridAreas>,
     cols: bool,
+    is_subgrid: bool,
 ) -> Vec<LineNames> {
     let mut num_lines = (track_count + 1).max(explicit.len());
-    if let Some(areas) = areas {
-        for (_, area) in areas.iter() {
-            let end_line = if cols { area.c1 + 1 } else { area.r1 + 1 };
-            num_lines = num_lines.max(end_line);
+    if !is_subgrid {
+        if let Some(areas) = areas {
+            for (_, area) in areas.iter() {
+                let end_line = if cols { area.c1 + 1 } else { area.r1 + 1 };
+                num_lines = num_lines.max(end_line);
+            }
         }
     }
     let mut out: Vec<LineNames> = vec![Vec::new(); num_lines];
@@ -79,12 +82,17 @@ fn effective_lines(
         }
     }
     if let Some(areas) = areas {
+        let max_idx = out.len().saturating_sub(1);
         for (name, area) in areas.iter() {
-            let (start_idx, end_idx) = if cols {
+            let (mut start_idx, mut end_idx) = if cols {
                 (area.c0, area.c1)
             } else {
                 (area.r0, area.r1)
             };
+            if is_subgrid {
+                start_idx = start_idx.min(max_idx);
+                end_idx = end_idx.min(max_idx);
+            }
             let start_name = format!("{}-start", name);
             let end_name = format!("{}-end", name);
             if start_idx < out.len() && !out[start_idx].contains(&start_name) {
@@ -99,18 +107,13 @@ fn effective_lines(
 }
 
 /// The 1-based line a NAME denotes on one axis (CSS Grid 1 §8.3.1).
-/// Matches against explicit line names, then falls back to implicit -start/-end suffixes.
+/// Matches against implicit area -start/-end suffixes first (§8.3.1), then falls back to explicit line names.
 fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Option<i32> {
     if nth == 0 {
         return None;
     }
     let mut matches: Vec<usize> = Vec::new();
-    for (idx, line) in lines.iter().enumerate() {
-        if line.iter().any(|l| l == name) {
-            matches.push(idx);
-        }
-    }
-    if matches.is_empty() && !name.ends_with("-start") && !name.ends_with("-end") {
+    if !name.ends_with("-start") && !name.ends_with("-end") {
         let suffixed = if end_edge {
             format!("{}-end", name)
         } else {
@@ -118,6 +121,13 @@ fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Opti
         };
         for (idx, line) in lines.iter().enumerate() {
             if line.iter().any(|l| l == &suffixed) {
+                matches.push(idx);
+            }
+        }
+    }
+    if matches.is_empty() {
+        for (idx, line) in lines.iter().enumerate() {
+            if line.iter().any(|l| l == name) {
                 matches.push(idx);
             }
         }
@@ -138,54 +148,120 @@ fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Opti
     }
 }
 
-/// One edge after name resolution: an absolute line, a span count, a span TO
-/// a named line, or nothing (`auto`, or a name that resolved to no line).
-enum Edge {
+pub(in crate::layout) fn find_named_line_forward(
+    name: &str,
+    after_line: i32,
+    nth: u32,
+    lines: &[LineNames],
+) -> Option<i32> {
+    if nth == 0 {
+        return None;
+    }
+    let start_idx = after_line.max(0) as usize;
+    let suffixed = format!("{}-end", name);
+    let mut count = 0;
+    for (idx, line) in lines.iter().enumerate().skip(start_idx) {
+        if line.iter().any(|l| l == &suffixed || l == name) {
+            count += 1;
+            if count == nth {
+                return Some(idx as i32 + 1);
+            }
+        }
+    }
+    None
+}
+
+pub(in crate::layout) fn find_named_line_backward(
+    name: &str,
+    before_line: i32,
+    nth: u32,
+    lines: &[LineNames],
+) -> Option<i32> {
+    if nth == 0 || before_line <= 1 {
+        return None;
+    }
+    let end_idx = (before_line - 1).min(lines.len() as i32) as usize;
+    let suffixed = format!("{}-start", name);
+    let mut count = 0;
+    for idx in (0..end_idx).rev() {
+        if lines[idx].iter().any(|l| l == &suffixed || l == name) {
+            count += 1;
+            if count == nth {
+                return Some(idx as i32 + 1);
+            }
+        }
+    }
+    None
+}
+
+/// One edge after name resolution: an absolute line, a span count, a named span,
+/// or nothing (`auto`, or a name that resolved to no line).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::layout) enum Edge {
     Abs(i32),
     Span(u32),
-    SpanTo(i32),
+    SpanNamed(std::sync::Arc<str>, u32),
     Auto,
 }
 
-fn resolve_edge(l: &GridLine, end_edge: bool, explicit: usize, lines: &[LineNames]) -> Edge {
+pub(in crate::layout) fn resolve_edge(
+    l: &GridLine,
+    end_edge: bool,
+    explicit: usize,
+    lines: &[LineNames],
+    is_subgrid: bool,
+) -> Edge {
     match l {
         GridLine::Auto => Edge::Auto,
         GridLine::Line(n) => resolve_abs(*n, explicit).map_or(Edge::Auto, Edge::Abs),
         GridLine::Span(n) => Edge::Span(*n),
         GridLine::Named(id, nth) => {
-            named_line(id, nth.unwrap_or(1), end_edge, lines).map_or(Edge::Auto, Edge::Abs)
+            let n = nth.unwrap_or(1);
+            Edge::Abs(named_line(id, n, end_edge, lines).unwrap_or_else(|| {
+                if is_subgrid {
+                    if n > 0 { lines.len() as i32 } else { 1 }
+                } else if n > 0 {
+                    lines.len() as i32 + n
+                } else {
+                    2 + n
+                }
+            }))
         }
-        GridLine::SpanNamed(id, n) => {
-            named_line(id, *n as i32, end_edge, lines).map_or(Edge::Span(1), Edge::SpanTo)
-        }
+        GridLine::SpanNamed(id, n) => Edge::SpanNamed(id.clone(), *n),
     }
 }
 
 /// A colocação explícita de UM eixo a partir das duas extremidades já
 /// parseadas — `None` quando o eixo não tem informação suficiente para
 /// resolver sozinho (as duas pontas `auto`, ou um `span` sem âncora).
-fn axis_placement(
+pub(in crate::layout) fn axis_placement(
     start: &GridLine,
     end: &GridLine,
     explicit: usize,
     lines: &[LineNames],
+    is_subgrid: bool,
 ) -> Option<(usize, usize)> {
     use Edge::*;
-    let s = resolve_edge(start, false, explicit, lines);
-    let e = resolve_edge(end, true, explicit, lines);
+    let s = resolve_edge(start, false, explicit, lines, is_subgrid);
+    let e = resolve_edge(end, true, explicit, lines, is_subgrid);
     let (a, b): (i32, i32) = match (s, e) {
         (Abs(a), Abs(b)) => {
             if b > a {
                 (a, b)
             } else if b < a {
-                // §8.3.1: start after end swaps the two lines.
                 (b, a)
             } else {
                 (a, a + 1)
             }
         }
-        (Abs(a), SpanTo(l)) => (a, if l > a { l } else { a + 1 }),
-        (SpanTo(l), Abs(b)) => (if l < b { l } else { (b - 1).max(1) }, b),
+        (Abs(a), SpanNamed(id, n)) => {
+            let l = find_named_line_forward(&id, a, n, lines).unwrap_or(a + 1);
+            (a, if l > a { l } else { a + 1 })
+        }
+        (SpanNamed(id, n), Abs(b)) => {
+            let l = find_named_line_backward(&id, b, n, lines).unwrap_or((b - 1).max(1));
+            (if l < b { l } else { (b - 1).max(1) }, b)
+        }
         (Abs(a), Span(n)) => (a, a + n as i32),
         (Span(n), Abs(b)) => {
             let a = (b - n as i32).max(1);
@@ -200,158 +276,21 @@ fn axis_placement(
         // position on this axis, and the item goes back to auto-placement.
         _ => return None,
     };
-    Some(((a - 1).max(0) as usize, (b - 1).max(0) as usize))
+    let mut c0 = (a - 1).max(0) as usize;
+    let mut c1 = (b - 1).max(0) as usize;
+    if is_subgrid && explicit > 0 {
+        let span = c1.saturating_sub(c0).max(1);
+        if c0 >= explicit {
+            c1 = explicit;
+            c0 = c1.saturating_sub(span);
+        } else if c1 > explicit {
+            c1 = explicit;
+        }
+    }
+    Some((c0, c1))
 }
 
-/// Marca `r0..r1 × c0..c1` como ocupado.
-fn mark(taken: &mut HashSet<(usize, usize)>, r0: usize, c0: usize, r1: usize, c1: usize) {
-    for r in r0..r1 {
-        for c in c0..c1 {
-            taken.insert((r, c));
-        }
-    }
-}
-
-/// Primeira célula livre a partir de `start_idx` (linear, row-major, `ncols`
-/// colunas por linha) — o flow `row` (default).
-fn free_row_major(taken: &HashSet<(usize, usize)>, ncols: usize, start_idx: usize) -> (usize, usize) {
-    let mut idx = start_idx;
-    loop {
-        let (r, c) = (idx / ncols, idx % ncols);
-        if !taken.contains(&(r, c)) {
-            return (r, c);
-        }
-        idx += 1;
-    }
-}
-
-/// Primeira célula livre em ordem COLUNA-MAJOR a partir de `start_col` — o
-/// flow `column`: preenche uma coluna inteira antes de passar à próxima,
-/// crescendo COLUNAS implícitas. `row_bound` é fixo — as linhas EXPLÍCITAS
-/// (ou 1, quando não há `grid-template-rows`: é o que faz o 2º item de uma
-/// grelha sem linhas declaradas abrir logo uma 2ª coluna, em vez de empilhar
-/// na mesma).
-fn free_col_major(taken: &HashSet<(usize, usize)>, row_bound: usize, start_col: usize) -> (usize, usize) {
-    let row_bound = row_bound.max(1);
-    let mut c = start_col;
-    loop {
-        for r in 0..row_bound {
-            if !taken.contains(&(r, c)) {
-                return (r, c);
-            }
-        }
-        c += 1;
-        // guarda contra uma grelha patologicamente cheia — nunca alcançado
-        // por uma página real.
-        if c > 100_000 {
-            return (0, c);
-        }
-    }
-}
-
-/// Coloca os filhos e devolve `(células, nº de colunas final)`. Two phases
-/// (spec §8.5): items definite on both axes first — line numbers and area
-/// names alike, since `grid-area: <name>` arrives as four named longhands —
-/// so an auto item cannot take a cell before its owner claims it; then the automatic ones
-/// (row-major ou column-major conforme `auto_flow`, `dense` reinicia a busca
-/// do início em vez de continuar do cursor).
-///
-/// `ncols` PODE crescer aqui: um `grid-area`/`grid-column` que aponta para lá
-/// da última coluna explícita cria colunas IMPLÍCITAS — é o que
-/// `grid-auto-columns` dimensiona depois, em `grid.rs`. Só cresce nas duas
-/// primeiras fases: a automática já corre com o `ncols` final, porque o flow
-/// `column` precisa de um número de colunas fixo para saber quando "acabou"
-/// uma coluna e passa à próxima.
-pub(in crate::layout) fn place_grid_items(
-    dom: &Dom,
-    children: &[GridItem],
-    areas: Option<&GridAreas>,
-    col_lines: &[LineNames],
-    row_lines: &[LineNames],
-    explicit_cols: usize,
-    explicit_rows: usize,
-    auto_flow: GridAutoFlow,
-) -> (Vec<GridCell>, usize) {
-    let mut cells: Vec<GridCell> = Vec::with_capacity(children.len());
-    let mut taken: HashSet<(usize, usize)> = HashSet::new();
-    let mut ncols = explicit_cols.max(1);
-
-    let eff_col_lines = effective_lines(col_lines, explicit_cols, areas, true);
-    let eff_row_lines = effective_lines(row_lines, explicit_rows, areas, false);
-
-    let mut numeric: Vec<GridItem> = Vec::new();
-    let mut auto: Vec<GridItem> = Vec::new();
-    for &child in children {
-        let css = dom.computed_style_idx(child.node);
-        let has_numeric = css
-            .as_ref()
-            .map(|s| {
-                s.grid_column_start.is_some()
-                    || s.grid_column_end.is_some()
-                    || s.grid_row_start.is_some()
-                    || s.grid_row_end.is_some()
-            })
-            .unwrap_or(false);
-        if has_numeric {
-            numeric.push(child);
-        } else {
-            auto.push(child);
-        }
-    }
-
-    for child in numeric {
-        let css = dom.computed_style_idx(child.node).unwrap_or_default();
-        let auto_line = GridLine::Auto;
-        let colp = axis_placement(
-            css.grid_column_start.as_ref().unwrap_or(&auto_line),
-            css.grid_column_end.as_ref().unwrap_or(&auto_line),
-            explicit_cols,
-            &eff_col_lines,
-        );
-        let rowp = axis_placement(
-            css.grid_row_start.as_ref().unwrap_or(&auto_line),
-            css.grid_row_end.as_ref().unwrap_or(&auto_line),
-            explicit_rows,
-            &eff_row_lines,
-        );
-        match (colp, rowp) {
-            (Some((c0, c1)), Some((r0, r1))) => {
-                ncols = ncols.max(c1);
-                mark(&mut taken, r0, c0, r1, c1);
-                cells.push(GridCell { child: child.node, box_id: child.box_id, r0, c0, r1, c1 });
-            }
-            // Um eixo só (o outro `auto`/indeterminado): a spec varre o eixo
-            // aberto a partir da linha dada; este motor simplifica para
-            // auto-colocação nos dois eixos — cobre o caso mais comum, que é
-            // o eixo aberto estar mesmo ausente da declaração.
-            _ => auto.push(child),
-        }
-    }
-
-    let row_bound = explicit_rows.max(1);
-    let mut cursor = 0usize;
-    let mut col_cursor = 0usize;
-    for child in auto {
-        let (r, c) = if auto_flow.column {
-            let start = if auto_flow.dense { 0 } else { col_cursor };
-            free_col_major(&taken, row_bound, start)
-        } else {
-            let start = if auto_flow.dense { 0 } else { cursor };
-            free_row_major(&taken, ncols, start)
-        };
-        mark(&mut taken, r, c, r + 1, c + 1);
-        cells.push(GridCell { child: child.node, box_id: child.box_id, r0: r, c0: c, r1: r + 1, c1: c + 1 });
-        cursor = r * ncols.max(1) + c + 1;
-        col_cursor = c;
-        // flow `column`: as colunas implícitas contam para o `ncols` final,
-        // que `grid.rs` usa para estender `grid-auto-columns` e dimensionar.
-        if auto_flow.column {
-            ncols = ncols.max(c + 1);
-        }
-    }
-
-    (cells, ncols)
-}
+pub(in crate::layout) use super::placement::place_grid_items;
 
 /// The in-flow ITEMS of a grid container, in box-tree order: what the layout
 /// places, and what the intrinsic measure (`aspect::intrinsic_floor`) places
@@ -379,10 +318,14 @@ pub(in crate::layout) fn collect_items(
         if is_out_of_flow(dom, child) {
             continue;
         }
-        if !is_block_level(dom, child) && collect_text(dom, child).trim().is_empty() {
+        let is_element = matches!(dom.node(child).kind, NodeKind::Element { .. });
+        if !is_element && collect_text(dom, child).trim().is_empty() {
             continue;
         }
-        items.push(GridItem { node: child, box_id });
+        items.push(GridItem {
+            node: child,
+            box_id,
+        });
     }
     items
 }

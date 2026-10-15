@@ -173,7 +173,10 @@ pub(in crate::layout) fn item_top_with_baseline(
     match valign {
         VerticalAlign::Top => line_y,
         VerticalAlign::Bottom => line_y + env.height() - height,
-        _ => line_y + env.above - ascent_with_own_baseline(valign, height, ascent, font_size, family, m),
+        _ => {
+            line_y + env.above
+                - ascent_with_own_baseline(valign, height, ascent, font_size, family, m)
+        }
     }
 }
 
@@ -270,7 +273,11 @@ mod tests {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
         assert!((env.above - 34.91).abs() < 0.01, "acima={}", env.above);
         assert!((env.below - 15.09).abs() < 0.01, "abaixo={}", env.below);
-        assert!((env.height() - 50.0).abs() < 0.01, "altura={}", env.height());
+        assert!(
+            (env.height() - 50.0).abs() < 0.01,
+            "altura={}",
+            env.height()
+        );
     }
 
     /// `baseline`: o fundo da caixa fica NA baseline (sem baseline própria,
@@ -278,7 +285,14 @@ mod tests {
     #[test]
     fn baseline_poe_o_fundo_da_caixa_na_baseline() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Baseline, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Baseline,
+            20.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 14.91).abs() < 0.01, "y={y}");
     }
 
@@ -287,7 +301,14 @@ mod tests {
     #[test]
     fn top_alinha_com_o_topo_da_linha() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Top, 30.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Top,
+            30.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 0.0).abs() < 0.01, "y={y}");
     }
 
@@ -296,7 +317,14 @@ mod tests {
     #[test]
     fn middle_centra_meio_x_height_acima_da_baseline() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Middle, 40.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Middle,
+            40.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 10.0).abs() < 0.01, "y={y}");
     }
 
@@ -306,7 +334,14 @@ mod tests {
     #[test]
     fn bottom_alinha_com_o_fundo_da_linha() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Bottom, 50.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Bottom,
+            50.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 0.0).abs() < 0.01, "y={y}");
     }
 
@@ -316,7 +351,14 @@ mod tests {
     #[test]
     fn text_top_alinha_com_o_ascent_do_strut() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::TextTop, 25.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::TextTop,
+            25.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 16.91).abs() < 0.01, "y={y}");
     }
 
@@ -325,7 +367,14 @@ mod tests {
     #[test]
     fn super_sobe_a_caixa_acima_da_posicao_de_baseline() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Super, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Super,
+            20.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 7.25).abs() < 0.01, "y={y}");
     }
 
@@ -334,7 +383,14 @@ mod tests {
     #[test]
     fn sub_desce_a_caixa_abaixo_da_posicao_de_baseline() {
         let env = envelope(&fixture_atoms(), FONT_SIZE, &ApproxMeasurer);
-        let y = item_top(VerticalAlign::Sub, 20.0, 0.0, &env, FONT_SIZE, &ApproxMeasurer);
+        let y = item_top(
+            VerticalAlign::Sub,
+            20.0,
+            0.0,
+            &env,
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         assert!((y - 19.91).abs() < 0.01, "y={y}");
     }
 
@@ -346,7 +402,11 @@ mod tests {
     /// baseline cai bem no ponto que a fórmula prevê e `y = 0`.
     #[test]
     fn text_bottom_alinha_com_o_descent_do_strut() {
-        let env = envelope(&[(30.0, VerticalAlign::TextBottom)], FONT_SIZE, &ApproxMeasurer);
+        let env = envelope(
+            &[(30.0, VerticalAlign::TextBottom)],
+            FONT_SIZE,
+            &ApproxMeasurer,
+        );
         let y = item_top(
             VerticalAlign::TextBottom,
             30.0,
@@ -379,13 +439,26 @@ mod tests {
     #[test]
     fn ascent_com_baseline_propria_usa_fracao_exata_da_ahem() {
         let above = ascent_with_own_baseline(
-            VerticalAlign::TextTop, 100.0, 0.0, FONT_SIZE, Some("Ahem"), &ApproxMeasurer,
+            VerticalAlign::TextTop,
+            100.0,
+            0.0,
+            FONT_SIZE,
+            Some("Ahem"),
+            &ApproxMeasurer,
         );
         assert!((above - FONT_SIZE * 0.8).abs() < 0.01, "acima={above}");
         let below_top = ascent_with_own_baseline(
-            VerticalAlign::TextBottom, 100.0, 0.0, FONT_SIZE, Some("Ahem"), &ApproxMeasurer,
+            VerticalAlign::TextBottom,
+            100.0,
+            0.0,
+            FONT_SIZE,
+            Some("Ahem"),
+            &ApproxMeasurer,
         );
-        assert!((below_top - (100.0 - FONT_SIZE * 0.2)).abs() < 0.01, "{below_top}");
+        assert!(
+            (below_top - (100.0 - FONT_SIZE * 0.2)).abs() < 0.01,
+            "{below_top}"
+        );
     }
 
     /// `text-top` aligns with the ascent of the STRUT's own family — the
@@ -393,8 +466,19 @@ mod tests {
     #[test]
     fn text_top_uses_the_struts_family_ascent() {
         for family in [None, Some("Arial"), Some("monospace")] {
-            let got = ascent_with_own_baseline(VerticalAlign::TextTop, 100.0, 0.0, FONT_SIZE, family, &ApproxMeasurer);
-            assert_eq!(got, ApproxMeasurer.font_ascent_family(FONT_SIZE, family), "{family:?}");
+            let got = ascent_with_own_baseline(
+                VerticalAlign::TextTop,
+                100.0,
+                0.0,
+                FONT_SIZE,
+                family,
+                &ApproxMeasurer,
+            );
+            assert_eq!(
+                got,
+                ApproxMeasurer.font_ascent_family(FONT_SIZE, family),
+                "{family:?}"
+            );
         }
     }
 
@@ -405,7 +489,15 @@ mod tests {
     #[test]
     fn envelope_com_baseline_do_strut_ahem_e_exato() {
         let env = envelope_with_baseline(&[], FONT_SIZE, FONT_SIZE, Some("Ahem"), &ApproxMeasurer);
-        assert!((env.above - FONT_SIZE * 0.8).abs() < 0.01, "acima={}", env.above);
-        assert!((env.below - FONT_SIZE * 0.2).abs() < 0.01, "abaixo={}", env.below);
+        assert!(
+            (env.above - FONT_SIZE * 0.8).abs() < 0.01,
+            "acima={}",
+            env.above
+        );
+        assert!(
+            (env.below - FONT_SIZE * 0.2).abs() < 0.01,
+            "abaixo={}",
+            env.below
+        );
     }
 }

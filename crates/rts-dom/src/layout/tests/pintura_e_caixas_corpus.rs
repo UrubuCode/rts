@@ -65,7 +65,9 @@ const CLAUDE_FLEX_BFC: &str = r#"<!DOCTYPE html>
 /// para achar UM item de pintura por cor em vez de hardcodar o empacotamento.
 fn bg_of(dom: &crate::Dom, sel: &str) -> u32 {
     let ids = dom.query_all(sel);
-    let idx = dom.resolve(*ids.first().unwrap_or_else(|| panic!("sem {sel}"))).expect("nó vivo");
+    let idx = dom
+        .resolve(*ids.first().unwrap_or_else(|| panic!("sem {sel}")))
+        .expect("nó vivo");
     dom.computed_style_idx(idx)
         .and_then(|c| c.bg)
         .unwrap_or_else(|| panic!("{sel} sem background"))
@@ -129,11 +131,17 @@ fn flex_que_estabelece_bfc_evita_o_float_anterior() {
     let flutua = rect(&dom, &list, "#flutua", 0);
     let flex = rect(&dom, &list, "#flex", 0);
     let filho = rect(&dom, &list, "#filho", 0);
-    assert_eq!((flutua.x, flutua.y, flutua.w, flutua.h), (0.0, 0.0, 80.0, 40.0));
+    assert_eq!(
+        (flutua.x, flutua.y, flutua.w, flutua.h),
+        (0.0, 0.0, 80.0, 40.0)
+    );
     assert_eq!(
         (flex.x, flex.y, flex.w, flex.h),
         (0.0, 40.0, 256.0, 32.0),
         "#flex não cabe ao lado do float (320-80=240 < 256): tem de descer para y=40: {flex:?}"
     );
-    assert_eq!((filho.x, filho.y, filho.w, filho.h), (0.0, 40.0, 64.0, 32.0));
+    assert_eq!(
+        (filho.x, filho.y, filho.w, filho.h),
+        (0.0, 40.0, 64.0, 32.0)
+    );
 }

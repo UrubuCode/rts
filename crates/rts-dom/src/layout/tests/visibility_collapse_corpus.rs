@@ -108,7 +108,9 @@ fn afirma_rect(dom: &crate::Dom, list: &DisplayList, id: &str, esperado: (f32, f
 
 #[track_caller]
 fn afirma_visibility(dom: &crate::Dom, id: &str, esperado: &str) {
-    let node = dom.query(&format!("#{id}")).unwrap_or_else(|| panic!("sem #{id}"));
+    let node = dom
+        .query(&format!("#{id}"))
+        .unwrap_or_else(|| panic!("sem #{id}"));
     let css = dom.computed_style(node).expect("css");
     assert_eq!(
         css.computed_value("visibility", None),

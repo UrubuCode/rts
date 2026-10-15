@@ -67,11 +67,20 @@ pub(in crate::layout) struct GeneratedBox {
 /// The text of a generated box broken into lines at `line_width` (its content
 /// width), by the line flow's own `wrap_runs`, under the pseudo's own
 /// `white-space`, `word-spacing` and `hyphens`. Empty text gives no line.
-pub(in crate::layout) fn text_lines(css: &ComputedStyle, texto: &str, line_width: f32, fonte: f32, ctx: &LayoutCtx) -> Vec<String> {
+pub(in crate::layout) fn text_lines(
+    css: &ComputedStyle,
+    texto: &str,
+    line_width: f32,
+    fonte: f32,
+    ctx: &LayoutCtx,
+) -> Vec<String> {
     if texto.is_empty() {
         return Vec::new();
     }
-    let nowrap = matches!(css.white_space, Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre));
+    let nowrap = matches!(
+        css.white_space,
+        Some(crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre)
+    );
     let run = InlineRun {
         text: texto.to_string(),
         color: 0,
@@ -94,7 +103,11 @@ pub(in crate::layout) fn text_lines(css: &ComputedStyle, texto: &str, line_width
         crate::layout::inline::preserved_spaces::Spaces::from_css(css),
         css.word_spacing.unwrap_or(0.0),
         css.hyphens != Some(crate::style::vocab::Hyphens::None),
-        &crate::layout::inline::run_font::Fonts::uniform(family, fonte, family.is_some_and(crate::style::is_mono_family)),
+        &crate::layout::inline::run_font::Fonts::uniform(
+            family,
+            fonte,
+            family.is_some_and(crate::style::is_mono_family),
+        ),
         ctx.measurer,
     );
     linhas
@@ -123,7 +136,12 @@ pub(in crate::layout) fn from_tree(
 }
 
 /// The height of `linhas` lines of the pseudo's text: one line box each.
-pub(in crate::layout) fn lines_height(css: &ComputedStyle, linhas: &[String], fonte: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn lines_height(
+    css: &ComputedStyle,
+    linhas: &[String],
+    fonte: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     linhas.len() as f32 * crate::inline_box::altura_da_linha(css, fonte, ctx.measurer)
 }
 
@@ -142,21 +160,45 @@ pub(in crate::layout) struct ResolvedEdges {
 pub(in crate::layout) fn resolve_edges(css: &ComputedStyle, r: &ResolveCtx) -> ResolvedEdges {
     let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
     let p = &css.padding;
-    let (pl, pr) = (p.left.resolve(r).unwrap_or(0.0), p.right.resolve(r).unwrap_or(0.0));
-    let (pt, pb) = (p.top.resolve(r).unwrap_or(0.0), p.bottom.resolve(r).unwrap_or(0.0));
+    let (pl, pr) = (
+        p.left.resolve(r).unwrap_or(0.0),
+        p.right.resolve(r).unwrap_or(0.0),
+    );
+    let (pt, pb) = (
+        p.top.resolve(r).unwrap_or(0.0),
+        p.bottom.resolve(r).unwrap_or(0.0),
+    );
     let m = &css.margin;
-    let (ml, mr) = (m.left.resolve(r).unwrap_or(0.0), m.right.resolve(r).unwrap_or(0.0));
-    let (mt, mb) = (m.top.resolve(r).unwrap_or(0.0), m.bottom.resolve(r).unwrap_or(0.0));
-    ResolvedEdges { values: [bt + pt, br + pr, bb + pb, bl + pl], ml, mr, mt, mb }
+    let (ml, mr) = (
+        m.left.resolve(r).unwrap_or(0.0),
+        m.right.resolve(r).unwrap_or(0.0),
+    );
+    let (mt, mb) = (
+        m.top.resolve(r).unwrap_or(0.0),
+        m.bottom.resolve(r).unwrap_or(0.0),
+    );
+    ResolvedEdges {
+        values: [bt + pt, br + pr, bb + pb, bl + pl],
+        ml,
+        mr,
+        mt,
+        mb,
+    }
 }
 
 /// `box-sizing` aplicado ao par (conteúdo-w, conteúdo-h): devolve a caixa
 /// OUTER (com margens). Igual nos dois papéis — `border-box` só muda o que
 /// `width`/`height` mede, e só quando a propriedade foi DECLARADA; sem
 /// declaração o resultado já é content-box nos dois.
-fn size_box(css: &ComputedStyle, arestas: &ResolvedEdges, inner_w: f32, inner_h: f32) -> (f32, f32) {
+fn size_box(
+    css: &ComputedStyle,
+    arestas: &ResolvedEdges,
+    inner_w: f32,
+    inner_h: f32,
+) -> (f32, f32) {
     let [at, ar, ab, al] = arestas.values;
-    let (w, h) = if css.border_box.unwrap_or(false) && (css.width.is_some() || css.height.is_some()) {
+    let (w, h) = if css.border_box.unwrap_or(false) && (css.width.is_some() || css.height.is_some())
+    {
         (
             css.width.map_or(inner_w + al + ar, |_| inner_w),
             css.height.map_or(inner_h + at + ab, |_| inner_h),
@@ -206,7 +248,13 @@ pub(in crate::layout) fn build(
 /// It reaches no DOM-facing geometry — the box has no node — and it is
 /// shifted with its element by `relative.rs`/`transform_rects.rs`, which walk
 /// the tree's full `children`.
-pub(in crate::layout) fn paint(list: &mut DisplayList, caixa: &GeneratedBox, x: f32, y: f32, ctx: &LayoutCtx) {
+pub(in crate::layout) fn paint(
+    list: &mut DisplayList,
+    caixa: &GeneratedBox,
+    x: f32,
+    y: f32,
+    ctx: &LayoutCtx,
+) {
     let css = &caixa.pseudo_box.css;
     let r = Rect::new(
         x + caixa.ml,
@@ -216,7 +264,11 @@ pub(in crate::layout) fn paint(list: &mut DisplayList, caixa: &GeneratedBox, x: 
     );
     super::record_box_rect(list, caixa.generated, r);
     if let Some(bg) = css.bg {
-        list.push_item(DisplayItem::SolidRect { rect: r, color: bg, radius: Corners::ZERO });
+        list.push_item(DisplayItem::SolidRect {
+            rect: r,
+            color: bg,
+            radius: Corners::ZERO,
+        });
     }
     let sides = crate::style::borders::resolved_sides(css);
     let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
@@ -228,17 +280,28 @@ pub(in crate::layout) fn paint(list: &mut DisplayList, caixa: &GeneratedBox, x: 
     ];
     for (rect, side) in bars {
         if side.paints() && side.color & 0xFF != 0 {
-            list.push_item(DisplayItem::SolidRect { rect, color: side.color, radius: Corners::ZERO });
+            list.push_item(DisplayItem::SolidRect {
+                rect,
+                color: side.color,
+                radius: Corners::ZERO,
+            });
         }
     }
-    let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+    let mono = css
+        .font_family
+        .as_deref()
+        .is_some_and(crate::style::is_mono_family);
     let is_ahem = crate::layout::measure::font_metrics::uses_ahem(css.font_family.as_deref());
     let lh = crate::inline_box::altura_da_linha(css, caixa.font, ctx.measurer);
-    let content = crate::inline_box::altura_do_conteudo(caixa.font, css.font_family.as_deref(), ctx.measurer);
+    let content =
+        crate::inline_box::altura_do_conteudo(caixa.font, css.font_family.as_deref(), ctx.measurer);
     for (i, line) in caixa.lines.iter().enumerate() {
         list.push_item(DisplayItem::Text {
             x: r.x + caixa.edges[3],
-            y: r.y + caixa.edges[0] + i as f32 * lh + crate::inline_box::meia_entrelinha(lh, content),
+            y: r.y
+                + caixa.edges[0]
+                + i as f32 * lh
+                + crate::inline_box::meia_entrelinha(lh, content),
             text: line.clone().into(),
             color: css.color.unwrap_or(0x000000FF),
             size: caixa.font,
@@ -322,13 +385,37 @@ mod tests {
         let r = ctx();
         let block_edges = resolve_edges(&css, &r);
         let item_edges = resolve_edges(&css, &r);
-        let block_box_id = crate::pseudo::PseudoBox { text: "x".into(), css: css.clone() };
-        let item_box = crate::pseudo::PseudoBox { text: "x".into(), css: css.clone() };
+        let block_box_id = crate::pseudo::PseudoBox {
+            text: "x".into(),
+            css: css.clone(),
+        };
+        let item_box = crate::pseudo::PseudoBox {
+            text: "x".into(),
+            css: css.clone(),
+        };
         // Any box of any tree: `build` only carries it, it never reads it.
         let dom = crate::parse_html_to_dom("<p></p>");
-        let gerada = dom.box_tree().roots().next().expect("the document has a root box");
-        let block_role = build((gerada, block_box_id), block_edges, 50.0, 20.0, vec!["x".into()], 16.0);
-        let item = build((gerada, item_box), item_edges, 50.0, 20.0, vec!["x".into()], 16.0);
+        let gerada = dom
+            .box_tree()
+            .roots()
+            .next()
+            .expect("the document has a root box");
+        let block_role = build(
+            (gerada, block_box_id),
+            block_edges,
+            50.0,
+            20.0,
+            vec!["x".into()],
+            16.0,
+        );
+        let item = build(
+            (gerada, item_box),
+            item_edges,
+            50.0,
+            20.0,
+            vec!["x".into()],
+            16.0,
+        );
         assert_eq!((block_role.w, block_role.h), (item.w, item.h));
         assert_eq!(block_role.edges, item.edges);
     }

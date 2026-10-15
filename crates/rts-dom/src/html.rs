@@ -91,14 +91,22 @@ pub(crate) fn tokenize(html: &str) -> Vec<Token> {
             let start = i + 1;
             let mut j = start;
             let mut quote = 0u8; // 0 = fora de aspas; senão o byte da aspa aberta
+            let mut after_eq = false;
             while j < bytes.len() {
                 let b = bytes[j];
                 if quote == 0 {
                     if b == b'>' {
                         break;
                     }
-                    if b == b'"' || b == b'\'' {
-                        quote = b;
+                    if b == b'=' {
+                        after_eq = true;
+                    } else if b == b'"' || b == b'\'' {
+                        if after_eq {
+                            quote = b;
+                            after_eq = false;
+                        }
+                    } else if !b.is_ascii_whitespace() {
+                        after_eq = false;
                     }
                 } else if b == quote {
                     quote = 0;

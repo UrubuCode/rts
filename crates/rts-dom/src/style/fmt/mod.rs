@@ -9,9 +9,9 @@ use super::fmt_values::{
 use super::props::ComputedStyle;
 use super::values::{Dimension, LineHeight, TextAlign, TextTransform, WhiteSpace};
 
-mod tempo;
-mod flex_grid;
 mod caixa_fluxo;
+mod flex_grid;
+mod tempo;
 
 impl ComputedStyle {
     /// O font-size deste elemento em px, ou o default de 16px quando a cascade
@@ -203,7 +203,8 @@ impl ComputedStyle {
                 .map(|r| format!("{r}"))
                 .unwrap_or_default(),
             "z-index" => self.z_index.map(|z| format!("{z}")).unwrap_or_default(),
-            _ => self.get_property_tempo(n.as_str())
+            _ => self
+                .get_property_tempo(n.as_str())
                 .or_else(|| self.get_property_flex_grid(n.as_str()))
                 .or_else(|| self.get_property_caixa_fluxo(n.as_str()))
                 .or_else(|| super::vocab::get_property(self, n.as_str()))

@@ -25,9 +25,9 @@
 //! cruzado (cross-start↔cross-end, spec §5.3) — a primeira coluna calculada
 //! vai para o fim do eixo cruzado, nunca troca item de coluna.
 
+use super::column_wrap_item::Item;
 use super::*;
 use crate::layout::flex::column::{align_offset, justify_and_align, justify_offsets};
-use super::column_wrap_item::Item;
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column_wrap(
@@ -119,9 +119,29 @@ pub(in crate::layout) fn layout_children_column_wrap(
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if stretched {
-            measure_block(dom, child, box_id, content_w, Some(container_content_h), None, None, false, ctx).1
+            measure_block(
+                dom,
+                child,
+                box_id,
+                content_w,
+                Some(container_content_h),
+                None,
+                None,
+                false,
+                ctx,
+            )
+            .1
         } else {
-            child_outer_height(dom, child, box_id, content_w, Some(container_content_h), css, font_size, ctx)
+            child_outer_height(
+                dom,
+                child,
+                box_id,
+                content_w,
+                Some(container_content_h),
+                css,
+                font_size,
+                ctx,
+            )
         };
         let child_font = font_px(&ccss, font_size);
         let main = super::column_shrink::base_outer(
@@ -143,7 +163,16 @@ pub(in crate::layout) fn layout_children_column_wrap(
         // decide entre o declarado, `min-content` (§4.5, não some sob
         // overflow não-visível) e o automático — a mesma pergunta que
         // `column.rs` faz, agora numa função só.
-        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, Some(container_content_h), &child_resolve, ctx);
+        let min_main = super::column_shrink::min_main(
+            dom,
+            child,
+            box_id,
+            &ccss,
+            natural_h,
+            Some(container_content_h),
+            &child_resolve,
+            ctx,
+        );
         // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
         // é essa largura, qualquer que seja a coluna — layout_block honra o
         // `width` declarado antes de olhar para o `avail_w`. É o que permite
@@ -304,8 +333,8 @@ pub(in crate::layout) fn layout_children_column_wrap(
     let mut leading_cross = 0.0f32;
     let mut between_cross = 0.0f32;
     if content_w > 0.0 {
-        let used_cross: f32 = col_cross.iter().sum::<f32>()
-            + (columns.len().saturating_sub(1)) as f32 * cross_gap;
+        let used_cross: f32 =
+            col_cross.iter().sum::<f32>() + (columns.len().saturating_sub(1)) as f32 * cross_gap;
         let free = (content_w - used_cross).max(0.0);
         match css.align_content {
             // `align-content` declarado não tem efeito com uma LINHA só
@@ -423,8 +452,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 });
             } else {
                 let item_align = it.align_self.unwrap_or(align);
-                let stretches =
-                    item_align == crate::style::AlignItems::Stretch && it.can_stretch;
+                let stretches = item_align == crate::style::AlignItems::Stretch && it.can_stretch;
                 // `direction:rtl` no eixo cruzado (lote `flex-justify-logico`,
                 // `column_rtl::cross_x`): a mesma pergunta do caminho de UMA
                 // coluna, só que aqui o "content-box" a espelhar dentro É a

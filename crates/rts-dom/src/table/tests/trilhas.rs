@@ -143,7 +143,9 @@ fn nowrap_soma_os_filhos_inline_em_vez_de_tomar_o_maior() {
     // of the two — which is the half this test exists to refuse.
     use crate::layout::TextMeasurer;
     let m = crate::layout::ApproxMeasurer;
-    let oito = m.text_width("aaaa", 16.0, false, true, false) + m.text_width("bbbb", 16.0, false, true, false) + 2.0;
+    let oito = m.text_width("aaaa", 16.0, false, true, false)
+        + m.text_width("bbbb", 16.0, false, true, false)
+        + 2.0;
     let rotulo = rect(&dom, &list, "th", 0);
     assert!(
         (rotulo.w - oito).abs() < 1.0,

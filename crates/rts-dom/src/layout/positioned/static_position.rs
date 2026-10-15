@@ -69,7 +69,9 @@ pub(in crate::layout) fn static_position_of(
         }
         let wm = parent_css.writing_mode.unwrap_or_default();
         let x = match wm {
-            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl => anchor.x - outer_w,
+            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl => {
+                anchor.x - outer_w
+            }
             _ => anchor.x,
         };
         return (x, anchor.y);
@@ -91,31 +93,60 @@ pub(in crate::layout) fn static_position_of(
                 | crate::style::DisplayKind::InlineFlexWrap
         )
     ) {
-        return static_position_flex(css, &parent_css, content, outer_w, outer_h, containing_block);
+        return static_position_flex(
+            css,
+            &parent_css,
+            content,
+            outer_w,
+            outer_h,
+            containing_block,
+        );
     }
     // Cuts, stated: a vertical grid (the axes would have to be swapped) and an
     // item placed on explicit lines (its area, not the content box, is the
     // alignment rect — Grid §11) still follow the block rule below; each moved
     // a WPT test from pass to fail when routed here.
-    let horizontal = matches!(parent_css.writing_mode, None | Some(crate::style::WritingMode::HorizontalTb));
-    let auto_lines = [&css.grid_row_start, &css.grid_row_end, &css.grid_column_start, &css.grid_column_end]
-        .iter()
-        .all(|l| matches!(l, None | Some(crate::style::grid_lines::GridLine::Auto)));
+    let horizontal = matches!(
+        parent_css.writing_mode,
+        None | Some(crate::style::WritingMode::HorizontalTb)
+    );
+    let auto_lines = [
+        &css.grid_row_start,
+        &css.grid_row_end,
+        &css.grid_column_start,
+        &css.grid_column_end,
+    ]
+    .iter()
+    .all(|l| matches!(l, None | Some(crate::style::grid_lines::GridLine::Auto)));
     // Grid §9.4: when the grid container is NOT the containing block, the
     // static position ignores the item's lines — the item is aligned as the
     // sole item of an area spanning the container's padding box. So the
     // lines cut applies only to a positioned container (the `-002`/`-004`
     // variants of `grid-abspos-staticpos-*` pin the other half).
-    let container_is_cb = parent_css.position.is_some_and(|p| p != crate::style::Position::Static)
+    let container_is_cb = parent_css
+        .position
+        .is_some_and(|p| p != crate::style::Position::Static)
         || parent_css.transform.is_some();
-    if horizontal && (auto_lines || !container_is_cb) && parent_css.effective_display().is_some_and(|d| d.is_grid_container()) {
+    if horizontal
+        && (auto_lines || !container_is_cb)
+        && parent_css
+            .effective_display()
+            .is_some_and(|d| d.is_grid_container())
+    {
         return static_position_grid(css, &parent_css, content, outer_w, outer_h);
     }
     let (x, y) = static_position_block(dom, id, parent, content, flow_rects);
     // A block-level box starts at the START edge of its flow: the right one
     // under rtl (§10.3.7). This used to come out right only by accident, when
     // `rtl::used_margin_left` shifted the absolute box as if it were in flow.
-    (if rtl { content.x + content.w - outer_w } else { x }, y)
+    (
+        if rtl {
+            content.x + content.w - outer_w
+        } else {
+            x
+        },
+        y,
+    )
 }
 
 /// Where an inline that generated NO box would start, with the relative offsets
@@ -140,7 +171,10 @@ pub(in crate::layout) fn boxless_inline_place(
     ctx: &LayoutCtx,
 ) -> Option<(f32, f32)> {
     let boxless_inline = |n: NodeIdx| {
-        !flow_rects.contains_key(&n) && matches!(&dom.node(n).kind, NodeKind::Element { .. }) && !is_block_level(dom, n) && !is_inline_block(dom, n)
+        !flow_rects.contains_key(&n)
+            && matches!(&dom.node(n).kind, NodeKind::Element { .. })
+            && !is_block_level(dom, n)
+            && !is_inline_block(dom, n)
     };
     if !boxless_inline(inline) {
         return None;
@@ -155,7 +189,8 @@ pub(in crate::layout) fn boxless_inline_place(
     let container_css = dom.computed_style_idx(container).unwrap_or_default();
     let content = super::containing_block::content_box(container_box, &container_css, ctx);
     let (x, y) = static_position_block(dom, outermost, container, content, flow_rects);
-    let cb_h = crate::inline_box::replaced_clamp::definite_cb_height(&container_css, Some(content.h));
+    let cb_h =
+        crate::inline_box::replaced_clamp::definite_cb_height(&container_css, Some(content.h));
     let (dx, dy) = super::relative::inline_offset(dom, Some(inline), content.w, cb_h, ctx);
     Some((x + dx, y + dy))
 }
@@ -224,9 +259,11 @@ fn static_position_flex(
         reverse,
         parent_css.direction.unwrap_or_default(),
     );
-    let align = css
-        .align_self
-        .unwrap_or(parent_css.align_items.unwrap_or(crate::style::AlignItems::Stretch));
+    let align = css.align_self.unwrap_or(
+        parent_css
+            .align_items
+            .unwrap_or(crate::style::AlignItems::Stretch),
+    );
     let main = |start: f32, size: f32, item: f32| match justify {
         crate::style::JustifyContent::FlexEnd => start + size - item,
         crate::style::JustifyContent::Center
@@ -255,16 +292,40 @@ fn static_position_flex(
         }
     };
     let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
-        crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => start + size - item,
-        crate::style::AlignItems::SafeEnd => safe_fallback(start + size - item, item, cb_start, cb_size),
+        crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => {
+            start + size - item
+        }
+        crate::style::AlignItems::SafeEnd => {
+            safe_fallback(start + size - item, item, cb_start, cb_size)
+        }
         crate::style::AlignItems::Center => start + (size - item) / 2.0,
-        crate::style::AlignItems::SafeCenter => safe_fallback(start + (size - item) / 2.0, item, cb_start, cb_size),
+        crate::style::AlignItems::SafeCenter => {
+            safe_fallback(start + (size - item) / 2.0, item, cb_start, cb_size)
+        }
         _ => start,
     };
     if fd.is_column() {
-        (cross(content.x, content.w, outer_w, containing_block.x, containing_block.w), main(content.y, content.h, outer_h))
+        (
+            cross(
+                content.x,
+                content.w,
+                outer_w,
+                containing_block.x,
+                containing_block.w,
+            ),
+            main(content.y, content.h, outer_h),
+        )
     } else {
-        (main(content.x, content.w, outer_w), cross(content.y, content.h, outer_h, containing_block.y, containing_block.h))
+        (
+            main(content.x, content.w, outer_w),
+            cross(
+                content.y,
+                content.h,
+                outer_h,
+                containing_block.y,
+                containing_block.h,
+            ),
+        )
     }
 }
 
@@ -278,7 +339,13 @@ fn static_position_flex(
 /// Under `direction: rtl` the inline axis runs from the right edge.
 /// Rejected: the in-flow grid's `cell_align_offset` — it maps an absent value
 /// to `stretch` and knows no rtl.
-fn static_position_grid(css: &ComputedStyle, parent_css: &ComputedStyle, content: Rect, outer_w: f32, outer_h: f32) -> (f32, f32) {
+fn static_position_grid(
+    css: &ComputedStyle,
+    parent_css: &ComputedStyle,
+    content: Rect,
+    outer_w: f32,
+    outer_h: f32,
+) -> (f32, f32) {
     use crate::layout::flex::offsets::align_offset;
     use crate::style::AlignItems as A;
     let start_if_stretch = |a: Option<A>| match a.unwrap_or(A::FlexStart) {
@@ -333,7 +400,10 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 200.0, 100.0);
         let (x, y) = static_position_flex(&css, &parent_css, content, 40.0, 20.0, content);
         assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
-        assert_eq!(y, 80.0, "justify-content:flex-end on the vertical main axis");
+        assert_eq!(
+            y, 80.0,
+            "justify-content:flex-end on the vertical main axis"
+        );
     }
 
     #[test]
@@ -362,8 +432,12 @@ mod tests {
         parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
         let content = Rect::new(0.0, 0.0, 50.0, 50.0); // the flex container itself
         let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0); // the real CB, wider
-        let (x, _y) = static_position_flex(&css, &parent_css, content, 100.0, 20.0, containing_block);
-        assert_eq!(x, 0.0, "falls back to the CB start, not a negative centred offset");
+        let (x, _y) =
+            static_position_flex(&css, &parent_css, content, 100.0, 20.0, containing_block);
+        assert_eq!(
+            x, 0.0,
+            "falls back to the CB start, not a negative centred offset"
+        );
     }
 
     /// Guard: the SAME centring still applies when it fits inside the outer
@@ -376,7 +450,8 @@ mod tests {
         parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
         let content = Rect::new(0.0, 0.0, 50.0, 50.0);
         let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0);
-        let (x, _y) = static_position_flex(&css, &parent_css, content, 40.0, 20.0, containing_block);
+        let (x, _y) =
+            static_position_flex(&css, &parent_css, content, 40.0, 20.0, containing_block);
         assert_eq!(x, 5.0, "0 + (50-40)/2, fits inside the CB");
     }
 
@@ -386,8 +461,14 @@ mod tests {
         let content = Rect::new(0.0, 0.0, 100.0, 100.0);
         let mut parent_css = ComputedStyle::default();
         parent_css.justify = Some(crate::style::JustifyContent::SpaceAround);
-        assert_eq!(static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 40.0);
+        assert_eq!(
+            static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0,
+            40.0
+        );
         parent_css.justify = Some(crate::style::JustifyContent::SpaceBetween);
-        assert_eq!(static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0, 0.0);
+        assert_eq!(
+            static_position_flex(&css, &parent_css, content, 20.0, 20.0, content).0,
+            0.0
+        );
     }
 }

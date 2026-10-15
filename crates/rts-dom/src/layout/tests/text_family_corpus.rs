@@ -13,8 +13,18 @@ impl TextMeasurer for Recorder {
     fn text_width(&self, text: &str, size: f32, mono: bool, bold: bool, italic: bool) -> f32 {
         ApproxMeasurer.text_width(text, size, mono, bold, italic)
     }
-    fn text_width_family(&self, text: &str, size: f32, family: Option<&str>, mono: bool, bold: bool, italic: bool) -> f32 {
-        self.0.borrow_mut().push((text.to_string(), family.map(str::to_string)));
+    fn text_width_family(
+        &self,
+        text: &str,
+        size: f32,
+        family: Option<&str>,
+        mono: bool,
+        bold: bool,
+        italic: bool,
+    ) -> f32 {
+        self.0
+            .borrow_mut()
+            .push((text.to_string(), family.map(str::to_string)));
         ApproxMeasurer.text_width_family(text, size, family, mono, bold, italic)
     }
     fn line_height(&self, size: f32) -> f32 {
@@ -34,13 +44,19 @@ impl TextMeasurer for Recorder {
 fn texts(html: &str) -> (Vec<(String, Option<String>)>, Vec<(String, Option<String>)>) {
     let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
     let rec = Recorder(RefCell::new(Vec::new()));
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &rec };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &rec,
+    };
     let list = layout_document(&dom, &ctx);
     let items = list
         .materialized()
         .iter()
         .filter_map(|it| match it {
-            DisplayItem::Text { text, family, .. } => Some((text.to_string(), family.as_deref().map(str::to_string))),
+            DisplayItem::Text { text, family, .. } => {
+                Some((text.to_string(), family.as_deref().map(str::to_string)))
+            }
             _ => None,
         })
         .collect();
@@ -49,10 +65,30 @@ fn texts(html: &str) -> (Vec<(String, Option<String>)>, Vec<(String, Option<Stri
 
 #[test]
 fn a_span_with_its_own_family_paints_with_the_family_it_was_measured_in() {
-    let (items, asked) = texts(r#"<p style="font-family: Georgia">aaa <span style="font-family: Consolas">bbb</span></p>"#);
-    let family_of = |t: &str| items.iter().find(|(s, _)| s.contains(t)).map(|(_, f)| f.clone());
-    assert_eq!(family_of("bbb"), Some(Some("Consolas".to_string())), "items: {items:?}");
-    assert_eq!(family_of("aaa"), Some(Some("Georgia".to_string())), "items: {items:?}");
+    let (items, asked) = texts(
+        r#"<p style="font-family: Georgia">aaa <span style="font-family: Consolas">bbb</span></p>"#,
+    );
+    let family_of = |t: &str| {
+        items
+            .iter()
+            .find(|(s, _)| s.contains(t))
+            .map(|(_, f)| f.clone())
+    };
+    assert_eq!(
+        family_of("bbb"),
+        Some(Some("Consolas".to_string())),
+        "items: {items:?}"
+    );
+    assert_eq!(
+        family_of("aaa"),
+        Some(Some("Georgia".to_string())),
+        "items: {items:?}"
+    );
     // One source: the family on the item is one the measurer received for that text.
-    assert!(asked.iter().any(|(t, f)| t.contains("bbb") && f.as_deref() == Some("Consolas")), "asked: {asked:?}");
+    assert!(
+        asked
+            .iter()
+            .any(|(t, f)| t.contains("bbb") && f.as_deref() == Some("Consolas")),
+        "asked: {asked:?}"
+    );
 }

@@ -77,7 +77,9 @@ fn fmt_bg_image_layer(layer: &str) -> String {
                 .iter()
                 .map(|part| {
                     let pt = part.trim();
-                    parse_color(pt).map(fmt_color).unwrap_or_else(|| pt.to_string())
+                    parse_color(pt)
+                        .map(fmt_color)
+                        .unwrap_or_else(|| pt.to_string())
                 })
                 .collect();
             return format!("{nome}({})", partes.join(", "));

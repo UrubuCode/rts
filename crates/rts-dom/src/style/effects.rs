@@ -176,7 +176,11 @@ impl Transform {
             match name.as_str() {
                 "translate" | "translatex" | "translatey" => {
                     let (a, b) = length_pair(&parts);
-                    let (x, y) = if name == "translatey" { ((0.0, 0.0), a) } else { (a, b) };
+                    let (x, y) = if name == "translatey" {
+                        ((0.0, 0.0), a)
+                    } else {
+                        (a, b)
+                    };
                     t.ops.push(crate::paint::TransformOp::Translate {
                         tx: x.0,
                         ty: y.0,

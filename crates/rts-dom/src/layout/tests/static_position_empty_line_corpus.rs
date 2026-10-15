@@ -32,9 +32,15 @@ fn a_block_level_absolute_box_first_on_its_line_sits_at_the_lines_top() {
         ("#a6", (0.0, 480.0, 30.0, 10.0)),
     ] {
         let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
-        let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
+        let r = list
+            .rect_of(idx)
+            .unwrap_or_else(|| panic!("{sel} has no geometry"));
         let got = (r.x, r.y, r.w, r.h);
-        if !((got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL) {
+        if !((got.0 - e.0).abs() <= TOL
+            && (got.1 - e.1).abs() <= TOL
+            && (got.2 - e.2).abs() <= TOL
+            && (got.3 - e.3).abs() <= TOL)
+        {
             wrong.push(format!("{sel}: expected {e:?}, got {got:?}"));
         }
     }

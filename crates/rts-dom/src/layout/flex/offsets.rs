@@ -16,14 +16,23 @@
 /// chegar aqui. Tratados como `FlexStart`/`FlexEnd` (mesma posição física
 /// que já tinham); `wrap-reverse` não os espelha aqui — nenhum valor é
 /// espelhado no `align-content` hoje, o que fica fora deste lote.
-pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32, f32) {
+pub(in crate::layout) fn justify_offsets(
+    j: crate::style::JustifyContent,
+    free: f32,
+    n: usize,
+) -> (f32, f32) {
     use crate::style::JustifyContent as J;
     if free <= 0.0 {
         return match j {
             J::Center => (free / 2.0, 0.0), // leading negativo = transbordo centrado
             J::FlexEnd | J::End => (free, 0.0), // todo o overflow no start
             // flex-start E os space-* → flush no start (fiel ao Chrome em overflow).
-            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly | J::Left | J::Start => (0.0, 0.0),
+            J::FlexStart
+            | J::SpaceBetween
+            | J::SpaceAround
+            | J::SpaceEvenly
+            | J::Left
+            | J::Start => (0.0, 0.0),
             J::Right => (free, 0.0),
         };
     }
@@ -61,7 +70,11 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
 /// `LastBaseline` cai em `FlexEnd` pelo mesmo motivo (ver o doc da variante).
 /// `safe` (css-align §4.4): um item que transborda cai no início, nunca negativo.
-pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
+pub(in crate::layout) fn align_offset(
+    a: crate::style::AlignItems,
+    line_h: f32,
+    item_h: f32,
+) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {

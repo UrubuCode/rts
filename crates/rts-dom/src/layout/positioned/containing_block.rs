@@ -61,7 +61,11 @@ pub(in crate::layout) fn padding_box(border_box: Rect, css: &ComputedStyle) -> R
 /// uma medição em max-content passa — é uma base INDEFINIDA, e a percentagem
 /// computa a `auto`, que aqui é o zero do `unwrap_or`, em vez de um padding
 /// infinito que comia a caixa inteira.
-pub(in crate::layout) fn content_box(border_box: Rect, css: &ComputedStyle, ctx: &LayoutCtx) -> Rect {
+pub(in crate::layout) fn content_box(
+    border_box: Rect,
+    css: &ComputedStyle,
+    ctx: &LayoutCtx,
+) -> Rect {
     let pb = padding_box(border_box, css);
     let resolve = ResolveCtx {
         parent_content_w: border_box.w,
@@ -200,7 +204,10 @@ mod tests {
             crate::style::Dimension::Percent(50.0),
         ));
         let cb = content_box(Rect::new(0.0, 0.0, f32::INFINITY, 300.0), &css, &ctx());
-        assert_eq!(cb.y, 0.0, "sem base, o padding de topo é zero e não infinito");
+        assert_eq!(
+            cb.y, 0.0,
+            "sem base, o padding de topo é zero e não infinito"
+        );
         assert_eq!(cb.h, 300.0, "a altura do conteúdo sobrevive: {cb:?}");
     }
 }

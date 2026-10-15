@@ -165,16 +165,26 @@ fn ignores_unknown() {
 #[test]
 fn os_nomes_estendidos_do_css_color_4_sao_cores() {
     let casos = [
-        ("lightblue", 0xADD8E6FF), ("pink", 0xFFC0CBFF),
-        ("lightgreen", 0x90EE90FF), ("orange", 0xFFA500FF),
-        ("rebeccapurple", 0x663399FF), ("lightgray", 0xD3D3D3FF),
-        ("darkslateblue", 0x483D8BFF), ("gold", 0xFFD700FF),
-        ("cornflowerblue", 0x6495EDFF), ("tomato", 0xFF6347FF),
-        ("papayawhip", 0xFFEFD5FF), ("steelblue", 0x4682B4FF),
-        ("mediumseagreen", 0x3CB371FF), ("crimson", 0xDC143CFF),
-        ("lightgoldenrodyellow", 0xFAFAD2FF), ("darkorange", 0xFF8C00FF),
+        ("lightblue", 0xADD8E6FF),
+        ("pink", 0xFFC0CBFF),
+        ("lightgreen", 0x90EE90FF),
+        ("orange", 0xFFA500FF),
+        ("rebeccapurple", 0x663399FF),
+        ("lightgray", 0xD3D3D3FF),
+        ("darkslateblue", 0x483D8BFF),
+        ("gold", 0xFFD700FF),
+        ("cornflowerblue", 0x6495EDFF),
+        ("tomato", 0xFF6347FF),
+        ("papayawhip", 0xFFEFD5FF),
+        ("steelblue", 0x4682B4FF),
+        ("mediumseagreen", 0x3CB371FF),
+        ("crimson", 0xDC143CFF),
+        ("lightgoldenrodyellow", 0xFAFAD2FF),
+        ("darkorange", 0xFF8C00FF),
         // os que a lista à mão já tinha continuam iguais
-        ("green", 0x008000FF), ("Grey", 0x808080FF), ("transparent", 0x00000000),
+        ("green", 0x008000FF),
+        ("Grey", 0x808080FF),
+        ("transparent", 0x00000000),
     ];
     for (nome, cor) in casos {
         assert_eq!(parse_color(nome), Some(cor), "{nome}");

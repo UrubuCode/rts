@@ -118,7 +118,11 @@ mod tests {
                 &|p| matches!(p, crate::style::PseudoClass::Disabled),
             )
         };
-        let ctx = crate::style::MediaContext { width: 1280.0, height: 800.0, ..Default::default() };
+        let ctx = crate::style::MediaContext {
+            width: 1280.0,
+            height: 800.0,
+            ..Default::default()
+        };
         let matched = sheet.matched_for_node(&ctx, "input", None, &[], matches_disabled);
         let computed = sheet.declarations_from(&matched, None, None, None);
         // rgb(84,84,84) — medido no Chrome real, não a aproximação `gray`
@@ -242,6 +246,9 @@ mod tests {
         let mut sheet = Stylesheet::new();
         sheet.append_css("a { color: red; }");
         let computed = sheet.computed_for("a", None, &[]);
-        assert_eq!(computed.normal.color, crate::style::color::parse_color("red"));
+        assert_eq!(
+            computed.normal.color,
+            crate::style::color::parse_color("red")
+        );
     }
 }

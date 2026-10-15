@@ -13,8 +13,14 @@ fn img_sem_pixels_pinta_o_fundo_na_caixa_declarada() {
         600.0,
     );
     let fundo = l.materialized().iter().find_map(|i| match i {
-        DisplayItem::SolidRect { rect, color, .. } if rect.w == 100.0 && rect.h == 50.0 => Some(*color),
+        DisplayItem::SolidRect { rect, color, .. } if rect.w == 100.0 && rect.h == 50.0 => {
+            Some(*color)
+        }
         _ => None,
     });
-    assert_eq!(fundo, Some(0xEEEEEEFF), "o #eee do <img> devia estar na lista");
+    assert_eq!(
+        fundo,
+        Some(0xEEEEEEFF),
+        "o #eee do <img> devia estar na lista"
+    );
 }

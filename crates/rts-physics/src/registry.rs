@@ -124,10 +124,14 @@ pub fn select(
                 Some(i) => Ok(i),
             }
         }
-        Selection::Any => backends
-            .iter()
-            .position(|b| b.supports(needs))
-            .ok_or(SelectionError::NoneCapable { needs: describe(needs) }),
+        Selection::Any => {
+            backends
+                .iter()
+                .position(|b| b.supports(needs))
+                .ok_or(SelectionError::NoneCapable {
+                    needs: describe(needs),
+                })
+        }
     }
 }
 
@@ -220,7 +224,10 @@ mod tests {
         // choice — and which a caller that needs the real thing must be told
         // about rather than left to discover.
         let backends = all();
-        let needs = Needs { hull_against_hull: true, ..Needs::default() };
+        let needs = Needs {
+            hull_against_hull: true,
+            ..Needs::default()
+        };
         match select(&backends, &Selection::Named("gather"), &needs) {
             Err(SelectionError::Lacking { backend, needs }) => {
                 assert_eq!(backend, "gather");
@@ -236,7 +243,10 @@ mod tests {
         // has said so. With a need nothing satisfies, it still refuses.
         let backends = all();
         assert!(select(&backends, &Selection::Any, &Needs::default()).is_ok());
-        let needs = Needs { joints: true, ..Needs::default() };
+        let needs = Needs {
+            joints: true,
+            ..Needs::default()
+        };
         assert!(matches!(
             select(&backends, &Selection::Any, &needs),
             Err(SelectionError::NoneCapable { .. })
@@ -246,15 +256,25 @@ mod tests {
     #[test]
     fn higher_physics_levels_are_refused_when_unsupported() {
         let backends = all();
-        let needs_orientada = Needs { level: crate::backend::Level::Orientada, ..Needs::default() };
+        let needs_orientada = Needs {
+            level: crate::backend::Level::Orientada,
+            ..Needs::default()
+        };
         assert!(matches!(
             select(&backends, &Selection::Any, &needs_orientada),
-            Err(SelectionError::NoneCapable { needs: "orientada physics level" })
+            Err(SelectionError::NoneCapable {
+                needs: "orientada physics level"
+            })
         ));
-        let needs_completa = Needs { level: crate::backend::Level::Completa, ..Needs::default() };
+        let needs_completa = Needs {
+            level: crate::backend::Level::Completa,
+            ..Needs::default()
+        };
         assert!(matches!(
             select(&backends, &Selection::Any, &needs_completa),
-            Err(SelectionError::NoneCapable { needs: "completa physics level" })
+            Err(SelectionError::NoneCapable {
+                needs: "completa physics level"
+            })
         ));
     }
 }

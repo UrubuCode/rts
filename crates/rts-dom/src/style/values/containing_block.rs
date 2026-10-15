@@ -127,12 +127,20 @@ impl ContainingBlock {
     /// for every caller that never asks a physical question. One that does
     /// says so with [`in_axes`](ContainingBlock::in_axes).
     pub fn new(inline: PercentBasis, block: PercentBasis) -> ContainingBlock {
-        ContainingBlock { inline, block, axes: AxisMap::horizontal_tb() }
+        ContainingBlock {
+            inline,
+            block,
+            axes: AxisMap::horizontal_tb(),
+        }
     }
 
     /// Both axes, named, in a stated writing mode.
     pub fn in_axes(inline: PercentBasis, block: PercentBasis, axes: AxisMap) -> ContainingBlock {
-        ContainingBlock { inline, block, axes }
+        ContainingBlock {
+            inline,
+            block,
+            axes,
+        }
     }
 
     /// From the two PHYSICAL extents — a width and a height, which is how the
@@ -156,7 +164,11 @@ impl ContainingBlock {
         } else {
             (y, x)
         };
-        ContainingBlock { inline, block, axes }
+        ContainingBlock {
+            inline,
+            block,
+            axes,
+        }
     }
 
     /// The `horizontal-tb` case of [`physical`](ContainingBlock::physical) —
@@ -292,8 +304,14 @@ mod tests {
     #[test]
     fn the_resolve_ctx_width_does_not_leak_into_either_axis() {
         let c = ctx(999.0);
-        assert_eq!(cb().resolve(Dimension::Percent(100.0), Axis::Inline, &c), Some(200.0));
-        assert_eq!(cb().resolve(Dimension::Percent(100.0), Axis::Block, &c), Some(50.0));
+        assert_eq!(
+            cb().resolve(Dimension::Percent(100.0), Axis::Inline, &c),
+            Some(200.0)
+        );
+        assert_eq!(
+            cb().resolve(Dimension::Percent(100.0), Axis::Block, &c),
+            Some(50.0)
+        );
     }
 
     // ---- the indefinite basis ----
@@ -303,7 +321,10 @@ mod tests {
     #[test]
     fn a_height_percentage_with_no_basis_computes_to_auto() {
         let cb = ContainingBlock::horizontal_tb(200.0, None);
-        assert_eq!(cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)), None);
+        assert_eq!(
+            cb.resolve(Dimension::Percent(50.0), Axis::Block, &ctx(200.0)),
+            None
+        );
         // …while the inline axis of the SAME containing block still answers.
         assert_eq!(
             cb.resolve(Dimension::Percent(50.0), Axis::Inline, &ctx(200.0)),
@@ -328,7 +349,10 @@ mod tests {
     #[test]
     fn a_nan_extent_is_indefinite() {
         assert_eq!(PercentBasis::new(f32::NAN), PercentBasis::Indefinite);
-        assert_eq!(PercentBasis::new(f32::NEG_INFINITY), PercentBasis::Indefinite);
+        assert_eq!(
+            PercentBasis::new(f32::NEG_INFINITY),
+            PercentBasis::Indefinite
+        );
     }
 
     /// A negative extent is not an extent either. It reaches here from a
@@ -349,9 +373,18 @@ mod tests {
     #[test]
     fn an_absolute_length_resolves_with_no_basis_at_all() {
         let cb = ContainingBlock::new(PercentBasis::Indefinite, PercentBasis::Indefinite);
-        assert_eq!(cb.resolve(Dimension::Px(42.0), Axis::Block, &ctx(f32::INFINITY)), Some(42.0));
-        assert_eq!(cb.resolve(Dimension::Em(2.0), Axis::Block, &ctx(f32::INFINITY)), Some(32.0));
-        assert_eq!(cb.resolve(Dimension::Rem(1.5), Axis::Inline, &ctx(f32::INFINITY)), Some(24.0));
+        assert_eq!(
+            cb.resolve(Dimension::Px(42.0), Axis::Block, &ctx(f32::INFINITY)),
+            Some(42.0)
+        );
+        assert_eq!(
+            cb.resolve(Dimension::Em(2.0), Axis::Block, &ctx(f32::INFINITY)),
+            Some(32.0)
+        );
+        assert_eq!(
+            cb.resolve(Dimension::Rem(1.5), Axis::Inline, &ctx(f32::INFINITY)),
+            Some(24.0)
+        );
     }
 
     /// `vw`/`vh` are against the VIEWPORT and not against the containing block,
@@ -360,8 +393,14 @@ mod tests {
     #[test]
     fn viewport_units_ignore_the_containing_block_entirely() {
         let cb = ContainingBlock::new(PercentBasis::Indefinite, PercentBasis::Indefinite);
-        assert_eq!(cb.resolve(Dimension::Vw(50.0), Axis::Block, &ctx(f32::NAN)), Some(400.0));
-        assert_eq!(cb.resolve(Dimension::Vh(50.0), Axis::Inline, &ctx(f32::NAN)), Some(300.0));
+        assert_eq!(
+            cb.resolve(Dimension::Vw(50.0), Axis::Block, &ctx(f32::NAN)),
+            Some(400.0)
+        );
+        assert_eq!(
+            cb.resolve(Dimension::Vh(50.0), Axis::Inline, &ctx(f32::NAN)),
+            Some(300.0)
+        );
     }
 
     // ---- calc(), which is the one that had TWO defects ----
@@ -373,17 +412,34 @@ mod tests {
     /// around in one file.
     #[test]
     fn a_calc_percentage_term_follows_the_axis() {
-        let c = super::super::CalcLen { px: -10.0, pct: 100.0, ..Default::default() };
-        assert_eq!(cb().resolve(Dimension::Calc(c), Axis::Inline, &ctx(200.0)), Some(190.0));
-        assert_eq!(cb().resolve(Dimension::Calc(c), Axis::Block, &ctx(200.0)), Some(40.0));
+        let c = super::super::CalcLen {
+            px: -10.0,
+            pct: 100.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            cb().resolve(Dimension::Calc(c), Axis::Inline, &ctx(200.0)),
+            Some(190.0)
+        );
+        assert_eq!(
+            cb().resolve(Dimension::Calc(c), Axis::Block, &ctx(200.0)),
+            Some(40.0)
+        );
     }
 
     /// And with no basis it computes to `auto`, like a bare percentage.
     #[test]
     fn a_calc_percentage_term_with_no_basis_computes_to_auto() {
         let cb = ContainingBlock::horizontal_tb(200.0, None);
-        let c = super::super::CalcLen { px: -10.0, pct: 100.0, ..Default::default() };
-        assert_eq!(cb.resolve(Dimension::Calc(c), Axis::Block, &ctx(200.0)), None);
+        let c = super::super::CalcLen {
+            px: -10.0,
+            pct: 100.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            cb.resolve(Dimension::Calc(c), Axis::Block, &ctx(200.0)),
+            None
+        );
     }
 
     /// The silent half: a `calc()` with NO percentage in it must still resolve
@@ -396,8 +452,15 @@ mod tests {
     #[test]
     fn a_calc_without_a_percentage_term_resolves_with_no_basis() {
         let cb = ContainingBlock::new(PercentBasis::Indefinite, PercentBasis::Indefinite);
-        let c = super::super::CalcLen { px: 10.0, rem: 1.0, ..Default::default() };
-        assert_eq!(cb.resolve(Dimension::Calc(c), Axis::Inline, &ctx(f32::INFINITY)), Some(26.0));
+        let c = super::super::CalcLen {
+            px: 10.0,
+            rem: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            cb.resolve(Dimension::Calc(c), Axis::Inline, &ctx(f32::INFINITY)),
+            Some(26.0)
+        );
     }
 
     // ---- the guard, read through the plain resolution ----
@@ -410,7 +473,10 @@ mod tests {
     #[test]
     fn the_plain_resolution_also_refuses_an_infinite_basis() {
         assert_eq!(Dimension::Percent(100.0).resolve(&ctx(f32::INFINITY)), None);
-        assert_eq!(Dimension::Percent(50.0).resolve_signed(&ctx(f32::NAN)), None);
+        assert_eq!(
+            Dimension::Percent(50.0).resolve_signed(&ctx(f32::NAN)),
+            None
+        );
         // …and a finite basis is untouched.
         assert_eq!(Dimension::Percent(50.0).resolve(&ctx(200.0)), Some(100.0));
     }
@@ -424,7 +490,10 @@ mod tests {
             cb().resolve_signed(Dimension::Percent(-50.0), Axis::Inline, &c),
             Some(-100.0)
         );
-        assert_eq!(cb().resolve(Dimension::Percent(-50.0), Axis::Inline, &c), Some(0.0));
+        assert_eq!(
+            cb().resolve(Dimension::Percent(-50.0), Axis::Inline, &c),
+            Some(0.0)
+        );
     }
 
     /// `auto` and the intrinsic keywords are the layout's to decide on either

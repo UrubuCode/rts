@@ -99,7 +99,8 @@ pub(in crate::layout) fn intrinsic_size(
         }),
         Axis::Block => {
             let w = inline_size?;
-            let (_, outer_h) = super::measure_block(dom, id, box_id, w, None, None, None, true, ctx);
+            let (_, outer_h) =
+                super::measure_block(dom, id, box_id, w, None, None, None, true, ctx);
             Some(outer_h)
         }
     }
@@ -146,9 +147,21 @@ mod tests {
         let id = id_de(&dom, "#f");
         let c = ctx();
         let direto = super::super::measure::intrinsic_content_width(&dom, id, 16.0, &c);
-        let via_eixo =
-            intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Inline, IntrinsicKind::Max, None, 16.0, &c);
-        assert_eq!(via_eixo, Some(direto), "a pergunta com eixo nao pode mudar o numero antigo");
+        let via_eixo = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Inline,
+            IntrinsicKind::Max,
+            None,
+            16.0,
+            &c,
+        );
+        assert_eq!(
+            via_eixo,
+            Some(direto),
+            "a pergunta com eixo nao pode mudar o numero antigo"
+        );
         assert!((direto - 120.0).abs() < 0.5, "50+70 lado a lado: {direto}");
     }
 
@@ -161,9 +174,21 @@ mod tests {
         let id = id_de(&dom, "#p");
         let c = ctx();
         let direto = crate::table::min_content(&dom, id, 16.0, &c);
-        let via_eixo =
-            intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Inline, IntrinsicKind::Min, None, 16.0, &c);
-        assert_eq!(via_eixo, Some(direto), "a pergunta com eixo nao pode mudar o numero antigo");
+        let via_eixo = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Inline,
+            IntrinsicKind::Min,
+            None,
+            16.0,
+            &c,
+        );
+        assert_eq!(
+            via_eixo,
+            Some(direto),
+            "a pergunta com eixo nao pode mudar o numero antigo"
+        );
     }
 
     // ---- the block axis: honest refusal, and the real answer when given a width ----
@@ -176,7 +201,16 @@ mod tests {
         let (dom, _list) = geometria(HTML, 1280.0);
         let id = id_de(&dom, "#c");
         let c = ctx();
-        let r = intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Block, IntrinsicKind::Max, None, 16.0, &c);
+        let r = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Block,
+            IntrinsicKind::Max,
+            None,
+            16.0,
+            &c,
+        );
         assert_eq!(r, None);
     }
 
@@ -191,12 +225,25 @@ mod tests {
         let (dom, _list) = geometria(HTML, 1280.0);
         let id = id_de(&dom, "#c");
         let c = ctx();
-        let via_eixo =
-            intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Block, IntrinsicKind::Max, Some(200.0), 16.0, &c)
-                .expect("com largura, o eixo de bloco responde");
+        let via_eixo = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Block,
+            IntrinsicKind::Max,
+            Some(200.0),
+            16.0,
+            &c,
+        )
+        .expect("com largura, o eixo de bloco responde");
         let css = dom.computed_style_idx(id).unwrap_or_default();
         let soma_empilhada = crate::layout::flex::column_shrink::content_height_without_height(
-            &dom, caixa_de(&dom, id), &css, 200.0, 16.0, &c,
+            &dom,
+            caixa_de(&dom, id),
+            &css,
+            200.0,
+            16.0,
+            &c,
         );
         assert!(
             (soma_empilhada - 60.0).abs() < 0.5,
@@ -218,12 +265,31 @@ mod tests {
     /// an accident.
     #[test]
     fn no_eixo_de_bloco_min_e_max_respondem_o_mesmo_hoje() {
-        const HTML: &str = r#"<div id="c" style="width:200px"><div style="height:33px"></div></div>"#;
+        const HTML: &str =
+            r#"<div id="c" style="width:200px"><div style="height:33px"></div></div>"#;
         let (dom, _list) = geometria(HTML, 1280.0);
         let id = id_de(&dom, "#c");
         let c = ctx();
-        let min = intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Block, IntrinsicKind::Min, Some(200.0), 16.0, &c);
-        let max = intrinsic_size(&dom, id, caixa_de(&dom, id), Axis::Block, IntrinsicKind::Max, Some(200.0), 16.0, &c);
+        let min = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Block,
+            IntrinsicKind::Min,
+            Some(200.0),
+            16.0,
+            &c,
+        );
+        let max = intrinsic_size(
+            &dom,
+            id,
+            caixa_de(&dom, id),
+            Axis::Block,
+            IntrinsicKind::Max,
+            Some(200.0),
+            16.0,
+            &c,
+        );
         assert_eq!(min, max);
     }
 }

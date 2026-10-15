@@ -24,14 +24,25 @@ fn grid_area_with_four_line_numbers_sets_all_four_longhands() {
     // The form `css-grid/abspos/grid-abspos-staticpos-align-self-safe-001` writes.
     let s = parse_inline("grid-area: 2 / 2 / 3 / 3");
     use GridLine::Line;
-    assert_eq!(lines(&s), [Some(Line(2)), Some(Line(2)), Some(Line(3)), Some(Line(3))]);
+    assert_eq!(
+        lines(&s),
+        [Some(Line(2)), Some(Line(2)), Some(Line(3)), Some(Line(3))]
+    );
     assert_eq!(s.grid_area, None, "a value with `/` is not an area name");
 }
 
 #[test]
 fn grid_area_single_name_copies_itself_into_every_edge() {
     let s = parse_inline("grid-area: header");
-    assert_eq!(lines(&s), [named("header"), named("header"), named("header"), named("header")]);
+    assert_eq!(
+        lines(&s),
+        [
+            named("header"),
+            named("header"),
+            named("header"),
+            named("header")
+        ]
+    );
     assert_eq!(s.grid_area.as_deref(), Some("header"));
 }
 
@@ -40,7 +51,12 @@ fn a_missing_edge_after_a_number_is_auto_not_a_copy() {
     let s = parse_inline("grid-area: 1 / span 2");
     assert_eq!(
         lines(&s),
-        [Some(GridLine::Line(1)), Some(GridLine::Span(2)), Some(GridLine::Auto), Some(GridLine::Auto)]
+        [
+            Some(GridLine::Line(1)),
+            Some(GridLine::Span(2)),
+            Some(GridLine::Auto),
+            Some(GridLine::Auto)
+        ]
     );
 }
 
@@ -50,7 +66,10 @@ fn two_value_shorthand_keeps_a_named_start_and_its_explicit_end() {
     assert_eq!((s.grid_row_start, s.grid_row_end), (named("a"), named("b")));
     // With one value only, a named start is ALSO the end (§8.4).
     let one = parse_inline("grid-column: a");
-    assert_eq!((one.grid_column_start, one.grid_column_end), (named("a"), named("a")));
+    assert_eq!(
+        (one.grid_column_start, one.grid_column_end),
+        (named("a"), named("a"))
+    );
 }
 
 #[test]

@@ -79,14 +79,21 @@ impl Canvas {
         let x1 = (r.x + r.w).ceil() as i32;
         let y1 = (r.y + r.h).ceil() as i32;
         for y in y0..y1 {
-            let sy = (((y as f32 + 0.5 - r.y) / r.h) * h as f32).floor().clamp(0.0, (h - 1) as f32) as usize;
+            let sy = (((y as f32 + 0.5 - r.y) / r.h) * h as f32)
+                .floor()
+                .clamp(0.0, (h - 1) as f32) as usize;
             for x in x0..x1 {
-                let sx = (((x as f32 + 0.5 - r.x) / r.w) * w as f32).floor().clamp(0.0, (w - 1) as f32) as usize;
+                let sx = (((x as f32 + 0.5 - r.x) / r.w) * w as f32)
+                    .floor()
+                    .clamp(0.0, (w - 1) as f32) as usize;
                 let i = (sy * w as usize + sx) * 4;
                 if i + 3 >= data.len() {
                     continue;
                 }
-                let c = (u32::from(data[i]) << 24) | (u32::from(data[i + 1]) << 16) | (u32::from(data[i + 2]) << 8) | u32::from(data[i + 3]);
+                let c = (u32::from(data[i]) << 24)
+                    | (u32::from(data[i + 1]) << 16)
+                    | (u32::from(data[i + 2]) << 8)
+                    | u32::from(data[i + 3]);
                 self.blend(x, y, c, clip);
             }
         }
@@ -98,8 +105,16 @@ impl Canvas {
     /// com junção diagonal (`DisplayItem::Quad`) — o `fill_rect_mat` não
     /// serve porque um trapézio não é a imagem de um retângulo por uma matriz.
     pub fn fill_quad(&mut self, pts: [(f32, f32); 4], color: u32, clip: Option<Rect>) {
-        let y0 = pts.iter().map(|p| p.1).fold(f32::INFINITY, f32::min).floor() as i32;
-        let y1 = pts.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
+        let y0 = pts
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::INFINITY, f32::min)
+            .floor() as i32;
+        let y1 = pts
+            .iter()
+            .map(|p| p.1)
+            .fold(f32::NEG_INFINITY, f32::max)
+            .ceil() as i32;
         for y in y0..y1 {
             let fy = y as f32 + 0.5;
             let (mut xa, mut xb) = (f32::INFINITY, f32::NEG_INFINITY);
@@ -160,11 +175,24 @@ impl Canvas {
     /// o alvo é a imagem já composta), então o `t` de interpolação usa a
     /// mesma fórmula de `fill_gradient`, só que alimentada pelo ponto
     /// devolvido pela inversa em vez do ponto de tela cru.
-    pub fn fill_gradient_mat(&mut self, r: Rect, mat: &Mat2d, c0: u32, c1: u32, angle_deg: f32, clip: Option<Rect>) {
+    pub fn fill_gradient_mat(
+        &mut self,
+        r: Rect,
+        mat: &Mat2d,
+        c0: u32,
+        c1: u32,
+        angle_deg: f32,
+        clip: Option<Rect>,
+    ) {
         let Some(inv) = mat_invert(mat) else { return };
         let rad = angle_deg.to_radians();
         let (dx, dy) = (rad.sin(), -rad.cos());
-        let corners = [(r.x, r.y), (r.x + r.w, r.y), (r.x, r.y + r.h), (r.x + r.w, r.y + r.h)];
+        let corners = [
+            (r.x, r.y),
+            (r.x + r.w, r.y),
+            (r.x, r.y + r.h),
+            (r.x + r.w, r.y + r.h),
+        ];
         let ts: Vec<f32> = corners.iter().map(|(cx, cy)| cx * dx + cy * dy).collect();
         let tmin = ts.iter().cloned().fold(f32::INFINITY, f32::min);
         let tmax = ts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -197,7 +225,12 @@ impl Canvas {
         let y1 = (r.y + r.h).ceil() as i32;
         // Projeta os 4 cantos na direção do gradiente para achar [tmin, tmax] —
         // o intervalo real que o rect ocupa, não [0,1] cru.
-        let corners = [(r.x, r.y), (r.x + r.w, r.y), (r.x, r.y + r.h), (r.x + r.w, r.y + r.h)];
+        let corners = [
+            (r.x, r.y),
+            (r.x + r.w, r.y),
+            (r.x, r.y + r.h),
+            (r.x + r.w, r.y + r.h),
+        ];
         let ts: Vec<f32> = corners.iter().map(|(cx, cy)| cx * dx + cy * dy).collect();
         let tmin = ts.iter().cloned().fold(f32::INFINITY, f32::min);
         let tmax = ts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -217,7 +250,14 @@ impl Canvas {
     /// `fill_rect_mat` — um paralelogramo por lado é exato para uma
     /// transformação afim (a aresta reta de um retângulo continua reta sob
     /// `matrix()`), o mesmo argumento que já vale para `fill_rect_mat`.
-    pub fn stroke_rect_mat(&mut self, r: Rect, mat: &Mat2d, width: f32, color: u32, clip: Option<Rect>) {
+    pub fn stroke_rect_mat(
+        &mut self,
+        r: Rect,
+        mat: &Mat2d,
+        width: f32,
+        color: u32,
+        clip: Option<Rect>,
+    ) {
         let w = width.max(1.0);
         self.fill_rect_mat(Rect::new(r.x, r.y, r.w, w), mat, color, clip);
         self.fill_rect_mat(Rect::new(r.x, r.y + r.h - w, r.w, w), mat, color, clip);

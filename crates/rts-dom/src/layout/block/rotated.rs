@@ -114,7 +114,8 @@ pub(crate) fn is_frame_root(id: NodeIdx) -> bool {
 }
 
 pub(crate) fn is_ortho_in_frame(id: NodeIdx) -> bool {
-    in_rotated_frame() && ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)))
+    in_rotated_frame()
+        && ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)))
 }
 
 pub(crate) fn ortho_measure_in_frame(
@@ -150,7 +151,10 @@ fn is_vertical(wm: WritingMode) -> bool {
 /// Tags that are replaced or form controls: a vertical mode does not change
 /// their box in this lot, and none of them has a flow to rotate.
 fn opens_no_frame(tag: &str) -> bool {
-    matches!(tag, "img" | "canvas" | "svg" | "input" | "textarea" | "select" | "button" | "video" | "iframe")
+    matches!(
+        tag,
+        "img" | "canvas" | "svg" | "input" | "textarea" | "select" | "button" | "video" | "iframe"
+    )
 }
 
 /// The writing mode of the frame `id` opens, or `None` when it opens none.
@@ -167,17 +171,28 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
     if matches!(
         css.effective_display(),
         Some(D::Flex | D::FlexWrap | D::InlineFlex | D::InlineFlexWrap)
-            | Some(D::Table | D::InlineTable | D::TableRowGroup | D::TableHeaderGroup | D::TableFooterGroup)
+            | Some(
+                D::Table
+                    | D::InlineTable
+                    | D::TableRowGroup
+                    | D::TableHeaderGroup
+                    | D::TableFooterGroup
+            )
             | Some(D::TableRow | D::TableCell | D::TableCaption | D::Inline)
     ) {
         return None;
     }
     if is_root {
         // The root's used writing mode is its `<body>`'s when it has one.
-        let body = dom.node(id).children.iter().copied().find(|&c| {
-            matches!(&dom.node(c).kind, NodeKind::Element { tag } if tag == "body")
-        });
-        let wm = body.and_then(|b| dom.computed_style_idx(b)).map_or(own, |b| b.writing_mode.unwrap_or_default());
+        let body = dom
+            .node(id)
+            .children
+            .iter()
+            .copied()
+            .find(|&c| matches!(&dom.node(c).kind, NodeKind::Element { tag } if tag == "body"));
+        let wm = body
+            .and_then(|b| dom.computed_style_idx(b))
+            .map_or(own, |b| b.writing_mode.unwrap_or_default());
         return is_vertical(wm).then_some(wm);
     }
     if is_out_of_flow(dom, id) {
@@ -193,8 +208,11 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
 /// `true` when laying `id` out opens a frame. Asked by the intrinsic width
 /// measure, which otherwise measures the box's text along the page's width.
 pub(in crate::layout) fn opens_frame(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
-    let NodeKind::Element { tag } = &dom.node(id).kind else { return false };
-    (css.writing_mode.is_some_and(|wm| !wm.is_horizontal()) || dom.node(id).parent == Some(dom.root))
+    let NodeKind::Element { tag } = &dom.node(id).kind else {
+        return false;
+    };
+    (css.writing_mode.is_some_and(|wm| !wm.is_horizontal())
+        || dom.node(id).parent == Some(dom.root))
         && frame_mode(dom, id, css, tag).is_some()
 }
 
@@ -241,7 +259,11 @@ fn install(
                 });
                 Rc::clone(&entry.1)
             });
-            let rotated = if n == id { resolve_own_percentages(&rotated, pct_basis) } else { rotated };
+            let rotated = if n == id {
+                resolve_own_percentages(&rotated, pct_basis)
+            } else {
+                rotated
+            };
             saved.push((n, dom.swap_computed_memo(n, Some(rotated))));
         }
         stack.extend(dom.node(n).children.iter().copied());
@@ -256,10 +278,22 @@ fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedSt
         other => other,
     };
     let (margin, padding) = (
-        Edges { top: px(css.margin.top), right: px(css.margin.right), bottom: px(css.margin.bottom), left: px(css.margin.left) },
-        Edges { top: px(css.padding.top), right: px(css.padding.right), bottom: px(css.padding.bottom), left: px(css.padding.left) },
+        Edges {
+            top: px(css.margin.top),
+            right: px(css.margin.right),
+            bottom: px(css.margin.bottom),
+            left: px(css.margin.left),
+        },
+        Edges {
+            top: px(css.padding.top),
+            right: px(css.padding.right),
+            bottom: px(css.padding.bottom),
+            left: px(css.padding.left),
+        },
     );
-    if margin == css.margin && padding == css.padding { return Rc::clone(css); }
+    if margin == css.margin && padding == css.padding {
+        return Rc::clone(css);
+    }
     let mut out = (**css).clone();
     (out.margin, out.padding) = (margin, padding);
     Rc::new(out)
@@ -291,12 +325,22 @@ pub(in crate::layout) fn layout_if_boundary(
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
     if in_rotated_frame() {
-        let is_ortho = ORTHO_ROOTS.with(|s| {
-            s.borrow().last().is_some_and(|roots| roots.contains(&id))
-        });
+        let is_ortho =
+            ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)));
         if is_ortho && !opens_no_frame(tag) {
             return layout_orthogonal(
-                dom, id, box_id, css, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+                dom,
+                id,
+                box_id,
+                css,
+                x,
+                y,
+                avail_w,
+                avail_h,
+                forced_outer_w,
+                forced_outer_h,
+                ctx,
+                list,
             );
         }
         return None;
@@ -314,7 +358,13 @@ pub(in crate::layout) fn layout_if_boundary(
     let (frame_w, frame_h, forced_w, forced_h, shrink) = if is_root {
         (ctx.viewport_h, Some(avail_w), None, None, false)
     } else {
-        (avail_h.unwrap_or(ctx.viewport_h), Some(avail_w), forced_outer_h, forced_outer_w, true)
+        (
+            avail_h.unwrap_or(ctx.viewport_h),
+            Some(avail_w),
+            forced_outer_h,
+            forced_outer_w,
+            true,
+        )
     };
     let r_ctx = ResolveCtx {
         parent_content_w: avail_w,
@@ -324,7 +374,12 @@ pub(in crate::layout) fn layout_if_boundary(
         viewport_h: ctx.viewport_h,
     };
     let prev_bs = FRAME_BLOCK_SIZE.with(|b| b.replace(css.width.and_then(|w| w.resolve(&r_ctx))));
-    let (saved, ortho_roots) = install(dom, id, AxisMap::new(wm, css.direction.unwrap_or_default()), avail_w);
+    let (saved, ortho_roots) = install(
+        dom,
+        id,
+        AxisMap::new(wm, css.direction.unwrap_or_default()),
+        avail_w,
+    );
     IN_FRAME.with(|f| f.set(Some(wm)));
     FRAME_ROOT.with(|f| f.set(Some(id)));
     ORTHO_STACK.with(|s| s.borrow_mut().push(Vec::new()));
@@ -341,7 +396,7 @@ pub(in crate::layout) fn layout_if_boundary(
         frame_h,
         forced_w,
         forced_h,
-        false,
+        forced_outer_w.is_some(),
         shrink,
         &BlockFormattingContext::new(),
         ctx,
@@ -360,10 +415,31 @@ pub(in crate::layout) fn layout_if_boundary(
     // box's own, where the horizontal parent put it.
     let right = x + if is_root { avail_w } else { outer_w };
     let frame = match wm {
-        WritingMode::VerticalLr => Mat2d { a: 0.0, b: 1.0, c: 1.0, d: 0.0, e: x, f: y },
+        WritingMode::VerticalLr => Mat2d {
+            a: 0.0,
+            b: 1.0,
+            c: 1.0,
+            d: 0.0,
+            e: x,
+            f: y,
+        },
         // Lines run UP the page from its bottom edge, blocks stack rightwards.
-        WritingMode::SidewaysLr => Mat2d { a: 0.0, b: -1.0, c: 1.0, d: 0.0, e: x, f: y + outer_h },
-        _ => Mat2d { a: 0.0, b: 1.0, c: -1.0, d: 0.0, e: right, f: y },
+        WritingMode::SidewaysLr => Mat2d {
+            a: 0.0,
+            b: -1.0,
+            c: 1.0,
+            d: 0.0,
+            e: x,
+            f: y + outer_h,
+        },
+        _ => Mat2d {
+            a: 0.0,
+            b: 1.0,
+            c: -1.0,
+            d: 0.0,
+            e: right,
+            f: y,
+        },
     };
     rotate_out(own, box_id, &frame, ortho_children, list);
     Some((outer_w, outer_h))
@@ -391,7 +467,8 @@ fn layout_orthogonal(
     // CSS Writing Modes 4 §7.3.1:
     // available inline size is containing block block size if definite, else ICB width.
     let child_avail_w = forced_outer_h.or(avail_h).unwrap_or(ctx.viewport_w);
-    let (child_avail_h, child_forced_w, child_forced_h) = (forced_outer_w, forced_outer_h, forced_outer_w);
+    let (child_avail_h, child_forced_w, child_forced_h) =
+        (forced_outer_w, forced_outer_h, forced_outer_w);
 
     let prev_frame = IN_FRAME.with(|f| f.replace(None));
     let prev_root = FRAME_ROOT.with(|r| r.replace(None));
@@ -408,7 +485,7 @@ fn layout_orthogonal(
         child_forced_w,
         child_forced_h,
         false,
-        true, // shrink-to-fit (Writing Modes 4 §7.3)
+        true,                           // shrink-to-fit (Writing Modes 4 §7.3)
         &BlockFormattingContext::new(), // independent BFC (§7.3)
         ctx,
         &mut child_list,
@@ -464,7 +541,12 @@ fn rotate_out(
     }
 
     for child in ortho_children.iter_mut() {
-        let phys_rect = frame.transform_rect_bbox(Rect::new(child.frame_x, child.frame_y, child.frame_w, child.frame_h));
+        let phys_rect = frame.transform_rect_bbox(Rect::new(
+            child.frame_x,
+            child.frame_y,
+            child.frame_w,
+            child.frame_h,
+        ));
         child.list.materialize();
         child.list.translate(phys_rect.x, phys_rect.y);
     }
@@ -487,7 +569,9 @@ fn rotate_out(
         }
         final_pieces.push(piece);
     }
-    for c in ortho_children { final_pieces.extend(merge(c, &mut own)); }
+    for c in ortho_children {
+        final_pieces.extend(merge(c, &mut own));
+    }
     own.pieces = final_pieces;
 
     list.pieces.extend(own.pieces);

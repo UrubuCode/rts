@@ -5,8 +5,8 @@
 
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
-use crate::paint::item::translate_item;
 use crate::paint::item::DisplayItem;
+use crate::paint::item::translate_item;
 use crate::paint::pieces::Piece;
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;

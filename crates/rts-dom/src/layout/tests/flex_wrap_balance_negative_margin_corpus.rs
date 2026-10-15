@@ -39,7 +39,10 @@ fn item_com_margem_negativa_nao_abre_segunda_linha_vazia() {
   <div id="b" style="width: 0px; margin-left: -50px; margin-right: -50px;"></div>
 </div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     let (ax, ay, aw, ah) = r("#a");
     let (bx, by, bw, bh) = r("#b");
     // `#a` (150px, sozinho já maior que o contentor) fica na 1a linha,
@@ -59,8 +62,16 @@ fn item_com_margem_negativa_nao_abre_segunda_linha_vazia() {
     // quebra passava a produzir uma linha diferente onde `#b` NÃO cobre o
     // resto — o rasterizador confirma isso no corpus real (ver o comentário
     // do módulo).
-    assert_eq!((ax, ay, aw, ah), (0.0, 0.0, 100.0, 50.0), "#a sozinho na 1a linha cresce até cobri-la");
-    assert_eq!((bx, by, bw, bh), (-50.0, 50.0, 200.0, 50.0), "#b sozinho na 2a linha cresce até cobri-la, apesar do min_main negativo");
+    assert_eq!(
+        (ax, ay, aw, ah),
+        (0.0, 0.0, 100.0, 50.0),
+        "#a sozinho na 1a linha cresce até cobri-la"
+    );
+    assert_eq!(
+        (bx, by, bw, bh),
+        (-50.0, 50.0, 200.0, 50.0),
+        "#b sozinho na 2a linha cresce até cobri-la, apesar do min_main negativo"
+    );
 }
 
 /// O contraponto: com `wrap` SIMPLES não há piso, e o próprio WPT o diz no
@@ -82,6 +93,14 @@ fn wrap_simples_nao_pisa_a_margem_negativa_na_quebra() {
     let (dom, list) = geometria(HTML, 1280.0);
     let a = rect(&dom, &list, "#a", 0);
     let b = rect(&dom, &list, "#b", 0);
-    assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 175.0, 50.0), "#a divide o espaço livre com #b na MESMA linha");
-    assert_eq!((b.y, b.w), (0.0, 25.0), "#b cabe na 1a linha: sem piso, o seu tamanho outer é -100");
+    assert_eq!(
+        (a.x, a.y, a.w, a.h),
+        (0.0, 0.0, 175.0, 50.0),
+        "#a divide o espaço livre com #b na MESMA linha"
+    );
+    assert_eq!(
+        (b.y, b.w),
+        (0.0, 25.0),
+        "#b cabe na 1a linha: sem piso, o seu tamanho outer é -100"
+    );
 }

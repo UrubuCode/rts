@@ -17,8 +17,19 @@ const HTML: &str = r#"<style>
 #[test]
 fn a_corrida_de_inline_blocks_respeita_o_white_space() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#nw1"), (0.0, 0.0, 96.0, 40.0));
-    assert_eq!(r("#nw4"), (288.0, 0.0, 96.0, 40.0), "nowrap: o quarto transborda à direita");
-    assert_eq!(r("#q3"), (0.0, 178.0, 96.0, 40.0), "normal: o terceiro desce de linha");
+    assert_eq!(
+        r("#nw4"),
+        (288.0, 0.0, 96.0, 40.0),
+        "nowrap: o quarto transborda à direita"
+    );
+    assert_eq!(
+        r("#q3"),
+        (0.0, 178.0, 96.0, 40.0),
+        "normal: o terceiro desce de linha"
+    );
 }

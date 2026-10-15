@@ -78,10 +78,12 @@ pub(in crate::dom) fn upsert_css_decl(css_text: &str, name: &str, value: &str) -
         .join("; ")
 }
 
-
 /// Esquece o estilo memoizado de um nó. O vetor é esparso por índice, então
 /// "esquecer" é apagar o slot — e um índice além do fim já não tem nada.
-pub(in crate::dom) fn memo_forget(memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>, idx: NodeIdx) {
+pub(in crate::dom) fn memo_forget(
+    memo: &mut Vec<Option<std::rc::Rc<crate::style::ComputedStyle>>>,
+    idx: NodeIdx,
+) {
     if let Some(slot) = memo.get_mut(idx) {
         *slot = None;
     }
@@ -101,7 +103,6 @@ pub(in crate::dom) fn memo_put(
     }
     memo[idx] = Some(std::rc::Rc::clone(value));
 }
-
 
 /// `true` se a posição `n` (1-based) satisfaz `an+b` para algum `k >= 0` — a
 /// aritmética partilhada por `:nth-child` e `:nth-of-type`, que só diferem no

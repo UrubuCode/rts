@@ -15,10 +15,16 @@ const TOL: f32 = 1.0;
 /// that split an inline (`query/rect.rs`).
 fn rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, _n: usize) -> Rect {
     let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
-    list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"))
+    list.rect_of(idx)
+        .unwrap_or_else(|| panic!("{sel} has no geometry"))
 }
 
-fn assert_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, expected: (f32, f32, f32, f32)) {
+fn assert_rect(
+    dom: &crate::Dom,
+    list: &crate::paint::DisplayList,
+    sel: &str,
+    expected: (f32, f32, f32, f32),
+) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let matches = (got.0 - expected.0).abs() <= TOL
@@ -30,7 +36,14 @@ fn assert_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, ex
 
 /// The span's `x`/`y`/`h` — what says it stayed on one line. Its width depends
 /// on the monospace text width, which this engine approximates.
-fn assert_line(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, x: f32, y: f32, h: f32) {
+fn assert_line(
+    dom: &crate::Dom,
+    list: &crate::paint::DisplayList,
+    sel: &str,
+    x: f32,
+    y: f32,
+    h: f32,
+) {
     let r = rect(dom, list, sel, 0);
     assert!(
         (r.x - x).abs() <= TOL && (r.y - y).abs() <= TOL && (r.h - h).abs() <= TOL,
@@ -58,7 +71,11 @@ fn html(child_style: &str, id: &str, rest: &str) -> String {
 
 #[test]
 fn a_float_inside_an_inline_does_not_split_it() {
-    let src = html("float: left; width: 50px; height: 30px; background: #0f0;", "flutua", "depois");
+    let src = html(
+        "float: left; width: 50px; height: 30px; background: #0f0;",
+        "flutua",
+        "depois",
+    );
     let (dom, list) = geometria(&src, 1280.0);
     assert_rect(&dom, &list, "#contentor", (0.0, 0.0, 1280.0, 20.0));
     assert_rect(&dom, &list, "#flutua", (0.0, 0.0, 50.0, 30.0));
@@ -69,7 +86,11 @@ fn a_float_inside_an_inline_does_not_split_it() {
 
 #[test]
 fn an_absolute_box_inside_an_inline_does_not_split_it() {
-    let src = html("position: absolute; width: 40px; height: 30px; background: #0f0;", "fora", "depois");
+    let src = html(
+        "position: absolute; width: 40px; height: 30px; background: #0f0;",
+        "fora",
+        "depois",
+    );
     let (dom, list) = geometria(&src, 1280.0);
     assert_rect(&dom, &list, "#contentor", (0.0, 0.0, 1280.0, 20.0));
     assert_line(&dom, &list, "#quebra", 0.0, 0.0, 19.0);

@@ -141,7 +141,14 @@ fn item_com_aspect_ratio_e_filho_a_100pct_nao_excede_a_base_especificada() {
     // custa de um pai sem largura própria ainda) erguia o item bem acima
     // disto — e o `main` gigante que sobrava fazia o raster tentar um
     // canvas do mesmo tamanho (era esta chamada que nunca devolvia).
-    assert_eq!(wrapper.w, 500.0, "o piso nunca ultrapassa o width:100% especificado");
+    assert_eq!(
+        wrapper.w, 500.0,
+        "o piso nunca ultrapassa o width:100% especificado"
+    );
     // aspect-ratio:1/1 sobre uma largura SÃ dá uma altura SÃ, nunca gigante.
-    assert!(wrapper.h < 1000.0, "altura explode se o piso não for capado: {}", wrapper.h);
+    assert!(
+        wrapper.h < 1000.0,
+        "altura explode se o piso não for capado: {}",
+        wrapper.h
+    );
 }

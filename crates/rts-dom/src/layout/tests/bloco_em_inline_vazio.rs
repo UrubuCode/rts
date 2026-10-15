@@ -35,10 +35,16 @@ fn bloco_num_inline_sem_mais_nada_cobre_o_contentor_com_a_altura_herdada() {
     let geo = list.geometry_now();
     let rect_de = |sel: &str| {
         let idx = dom.resolve(dom.query(sel).unwrap()).unwrap();
-        *geo.rects.get(&idx).unwrap_or_else(|| panic!("{sel} sem rect"))
+        *geo.rects
+            .get(&idx)
+            .unwrap_or_else(|| panic!("{sel} sem rect"))
     };
     let contentor = rect_de(".container");
     let inner = rect_de("#inner");
     assert_eq!((inner.w, inner.h), (100.0, 100.0), "{inner:?}");
-    assert_eq!((inner.x, inner.y), (contentor.x, contentor.y), "{inner:?} vs {contentor:?}");
+    assert_eq!(
+        (inner.x, inner.y),
+        (contentor.x, contentor.y),
+        "{inner:?} vs {contentor:?}"
+    );
 }

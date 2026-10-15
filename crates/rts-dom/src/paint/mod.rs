@@ -18,4 +18,4 @@ pub use self::decor::{emit_scrollbar, emit_scrollbar_in};
 pub use self::item::{Corners, DisplayItem, Orientation};
 pub use self::list::{DisplayList, Rect, ScrollRegion};
 pub use self::pieces::Piece;
-pub use self::transform::{Mat2d, TransformList, TransformOp, MAX_TRANSFORM_OPS};
+pub use self::transform::{MAX_TRANSFORM_OPS, Mat2d, TransformList, TransformOp};

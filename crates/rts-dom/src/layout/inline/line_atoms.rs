@@ -41,9 +41,24 @@ pub(in crate::layout) fn emit_atom(
     let Some((a_idx, box_id, kind)) = seg.atomic else {
         return;
     };
-    let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, seg.owners.last().copied(), content_w, cb_h, ctx);
+    let (rx, ry) = crate::layout::positioned::relative::inline_offset(
+        dom,
+        seg.owners.last().copied(),
+        content_w,
+        cb_h,
+        ctx,
+    );
     // Float and static-position anchors have nothing on the line (`static_anchor.rs`).
-    if super::static_anchor::outside_line(dom, (a_idx, box_id, kind), *seg_x + rx, x + rx, cy + ry, cy + line_advance + ry, line_at, list) {
+    if super::static_anchor::outside_line(
+        dom,
+        (a_idx, box_id, kind),
+        *seg_x + rx,
+        x + rx,
+        cy + ry,
+        cy + line_advance + ry,
+        line_at,
+        list,
+    ) {
         return;
     }
     let start_index = list.pieces.len();
@@ -58,17 +73,7 @@ pub(in crate::layout) fn emit_atom(
                 .map(|t| t.to_ascii_lowercase())
                 .unwrap_or_default();
             if matches!(itype.as_str(), "submit" | "button" | "reset") {
-                layout_button(
-                    dom,
-                    a_idx,
-                    box_id,
-                    &wcss,
-                    *seg_x,
-                    cy,
-                    None,
-                    ctx,
-                    list,
-                );
+                layout_button(dom, a_idx, box_id, &wcss, *seg_x, cy, None, ctx, list);
             } else {
                 // `None` de altura disponível: uma caixa atómica numa
                 // linha não tem containing block de altura definida, e
@@ -93,10 +98,34 @@ pub(in crate::layout) fn emit_atom(
                 // caixa entretanto — a mesma doutrina que o
                 // `<img>` segue no caminho de bloco.
                 let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                layout_canvas(dom, a_idx, box_id, &ccss, *seg_x, top, seg.ww.max(1.0), cb_h, ctx, list);
+                layout_canvas(
+                    dom,
+                    a_idx,
+                    box_id,
+                    &ccss,
+                    *seg_x,
+                    top,
+                    seg.ww.max(1.0),
+                    cb_h,
+                    ctx,
+                    list,
+                );
             } else if dom.image_dims(a_idx).is_some() {
                 let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
-                layout_image(dom, a_idx, box_id, &icss, *seg_x, top, seg.ww.max(1.0), cb_h, None, None, ctx, list);
+                layout_image(
+                    dom,
+                    a_idx,
+                    box_id,
+                    &icss,
+                    *seg_x,
+                    top,
+                    seg.ww.max(1.0),
+                    cb_h,
+                    None,
+                    None,
+                    ctx,
+                    list,
+                );
             }
         }
         AtomicKind::Block => {
@@ -106,7 +135,9 @@ pub(in crate::layout) fn emit_atom(
             // não um segundo emissor — só que o x/y vem do fluxo.
             // Inline-block VAZIO senta o fundo na baseline (§10.8.1; caret do Bootstrap a y=9).
             let top = match envelope {
-                Some(env) => super::line_baseline::atom_top(dom, seg, cy, env, font_size, family, content_w, ctx),
+                Some(env) => super::line_baseline::atom_top(
+                    dom, seg, cy, env, font_size, family, content_w, ctx,
+                ),
                 None => cy,
             };
             layout_block(
@@ -130,10 +161,12 @@ pub(in crate::layout) fn emit_atom(
         }
         AtomicKind::Generated(pe, GeneratedPart::Atom) => {
             // A generated inline-block always makes `envelope` Some.
-            let top = envelope
-                .as_ref()
-                .map_or(cy, |env| super::line_baseline::atom_top(dom, seg, cy, env, font_size, family, content_w, ctx));
-            super::pseudo_inline::paint_atom(dom, a_idx, pe, box_id, *seg_x, top, content_w, ctx, list);
+            let top = envelope.as_ref().map_or(cy, |env| {
+                super::line_baseline::atom_top(dom, seg, cy, env, font_size, family, content_w, ctx)
+            });
+            super::pseudo_inline::paint_atom(
+                dom, a_idx, pe, box_id, *seg_x, top, content_w, ctx, list,
+            );
         }
         AtomicKind::Marker
         | AtomicKind::Break
@@ -143,13 +176,23 @@ pub(in crate::layout) fn emit_atom(
         | AtomicKind::Float
         | AtomicKind::StaticAnchor => {}
     }
-    crate::layout::positioned::relative::shift_from(list, start_index, kind.tem_corpo().then_some(box_id), rx, ry);
+    crate::layout::positioned::relative::shift_from(
+        list,
+        start_index,
+        kind.tem_corpo().then_some(box_id),
+        rx,
+        ry,
+    );
     surfaces.cover(dom, &seg.owners, *seg_x, *seg_x + seg.ww);
     match kind {
         AtomicKind::EdgeStart => surfaces.mark(a_idx, true),
         AtomicKind::EdgeEnd => surfaces.mark(a_idx, false),
-        AtomicKind::Generated(pe, GeneratedPart::Start) => surfaces.open_generated(dom, a_idx, pe, *seg_x, seg.ww, content_w, ctx),
-        AtomicKind::Generated(pe, GeneratedPart::End) => surfaces.close_generated(dom, a_idx, pe, content_w, ctx),
+        AtomicKind::Generated(pe, GeneratedPart::Start) => {
+            surfaces.open_generated(dom, a_idx, pe, *seg_x, seg.ww, content_w, ctx)
+        }
+        AtomicKind::Generated(pe, GeneratedPart::End) => {
+            surfaces.close_generated(dom, a_idx, pe, content_w, ctx)
+        }
         _ => {}
     }
     // A CAIXA DO PRÓPRIO: só regista aqui quem NADA mais registou.
@@ -169,7 +212,11 @@ pub(in crate::layout) fn emit_atom(
     // recebe-a como fragmento no laço abaixo.
     let already_registered = matches!(
         kind,
-        AtomicKind::Widget | AtomicKind::Block | AtomicKind::EdgeStart | AtomicKind::EdgeEnd | AtomicKind::Generated(..)
+        AtomicKind::Widget
+            | AtomicKind::Block
+            | AtomicKind::EdgeStart
+            | AtomicKind::EdgeEnd
+            | AtomicKind::Generated(..)
     ) || (kind == AtomicKind::Replaced
         && (dom.image_dims(a_idx).is_some() || super::line::is_canvas(dom, a_idx)));
     if !already_registered {
@@ -180,11 +227,20 @@ pub(in crate::layout) fn emit_atom(
             // só emite `Marker` quando não gerou run nenhum.
             AtomicKind::Marker => Rect::new(*seg_x, text_top, 0.0, 0.0),
             AtomicKind::Break => Rect::new(*seg_x, text_top, 0.0, content),
-            AtomicKind::Replaced =>
-                Rect::new(*seg_x, text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh, seg.ww, seg.wh),
+            AtomicKind::Replaced => Rect::new(
+                *seg_x,
+                text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh,
+                seg.ww,
+                seg.wh,
+            ),
             _ => Rect::new(*seg_x, cy, seg.ww, seg.wh),
         };
-        crate::inline_box::union_rect(list, a_idx, Rect::new(own_rect.x + rx, own_rect.y + ry, own_rect.w, own_rect.h), line_id);
+        crate::inline_box::union_rect(
+            list,
+            a_idx,
+            Rect::new(own_rect.x + rx, own_rect.y + ry, own_rect.w, own_rect.h),
+            line_id,
+        );
     }
     // A CAIXA DOS ANCESTRAIS inline: a largura que esta caixa ocupa na
     // linha, com a altura da FONTE — um `<a>` à volta de uma imagem de
@@ -213,7 +269,8 @@ pub(in crate::layout) fn emit_atom(
                 ctx,
                 on_baseline,
                 (content_w, cb_h),
-            ), line_id,
+            ),
+            line_id,
         );
     }
     *seg_x += seg.ww;

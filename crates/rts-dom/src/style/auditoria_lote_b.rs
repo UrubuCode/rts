@@ -48,18 +48,30 @@ fn a_gramatica_completa_de_media_e_avaliada() {
     assert!(aplica("(max-width:99999px)"));
     assert!(aplica("screen and (min-width:1px)"));
     assert!(aplica("(min-height:1px)"), "min-height");
-    assert!(aplica("(orientation:landscape)"), "orientation — 1280x800 é landscape");
-    assert!(aplica("(400px <= width < 99999px)"), "a sintaxe de intervalo");
+    assert!(
+        aplica("(orientation:landscape)"),
+        "orientation — 1280x800 é landscape"
+    );
+    assert!(
+        aplica("(400px <= width < 99999px)"),
+        "a sintaxe de intervalo"
+    );
     // a única que continua falsa — e agora pela razão certa: o host declara
     // `light` por omissão, `dark` não casa. Não é mais "feature desconhecida".
-    assert!(!aplica("(prefers-color-scheme: dark)"), "prefers-color-scheme: dark não é o default do host");
+    assert!(
+        !aplica("(prefers-color-scheme: dark)"),
+        "prefers-color-scheme: dark não é o default do host"
+    );
 }
 
 /// `estilo.var.important` — custom properties mantêm a importância durante a
 /// cascade por elemento, antes da substituição em `var()`.
 #[test]
 fn important_custom_property_precedence_is_respected() {
-    let d = doc(":root{--c:red !important;--c:blue} p{color:var(--c)}", "<p>x</p>");
+    let d = doc(
+        ":root{--c:red !important;--c:blue} p{color:var(--c)}",
+        "<p>x</p>",
+    );
     assert_eq!(
         prop(&d, "p", "color"),
         "rgb(255, 0, 0)",
@@ -124,7 +136,11 @@ fn start_e_end_sao_congelados_no_parse() {
 #[test]
 fn o_display_de_um_item_de_flex_nao_blockifica() {
     let d = doc(".f{display:flex}", "<div class=f><span id=s>x</span></div>");
-    assert_eq!(prop(&d, "#s", "display"), "inline", "o Chrome responde block");
+    assert_eq!(
+        prop(&d, "#s", "display"),
+        "inline",
+        "o Chrome responde block"
+    );
 }
 
 // ── Os dois registos que a execução encontrou OBSOLETOS ─────────────────────
@@ -138,7 +154,11 @@ fn supports_e_avaliado_o_registo_esta_obsoleto() {
         "@supports (xpto:1px){p{font-size:11px}} @supports not (xpto:1px){p{font-size:22px}}",
         "<p>x</p>",
     );
-    assert_eq!(prop(&d, "p", "font-size"), "22px", "só um ramo do par entra");
+    assert_eq!(
+        prop(&d, "p", "font-size"),
+        "22px",
+        "só um ramo do par entra"
+    );
 }
 
 /// `estilo.var.invalido-vira-unset` — **obsoleto, e por uma correção minha
@@ -157,7 +177,6 @@ fn uma_var_invalida_ja_nao_apaga_a_anterior() {
     assert_eq!(prop(&d, "p", "color"), "rgb(255, 0, 0)");
 }
 
-
 #[test]
 fn unset_on_root_and_descendant_resolves_against_the_correct_parent() {
     let d = doc(
@@ -168,7 +187,6 @@ fn unset_on_root_and_descendant_resolves_against_the_correct_parent() {
     assert_eq!(prop(&d, "body", "color"), "rgb(0, 0, 0)");
     assert_eq!(prop(&d, "#p", "color"), "rgb(0, 0, 0)");
 }
-
 
 #[test]
 fn all_initial_resets_the_user_agent_value() {

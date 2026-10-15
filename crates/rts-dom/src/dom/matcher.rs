@@ -32,7 +32,6 @@
 use super::*;
 
 impl Dom {
-
     /// `true` se o nó `idx` casa o seletor `sel` (string). Aceita uma LISTA separada
     /// por vírgula (`p, a` casa se QUALQUER um casar). Cada item é um seletor
     /// COMPLEXO (compostos + combinadores + atributo + pseudo). Item inválido é
@@ -46,7 +45,11 @@ impl Dom {
     /// Casa um [`ComplexSelector`] contra o nó `idx`, navegando a árvore para os
     /// combinadores. O ÚLTIMO compound casa `idx`; os anteriores casam ancestrais/
     /// irmãos conforme o combinador (matching da direita p/ a esquerda).
-    pub(in crate::dom) fn matches_complex(&self, idx: NodeIdx, sel: &crate::style::ComplexSelector) -> bool {
+    pub(in crate::dom) fn matches_complex(
+        &self,
+        idx: NodeIdx,
+        sel: &crate::style::ComplexSelector,
+    ) -> bool {
         crate::bump!(selector_matches);
         let n = sel.compounds.len();
         if !self.compound_matches_idx(idx, &sel.compounds[n - 1]) {
@@ -215,21 +218,21 @@ impl Dom {
             // Havendo um `<html>` de topo, ele É a raiz; a contagem fica para o
             // fragmento que não tem nenhum.
             P::Root => {
-                self.nodes[idx].parent == Some(self.root) && {
-                    let topo = || {
-                        self.nodes[self.root]
-                            .children
-                            .iter()
-                            .copied()
-                            .filter(|&c| matches!(self.nodes[c].kind, NodeKind::Element { .. }))
-                    };
-                    match topo().find(
+                self.nodes[idx].parent == Some(self.root)
+                    && {
+                        let topo =
+                            || {
+                                self.nodes[self.root].children.iter().copied().filter(|&c| {
+                                    matches!(self.nodes[c].kind, NodeKind::Element { .. })
+                                })
+                            };
+                        match topo().find(
                         |&c| matches!(&self.nodes[c].kind, NodeKind::Element { tag } if tag == "html"),
                     ) {
                         Some(html) => html == idx,
                         None => topo().count() == 1,
                     }
-                }
+                    }
             }
             P::Empty => !self.nodes[idx].children.iter().any(|&c| {
                 matches!(self.nodes[c].kind, NodeKind::Element { .. })
@@ -307,7 +310,9 @@ impl Dom {
             P::PlaceholderShown => self.matches_placeholder_shown(idx),
             // `:has()` — relacional, delega em `dom::has` (a única direção do
             // matcher que desce a árvore a partir do alvo em vez de subir).
-            P::Has(lista) => lista.iter().any(|(comb, sel)| self.has_matches(idx, *comb, sel)),
+            P::Has(lista) => lista
+                .iter()
+                .any(|(comb, sel)| self.has_matches(idx, *comb, sel)),
             P::Link => {
                 let is_anchor = matches!(&self.nodes[idx].kind,
                     NodeKind::Element { tag } if matches!(tag.as_str(), "a" | "area"));
@@ -450,7 +455,12 @@ impl TargetKey {
 
     /// `false` só quando o nó NÃO pode casar — um falso negativo aqui perderia
     /// um resultado, então cada braço espelha exatamente o que o matcher exige.
-    pub(in crate::dom) fn can_match(&self, tag: &str, id: Option<&str>, class_attr: Option<&str>) -> bool {
+    pub(in crate::dom) fn can_match(
+        &self,
+        tag: &str,
+        id: Option<&str>,
+        class_attr: Option<&str>,
+    ) -> bool {
         match self {
             TargetKey::Any => true,
             TargetKey::Tag(t) => t == tag,

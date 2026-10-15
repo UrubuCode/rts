@@ -51,7 +51,9 @@ pub(in crate::layout) fn as_fixed_zero(tracks: &mut [GridTrack], collapsed: &[bo
 
 /// Quantas trilhas NÃO colapsaram.
 pub(in crate::layout) fn visible_count(n: usize, collapsed: &[bool]) -> usize {
-    (0..n).filter(|&i| !collapsed.get(i).copied().unwrap_or(false)).count()
+    (0..n)
+        .filter(|&i| !collapsed.get(i).copied().unwrap_or(false))
+        .count()
 }
 
 /// A soma das calhas de um eixo: só as que separam duas trilhas visíveis.

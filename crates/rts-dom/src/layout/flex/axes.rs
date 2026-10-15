@@ -34,8 +34,8 @@
 //! regredirem — só o `direction` tinha sido considerado na primeira versão
 //! deste lote.
 
-use crate::style::{Direction, FlexWrap, WritingMode};
 use crate::style::text::{eixo_x_forward, eixo_y_forward};
+use crate::style::{Direction, FlexWrap, WritingMode};
 
 /// `true` quando o eixo PRINCIPAL do flex é o físico Y — a pergunta 1 do
 /// cabeçalho. Quem despacha (`block.rs`) troca de algoritmo por isto, no
@@ -122,8 +122,16 @@ pub(in crate::layout) fn physical_to_axis(
     direction: Direction,
 ) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
-    let (start, end) = if direction == Direction::Rtl { (J::Right, J::Left) } else { (J::Left, J::Right) };
-    let j = match j { J::Start => start, J::End => end, other => other };
+    let (start, end) = if direction == Direction::Rtl {
+        (J::Right, J::Left)
+    } else {
+        (J::Left, J::Right)
+    };
+    let j = match j {
+        J::Start => start,
+        J::End => end,
+        other => other,
+    };
     match (j, reverse) {
         (J::Left, false) | (J::Right, true) => J::FlexStart,
         (J::Left, true) | (J::Right, false) => J::FlexEnd,

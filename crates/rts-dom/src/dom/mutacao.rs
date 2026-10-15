@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     // ── Mutação (base da API DOM do JS) ─────────────────────────────────────
 
     /// Substitui TODO o conteúdo de um elemento por um único nó de texto (o
@@ -17,7 +16,8 @@ impl Dom {
         if !matches!(self.nodes[idx].kind, NodeKind::Element { .. }) {
             return;
         }
-        let style_node = matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style");
+        let style_node =
+            matches!(&self.nodes[idx].kind, NodeKind::Element { tag } if tag == "style");
         self.touch_render_only(idx);
         // Descarta os filhos atuais (arena não compacta; vira lixo inacessível —
         // ok para o uso atual, a árvore é reconstruída a cada `html()`). Zera o
@@ -33,7 +33,6 @@ impl Dom {
             self.rebuild_author_stylesheet();
         }
     }
-
 
     // ── Mutação rica — #1756 ─────────────────────────────────────────────────────
 
@@ -168,8 +167,7 @@ impl Dom {
     pub fn set_node_value(&mut self, id: NodeId, value: &str) {
         self.touch();
         let Some(idx) = self.resolve(id) else { return };
-        let style_affected = self
-            .nodes[idx]
+        let style_affected = self.nodes[idx]
             .parent
             .map(|parent| self.subtree_contains_style(parent))
             .unwrap_or(false);
@@ -468,7 +466,6 @@ impl Dom {
             self.rebuild_author_stylesheet();
         }
     }
-
 
     /// `element.innerHTML = html` (SET) — parseia o HTML e SUBSTITUI todos os filhos
     /// do nó pela nova subárvore. Reusa o parser (`parse_html_to_dom`); os nós

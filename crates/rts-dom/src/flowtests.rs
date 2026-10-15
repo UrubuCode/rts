@@ -95,7 +95,10 @@ fn o_grow_reparte_a_sobra_na_proporcao_dos_pesos() {
         a > 0.0 && a < 20.0,
         "`a` fica no seu min-content (nem 0, nem crescido): {a}"
     );
-    assert!((a + b - 300.0).abs() < 0.5, "`b` devia levar a sobra após `a`: a={a}, b={b}");
+    assert!(
+        (a + b - 300.0).abs() < 0.5,
+        "`b` devia levar a sobra após `a`: a={a}, b={b}"
+    );
 }
 
 /// Com bases zeradas e pesos 1 e 2, a sobra reparte-se em 1/3 e 2/3.

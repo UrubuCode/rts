@@ -21,7 +21,11 @@ fn input_texto_solto_mede_a_largura_por_omissao_em_fluxo_normal() {
     const HTML: &str = r#"<input id="txt" type="text">"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#txt", 0);
-    assert!((r.w - 177.0).abs() < 0.5, "largura por omissão do campo: {}", r.w);
+    assert!(
+        (r.w - 177.0).abs() < 0.5,
+        "largura por omissão do campo: {}",
+        r.w
+    );
 }
 
 #[test]
@@ -51,8 +55,16 @@ fn checkbox_e_radio_continuam_treze_por_treze_num_flex() {
     let (dom, list) = geometria(HTML, 1280.0);
     let c = rect(&dom, &list, "#c", 0);
     let r = rect(&dom, &list, "#r", 0);
-    assert!((c.w - 13.0).abs() < 0.1 && (c.h - 13.0).abs() < 0.1, "checkbox: {:?}", c);
-    assert!((r.w - 13.0).abs() < 0.1 && (r.h - 13.0).abs() < 0.1, "radio: {:?}", r);
+    assert!(
+        (c.w - 13.0).abs() < 0.1 && (c.h - 13.0).abs() < 0.1,
+        "checkbox: {:?}",
+        c
+    );
+    assert!(
+        (r.w - 13.0).abs() < 0.1 && (r.h - 13.0).abs() < 0.1,
+        "radio: {:?}",
+        r
+    );
 }
 
 #[test]
@@ -77,8 +89,16 @@ fn select_sem_opcoes_conserva_altura_natural_e_estica_no_flex() {
     let (dom, list) = geometria(HTML, 1280.0);
     let solto = rect(&dom, &list, "#sel", 0);
     let flex = rect(&dom, &list, "#fsel", 0);
-    assert!((solto.w - 22.0).abs() < 0.5 && (solto.h - 19.0).abs() < 0.5, "select solto: {:?}", solto);
-    assert!((flex.w - 22.0).abs() < 0.5 && (flex.h - 36.0).abs() < 0.5, "select no flex: {:?}", flex);
+    assert!(
+        (solto.w - 22.0).abs() < 0.5 && (solto.h - 19.0).abs() < 0.5,
+        "select solto: {:?}",
+        solto
+    );
+    assert!(
+        (flex.w - 22.0).abs() < 0.5 && (flex.h - 36.0).abs() < 0.5,
+        "select no flex: {:?}",
+        flex
+    );
 }
 
 #[test]
@@ -90,5 +110,9 @@ fn textarea_sem_cols_mede_as_duas_linhas_por_omissao_num_flex() {
     let (dom, list) = geometria(HTML, 1280.0);
     let t = rect(&dom, &list, "#t", 0);
     assert!((t.w - 168.0).abs() < 0.5, "largura da textarea: {}", t.w);
-    assert!((t.h - 36.0).abs() < 0.5, "altura da textarea (2 linhas): {}", t.h);
+    assert!(
+        (t.h - 36.0).abs() < 0.5,
+        "altura da textarea (2 linhas): {}",
+        t.h
+    );
 }

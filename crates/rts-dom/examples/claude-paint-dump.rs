@@ -77,13 +77,18 @@ use std::path::Path;
 fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
     for id in dom.query_all("img") {
         let Some(idx) = dom.resolve(id) else { continue };
-        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else { continue };
+        let Some(src) = dom.node(idx).attr("src").map(str::to_string) else {
+            continue;
+        };
         let decoded = if src.starts_with("data:") {
-            rts_dom::imagem::bytes_da_data_url(&src).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            rts_dom::imagem::bytes_da_data_url(&src)
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         } else if src.starts_with("http://") || src.starts_with("https://") {
             None
         } else {
-            std::fs::read(base_dir.join(&src)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            std::fs::read(base_dir.join(&src))
+                .ok()
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         };
         if let Some((rgba, w, h)) = decoded {
             dom.set_pixel_data(id, rgba, w, h);
@@ -96,16 +101,25 @@ fn carregar_imagens(dom: &mut Dom, base_dir: &Path) {
 /// doc gêmea em `claude-raster.rs` (lote `background-image-pintado`).
 fn carregar_fundos(dom: &mut Dom, base_dir: &Path) {
     for id in dom.query_all("*") {
-        let Some(css) = dom.computed_style(id) else { continue };
-        let Some(url) = css.bg_image.as_deref().and_then(rts_dom::style::background::bg_image_url) else {
+        let Some(css) = dom.computed_style(id) else {
+            continue;
+        };
+        let Some(url) = css
+            .bg_image
+            .as_deref()
+            .and_then(rts_dom::style::background::bg_image_url)
+        else {
             continue;
         };
         let decoded = if url.starts_with("data:") {
-            rts_dom::imagem::bytes_da_data_url(&url).and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            rts_dom::imagem::bytes_da_data_url(&url)
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         } else if url.starts_with("http://") || url.starts_with("https://") {
             None
         } else {
-            std::fs::read(base_dir.join(&url)).ok().and_then(|b| rts_dom::imagem::png::decodificar(&b))
+            std::fs::read(base_dir.join(&url))
+                .ok()
+                .and_then(|b| rts_dom::imagem::png::decodificar(&b))
         };
         if let Some((rgba, w, h)) = decoded {
             dom.set_pixel_data(id, rgba, w, h);
@@ -339,7 +353,9 @@ fn main() {
         }
     };
     let mut dom = rts_dom::parse_html_to_dom(&html);
-    let base_dir = std::path::Path::new(caminho).parent().unwrap_or_else(|| std::path::Path::new("."));
+    let base_dir = std::path::Path::new(caminho)
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
     carregar_imagens(&mut dom, base_dir);
 
     // 1280x800 é o default do `Dom` e o que o lado do Chrome é forçado a usar

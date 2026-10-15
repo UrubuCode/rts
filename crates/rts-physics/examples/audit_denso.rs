@@ -60,7 +60,9 @@ fn main() {
     println!("         | usadas  | usados  |bucket | por corpo  | por corpo|");
     println!("---------+---------+---------+-------+------------+----------+---------");
 
-    for n in [250usize, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000] {
+    for n in [
+        250usize, 1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000,
+    ] {
         let (pos, vel, ext) = scene(n);
         let mut grid = Grid::new();
         grid.build(&pos, n, CELL);

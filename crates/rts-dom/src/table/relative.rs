@@ -83,13 +83,7 @@ fn aplica_offset(
 /// outros. Vive aqui (em vez de `table/mod.rs`, que a chama) para manter esse
 /// módulo dentro do teto de 500 linhas — não é uma questão de offset relativo,
 /// mas é a caixa de uma linha/grupo, o mesmo par que este módulo já trata.
-pub(super) fn pinta_caixa(
-    dom: &Dom,
-    id: NodeIdx,
-    rect: Rect,
-    at: usize,
-    list: &mut DisplayList,
-) {
+pub(super) fn pinta_caixa(dom: &Dom, id: NodeIdx, rect: Rect, at: usize, list: &mut DisplayList) {
     let Some(css) = dom.computed_style_idx(id) else {
         return;
     };

@@ -16,7 +16,10 @@ use crate::style::values::{Dimension, Side};
 /// comparação não parseiam e a declaração cai.
 #[test]
 fn min_max_clamp_nao_parseiam() {
-    assert!(parse_inline("width:calc(1px + 2px)").width.is_some(), "o calc linear é a base");
+    assert!(
+        parse_inline("width:calc(1px + 2px)").width.is_some(),
+        "o calc linear é a base"
+    );
     assert_eq!(parse_inline("width:clamp(1rem,2vw,2rem)").width, None);
     assert_eq!(parse_inline("width:min(10px,2vw)").width, None);
     assert_eq!(parse_inline("width:max(10px,2vw)").width, None);
@@ -51,7 +54,11 @@ fn as_unidades_em_falta_derrubam_a_declaracao() {
 #[test]
 fn as_palavras_chave_de_font_size_nao_existem() {
     for k in ["medium", "large", "x-large", "smaller", "larger", "small"] {
-        assert_eq!(parse_inline(&format!("font-size:{k}")).font_size, None, "{k}");
+        assert_eq!(
+            parse_inline(&format!("font-size:{k}")).font_size,
+            None,
+            "{k}"
+        );
     }
 }
 
@@ -64,7 +71,11 @@ fn as_palavras_chave_de_font_size_nao_existem() {
 fn o_peso_da_fonte_colapsa_em_booleano() {
     let bold = |v: &str| parse_inline(&format!("font-weight:{v}")).bold;
     assert_eq!(bold("400"), Some(false));
-    assert_eq!(bold("500"), Some(false), "500 e 400 são indistinguíveis aqui");
+    assert_eq!(
+        bold("500"),
+        Some(false),
+        "500 e 400 são indistinguíveis aqui"
+    );
     assert_eq!(bold("600"), Some(true), "o corte");
     assert_eq!(bold("900"), Some(true));
     assert_eq!(bold("bolder"), Some(true), "constante, não relativo ao pai");
@@ -98,8 +109,14 @@ fn o_shorthand_font_sem_digito_cai_inteiro() {
 #[test]
 fn a_lista_de_font_family_fica_inteira_e_serializada_como_o_blink() {
     let c = parse_inline("font-family:Georgia, 'Times New Roman', serif");
-    assert_eq!(c.font_family.as_deref(), Some("Georgia, \"Times New Roman\", serif"));
-    assert_eq!(c.computed_value("font-family", None), "Georgia, \"Times New Roman\", serif");
+    assert_eq!(
+        c.font_family.as_deref(),
+        Some("Georgia, \"Times New Roman\", serif")
+    );
+    assert_eq!(
+        c.computed_value("font-family", None),
+        "Georgia, \"Times New Roman\", serif"
+    );
 }
 
 /// CSS-wide keywords da primeira fatia implementada. `unset` e `initial` já
@@ -178,5 +195,8 @@ fn flow_root_guarda_o_que_o_distingue_de_block() {
     assert_eq!(parse_inline("display:block").flow_root, None);
     // E o computado responde a palavra, como o browser.
     assert_eq!(c.computed_value("display", None), "flow-root");
-    assert_eq!(parse_inline("display:block").computed_value("display", None), "block");
+    assert_eq!(
+        parse_inline("display:block").computed_value("display", None),
+        "block"
+    );
 }

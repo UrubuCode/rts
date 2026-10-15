@@ -38,7 +38,12 @@ pub(crate) fn record_box_rect(list: &mut DisplayList, box_id: BoxId, rect: Rect)
 /// fragment, or starts the box's next one (`box_rects.rs`, I4). The only
 /// writer an inline has — `inline_box::union_rect` resolves a node to its
 /// boxes and comes here, a generated inline (no node) comes here directly.
-pub(crate) fn add_line_fragment(list: &mut DisplayList, box_id: BoxId, rect: Rect, line: super::LineId) {
+pub(crate) fn add_line_fragment(
+    list: &mut DisplayList,
+    box_id: BoxId,
+    rect: Rect,
+    line: super::LineId,
+) {
     if list.box_rects.add_on_line(box_id, rect, line) {
         list.pieces.push(Piece::Rect(box_id));
     }
