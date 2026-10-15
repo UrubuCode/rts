@@ -54,10 +54,6 @@ pub(in crate::layout) fn ratio_outer_width(
     ctx: &LayoutCtx,
 ) -> Option<f32> {
     let css = dom.computed_style_idx(child)?;
-    aspect_ratio::declared_ratio(&css)?;
-    if !matches!(css.width, None | Some(Dimension::Auto)) {
-        return None;
-    }
     let resolve = ResolveCtx {
         parent_content_w: cb_w,
         node_font_size: font_px(&css, parent_font),
@@ -65,6 +61,21 @@ pub(in crate::layout) fn ratio_outer_width(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
+    if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+        dom,
+        child,
+        &css,
+        ctx.viewport_w,
+        area_h,
+        (None, None),
+        ctx,
+    ) {
+        return Some(w + css.margin.resolve_h(&resolve));
+    }
+    aspect_ratio::declared_ratio(&css)?;
+    if !matches!(css.width, None | Some(Dimension::Auto)) {
+        return None;
+    }
     let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
     let frame_h = css.padding.resolve_h(&resolve) + bl + br;
     let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
@@ -85,6 +96,90 @@ pub(in crate::layout) fn ratio_outer_width(
         .map(|v| content(v, frame_h));
     let w = crate::style::clamp_size(w, mnw, mxw);
     Some(w + frame_h + css.margin.resolve_h(&resolve))
+}
+
+pub(in crate::layout) fn grid_item_min_content_width(
+    dom: &Dom,
+    child: NodeIdx,
+    area_h: Option<f32>,
+    font_size: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
+    let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+    let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
+    let frame_v = css.padding.resolve_v(resolve) + bt + bb;
+    if let Some(min_w) = css.min_width.and_then(|d| d.resolve(resolve)) {
+        return min_w + frame_h;
+    }
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
+        return frame_h;
+    }
+    if let Some(w) = css.width.and_then(|d| d.resolve(resolve)) {
+        return w + frame_h;
+    }
+    let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+    let has_ratio = is_rep || aspect_ratio::declared_ratio(&css).is_some();
+    if has_ratio {
+        if let Some(h) = css.height.and_then(|d| resolve_height(Some(d), area_h, resolve)).or(area_h) {
+            let content_h = (h - frame_v).max(0.0);
+            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+                dom, child, &css, ctx.viewport_w, Some(content_h), (None, Some(content_h)), ctx,
+            ) {
+                return w + css.margin.resolve_h(resolve);
+            }
+            if let Some(w) = aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v) {
+                return w + frame_h;
+            }
+        }
+        return frame_h;
+    }
+    crate::table::min_content(dom, child, font_size, ctx)
+}
+
+pub(in crate::layout) fn grid_item_min_content_height(
+    dom: &Dom,
+    child: NodeIdx,
+    cell_w: f32,
+    _font_size: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
+    let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+    let frame_v = css.padding.resolve_v(resolve) + bt + bb + css.margin.resolve_v(resolve);
+    let frame_h = css.padding.resolve_h(resolve) + bl + br;
+    if let Some(min_h) = css.min_height.and_then(|d| d.resolve(resolve)) {
+        return min_h + frame_v;
+    }
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
+        return frame_v;
+    }
+    if let Some(h) = css.height.and_then(|d| d.resolve(resolve)) {
+        return h + frame_v;
+    }
+    let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+    let has_ratio = is_rep || aspect_ratio::declared_ratio(&css).is_some();
+    if has_ratio {
+        if let Some(w) = css.width.and_then(|d| d.resolve(resolve)).or_else(|| (cell_w > 0.0).then_some(cell_w)) {
+            let content_w = (w - frame_h).max(0.0);
+            if let Some((_, h)) = crate::inline_box::replaced_inline_size(
+                dom, child, &css, content_w, None, (Some(content_w), None), ctx,
+            ) {
+                return h + css.margin.resolve_v(resolve);
+            }
+            if let Some(h) = aspect_ratio::height_for_width(&css, content_w, frame_h, frame_v) {
+                return h + frame_v;
+            }
+        }
+        return frame_v;
+    }
+    frame_v
 }
 
 /// A LOWER bound on the max-content width of grid container `id` from the

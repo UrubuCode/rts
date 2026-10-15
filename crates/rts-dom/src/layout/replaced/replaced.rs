@@ -293,6 +293,11 @@ pub(in crate::layout) fn layout_image(
             radius: Corners::ZERO,
         });
     }
+    let op = css.opacity.unwrap_or(1.0);
+    let fx = crate::painteffects::filtro(css.filter.as_deref().unwrap_or(""));
+    for item in crate::paint::decor::border_items(css, rect, 0.0, op, fx) {
+        list.push_item(item);
+    }
     Some((
         w + margin_left + margin_right,
         h + margin_top + margin_bottom,
@@ -378,6 +383,11 @@ pub(in crate::layout) fn layout_canvas(
                 h: ph,
             });
         }
+    }
+    let op = css.opacity.unwrap_or(1.0);
+    let fx = crate::painteffects::filtro(css.filter.as_deref().unwrap_or(""));
+    for item in crate::paint::decor::border_items(css, rect, 0.0, op, fx) {
+        list.push_item(item);
     }
     Some((
         w + margin_left + margin_right,

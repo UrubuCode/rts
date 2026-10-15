@@ -145,8 +145,8 @@ pub(in crate::layout) fn resolve_tracks(
                 let base = eval_bound(min, i);
                 if matches!(min, B::Auto) {
                     match max {
-                        B::Fixed(d) => base.min(dim(d)),
-                        B::FitContent(d) => base.min(dim(d)),
+                        B::Fixed(d) => base.min(dim(d)).max(min_of(i)),
+                        B::FitContent(d) => base.min(dim(d)).max(min_of(i)),
                         _ => base,
                     }
                 } else {
@@ -304,8 +304,9 @@ pub(in crate::layout) fn measure_content_rows(
     resolve: &ResolveCtx,
     wm: crate::style::WritingMode,
     ctx: &LayoutCtx,
-) -> Vec<f32> {
+) -> (Vec<f32>, Vec<f32>) {
     let mut content_row_h = vec![0.0f32; nrows];
+    let mut min_row_h = vec![0.0f32; nrows];
     let mut multi_row_items = Vec::new();
     for cell in cells {
         let is_row_sub = dom
@@ -323,21 +324,13 @@ pub(in crate::layout) fn measure_content_rows(
         let forced_w = if stretch_x { Some(cw) } else { None };
         let area_h = super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve);
         let (_, h) = measure_block(
-            dom,
-            cell.child,
-            cell.box_id,
-            cw,
-            area_h,
-            forced_w,
-            None,
-            !stretch_x,
-            ctx,
+            dom, cell.child, cell.box_id, cw, area_h, forced_w, None, !stretch_x, ctx,
         );
-        if cell.rows() == 1 {
-            if cell.r0 < nrows {
-                content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
-            }
-        } else {
+        if cell.rows() == 1 && cell.r0 < nrows {
+            content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
+            let mh = super::aspect::grid_item_min_content_height(dom, cell.child, cw, resolve.node_font_size, resolve, ctx);
+            min_row_h[cell.r0] = min_row_h[cell.r0].max(mh);
+        } else if cell.rows() > 1 {
             multi_row_items.push((cell, h));
         }
     }
@@ -372,7 +365,7 @@ pub(in crate::layout) fn measure_content_rows(
             }
         }
     }
-    content_row_h
+    (content_row_h, min_row_h)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -381,6 +374,7 @@ pub(in crate::layout) fn resolve_row_tracks(
     explicit_rows: &[crate::style::GridTrack],
     auto_row: Option<&crate::style::GridTrack>,
     content_row_h: &[f32],
+    min_row_h: &[f32],
     container_h: Option<f32>,
     resolve: &ResolveCtx,
     align_content: Option<crate::style::JustifyContent>,
@@ -405,27 +399,21 @@ pub(in crate::layout) fn resolve_row_tracks(
                     ch.clamp(mn, mx)
                 }
                 Some(T::Intrinsic { min, max }) => {
+                    let min_h = min_row_h.get(r).copied().unwrap_or(0.0);
                     let mn = match min {
-                        B::Fixed(d) => {
-                            resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0)
-                        }
-                        B::MinContent | B::MaxContent | B::Auto => ch,
-                        B::FitContent(d) => {
-                            resolve_height(Some(*d), container_h, resolve).unwrap_or(ch)
-                        }
+                        B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+                        B::MinContent | B::Auto => min_h,
+                        B::MaxContent => ch,
+                        B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
                     };
                     let mx = match max {
-                        B::Fixed(d) => {
-                            resolve_height(Some(*d), container_h, resolve).unwrap_or(f32::INFINITY)
-                        }
+                        B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(f32::INFINITY),
                         B::MaxContent | B::Auto => f32::INFINITY,
-                        B::MinContent => ch,
-                        B::FitContent(d) => {
-                            resolve_height(Some(*d), container_h, resolve).unwrap_or(ch)
-                        }
+                        B::MinContent => min_h,
+                        B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
                     };
                     let base = if matches!(min, B::Auto) {
-                        mn.min(mx)
+                        mn.min(mx).max(min_h)
                     } else {
                         mn
                     };

@@ -132,7 +132,7 @@ pub(in crate::layout) fn layout_children_grid(
             if c.c1 - c.c0 == 1 && c.c0 < ncols {
                 wmax[c.c0] = wmax[c.c0].max(item_w(c));
                 if needs_min {
-                    let min = crate::table::min_content(dom, c.child, font_size, ctx);
+                    let min = aspect::grid_item_min_content_width(dom, c.child, None, font_size, &resolve, ctx);
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
             }
@@ -204,7 +204,7 @@ pub(in crate::layout) fn layout_children_grid(
             .max(1);
         let row_collapsed =
             collapse::collapsed(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
-        let mut explicit_rows = explicit_rows;
+        let mut explicit_rows = explicit_rows.clone();
         collapse::as_fixed_zero(&mut explicit_rows, &row_collapsed);
         subgrid::register_col_subgrids_for_measure(
             dom,
@@ -218,7 +218,7 @@ pub(in crate::layout) fn layout_children_grid(
             css.writing_mode.unwrap_or_default(),
             col_sub.is_some(),
         );
-        let mut content_row_h = tracks::measure_content_rows(
+        let (mut content_row_h, min_row_h) = tracks::measure_content_rows(
             dom,
             &cells,
             &explicit_rows,
@@ -257,6 +257,7 @@ pub(in crate::layout) fn layout_children_grid(
             &explicit_rows,
             css.grid_auto_rows.as_ref(),
             &content_row_h,
+            &min_row_h,
             container_content_h,
             &resolve,
             css.align_content,
@@ -357,22 +358,28 @@ pub(in crate::layout) fn layout_children_grid(
             item_css.align_self.unwrap_or(align)
         };
         // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
-        let ratio_w = aspect::ratio_outer_width(dom, child, Some(cell_h), cell_w, font_size, ctx);
+        let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (cell.r0, cell.r1), row_gap, container_content_h, &resolve);
+        let ratio_w = aspect::ratio_outer_width(dom, child, area_h, cell_w, font_size, ctx);
         let is_stretch =
             |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
+        let has_ratio = ratio_w.is_some() || dom.image_dims(child).is_some();
         let declared_x = item_css.justify_self.is_some() || css.grid_justify_items.is_some();
+        let declared_y = item_css.align_self.is_some() || css.align_items.is_some();
         let stretch_x = is_col_sub
             || (is_stretch(justify)
                 && item_css.width.is_none()
-                && (ratio_w.is_none() || declared_x));
+                && (!has_ratio || declared_x));
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = is_row_sub || (is_stretch(align) && item_css.height.is_none());
+        let stretch_y = is_row_sub
+            || (is_stretch(align)
+                && item_css.height.is_none()
+                && (!has_ratio || declared_y));
         let (nat_w, nat_h) = measure_block(
             dom,
             child,
             cell.box_id,
             cell_w,
-            Some(cell_h),
+            area_h,
             ratio_w,
             None,
             true,
@@ -399,13 +406,8 @@ pub(in crate::layout) fn layout_children_grid(
         let forced_w = if is_col_sub {
             Some(cell_w)
         } else if stretch_x {
-            if crate::layout::block::rotated::opens_frame(dom, child, &item_css)
-                || crate::layout::block::rotated::is_ortho_in_frame(child)
-            {
-                Some(cell_w)
-            } else {
-                None
-            }
+            let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+            (rep || crate::layout::block::rotated::opens_frame(dom, child, &item_css) || crate::layout::block::rotated::is_ortho_in_frame(child)).then_some(cell_w)
         } else {
             Some(iw)
         };
@@ -438,7 +440,7 @@ pub(in crate::layout) fn layout_children_grid(
             x,
             y,
             cell_w,
-            Some(cell_h),
+            area_h,
             || (0.0, 0.0),
             forced_w,
             forced_h,

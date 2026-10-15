@@ -117,6 +117,12 @@ pub(crate) fn definite_cb_height(
     avail_h: Option<f32>,
 ) -> Option<f32> {
     use crate::style::Dimension;
+    if matches!(
+        cb_css.effective_display(),
+        Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+    ) {
+        return avail_h;
+    }
     match cb_css.height {
         None | Some(Dimension::Auto | Dimension::MaxContent | Dimension::MinContent) => None,
         Some(_) => avail_h,
