@@ -289,6 +289,9 @@ pub(crate) fn fmt_track(track: &crate::style::GridTrack) -> String {
             let kw = if *fit { "auto-fit" } else { "auto-fill" };
             format!("repeat({}, {})", kw, fmt_track_list(tracks))
         }
+        crate::style::GridTrack::List(list) => {
+            list.iter().map(fmt_track).collect::<Vec<_>>().join(" ")
+        }
     }
 }
 

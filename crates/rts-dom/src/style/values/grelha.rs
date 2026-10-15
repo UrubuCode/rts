@@ -95,9 +95,33 @@ pub enum GridTrack {
         fit: bool,
         count_unit: f32,
     },
+    /// A pattern of tracks, e.g. for multi-value `grid-auto-columns: 0px 100%`.
+    List(Vec<GridTrack>),
 }
 
 impl GridTrack {
+    /// Contribuição de uma trilha em um índice implícito (cicla o padrão se for `List`).
+    pub fn track_at(&self, idx: usize) -> &GridTrack {
+        match self {
+            GridTrack::List(list) if !list.is_empty() => &list[idx % list.len()],
+            other => other,
+        }
+    }
+
+    /// Parseia `grid-auto-columns` / `grid-auto-rows`: um único tamanho ou sequência repetida.
+    pub fn parse_auto(v: &str) -> Option<GridTrack> {
+        if let Some(one) = Self::parse_one(v) {
+            return Some(one);
+        }
+        let list = Self::parse_list(v)?;
+        if list.is_empty() {
+            None
+        } else if list.len() == 1 {
+            Some(list.into_iter().next().unwrap())
+        } else {
+            Some(GridTrack::List(list))
+        }
+    }
     /// Parseia UMA trilha: `100px`/`50%`/`1fr`/`auto`/`minmax(a,b)`/
     /// `fit-content(x)`. `None` se não reconhece.
     pub fn parse_one(v: &str) -> Option<GridTrack> {
@@ -166,6 +190,7 @@ impl GridTrack {
                 min: Dimension::Px(p),
                 ..
             } => *p,
+            GridTrack::List(list) => list.first().map_or(0.0, |t| t.count_unit()),
             _ => 0.0,
         }
     }

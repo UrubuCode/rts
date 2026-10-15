@@ -23,6 +23,7 @@
 
 mod anonymous;
 mod grid;
+mod heights;
 mod relative;
 pub(in crate::table) mod widths;
 
@@ -381,43 +382,9 @@ fn lay_out_grid(
     // célula só se sabe depois de lhe dar a largura da coluna. Daí a passada de
     // medição: posicionar e depois esticar exigiria refazer o layout de cada
     // célula duas vezes na display list, o que duplicaria a tinta.
-    let mut alturas = vec![0.0f32; g.rows.len()];
-    let mut pendentes: Vec<(usize, usize, f32)> = Vec::new(); // (linha final, nº linhas, altura)
-    for (ri, row) in g.rows.iter().enumerate() {
-        for c in &row.cells {
-            if c.col >= g.cols {
-                continue;
-            }
-            let w = largura_de(c.col, c.colspan);
-            let (_, h) = crate::layout::measure_block(
-                dom,
-                c.node,
-                c.caixa,
-                w,
-                None,
-                Some(w),
-                None,
-                false,
-                ctx,
-            );
-            if c.rowspan <= 1 {
-                alturas[ri] = alturas[ri].max(h);
-            } else {
-                let ultima = (ri + c.rowspan - 1).min(g.rows.len() - 1);
-                pendentes.push((ultima, ultima - ri + 1, h));
-            }
-        }
-    }
-    // As que atravessam linhas só cobram o que FALTA depois de somadas as linhas
-    // que já têm altura própria — uma célula alta sobre duas linhas cheias não
-    // deve esticar nada.
-    for (ultima, n, h) in pendentes {
-        let inicio = ultima + 1 - n;
-        let ja: f32 = alturas[inicio..=ultima].iter().sum::<f32>() + (n - 1) as f32 * ts.spacing_v;
-        if h > ja {
-            alturas[ultima] += h - ja;
-        }
-    }
+    let alturas = heights::medir_e_distribuir_alturas(
+        dom, g, ts, definite_h, largura_de, ctx,
+    );
 
     // ── Posicionamento ──────────────────────────────────────────────────────────
     let mut row_y = Vec::with_capacity(g.rows.len());

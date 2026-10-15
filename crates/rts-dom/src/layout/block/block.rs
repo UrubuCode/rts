@@ -306,6 +306,7 @@ pub(crate) fn layout_block(
     // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
     // dos DOIS lados); cada termo já é a soma do seu eixo.
     let frame = margin_h + border_h + padding_h;
+    let frame_v = pad_top + pad_bottom + border_v;
     let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     // O PAPEL da caixa (item de lista, parte de tabela) — decidido já aqui e não
@@ -330,6 +331,10 @@ pub(crate) fn layout_block(
         } else {
             v
         }
+    })
+    .or_else(|| {
+        let mnh = resolve_height(css.min_height, avail_h, &resolve)?;
+        crate::layout::measure::aspect_ratio::width_for_height(&css, mnh, padding_h + border_h, frame_v)
     });
     let mxw = crate::layout::measure::intrinsic_min_max::resolve(
         css.max_width,
@@ -576,12 +581,16 @@ pub(crate) fn layout_block(
             // `aspect-ratio`: without a declared height, the width transfers
             // through the ratio (`measure::aspect_ratio`, shared with the grid).
             .or_else(|| {
-                crate::layout::measure::aspect_ratio::height_for_width(
-                    &css,
-                    content_w,
-                    padding_h + border_h,
-                    frame_v,
-                )
+                if shrink_to_fit && css.width.is_none() {
+                    None
+                } else {
+                    crate::layout::measure::aspect_ratio::height_for_width(
+                        &css,
+                        content_w,
+                        padding_h + border_h,
+                        frame_v,
+                    )
+                }
             })
             // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
             // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
@@ -789,10 +798,15 @@ pub(crate) fn layout_block(
                 ctx,
                 list,
             );
-            if shrink_to_fit && css.width.is_none() && forced_outer_w.is_none() {
+            let is_intrinsic_w = matches!(css.width, Some(crate::style::Dimension::MinContent) | Some(crate::style::Dimension::MaxContent));
+            if (shrink_to_fit && css.width.is_none() || is_intrinsic_w) && forced_outer_w.is_none() {
                 content_w = crate::style::clamp_size(grid_w, mnw, mxw);
             }
-            grid_h
+            if css.height.is_none() && css.aspect_ratio.is_some() {
+                crate::layout::measure::aspect_ratio::height_for_width(&css, content_w, padding_h + border_h, frame_v).unwrap_or(grid_h)
+            } else {
+                grid_h
+            }
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(

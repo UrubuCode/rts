@@ -22,7 +22,7 @@ mod max_width_floor;
 use max_width_floor::comprimento_outer;
 mod anonima;
 mod colunas;
-pub(crate) use colunas::colunas_min_max;
+pub(crate) use colunas::{cell_min_max, colunas_min_max, em_linha};
 
 use crate::layout::LayoutCtx;
 use crate::style::ResolveCtx;
@@ -83,19 +83,6 @@ impl Coluna {
 /// As larguras intrínsecas de UMA célula, já com o frame (padding+borda) dentro:
 /// a coluna é dimensionada em caixa de BORDA, porque é isso que ocupa espaço na
 /// linha.
-pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> Coluna {
-    let tree = dom.box_tree();
-    let caixa = match tree.boxes_of(id) {
-        [caixa] => *caixa,
-        [] => return Coluna::default(),
-        caixas => panic!(
-            "a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata",
-            caixas.len()
-        ),
-    };
-    cell_min_max_na_arvore(dom, &tree, id, caixa, parent_font, ctx)
-}
-
 pub(crate) fn cell_min_max_na_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
@@ -268,13 +255,7 @@ pub(crate) fn largura_declarada(
     };
     let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
     largura_absoluta(css.width, &resolve)
-        .map(|w| {
-            if css.border_box.unwrap_or(false) {
-                w
-            } else {
-                w + frame
-            }
-        })
+        .map(|w| if css.border_box.unwrap_or(false) { w } else { w + frame })
         .or_else(|| largura_de_atributo(dom, id))
 }
 
@@ -357,6 +338,9 @@ pub(super) fn min_content_na_arvore(
             let css = dom.computed_style_idx(id).unwrap_or_default();
             if css.effective_display() == Some(crate::style::DisplayKind::None) {
                 return 0.0;
+            }
+            if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) {
+                return crate::layout::grid::max_content::grid_min_content_width(dom, tree, id, Some(caixa), font, ctx);
             }
             let f = crate::layout::font_px(&css, font);
             let mono = css
@@ -503,23 +487,5 @@ pub(super) fn min_content_na_arvore(
             }
         }
         _ => 0.0,
-    }
-}
-
-/// `true` se este nó partilha linha com os irmãos — texto, ou um elemento cujo
-/// `display` é de nível inline. Um elemento sem `display` nenhum (um `<a>`, um
-/// `<span>`) também flui na linha, que é o default do browser para as tags que
-/// não estão registadas como bloco.
-pub(super) fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
-    match &dom.node(id).kind {
-        NodeKind::Text(_) => true,
-        NodeKind::Element { .. } => match dom
-            .computed_style_idx(id)
-            .and_then(|c| c.effective_display())
-        {
-            Some(d) => d.is_inline_level(),
-            None => true,
-        },
-        _ => false,
     }
 }

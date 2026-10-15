@@ -117,3 +117,27 @@ pub(in crate::layout) fn clamp_area_lines(
         }
     }
 }
+
+pub(in crate::layout) fn subgrid_span(
+    s0: Option<&crate::style::grid_lines::GridLine>,
+    s1: Option<&crate::style::grid_lines::GridLine>,
+) -> usize {
+    use crate::style::grid_lines::GridLine::Span;
+    match (s0, s1) {
+        (Some(Span(s)), _) | (_, Some(Span(s))) => (*s as usize).max(1),
+        _ => 1,
+    }
+}
+
+pub(in crate::layout) fn is_parent_grid(dom: &crate::Dom, id: crate::dom::NodeIdx) -> bool {
+    let Some(parent) = dom.node(id).parent else {
+        return false;
+    };
+    let Some(p_css) = dom.computed_style_idx(parent) else {
+        return false;
+    };
+    matches!(
+        p_css.effective_display(),
+        Some(crate::style::DisplayKind::Grid) | Some(crate::style::DisplayKind::InlineGrid)
+    )
+}

@@ -1,39 +1,26 @@
 //! O SIZING de trilhas de grid (CSS Grid 1 §11) e a expansão de
-//! `repeat(auto-fill|auto-fit, …)` (§7.2.3.3) — as duas perguntas do lote R
-//! que ficaram por fazer: "quantas trilhas cabem" é do `content_w`, e
-//! "quão grande fica uma trilha intrínseca" precisa do min-content E do
-//! max-content dos itens, não só do segundo.
-//!
-//! Extraído de `grid.rs` (que já estava no teto) — `resolve_tracks` cresceu
-//! dois parâmetros e um variant a mais para dar conta de `Intrinsic`, e a
-//! expansão de `AutoRepeat` é lógica nova por inteiro.
-
+//! `repeat(auto-fill|auto-fit, …)` (§7.2.3.2/3).
 use super::*;
-
-/// `repeat(auto-fill|auto-fit, tracks)` → N cópias do padrão, N decidido
-/// AGORA contra `container` (largura/altura disponível) e `gap`. Uma lista
-/// sem nenhum `AutoRepeat` volta inalterada (o caminho comum, sem custo).
-///
-/// A fórmula é a da spec (§7.2.3.3): cada repetição "pesa"
-/// `count_unit(padrão) + gaps internos`, e cabe mais uma sempre que sobrar
-/// espaço para ela MAIS o gap que a precede — por isso `(container + gap) /
-/// (peso + gap)`, e não `container / peso`, que subcontaria a última que
-/// cabe exatamente. Nunca menos de 1: uma trilha vazia ainda é uma trilha.
-///
-/// `auto-fit` usa a MESMA contagem que `auto-fill` (a spec não distingue
-/// aqui) — a diferença entre os dois é só se as repetições SEM item colapsam
-/// depois da colocação, que é `collapsible` (devolvido ao lado) e não esta
 /// função.
 pub(crate) fn expand_auto_repeats(
     track_list: &crate::style::TrackList,
     container: f32,
     gap: f32,
+    min_size: Option<f32>,
 ) -> (
     Vec<crate::style::GridTrack>,
     Vec<bool>,
     Vec<crate::style::LineNames>,
 ) {
     use crate::style::GridTrack as T;
+    let track_base = |t: &T| match t {
+        T::Fixed(crate::style::Dimension::Px(p)) | T::Bounded { min: crate::style::Dimension::Px(p), .. } => *p,
+        T::Fixed(crate::style::Dimension::Percent(pct)) | T::Bounded { min: crate::style::Dimension::Percent(pct), .. } if container > 0.0 => pct * container / 100.0,
+        _ => 0.0,
+    };
+    let (other_base, other_count) = track_list.entries.iter().filter(|(_, t)| !matches!(t, T::AutoRepeat { .. }))
+        .fold((0.0f32, 0usize), |(b, c), (_, t)| (b + track_base(t), c + 1));
+
     let mut out_tracks = Vec::with_capacity(track_list.entries.len());
     let mut collapsible = Vec::with_capacity(track_list.entries.len());
     let mut out_lines = Vec::with_capacity(track_list.entries.len() + 1);
@@ -51,12 +38,28 @@ pub(crate) fn expand_auto_repeats(
                 if pattern.entries.is_empty() {
                     continue;
                 }
-                let internal_gaps = (pattern.entries.len().saturating_sub(1)) as f32 * gap;
-                let per_rep = (count_unit + internal_gaps).max(0.0);
-                let n = if per_rep <= 0.0 || container <= 0.0 {
+                let m = pattern.entries.len();
+                let total_size = |n: usize| -> f32 {
+                    let total_tracks = other_count + n * m;
+                    let total_gaps = total_tracks.saturating_sub(1) as f32 * gap;
+                    other_base + (n as f32) * count_unit + total_gaps
+                };
+                let n = if *count_unit <= 0.0 || m == 0 {
                     1
+                } else if container > 0.0 {
+                    let mut best = 1;
+                    while total_size(best + 1) <= container {
+                        best += 1;
+                    }
+                    best
+                } else if let Some(ms) = min_size.filter(|&s| s > 0.0) {
+                    let mut best = 1;
+                    while total_size(best) < ms {
+                        best += 1;
+                    }
+                    best
                 } else {
-                    (((container + gap) / (per_rep + gap)).floor() as i64).max(1) as usize
+                    1
                 };
                 for _ in 0..n {
                     for (p_lines, p_track) in &pattern.entries {
@@ -156,7 +159,7 @@ pub(in crate::layout) fn resolve_tracks(
             }
             // Expandido antes de chegar aqui (`expand_auto_repeats`); uma
             // lista com um `AutoRepeat` por resolver é um erro do chamador.
-            T::AutoRepeat { .. } => 0.0,
+            T::AutoRepeat { .. } | T::List(_) => 0.0,
         };
     }
     let total_used = sizes.iter().sum::<f32>() + total_gap;
@@ -273,26 +276,15 @@ pub(in crate::layout) fn distribute_spanning_columns<F, S>(
             let mut content_cols = Vec::new();
             for col in c.c0..end {
                 match col_tracks.get(col) {
-                    Some(crate::style::GridTrack::Fixed(d)) => {
-                        current_span_w += d.resolve(resolve).unwrap_or(0.0);
-                    }
-                    _ => {
-                        current_span_w += wmax[col];
-                        content_cols.push(col);
-                    }
+                    Some(crate::style::GridTrack::Fixed(d)) => current_span_w += d.resolve(resolve).unwrap_or(0.0),
+                    _ => { current_span_w += wmax[col]; content_cols.push(col); }
                 }
             }
             let item_w = get_width(c);
             if item_w > current_span_w {
-                let targets = if !content_cols.is_empty() {
-                    content_cols
-                } else {
-                    (c.c0..end).collect()
-                };
+                let targets = if !content_cols.is_empty() { content_cols } else { (c.c0..end).collect() };
                 let extra = (item_w - current_span_w) / targets.len() as f32;
-                for col in targets {
-                    wmax[col] += extra;
-                }
+                for col in targets { wmax[col] += extra; }
             }
         }
     }
@@ -325,21 +317,17 @@ pub(in crate::layout) fn measure_content_rows(
         let cw = col_sub
             .map(|s| s.cell_span(cell.c0, cell.c1))
             .unwrap_or_else(|| super::grid::span_size(col_sizes, cell.c0, cell.c1, col_gap));
-        let item_css = dom.computed_style_idx(cell.child);
-        let stretch_x = item_css
-            .as_ref()
-            .map(|c| {
-                let j = c.justify_self.unwrap_or(crate::style::AlignItems::Stretch);
-                matches!(j, crate::style::AlignItems::Stretch) && c.width.is_none()
-            })
-            .unwrap_or(false);
+        let stretch_x = dom.computed_style_idx(cell.child).is_some_and(|c| {
+            matches!(c.justify_self.unwrap_or(crate::style::AlignItems::Stretch), crate::style::AlignItems::Stretch) && c.width.is_none()
+        });
         let forced_w = if stretch_x { Some(cw) } else { None };
+        let area_h = super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve);
         let (_, h) = measure_block(
             dom,
             cell.child,
             cell.box_id,
             cw,
-            container_content_h,
+            area_h,
             forced_w,
             None,
             !stretch_x,
@@ -358,7 +346,9 @@ pub(in crate::layout) fn measure_content_rows(
         let mut current_span_h = (end.saturating_sub(cell.r0 + 1)) as f32 * row_gap;
         let mut unfixed_rows = Vec::new();
         for r in cell.r0..end {
-            let track = explicit_rows.get(r).or(auto_row);
+            let track = explicit_rows
+                .get(r)
+                .or_else(|| auto_row.map(|t| t.track_at(r.saturating_sub(explicit_rows.len()))));
             match track {
                 Some(crate::style::GridTrack::Fixed(d)) => {
                     current_span_h +=
@@ -398,7 +388,11 @@ pub(in crate::layout) fn resolve_row_tracks(
     row_gap: f32,
 ) -> Vec<f32> {
     use crate::style::{GridTrack as T, TrackBound as B};
-    let row_track = |r: usize| explicit_rows.get(r).or(auto_row);
+    let row_track = |r: usize| {
+        explicit_rows
+            .get(r)
+            .or_else(|| auto_row.map(|t| t.track_at(r.saturating_sub(explicit_rows.len()))))
+    };
     let mut row_sizes: Vec<f32> = (0..nrows)
         .map(|r| {
             let ch = content_row_h.get(r).copied().unwrap_or(0.0);
@@ -444,22 +438,20 @@ pub(in crate::layout) fn resolve_row_tracks(
 
     if align_content.is_none() {
         if let Some(ch) = container_h {
-            let auto_rows: Vec<usize> = (0..nrows)
-                .filter(|&r| {
-                    !matches!(
-                        row_track(r),
-                        Some(T::Fixed(_) | T::Bounded { .. } | T::Intrinsic { .. })
-                    )
-                })
-                .collect();
-            if !auto_rows.is_empty() {
-                let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+            let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+            let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
+            if sum_fr > 0.0 {
+                let non_fr: f32 = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fr(_)))).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
+                let free = (ch - non_fr).max(0.0);
+                for r in 0..nrows {
+                    if let Some(T::Fr(f)) = row_track(r) { row_sizes[r] = free * f.max(0.0) / sum_fr; }
+                }
+            } else {
+                let auto_rows: Vec<usize> = (0..nrows).filter(|&r| matches!(row_track(r), None | Some(T::Auto))).collect();
                 let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
-                if ch > current_used {
+                if !auto_rows.is_empty() && ch > current_used {
                     let each = (ch - current_used) / auto_rows.len() as f32;
-                    for r in auto_rows {
-                        row_sizes[r] += each;
-                    }
+                    for r in auto_rows { row_sizes[r] += each; }
                 }
             }
         } else {

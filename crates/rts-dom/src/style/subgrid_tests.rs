@@ -70,7 +70,7 @@ fn test_auto_repeat_line_merging() {
     let t = GridTemplate::parse("[x] repeat(2, [a] 50px [b]) [z]").unwrap();
     if let GridTemplate::Tracks(tl) = t {
         let (tracks, _collapsible, lines) =
-            crate::layout::grid::tracks::expand_auto_repeats(&tl, 200.0, 10.0);
+            crate::layout::grid::tracks::expand_auto_repeats(&tl, 200.0, 10.0, None);
         assert_eq!(tracks.len(), 2);
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0], vec!["x", "a"]);

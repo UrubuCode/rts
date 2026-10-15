@@ -69,9 +69,18 @@ fn grid_content_width(
         .max(0.0);
 
     let areas = css.grid_template_areas.clone();
+    let container_h = css.height.and_then(|d| d.resolve(&resolve))
+        .or_else(|| super::aspect::find_containing_block_height(dom, id))
+        .unwrap_or(0.0);
+    let is_p_grid = super::subgrid::is_parent_grid(dom, id);
+    let min_col_s = super::aspect::container_min_size_for_auto_repeat(&css, true, Some(container_h), &resolve);
     let (col_tracks, col_lines) = match css.grid_template_columns.as_deref() {
+        Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+            let s = super::subgrid::subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref());
+            (vec![GridTrack::Auto; s], vec![Vec::new(); s + 1])
+        }
         Some(GridTemplate::Tracks(t)) => {
-            let (tr, _, cl) = super::tracks::expand_auto_repeats(t, 0.0, col_gap);
+            let (tr, _, cl) = super::tracks::expand_auto_repeats(t, 0.0, col_gap, min_col_s);
             (tr, cl)
         }
         _ => {
@@ -84,9 +93,14 @@ fn grid_content_width(
     };
     let ncols = col_tracks.len().max(1);
 
+    let min_row_s = super::aspect::container_min_size_for_auto_repeat(&css, false, Some(container_h), &resolve);
     let (rows, row_lines) = match css.grid_template_rows.as_deref() {
+        Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+            let s = super::subgrid::subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref());
+            (vec![GridTrack::Auto; s], vec![Vec::new(); s + 1])
+        }
         Some(GridTemplate::Tracks(t)) => {
-            let (tr, _, rl) = super::tracks::expand_auto_repeats(t, 0.0, row_gap);
+            let (tr, _, rl) = super::tracks::expand_auto_repeats(t, container_h, row_gap, min_row_s);
             (tr, rl)
         }
         _ => (Vec::new(), Vec::new()),
@@ -111,7 +125,15 @@ fn grid_content_width(
         false,
         false,
     );
+    let explicit_cols_n = col_tracks.len();
+    let mut col_tracks = col_tracks;
     let ncols = ncols.max(placed_cols);
+    while col_tracks.len() < ncols {
+        let idx = col_tracks.len().saturating_sub(explicit_cols_n);
+        let tr = css.grid_auto_columns.as_ref()
+            .map_or(crate::style::GridTrack::Auto, |t| t.track_at(idx).clone());
+        col_tracks.push(tr);
+    }
 
     let mut wmax = vec![0.0f32; ncols];
     let mut wmin = vec![0.0f32; ncols];

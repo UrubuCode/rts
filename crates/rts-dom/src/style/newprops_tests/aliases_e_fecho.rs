@@ -129,6 +129,11 @@ fn grid_auto_columns_usa_o_mesmo_tipo_de_trilha_que_a_irma() {
     );
     // e a irmã continua a responder o que respondia.
     assert!(parse_inline("grid-auto-rows: 1fr").grid_auto_rows.is_some());
+    let multi = parse_inline("grid-auto-columns: 0px 100%");
+    let auto_col = multi.grid_auto_columns.expect("multi track auto-columns");
+    assert_eq!(auto_col.track_at(0), &GridTrack::Fixed(Dimension::Px(0.0)));
+    assert_eq!(auto_col.track_at(1), &GridTrack::Fixed(Dimension::Percent(100.0)));
+    assert_eq!(auto_col.track_at(2), &GridTrack::Fixed(Dimension::Px(0.0)));
 }
 
 #[test]

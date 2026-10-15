@@ -100,7 +100,13 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "grid-auto-rows" => {
             set_if(
                 &mut css.grid_auto_rows,
-                crate::style::GridTrack::parse_one(val),
+                crate::style::GridTrack::parse_auto(val),
+            );
+        }
+        "grid-auto-columns" => {
+            set_if(
+                &mut css.grid_auto_columns,
+                crate::style::GridTrack::parse_auto(val),
             );
         }
         "justify-items" => {

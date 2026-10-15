@@ -229,10 +229,8 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             }
         }
         "grid-auto-flow" => set_if(&mut css.grid_auto_flow, GridAutoFlow::parse(val)),
-        // `grid-auto-columns` — o tamanho das colunas IMPLÍCITAS. `grid-auto-rows`
-        // não está aqui porque já tem braço próprio no `parse` e é CONSUMIDA
-        // pelo layout; esta é a metade que faltava, com o mesmo tipo.
-        "grid-auto-columns" => set_if(&mut css.grid_auto_columns, super::GridTrack::parse_one(val)),
+        "grid-auto-columns" => set_if(&mut css.grid_auto_columns, super::GridTrack::parse_auto(val)),
+        "grid-auto-rows" => set_if(&mut css.grid_auto_rows, super::GridTrack::parse_auto(val)),
         // `grid-gap` é o nome ANTIGO de `gap` — alias puro, e a folha que o
         // escreve escreve-o sozinho. Reentrega ao `parse`, que já sabe expandir
         // o par; uma segunda expansão aqui divergia da primeira.

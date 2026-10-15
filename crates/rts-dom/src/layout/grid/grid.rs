@@ -42,27 +42,24 @@ pub(in crate::layout) fn layout_children_grid(
         .unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
 
     let areas = css.grid_template_areas.clone();
+    let container_content_h = container_content_h.or_else(|| aspect::find_containing_block_height(dom, id));
+    let is_p_grid = subgrid::is_parent_grid(dom, id);
     let (col_tracks, col_collapsible, col_lines) =
-        subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap);
+        subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid);
     let explicit_cols_n = col_tracks.len();
 
     let tree = std::rc::Rc::clone(&list.tree);
     let children: Vec<GridItem> = collect_items(dom, &tree, container);
     let (explicit_rows, row_collapsible, row_lines) =
-        subgrid::init_row_tracks(row_sub, css, container_content_h, row_gap);
+        subgrid::init_row_tracks(row_sub, css, container_content_h, row_gap, &resolve, is_p_grid);
     let has_oof = tree
         .children_without_generated(container)
         .iter()
         .any(|&b| tree.node_of(b).map_or(false, |n| is_out_of_flow(dom, n)));
     if children.is_empty() && !has_oof {
-        let h: f32 = explicit_rows.iter().map(|t| match t {
-            crate::style::GridTrack::Fixed(d) => {
-                resolve_height(Some(*d), container_content_h, &resolve).unwrap_or(0.0)
-            }
-            _ => 0.0,
-        }).sum();
-        let gaps = explicit_rows.len().saturating_sub(1) as f32 * row_gap;
-        return (content_w, h + gaps);
+        return aspect::empty_grid_dimensions(
+            &col_tracks, &explicit_rows, col_gap, row_gap, content_w, container_content_h, css, &resolve,
+        );
     }
     let explicit_rows_n = explicit_rows.len();
     let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
@@ -85,11 +82,10 @@ pub(in crate::layout) fn layout_children_grid(
     let mut col_collapsible = col_collapsible;
     if col_sub.is_none() {
         while col_tracks.len() < ncols_colocados {
-            col_tracks.push(
-                css.grid_auto_columns
-                    .clone()
-                    .unwrap_or(crate::style::GridTrack::Auto),
-            );
+            let idx = col_tracks.len().saturating_sub(explicit_cols_n);
+            let tr = css.grid_auto_columns.as_ref()
+                .map_or(crate::style::GridTrack::Auto, |t| t.track_at(idx).clone());
+            col_tracks.push(tr);
             col_collapsible.push(false);
         }
     }

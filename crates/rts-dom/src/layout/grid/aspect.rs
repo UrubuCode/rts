@@ -29,7 +29,10 @@ pub(in crate::layout) fn definite_area_height(
 ) -> Option<f32> {
     let mut sum = 0.0;
     for r in r0..r1.max(r0 + 1) {
-        match explicit_rows.get(r).or(auto_row)? {
+        let track = explicit_rows
+            .get(r)
+            .or_else(|| auto_row.map(|t| t.track_at(r.saturating_sub(explicit_rows.len()))))?;
+        match track {
             GridTrack::Fixed(d) => sum += resolve_height(Some(*d), container_h, resolve)?,
             _ => return None,
         }
@@ -133,7 +136,7 @@ pub(in crate::layout) fn intrinsic_floor(
     let areas = css.grid_template_areas.clone();
     let (ncols, col_lines) = match css.grid_template_columns.as_deref() {
         Some(crate::style::GridTemplate::Tracks(t)) => {
-            let (tr, _, cl) = super::tracks::expand_auto_repeats(t, 0.0, col_gap);
+            let (tr, _, cl) = super::tracks::expand_auto_repeats(t, 0.0, col_gap, None);
             (tr.len(), cl)
         }
         _ => {
@@ -147,7 +150,7 @@ pub(in crate::layout) fn intrinsic_floor(
     let ncols = ncols.max(1);
     let (rows, row_lines) = match css.grid_template_rows.as_deref() {
         Some(crate::style::GridTemplate::Tracks(t)) => {
-            let (tr, _, rl) = super::tracks::expand_auto_repeats(t, own_h.unwrap_or(0.0), row_gap);
+            let (tr, _, rl) = super::tracks::expand_auto_repeats(t, own_h.unwrap_or(0.0), row_gap, None);
             (tr, rl)
         }
         _ => (Vec::new(), Vec::new()),
@@ -204,7 +207,7 @@ pub(in crate::layout) fn resolve_standalone_row_tracks(
         .and_then(|d| d.resolve(resolve))
         .unwrap_or(0.0)
         .max(0.0);
-    let (expanded, _, _) = super::tracks::expand_auto_repeats(t, 0.0, gap);
+    let (expanded, _, _) = super::tracks::expand_auto_repeats(t, 0.0, gap, None);
     let h = css
         .height
         .and_then(|d| resolve_height(Some(d), container_h, resolve))
@@ -241,4 +244,111 @@ pub(in crate::layout) fn resolve_standalone_row_tracks(
         })
         .collect();
     Some(sizes)
+}
+
+pub(in crate::layout) fn find_containing_block_height(dom: &Dom, id: NodeIdx) -> Option<f32> {
+    let mut curr = dom.node(id).parent;
+    while let Some(pid) = curr {
+        if let Some(pcss) = dom.computed_style_idx(pid) {
+            if let Some(crate::style::Dimension::Px(px)) = pcss.height {
+                if px > 0.0 {
+                    return Some(px);
+                }
+            }
+        }
+        curr = dom.node(pid).parent;
+    }
+    None
+}
+
+pub(in crate::layout) fn container_min_size_for_auto_repeat(
+    css: &ComputedStyle,
+    is_col: bool,
+    container_h: Option<f32>,
+    resolve: &ResolveCtx,
+) -> Option<f32> {
+    if is_col {
+        if let Some(mw) = css.min_width.and_then(|d| d.resolve(resolve)) {
+            if mw > 0.0 {
+                return Some(mw);
+            }
+        }
+        if let Some(r) = aspect_ratio::declared_ratio(css) {
+            if let Some(mnh) = resolve_height(css.min_height, container_h, resolve) {
+                let border_box = css.border_box.unwrap_or(false);
+                let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
+                let fh = css.padding.resolve_h(resolve) + bl + br;
+                let fv = css.padding.resolve_v(resolve) + bt + bb;
+                let h = if border_box { (mnh - fv).max(0.0) } else { mnh };
+                let w = h * r;
+                let outer_w = if border_box { w + fh } else { w };
+                return Some(outer_w);
+            }
+        }
+    } else {
+        if let Some(mh) = resolve_height(css.min_height, container_h, resolve) {
+            if mh > 0.0 {
+                return Some(mh);
+            }
+        }
+        if let Some(r) = aspect_ratio::declared_ratio(css) {
+            if let Some(mnw) = css.min_width.and_then(|d| d.resolve(resolve)) {
+                let border_box = css.border_box.unwrap_or(false);
+                let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
+                let fh = css.padding.resolve_h(resolve) + bl + br;
+                let fv = css.padding.resolve_v(resolve) + bt + bb;
+                let w = if border_box { (mnw - fh).max(0.0) } else { mnw };
+                let h = w / r;
+                let outer_h = if border_box { h + fv } else { h };
+                return Some(outer_h);
+            }
+        }
+    }
+    None
+}
+
+pub(in crate::layout) fn empty_grid_dimensions(
+    col_tracks: &[crate::style::GridTrack],
+    explicit_rows: &[crate::style::GridTrack],
+    col_gap: f32,
+    row_gap: f32,
+    content_w: f32,
+    container_h: Option<f32>,
+    css: &ComputedStyle,
+    resolve: &ResolveCtx,
+) -> (f32, f32) {
+    let w = if col_tracks.is_empty() {
+        content_w
+    } else {
+        col_tracks
+            .iter()
+            .map(|t| match t {
+                crate::style::GridTrack::Fixed(d) => d.resolve(resolve).unwrap_or(0.0),
+                _ => 0.0,
+            })
+            .sum::<f32>()
+            + col_tracks.len().saturating_sub(1) as f32 * col_gap
+    };
+    let has_definite_w = css.width.is_some()
+        && !matches!(
+            css.width,
+            Some(crate::style::Dimension::MinContent) | Some(crate::style::Dimension::MaxContent)
+        );
+    let final_w = if has_definite_w { content_w } else { w };
+    let h: f32 = explicit_rows
+        .iter()
+        .map(|t| match t {
+            crate::style::GridTrack::Fixed(d) => {
+                resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0)
+            }
+            _ => 0.0,
+        })
+        .sum();
+    let gaps = explicit_rows.len().saturating_sub(1) as f32 * row_gap;
+    let final_h = if explicit_rows.is_empty() {
+        aspect_ratio::height_for_width(css, final_w, 0.0, 0.0).unwrap_or(0.0)
+    } else {
+        h + gaps
+    };
+    (final_w, final_h)
 }

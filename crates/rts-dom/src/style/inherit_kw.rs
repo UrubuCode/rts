@@ -233,6 +233,28 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "height" => dst.height = src.height,
         "align-self" => dst.align_self = src.align_self,
         "justify-self" => dst.justify_self = src.justify_self,
+        "grid-template-areas" => dst.grid_template_areas = src.grid_template_areas.clone(),
+        "grid-template-columns" => dst.grid_template_columns = src.grid_template_columns.clone(),
+        "grid-template-rows" => dst.grid_template_rows = src.grid_template_rows.clone(),
+        "grid-template" => {
+            dst.grid_template_rows = src.grid_template_rows.clone();
+            dst.grid_template_columns = src.grid_template_columns.clone();
+            dst.grid_template_areas = src.grid_template_areas.clone();
+        }
+        "grid" => {
+            dst.grid_template_rows = src.grid_template_rows.clone();
+            dst.grid_template_columns = src.grid_template_columns.clone();
+            dst.grid_template_areas = src.grid_template_areas.clone();
+            dst.grid_auto_rows = src.grid_auto_rows.clone();
+            dst.grid_auto_columns = src.grid_auto_columns.clone();
+            dst.grid_auto_flow = src.grid_auto_flow;
+        }
+        "grid-auto-columns" => dst.grid_auto_columns = src.grid_auto_columns.clone(),
+        "grid-auto-rows" => dst.grid_auto_rows = src.grid_auto_rows.clone(),
+        "grid-auto-flow" => dst.grid_auto_flow = src.grid_auto_flow,
+        "grid-gap" | "gap" => dst.gap = src.gap,
+        "grid-row-gap" | "row-gap" => dst.row_gap = src.row_gap,
+        "grid-column-gap" | "column-gap" => dst.gap = src.gap,
         // Uma propriedade fora desta lista não é um erro: `inherit` nela fica sem
         // efeito, exatamente como antes de este módulo existir. Acrescentar uma
         // linha aqui é o que a faz passar a funcionar.
