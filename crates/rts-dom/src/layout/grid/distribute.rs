@@ -57,7 +57,12 @@ pub(in crate::layout) fn grid_item_min_content_width(
         }
         return min_floor.max(frame_h);
     }
-    let content = crate::table::min_content(dom, child, f, ctx);
+    let mut content = crate::table::min_content(dom, child, f, ctx);
+    if css.min_width.is_none() {
+        if let Some(mx) = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, child, f, ctx, resolve) {
+            content = content.min(mx + frame_h);
+        }
+    }
     content.max(min_floor)
 }
 

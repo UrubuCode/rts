@@ -415,21 +415,35 @@ pub(in crate::layout) fn resolve_row_tracks(
                     if let Some(T::Fr(f)) = row_track(r) { row_sizes[r] = free * f.max(0.0) / sum_fr; }
                 }
             } else {
-                let auto_rows: Vec<usize> = (0..nrows).filter(|&r| matches!(row_track(r), None | Some(T::Auto))).collect();
+                let min_of_row = |r: usize| match row_track(r) {
+                    Some(T::Fixed(d)) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+                    Some(T::Bounded { min, .. }) => resolve_height(Some(*min), container_h, resolve).unwrap_or(0.0),
+                    Some(T::Intrinsic { min, .. }) => match min {
+                        B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+                        B::MinContent | B::Auto => min_row_h.get(r).copied().unwrap_or(0.0),
+                        B::MaxContent => content_row_h.get(r).copied().unwrap_or(0.0),
+                        B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+                    },
+                    _ => min_row_h.get(r).copied().unwrap_or(0.0),
+                };
                 let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
-                if !auto_rows.is_empty() && ch > current_used {
-                    let each = (ch - current_used) / auto_rows.len() as f32;
-                    for r in auto_rows { row_sizes[r] += each; }
-                } else if !auto_rows.is_empty() && current_used > ch {
+                if ch > current_used {
+                    let auto_rows: Vec<usize> = (0..nrows).filter(|&r| matches!(row_track(r), None | Some(T::Auto))).collect();
+                    if !auto_rows.is_empty() {
+                        let each = (ch - current_used) / auto_rows.len() as f32;
+                        for r in auto_rows { row_sizes[r] += each; }
+                    }
+                } else if current_used > ch {
                     let overflow = current_used - ch;
-                    let reducible: f32 = auto_rows
+                    let non_fixed: Vec<usize> = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fixed(_)))).collect();
+                    let reducible: f32 = non_fixed
                         .iter()
-                        .map(|&r| (row_sizes[r] - min_row_h.get(r).copied().unwrap_or(0.0)).max(0.0))
+                        .map(|&r| (row_sizes[r] - min_of_row(r)).max(0.0))
                         .sum();
                     if reducible > 0.0 {
                         let factor = (overflow / reducible).min(1.0);
-                        for &r in &auto_rows {
-                            let can_reduce = (row_sizes[r] - min_row_h.get(r).copied().unwrap_or(0.0)).max(0.0);
+                        for &r in &non_fixed {
+                            let can_reduce = (row_sizes[r] - min_of_row(r)).max(0.0);
                             row_sizes[r] -= can_reduce * factor;
                         }
                     }
