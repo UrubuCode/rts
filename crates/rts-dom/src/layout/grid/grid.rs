@@ -42,7 +42,6 @@ pub(in crate::layout) fn layout_children_grid(
         .unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
 
     let areas = css.grid_template_areas.clone();
-    let container_content_h = container_content_h.or_else(|| aspect::find_containing_block_height(dom, id));
     let is_p_grid = subgrid::is_parent_grid(dom, id);
     let (col_tracks, col_collapsible, col_lines) =
         subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid);

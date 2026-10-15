@@ -93,3 +93,31 @@ fn rodape_desce_para_depois_da_row_do_meio() {
     let r = rect_de("rodape");
     assert!(bate(r, 0.0, 360.0, 600.0, 40.0), "#rodape: {r:?}");
 }
+
+#[test]
+fn grid_item_overflow_auto_max_height_percentage() {
+    let html = r#"<style>
+.webconsole-app { display: grid; height: 200px; }
+.sidebar { display: flex; flex: 1; flex-direction: row; height: 100%; background: blue; }
+.controlled { display: flex; overflow: auto; }
+.sidebar-wrapper { display: grid; grid-template-columns: 100px; grid-template-rows: 50px 1fr; overflow: hidden; }
+.sidebar-contents { grid-row: 2 / 3; overflow: auto; max-height: 100%; }
+</style>
+<div class="webconsole-app" id="app">
+  <div class="sidebar" id="sb">
+    <div class="controlled" id="ctrl">
+      <div class="sidebar-wrapper" id="wrap">
+        <div></div>
+        <div class="sidebar-contents" id="cont">
+          <div style="height:400px; background: grey" id="grey"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>"#;
+    let (dom, list) = geometria(html, 1280.0);
+    let r_sb = rect(&dom, &list, "#sb", 0);
+    let r_cont = rect(&dom, &list, "#cont", 0);
+    assert_eq!(r_sb.h, 450.0);
+    assert_eq!(r_cont.h, 400.0);
+}
