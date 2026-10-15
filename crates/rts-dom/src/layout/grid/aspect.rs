@@ -181,6 +181,7 @@ pub(in crate::layout) fn grid_item_min_content_width(
 pub(in crate::layout) fn grid_item_min_content_height(
     dom: &Dom,
     child: NodeIdx,
+    content_h: f32,
     cell_w: f32,
     _font_size: f32,
     resolve: &ResolveCtx,
@@ -192,32 +193,28 @@ pub(in crate::layout) fn grid_item_min_content_height(
     let frame_h = css.padding.resolve_h(resolve) + bl + br;
     if let Some(min_h) = css.min_height.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return min_h + frame_v;
+    } else if css.min_height.is_some() {
+        return frame_v;
     }
     use crate::scrollbar::Overflow::{Clip, Visible};
-    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
-    if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
+    let axis_vis = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    if !axis_vis(css.overflow_x) || !axis_vis(css.overflow_y) {
         return frame_v;
     }
     if let Some(h) = css.height.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return h + frame_v;
     }
     let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
-    let has_ratio = is_rep || aspect_ratio::declared_ratio(&css).is_some();
-    if has_ratio {
+    if is_rep || aspect_ratio::declared_ratio(&css).is_some() {
         if let Some(w) = css.width.and_then(|d| d.resolve(resolve)).or_else(|| (cell_w > 0.0).then_some(cell_w)) {
-            let content_w = (w - frame_h).max(0.0);
-            if let Some((_, h)) = crate::inline_box::replaced_inline_size(
-                dom, child, &css, content_w, None, (Some(content_w), None), ctx,
-            ) {
-                return h + css.margin.resolve_v(resolve);
-            }
-            if let Some(h) = aspect_ratio::height_for_width(&css, content_w, frame_h, frame_v) {
-                return h + frame_v;
-            }
+            let cw = (w - frame_h).max(0.0);
+            let rep_h = crate::inline_box::replaced_inline_size(dom, child, &css, cw, None, (Some(cw), None), ctx).map(|(_, h)| h + css.margin.resolve_v(resolve));
+            return rep_h.or_else(|| aspect_ratio::height_for_width(&css, cw, frame_h, frame_v).map(|h| h + frame_v)).unwrap_or(frame_v);
         }
         return frame_v;
     }
-    frame_v
+    let mxh = css.max_height.and_then(|d| crate::style::dimensao_absoluta(d, resolve));
+    mxh.map_or(content_h, |m| content_h.min(m + frame_v))
 }
 
 pub(in crate::layout) fn resolve_specified_suggestion(
