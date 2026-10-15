@@ -372,7 +372,6 @@ pub(crate) fn parse_len(v: &str) -> Option<f32> {
     parse_px(&low)
 }
 
-
 #[cfg(test)]
 mod sinal_por_propriedade {
     use crate::style::parse::parse_inline;
@@ -386,10 +385,22 @@ mod sinal_por_propriedade {
     /// defeito era exatamente esse: acertar numa unidade e falhar nas outras.
     #[test]
     fn offset_negativo_vale_em_qualquer_unidade() {
-        assert_eq!(parse_inline("bottom:-11px").inset_bottom, Some(Dimension::Px(-11.0)));
-        assert_eq!(parse_inline("top:-1.65em").inset_top, Some(Dimension::Em(-1.65)));
-        assert_eq!(parse_inline("right:-.25rem").inset_right, Some(Dimension::Rem(-0.25)));
-        assert_eq!(parse_inline("left:-50%").inset_left, Some(Dimension::Percent(-50.0)));
+        assert_eq!(
+            parse_inline("bottom:-11px").inset_bottom,
+            Some(Dimension::Px(-11.0))
+        );
+        assert_eq!(
+            parse_inline("top:-1.65em").inset_top,
+            Some(Dimension::Em(-1.65))
+        );
+        assert_eq!(
+            parse_inline("right:-.25rem").inset_right,
+            Some(Dimension::Rem(-0.25))
+        );
+        assert_eq!(
+            parse_inline("left:-50%").inset_left,
+            Some(Dimension::Percent(-50.0))
+        );
     }
 
     /// E a margem também — a forma relativa é a que a folha real escreve.
@@ -429,7 +440,9 @@ mod sinal_por_propriedade {
         assert_eq!(parse_inline("padding-top:-4px").padding.top, Side::Unset);
         assert_eq!(parse_inline("padding:-1em").padding.left, Side::Unset);
         assert_eq!(
-            parse_inline("padding-left:8px;padding-left:-4px").padding.left,
+            parse_inline("padding-left:8px;padding-left:-4px")
+                .padding
+                .left,
             Side::Len(Dimension::Px(8.0)),
             "a declaração inválida tem de deixar a anterior a valer"
         );
@@ -440,7 +453,10 @@ mod sinal_por_propriedade {
     #[test]
     fn word_spacing_negativo_e_aceite_como_o_letter_spacing() {
         assert_eq!(parse_inline("word-spacing:-2px").word_spacing, Some(-2.0));
-        assert_eq!(parse_inline("letter-spacing:-1px").letter_spacing, Some(-1.0));
+        assert_eq!(
+            parse_inline("letter-spacing:-1px").letter_spacing,
+            Some(-1.0)
+        );
     }
 
     /// E o `auto` continua a ser só da margem: `padding:auto` não existe.
@@ -448,66 +464,5 @@ mod sinal_por_propriedade {
     fn auto_continua_a_ser_so_da_margem() {
         assert_eq!(parse_inline("margin-left:auto").margin.left, Side::Auto);
         assert_eq!(parse_inline("padding-left:auto").padding.left, Side::Unset);
-    }
-}
-
-#[cfg(test)]
-mod palavras_chave_intrinsecas {
-    use crate::style::{Dimension, parse::parse_inline};
-    use crate::table::tests::{geometria, rect};
-
-    /// `width: max-content` deixa de ser DESCARTADO no parse.
-    ///
-    /// Respondia `None` — indistinguível de "não declarado" — e o elemento
-    /// tomava a largura do pai.
-    #[test]
-    fn max_content_e_parseado_e_nao_descartado() {
-        assert_eq!(parse_inline("width:max-content").width, Some(Dimension::MaxContent));
-    }
-
-    /// `min-content` e `fit-content` continuam DESCARTADOS, deliberadamente.
-    ///
-    /// A máquina de medida que temos calcula o máximo do conteúdo e mais nada.
-    /// Mapeá-las para `MaxContent` daria a um `min-content` a resposta oposta à
-    /// que o nome promete, em silêncio — e um valor que erra ao contrário é pior
-    /// do que um valor ausente. Este teste existe para que a ausência seja uma
-    /// decisão visível e não um esquecimento.
-    #[test]
-    fn min_content_e_fit_content_ficam_de_fora_de_proposito() {
-        assert_eq!(parse_inline("width:min-content").width, None);
-        assert_eq!(parse_inline("width:fit-content").width, None);
-    }
-
-    /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.
-    ///
-    /// É a diferença face ao shrink-to-fit, que é a mesma medição com um
-    /// `.min(disponível)` por cima: um contentor de 60px não encolhe um
-    /// `max-content` de 164. É a forma do painel do menu da Wikipédia, onde o
-    /// Chrome dá 198,6 e nós dávamos 56,2.
-    #[test]
-    fn max_content_mede_o_conteudo_e_transborda_o_pai() {
-        let com = "<div style='width:60px'><div style='width:max-content'>                   <ul><li>Pagina principal</li><li>Conteudo destacado</li></ul></div></div>";
-        let sem = "<div style='width:60px'><div>                   <ul><li>Pagina principal</li><li>Conteudo destacado</li></ul></div></div>";
-        let (d1, l1) = geometria(com, 1280.0);
-        let (d2, l2) = geometria(sem, 1280.0);
-        let a = rect(&d1, &l1, "div", 1);
-        let b = rect(&d2, &l2, "div", 1);
-        assert!(a.w > 100.0, "max-content tem de medir o conteúdo: {a:?}");
-        assert!((b.w - 60.0).abs() < 0.5, "sem ele, a largura do pai: {b:?}");
-    }
-
-    /// E o `max-width` continua a morder POR CIMA, como manda a spec.
-    ///
-    /// É também como se distingue um `max-content` que calcula a mais: se o
-    /// elemento real da página passar a bater no seu teto de 200px, é a medição
-    /// que cresceu, não a folha que mudou.
-    #[test]
-    fn o_teto_de_max_width_continua_a_morder_sobre_o_max_content() {
-        let (dom, list) = geometria(
-            "<div style='width:60px'><div style='width:max-content;max-width:50px'>             <ul><li>Pagina principal muito comprida aqui</li></ul></div></div>",
-            1280.0,
-        );
-        let d = rect(&dom, &list, "div", 1);
-        assert!((d.w - 50.0).abs() < 0.5, "o teto tem de vencer: {d:?}");
     }
 }

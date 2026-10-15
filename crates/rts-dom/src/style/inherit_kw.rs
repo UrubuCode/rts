@@ -97,6 +97,8 @@ pub(crate) fn clear_inherit_for_field(dst: &mut ComputedStyle, field: &str) {
         "list_style_type" => &["list-style-type", "list-style"],
         "list_style_position" => &["list-style-position", "list-style"],
         "pointer_events" => &["pointer-events"],
+        "align_self" => &["align-self"],
+        "justify_self" => &["justify-self"],
         _ => &[],
     };
     for name in names {
@@ -135,6 +137,8 @@ pub(crate) fn clear_initial_for_field(dst: &mut ComputedStyle, field: &str) {
         "list_style_type" => &["list-style-type", "list-style"],
         "list_style_position" => &["list-style-position", "list-style"],
         "pointer_events" => &["pointer-events"],
+        "align_self" => &["align-self"],
+        "justify_self" => &["justify-self"],
         _ => &[],
     };
     for name in names {
@@ -227,6 +231,8 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "z-index" => dst.z_index = src.z_index,
         "width" => dst.width = src.width,
         "height" => dst.height = src.height,
+        "align-self" => dst.align_self = src.align_self,
+        "justify-self" => dst.justify_self = src.justify_self,
         // Uma propriedade fora desta lista não é um erro: `inherit` nela fica sem
         // efeito, exatamente como antes de este módulo existir. Acrescentar uma
         // linha aqui é o que a faz passar a funcionar.
@@ -282,7 +288,10 @@ mod tests {
              font-style:italic;line-height:2",
         );
         let mut filho = parse_inline("font:inherit");
-        assert!(filho.font_size.is_none(), "o parse não escreve valor nenhum");
+        assert!(
+            filho.font_size.is_none(),
+            "o parse não escreve valor nenhum"
+        );
         copy_property(&mut filho, &pai, "font");
         assert_eq!(filho.font_size, pai.font_size, "font-size");
         assert_eq!(filho.font_family, pai.font_family, "font-family");

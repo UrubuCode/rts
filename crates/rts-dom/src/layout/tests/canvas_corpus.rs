@@ -7,7 +7,9 @@ use crate::table::tests::rect;
 /// a medida ignorava a borda (15×10 onde o Blink dá 17×12).
 #[test]
 fn canvas_is_an_inline_atom_like_an_image() {
-    let dom = parse_html_to_dom(include_str!("../../../../../tests/css/claude-canvas-inline.html"));
+    let dom = parse_html_to_dom(include_str!(
+        "../../../../../tests/css/claude-canvas-inline.html"
+    ));
     let ctx = LayoutCtx {
         viewport_w: 1280.0,
         viewport_h: 800.0,
@@ -40,7 +42,9 @@ fn canvas_is_an_inline_atom_like_an_image() {
 /// está por decidir.
 #[test]
 fn a_percentage_width_with_no_basis_does_not_become_infinite() {
-    let dom = parse_html_to_dom(include_str!("../../../../../tests/css/claude-canvas-inline.html"));
+    let dom = parse_html_to_dom(include_str!(
+        "../../../../../tests/css/claude-canvas-inline.html"
+    ));
     let ctx = LayoutCtx {
         viewport_w: 1280.0,
         viewport_h: 800.0,

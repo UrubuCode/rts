@@ -20,5 +20,9 @@ pub fn set_highlight(handle: u64, node: Option<NodeId>) {
 
 /// The highlighted node of document `handle`, if any.
 pub fn highlight(handle: u64) -> Option<NodeId> {
-    HIGHLIGHT.with(|cell| cell.get().filter(|(h, _)| *h == handle).map(|(_, node)| node))
+    HIGHLIGHT.with(|cell| {
+        cell.get()
+            .filter(|(h, _)| *h == handle)
+            .map(|(_, node)| node)
+    })
 }

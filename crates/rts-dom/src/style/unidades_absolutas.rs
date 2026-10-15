@@ -66,8 +66,14 @@ mod testes {
         // porque `unwrap()` de um `None` nunca chegava a comparar.
         let mm = parse_absoluta("10mm", false).unwrap();
         let cm = parse_absoluta("1cm", false).unwrap();
-        assert!((mm - cm).abs() < 0.01, "10mm = {mm}, 1cm = {cm} — deviam ser iguais");
-        assert!((mm - 96.0 / 2.54).abs() < 0.01, "10mm = {mm}, esperado 96/2.54");
+        assert!(
+            (mm - cm).abs() < 0.01,
+            "10mm = {mm}, 1cm = {cm} — deviam ser iguais"
+        );
+        assert!(
+            (mm - 96.0 / 2.54).abs() < 0.01,
+            "10mm = {mm}, esperado 96/2.54"
+        );
     }
 
     /// `q` (quarto de milímetro) — `101.6q` = `1in` (2540 centésimos / 25).

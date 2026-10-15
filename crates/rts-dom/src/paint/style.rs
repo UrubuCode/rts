@@ -33,7 +33,11 @@ pub(crate) fn decoration_code(css: &ComputedStyle) -> u8 {
 ///
 /// Sem este ramo, um `<em>` sem regra de autor não fica itálico nenhum — o mapa
 /// da UA não tinha, até aqui, UM ÚNICO leitor em todo o motor.
-pub(crate) fn italico(css: Option<&crate::style::ComputedStyle>, tag: Option<&str>, herdado: bool) -> bool {
+pub(crate) fn italico(
+    css: Option<&crate::style::ComputedStyle>,
+    tag: Option<&str>,
+    herdado: bool,
+) -> bool {
     if let Some(v) = css.and_then(|c| c.italic) {
         return v;
     }
@@ -59,4 +63,3 @@ pub(crate) fn apply_opacity(color: u32, opacity: f32) -> u32 {
     let new_a = (a * op).round().clamp(0.0, 255.0) as u32;
     (color & 0xFFFF_FF00) | new_a
 }
-

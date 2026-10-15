@@ -356,9 +356,9 @@ macro_rules! css_props {
     (@lerp $other:ident, $f:ident, $out:ident, $from:expr, $to:expr, $t:expr) => {};
 }
 
-mod tabela;
 mod metodos;
 mod slots;
+mod tabela;
 
-pub use tabela::*;
 pub use slots::*;
+pub use tabela::*;

@@ -51,7 +51,8 @@ pub(in crate::layout) fn scroll_children_width(
     let free_break = display == crate::block::DISPLAY_WRAP && !ov_x.scrollable();
     let no_compress = ov_x.scrollable() || ov_x.clips();
     if no_compress && !free_break {
-        crate::layout::measure::measure::intrinsic_content_width(dom, id, font_size, ctx).max(content_w)
+        crate::layout::measure::measure::intrinsic_content_width(dom, id, font_size, ctx)
+            .max(content_w)
     } else {
         content_w
     }

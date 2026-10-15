@@ -19,7 +19,11 @@ div { font: 20px/1 Ahem; }
 </style>
 <div class="test"> XX</div>"#;
     let (dom, list) = geometria(html, 800.0);
-    assert_eq!(rect(&dom, &list, ".test", 0).h, 40.0, "' ' / 'XX': two lines");
+    assert_eq!(
+        rect(&dom, &list, ".test", 0).h,
+        40.0,
+        "' ' / 'XX': two lines"
+    );
 }
 
 /// `break-spaces-005`: 88 preserved spaces between two words in a 10ch box
@@ -35,7 +39,11 @@ div {{ font: 10px/1 Ahem; }}
 <div class="test">XXXX{spaces}XXXX</div>"#
     );
     let (dom, list) = geometria(&html, 800.0);
-    assert_eq!(rect(&dom, &list, ".test", 0).h, 100.0, "4+6 / 8×10 / 2+4: ten lines");
+    assert_eq!(
+        rect(&dom, &list, ".test", 0).h,
+        100.0,
+        "4+6 / 8×10 / 2+4: ten lines"
+    );
 }
 
 /// `break-spaces-tab-003`: in a 1ch box every tab is ONE unit with an

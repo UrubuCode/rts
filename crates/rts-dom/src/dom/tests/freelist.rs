@@ -85,7 +85,10 @@ fn reciclagem_purga_estado_lateral_por_no() {
 
     let novo_id = dom.create_element("input");
     let novo_idx = dom.resolve(novo_id).unwrap();
-    assert_eq!(novo_idx, velho_idx, "pina o reuso do mesmo idx — ver o teste acima");
+    assert_eq!(
+        novo_idx, velho_idx,
+        "pina o reuso do mesmo idx — ver o teste acima"
+    );
     assert_eq!(
         dom.input_value(novo_idx),
         "",
@@ -104,7 +107,10 @@ fn release_subtree_de_no_ainda_anexado_e_um_no_op() {
     let pico = dom.nodes.len();
 
     dom.release_subtree(p); // p continua filho de raiz — não desanexado
-    assert!(dom.resolve(p).is_some(), "release_subtree reciclou um nó vivo");
+    assert!(
+        dom.resolve(p).is_some(),
+        "release_subtree reciclou um nó vivo"
+    );
     let raiz_idx = dom.resolve(raiz).unwrap();
     assert_eq!(dom.node(raiz_idx).children.len(), 1);
     assert_eq!(dom.nodes.len(), pico);

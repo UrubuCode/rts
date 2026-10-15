@@ -27,11 +27,18 @@ const HTML_START_END: &str = r#"<style>
 #[test]
 fn justify_start_end_sao_logicos_e_invariantes_a_row_reverse() {
     let (dom, list) = geometria(HTML_START_END, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y)
+    };
     assert_eq!(r("#a3"), (0.0, 0.0), "start: a3 encostado a esquerda");
     assert_eq!(r("#a2"), (88.0, 0.0));
     assert_eq!(r("#a1"), (176.0, 0.0));
-    assert_eq!(r("#b3"), (64.0, 48.0), "end: b3 encostado a direita (free=64)");
+    assert_eq!(
+        r("#b3"),
+        (64.0, 48.0),
+        "end: b3 encostado a direita (free=64)"
+    );
     assert_eq!(r("#b2"), (152.0, 48.0));
     assert_eq!(r("#b1"), (240.0, 48.0));
 }
@@ -53,11 +60,18 @@ const HTML_LEFT_COLUMN: &str = r#"<style>
 #[test]
 fn justify_left_numa_coluna_embala_sempre_no_topo() {
     let (dom, list) = geometria(HTML_LEFT_COLUMN, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y)
+    };
     assert_eq!(r("#p1"), (0.0, 0.0), "column: ordem normal, ja batia");
     assert_eq!(r("#p2"), (0.0, 80.0));
     assert_eq!(r("#p3"), (0.0, 160.0));
-    assert_eq!(r("#q3"), (108.0, 0.0), "column-reverse: ordem visual invertida, TOPO");
+    assert_eq!(
+        r("#q3"),
+        (108.0, 0.0),
+        "column-reverse: ordem visual invertida, TOPO"
+    );
     assert_eq!(r("#q2"), (108.0, 80.0));
     assert_eq!(r("#q1"), (108.0, 160.0));
 }
@@ -137,9 +151,20 @@ const HTML_RTL_TRANSBORDA: &str = r#"<style>
 #[test]
 fn direction_rtl_transborda_pela_esquerda_no_bloco_e_na_coluna() {
     let (dom, list) = geometria(HTML_RTL_TRANSBORDA, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#b"), (0.0, 0.0, 304.0, 34.0));
-    assert_eq!(r("#bf"), (-198.0, 2.0, 500.0, 30.0), "bloco: margem direita encostada, transborda a esquerda");
+    assert_eq!(
+        r("#bf"),
+        (-198.0, 2.0, 500.0, 30.0),
+        "bloco: margem direita encostada, transborda a esquerda"
+    );
     assert_eq!(r("#f"), (0.0, 44.0, 304.0, 34.0));
-    assert_eq!(r("#ff"), (-198.0, 46.0, 500.0, 30.0), "flex coluna: MESMA caixa do bloco");
+    assert_eq!(
+        r("#ff"),
+        (-198.0, 46.0, 500.0, 30.0),
+        "flex coluna: MESMA caixa do bloco"
+    );
 }

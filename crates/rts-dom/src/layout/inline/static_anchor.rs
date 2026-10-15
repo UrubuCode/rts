@@ -33,7 +33,13 @@ use crate::boxes::BoxId;
 /// line and the inlines around it do not count it as content. Returning early
 /// here is also what keeps the walk from descending into the box and leaking
 /// its text into the line.
-pub(in crate::layout) fn anchor(dom: &Dom, id: NodeIdx, box_id: BoxId, color: u32, owners: &[NodeIdx]) -> Option<InlineRun> {
+pub(in crate::layout) fn anchor(
+    dom: &Dom,
+    id: NodeIdx,
+    box_id: BoxId,
+    color: u32,
+    owners: &[NodeIdx],
+) -> Option<InlineRun> {
     is_out_of_flow(dom, id).then(|| InlineRun {
         text: String::new(),
         color,
@@ -108,13 +114,33 @@ pub(in crate::layout) fn anchors_only_line(
     cb_h: Option<f32>,
     ctx: &LayoutCtx,
 ) -> bool {
-    let anchors_only = line.iter().all(|s| matches!(s.atomic, Some((_, _, AtomicKind::Float | AtomicKind::StaticAnchor))));
+    let anchors_only = line.iter().all(|s| {
+        matches!(
+            s.atomic,
+            Some((_, _, AtomicKind::Float | AtomicKind::StaticAnchor))
+        )
+    });
     if anchors_only {
         let start = list.pieces.len();
         for s in line {
             if let Some(atomic) = s.atomic {
-                let (rx, ry) = crate::layout::positioned::relative::inline_offset(dom, s.owners.last().copied(), content_w, cb_h, ctx);
-                outside_line(dom, atomic, flow_x + rx, flow_x + rx, cy + ry, cy + ry, start, list);
+                let (rx, ry) = crate::layout::positioned::relative::inline_offset(
+                    dom,
+                    s.owners.last().copied(),
+                    content_w,
+                    cb_h,
+                    ctx,
+                );
+                outside_line(
+                    dom,
+                    atomic,
+                    flow_x + rx,
+                    flow_x + rx,
+                    cy + ry,
+                    cy + ry,
+                    start,
+                    list,
+                );
             }
         }
     }
@@ -161,7 +187,9 @@ pub(in crate::layout) fn in_block_flow(
 fn was_block(dom: &Dom, id: NodeIdx) -> bool {
     match dom.computed_style_idx(id).and_then(|c| c.display) {
         Some(d) => !d.is_inline_level(),
-        None => matches!(&dom.node(id).kind, NodeKind::Element { tag } if crate::block::lookup(tag).is_some()),
+        None => {
+            matches!(&dom.node(id).kind, NodeKind::Element { tag } if crate::block::lookup(tag).is_some())
+        }
     }
 }
 
@@ -170,13 +198,19 @@ fn was_block(dom: &Dom, id: NodeIdx) -> bool {
 pub(in crate::layout) fn all(list: &DisplayList) -> Vec<(NodeIdx, Rect)> {
     let mut out = Vec::new();
     let mut add = |tree: &crate::boxes::BoxTree, a: &[(BoxId, f32, f32, f32)], dx: f32, dy: f32| {
-        out.extend(a.iter().filter_map(|&(b, x, y, w)| Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, w, 0.0)))));
+        out.extend(a.iter().filter_map(|&(b, x, y, w)| {
+            Some((tree.node_of(b)?, Rect::new(x + dx, y + dy, w, 0.0)))
+        }));
     };
     add(&list.tree, &list.static_anchors, 0.0, 0.0);
-    let mut stack: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces).map(|c| (c, c.dx, c.dy)).collect();
+    let mut stack: Vec<(&ChildRef, f32, f32)> = crate::paint::pieces::children(&list.pieces)
+        .map(|c| (c, c.dx, c.dy))
+        .collect();
     while let Some((c, dx, dy)) = stack.pop() {
         add(&c.fragment.tree, &c.fragment.static_anchors, dx, dy);
-        stack.extend(crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)));
+        stack.extend(
+            crate::paint::pieces::children(&c.fragment.pieces).map(|n| (n, dx + n.dx, dy + n.dy)),
+        );
     }
     out
 }

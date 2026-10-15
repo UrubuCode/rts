@@ -34,7 +34,10 @@ fn coluna_com_altura_fixa_encolhe_os_itens_em_vez_de_transbordar() {
   <div id="d"></div>
 </div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#f"), (0.0, 0.0, 100.0, 100.0));
     assert_eq!(r("#a"), (0.0, 0.0, 100.0, 25.0), "100/4 itens = 25 cada");
     assert_eq!(r("#b"), (0.0, 25.0, 100.0, 25.0));
@@ -54,9 +57,16 @@ fn item_de_coluna_com_overflow_scroll_encolhe_ate_ao_espaco_do_contentor() {
 </style>
 <div id="contentor"><div id="item"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#contentor"), (0.0, 0.0, 80.0, 80.0));
-    assert_eq!(r("#item"), (0.0, 0.0, 80.0, 80.0), "encolhe a 80, não cresce a 200");
+    assert_eq!(
+        r("#item"),
+        (0.0, 0.0, 80.0, 80.0),
+        "encolhe a 80, não cresce a 200"
+    );
 }
 
 #[test]
@@ -73,10 +83,21 @@ fn flex_basis_percentual_em_coluna_resolve_contra_a_altura_e_encolhe() {
 </style>
 <div id="pai"><div id="c"><div id="topo"></div><div id="resto"></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#c"), (0.0, 0.0, 320.0, 240.0));
-    assert_eq!(r("#topo"), (0.0, 0.0, 320.0, 40.0), "48 de base, encolhe 8 -> 40");
-    assert_eq!(r("#resto"), (0.0, 40.0, 320.0, 200.0), "240 de base, encolhe 40 -> 200");
+    assert_eq!(
+        r("#topo"),
+        (0.0, 0.0, 320.0, 40.0),
+        "48 de base, encolhe 8 -> 40"
+    );
+    assert_eq!(
+        r("#resto"),
+        (0.0, 40.0, 320.0, 200.0),
+        "240 de base, encolhe 40 -> 200"
+    );
 }
 
 #[test]
@@ -99,13 +120,28 @@ fn row_gap_percentual_resolve_contra_a_altura_e_vira_normal_quando_indefinida() 
 <div class="a" id="A"><div id="a1"></div><div id="a2"></div></div>
 <div class="b" id="B"><div id="b1"></div><div id="b2"></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#A"), (0.0, 0.0, 64.0, 200.0));
     assert_eq!(r("#a1"), (0.0, 0.0, 48.0, 40.0));
-    assert_eq!(r("#a2"), (0.0, 110.0, 48.0, 40.0), "linhas esticadas (90 cada) + gap 20% de 200 = 20");
-    assert_eq!(r("#B"), (0.0, 200.0, 200.0, 80.0), "altura auto: soma sem gap (40+0+40)");
+    assert_eq!(
+        r("#a2"),
+        (0.0, 110.0, 48.0, 40.0),
+        "linhas esticadas (90 cada) + gap 20% de 200 = 20"
+    );
+    assert_eq!(
+        r("#B"),
+        (0.0, 200.0, 200.0, 80.0),
+        "altura auto: soma sem gap (40+0+40)"
+    );
     assert_eq!(r("#b1"), (0.0, 200.0, 120.0, 40.0));
-    assert_eq!(r("#b2"), (0.0, 240.0, 120.0, 40.0), "row-gap 20% de altura indefinida = normal (0)");
+    assert_eq!(
+        r("#b2"),
+        (0.0, 240.0, 120.0, 40.0),
+        "row-gap 20% de altura indefinida = normal (0)"
+    );
 }
 
 #[test]
@@ -125,10 +161,21 @@ fn min_height_conta_como_altura_definida_para_stretch_e_height_percentual() {
   </div>
 </div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#ext"), (0.0, 0.0, 200.0, 100.0));
-    assert_eq!(r("#item"), (0.0, 0.0, 100.0, 100.0), "estica ao min-height do pai");
-    assert_eq!(r("#neto"), (0.0, 0.0, 100.0, 100.0), "height:100% do item, não 0");
+    assert_eq!(
+        r("#item"),
+        (0.0, 0.0, 100.0, 100.0),
+        "estica ao min-height do pai"
+    );
+    assert_eq!(
+        r("#neto"),
+        (0.0, 0.0, 100.0, 100.0),
+        "height:100% do item, não 0"
+    );
 }
 
 #[test]
@@ -158,11 +205,26 @@ fn flex_shrink_zero_flex_basis_content_e_min_height_min_content_nao_encolhem() {
 <div class="col" id="cb"><div id="b">X<br>X<br>X<br>X</div></div>
 <div class="col" id="cc"><div id="c">X<br>X<br>X</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // `.col > div { width: 40px }` remedido no Edge: a largura DECLARADA
     // (não mais shrink-to-fit sobre "X") bate exata com o `.esperado.json`
     // e não depende do `ApproxMeasurer` vs. o medidor real do Blink.
-    assert_eq!(r("#a"), (0.0, 0.0, 40.0, 60.0), "flex-shrink:0 + flex-basis:content: não encolhe");
-    assert_eq!(r("#b"), (0.0, 100.0, 40.0, 80.0), "min-height:min-content declarado sobrevive ao overflow:auto");
-    assert_eq!(r("#c"), (0.0, 200.0, 40.0, 40.0), "flex:0 1 auto + min-height:0: encolhe até ao contentor (o caso que já tinha)");
+    assert_eq!(
+        r("#a"),
+        (0.0, 0.0, 40.0, 60.0),
+        "flex-shrink:0 + flex-basis:content: não encolhe"
+    );
+    assert_eq!(
+        r("#b"),
+        (0.0, 100.0, 40.0, 80.0),
+        "min-height:min-content declarado sobrevive ao overflow:auto"
+    );
+    assert_eq!(
+        r("#c"),
+        (0.0, 200.0, 40.0, 40.0),
+        "flex:0 1 auto + min-height:0: encolhe até ao contentor (o caso que já tinha)"
+    );
 }

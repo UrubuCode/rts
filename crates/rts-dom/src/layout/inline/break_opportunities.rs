@@ -50,15 +50,31 @@ pub(crate) fn inside_word(m: &dyn TextMeasurer, word: &str, keep_all: bool) -> V
         .into_iter()
         .filter(|&i| i > 0 && i < word.len())
         .filter(|&i| !word[..i].ends_with(super::hyphen::SHY))
-        .filter(|&i| !(keep_all && letter(word[..i].chars().next_back()) && letter(word[i..].chars().next())))
+        .filter(|&i| {
+            !(keep_all && letter(word[..i].chars().next_back()) && letter(word[i..].chars().next()))
+        })
         .collect()
 }
 
 /// `word` cut at [`inside_word`]'s offsets — one piece when it has none, or
 /// when `wraps` is false (`nowrap`, `pre`: no soft wrap opportunity at all).
-pub(crate) fn pieces<'a>(m: &dyn TextMeasurer, word: &'a str, wraps: bool, keep_all: bool) -> Pieces<'a> {
-    let cuts = if wraps { inside_word(m, word, keep_all) } else { Vec::new() };
-    Pieces { word, cuts: cuts.into_iter(), from: 0, done: false }
+pub(crate) fn pieces<'a>(
+    m: &dyn TextMeasurer,
+    word: &'a str,
+    wraps: bool,
+    keep_all: bool,
+) -> Pieces<'a> {
+    let cuts = if wraps {
+        inside_word(m, word, keep_all)
+    } else {
+        Vec::new()
+    };
+    Pieces {
+        word,
+        cuts: cuts.into_iter(),
+        from: 0,
+        done: false,
+    }
 }
 
 pub(crate) struct Pieces<'a> {
@@ -92,7 +108,10 @@ pub(crate) fn cluster_ends(m: &dyn TextMeasurer, text: &str) -> Vec<usize> {
     if text.is_ascii() {
         return (1..=text.len()).collect();
     }
-    m.grapheme_boundaries(text).into_iter().filter(|&i| i > 0).collect()
+    m.grapheme_boundaries(text)
+        .into_iter()
+        .filter(|&i| i > 0)
+        .collect()
 }
 
 /// The length of `text`'s first grapheme cluster — what a line too narrow for

@@ -62,7 +62,11 @@ impl Dom {
     /// `NodeId` só para ler um par de `f32`. A API pensada para o BRIDGE
     /// (que só tem o `NodeId` da ABI) é `scroll_of`.
     pub fn scroll_of_idx(&self, idx: NodeIdx) -> (f32, f32) {
-        self.scroll_regioes.borrow().get(&idx).copied().unwrap_or((0.0, 0.0))
+        self.scroll_regioes
+            .borrow()
+            .get(&idx)
+            .copied()
+            .unwrap_or((0.0, 0.0))
     }
 
     /// O offset de scroll da PÁGINA, `(x, y)`.
@@ -90,7 +94,12 @@ impl Dom {
         let list = crate::layout::layout_document(self, &ctx);
         let geometry = list.geometry_now();
         if let Some(region) = geometry.scroll_regions.iter().find(|r| r.node_idx == idx) {
-            return (region.content_w, region.content_h, region.visible.w, region.visible.h);
+            return (
+                region.content_w,
+                region.content_h,
+                region.visible.w,
+                region.visible.h,
+            );
         }
         match list.rect_of_in(&geometry, idx) {
             Some(r) => (r.w, r.h, r.w, r.h),
@@ -158,7 +167,12 @@ impl Dom {
             .scroll_regions
             .iter()
             .find(|r| r.node_idx == idx)
-            .map(|r| ((r.content_w - r.visible.w).max(0.0), (r.content_h - r.visible.h).max(0.0)))
+            .map(|r| {
+                (
+                    (r.content_w - r.visible.w).max(0.0),
+                    (r.content_h - r.visible.h).max(0.0),
+                )
+            })
             .unwrap_or((0.0, 0.0));
         self.set_scroll_extent_idx(idx, x, y, max_x, max_y);
     }
@@ -178,7 +192,12 @@ impl Dom {
     /// `NodeId` só para desempacotar de volta não pagaria nada.
     pub fn set_scroll_extent_idx(&mut self, idx: NodeIdx, x: f32, y: f32, max_x: f32, max_y: f32) {
         let clamped = (x.clamp(0.0, max_x.max(0.0)), y.clamp(0.0, max_y.max(0.0)));
-        let prev = self.scroll_regioes.borrow().get(&idx).copied().unwrap_or((0.0, 0.0));
+        let prev = self
+            .scroll_regioes
+            .borrow()
+            .get(&idx)
+            .copied()
+            .unwrap_or((0.0, 0.0));
         if prev == clamped {
             return;
         }
@@ -252,7 +271,9 @@ impl Dom {
         };
         let list = crate::layout::layout_document(self, &ctx);
         let geometry = list.geometry_now();
-        let Some(&target_rect) = geometry.rects.get(&idx) else { return };
+        let Some(&target_rect) = geometry.rects.get(&idx) else {
+            return;
+        };
         let mut cur = self.nodes[idx].parent;
         while let Some(a) = cur {
             if let Some(region) = geometry.scroll_regions.iter().find(|r| r.node_idx == a) {

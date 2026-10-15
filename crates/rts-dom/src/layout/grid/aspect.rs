@@ -10,8 +10,8 @@
 //! already sized) — so the three readers above ask one function and cannot
 //! disagree about what the item is worth.
 
-use super::*;
 use super::lines::{collect_items, place_grid_items};
+use super::*;
 use crate::layout::measure::aspect_ratio;
 use crate::style::{Dimension, GridTrack};
 
@@ -72,8 +72,14 @@ pub(in crate::layout) fn ratio_outer_width(
     let mxh = resolve_height(css.max_height, area_h, &resolve).map(|v| content(v, frame_v));
     let h = crate::style::clamp_size(h, mnh, mxh);
     let w = aspect_ratio::width_for_height(&css, h, frame_h, frame_v)?;
-    let mnw = css.min_width.and_then(|d| d.resolve(&resolve)).map(|v| content(v, frame_h));
-    let mxw = css.max_width.and_then(|d| d.resolve(&resolve)).map(|v| content(v, frame_h));
+    let mnw = css
+        .min_width
+        .and_then(|d| d.resolve(&resolve))
+        .map(|v| content(v, frame_h));
+    let mxw = css
+        .max_width
+        .and_then(|d| d.resolve(&resolve))
+        .map(|v| content(v, frame_h));
     let w = crate::style::clamp_size(w, mnw, mxw);
     Some(w + frame_h + css.margin.resolve_h(&resolve))
 }
@@ -97,7 +103,10 @@ pub(in crate::layout) fn intrinsic_floor(
 ) -> Option<f32> {
     // The same question `block.rs` asks before it hands a box to the grid.
     let css = dom.computed_style_idx(id)?;
-    if !css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) {
+    if !css
+        .effective_display()
+        .is_some_and(crate::style::DisplayKind::is_grid_container)
+    {
         return None;
     }
     let items = collect_items(dom, tree, box_id);
@@ -143,10 +152,12 @@ pub(in crate::layout) fn intrinsic_floor(
         }
         _ => (Vec::new(), Vec::new()),
     };
-    let flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
-        column: false,
-        dense: false,
-    });
+    let flow = css
+        .grid_auto_flow
+        .unwrap_or(crate::style::grid_lines::GridAutoFlow {
+            column: false,
+            dense: false,
+        });
     let (cells, ncols) = place_grid_items(
         dom,
         &items,
@@ -156,6 +167,8 @@ pub(in crate::layout) fn intrinsic_floor(
         ncols,
         rows.len(),
         flow,
+        false,
+        false,
     );
     let ncols = ncols.max(1);
     let mut floors = vec![0.0f32; ncols];
@@ -174,4 +187,58 @@ pub(in crate::layout) fn intrinsic_floor(
     }
     let widest: f32 = floors.iter().sum();
     (widest > 0.0).then(|| widest + (floors.len() - 1) as f32 * col_gap)
+}
+
+pub(in crate::layout) fn resolve_standalone_row_tracks(
+    css: &ComputedStyle,
+    container_h: Option<f32>,
+    resolve: &ResolveCtx,
+) -> Option<Vec<f32>> {
+    let t = match css.grid_template_rows.as_deref() {
+        Some(crate::style::GridTemplate::Tracks(t)) => t,
+        _ => return None,
+    };
+    let gap = css
+        .gap
+        .or(css.row_gap)
+        .and_then(|d| d.resolve(resolve))
+        .unwrap_or(0.0)
+        .max(0.0);
+    let (expanded, _, _) = super::tracks::expand_auto_repeats(t, 0.0, gap);
+    let h = css
+        .height
+        .and_then(|d| resolve_height(Some(d), container_h, resolve))
+        .or(container_h);
+    let mut fixed_sum = 0.0f32;
+    let mut total_fr = 0.0f32;
+    for track in &expanded {
+        match track {
+            crate::style::GridTrack::Fixed(d) => {
+                fixed_sum += resolve_height(Some(*d), h, resolve).unwrap_or(0.0);
+            }
+            crate::style::GridTrack::Fr(fr) => {
+                total_fr += fr;
+            }
+            _ => {}
+        }
+    }
+    let total_gaps = expanded.len().saturating_sub(1) as f32 * gap;
+    let flex_share = if total_fr > 0.0 {
+        if let Some(tot) = h {
+            (tot - fixed_sum - total_gaps).max(0.0) / total_fr
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+    let sizes = expanded
+        .into_iter()
+        .map(|track| match track {
+            crate::style::GridTrack::Fixed(d) => resolve_height(Some(d), h, resolve).unwrap_or(0.0),
+            crate::style::GridTrack::Fr(fr) => fr * flex_share,
+            _ => 0.0,
+        })
+        .collect();
+    Some(sizes)
 }

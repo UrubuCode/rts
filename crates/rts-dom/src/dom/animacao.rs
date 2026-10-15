@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     // ── Animação (#1776) — o LOOP INTERNO ao DOM ─────────────────────────────────
 
     /// `advance(now_ms)` — avança TODAS as animações para o instante `now_ms` (ms do

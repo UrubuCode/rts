@@ -268,8 +268,14 @@ mod tests {
             !avalia("not selector(:focus-visible)"),
             "o desconhecido tem de atravessar o `not`, senão a precaução inverte-se"
         );
-        assert!(!avalia("(color: red) and selector(:x)"), "o and herda o não-sei");
-        assert!(avalia("(color: red) or selector(:x)"), "mas um `true` do or decide");
+        assert!(
+            !avalia("(color: red) and selector(:x)"),
+            "o and herda o não-sei"
+        );
+        assert!(
+            avalia("(color: red) or selector(:x)"),
+            "mas um `true` do or decide"
+        );
         assert!(!avalia(""));
     }
 

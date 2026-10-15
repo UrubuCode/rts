@@ -6,8 +6,8 @@
 //! 2026-09-04): com `flex-wrap` e altura definida, delega para
 //! `column_wrap.rs` — ver o comentário no parâmetro.
 
-use super::*;
 pub(in crate::layout) use super::offsets::{align_offset, justify_offsets};
+use super::*;
 
 /// `justify-content` (`physical_to_column` — físicos/lógicos resolvidos e
 /// invariantes a `column-reverse`, ver o comentário lá — e depois espelhado
@@ -78,10 +78,24 @@ pub(in crate::layout) fn layout_children_column(
             // `eixo_x_forward` já ignora `direction` (o eixo de bloco não o
             // lê), então forçar LTR aqui não perde nada nesse caso.
             let wrap_reverse = super::axes::effective_wrap_reverse(
-                css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
+                css.writing_mode.unwrap_or_default(),
+                crate::style::Direction::Ltr,
+                true,
+                css.flex_wrap,
             );
             return super::column_wrap::layout_children_column_wrap(
-                dom, container, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
+                dom,
+                container,
+                content_x,
+                content_y,
+                content_w,
+                h,
+                css,
+                font_size,
+                reverse,
+                wrap_reverse,
+                ctx,
+                list,
             );
         }
     }
@@ -182,9 +196,29 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if stretched {
-            measure_block(dom, child, box_id, content_w, container_content_h, None, None, false, ctx).1
+            measure_block(
+                dom,
+                child,
+                box_id,
+                content_w,
+                container_content_h,
+                None,
+                None,
+                false,
+                ctx,
+            )
+            .1
         } else {
-            child_outer_height(dom, child, box_id, content_w, container_content_h, css, font_size, ctx)
+            child_outer_height(
+                dom,
+                child,
+                box_id,
+                content_w,
+                container_content_h,
+                css,
+                font_size,
+                ctx,
+            )
         };
         let child_font = font_px(&ccss, font_size);
         let child_resolve = ResolveCtx {
@@ -194,7 +228,16 @@ pub(in crate::layout) fn layout_children_column(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, container_content_h, &child_resolve, ctx);
+        let min_main = super::column_shrink::min_main(
+            dom,
+            child,
+            box_id,
+            &ccss,
+            natural_h,
+            container_content_h,
+            &child_resolve,
+            ctx,
+        );
         // Uma percentagem de flex-basis num container de altura indefinida
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
@@ -209,20 +252,19 @@ pub(in crate::layout) fn layout_children_column(
         // MESMA linha (22px, nao 40) e tres floats lado a lado idem (16px, nao
         // 40). Aplicar a soma a todos custava esses dois reftests para ganhar
         // um — o oposto do que o lote queria.
-        let declared_height = !matches!(
-            ccss.height,
-            None | Some(crate::style::Dimension::Auto)
-        );
+        let declared_height = !matches!(ccss.height, None | Some(crate::style::Dimension::Auto));
         let basis_from_content = (ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
             && declared_height)
             || (matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
                 && container_content_h.is_none());
-        let base_natural_h = if basis_from_content
-        {
+        let base_natural_h = if basis_from_content {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::column_shrink::content_height_without_height(
                 dom, box_id, &ccss, content_w, child_font, ctx,
-            ) + bt + bb + ccss.padding.resolve_v(&child_resolve) + ccss.margin.resolve_v(&child_resolve)
+            ) + bt
+                + bb
+                + ccss.padding.resolve_v(&child_resolve)
+                + ccss.margin.resolve_v(&child_resolve)
         } else {
             natural_h
         };
@@ -411,7 +453,14 @@ pub(in crate::layout) fn layout_children_column(
                 // `iw == content_w` e o espelho devolvia `content_x` (sem
                 // transbordo nenhum) onde o Chrome transborda pela esquerda
                 // (`claude-rtl-filho-transborda`).
-                super::column_rtl::cross_x(css.direction, css.writing_mode, content_x, content_w, x_ltr, w)
+                super::column_rtl::cross_x(
+                    css.direction,
+                    css.writing_mode,
+                    content_x,
+                    content_w,
+                    x_ltr,
+                    w,
+                )
             };
             // O `main` do PASSO 2 (grow, shrink, ou inalterado) é IMPOSTO ao
             // item como altura outer — DURA (`hard`): vence `height`/
@@ -464,20 +513,33 @@ pub(in crate::layout) fn layout_children_column(
 /// o eixo de bloco existe (`start`=topo, `end`=fundo, como numa LINHA). Os
 /// quatro ficam invariantes a `column-reverse` — só a ORDEM dos itens
 /// inverte, nunca o lado do empacotamento.
-fn physical_to_column(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
+fn physical_to_column(
+    j: crate::style::JustifyContent,
+    reverse: bool,
+) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
         J::Left | J::Right | J::Start => {
-            if reverse { J::FlexEnd } else { J::FlexStart }
+            if reverse {
+                J::FlexEnd
+            } else {
+                J::FlexStart
+            }
         }
         J::End => {
-            if reverse { J::FlexStart } else { J::FlexEnd }
+            if reverse {
+                J::FlexStart
+            } else {
+                J::FlexEnd
+            }
         }
         j => j,
     }
 }
 
-pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crate::style::JustifyContent {
+pub(in crate::layout) fn mirror_justify(
+    j: crate::style::JustifyContent,
+) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
         J::FlexStart => J::FlexEnd,

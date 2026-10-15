@@ -24,18 +24,41 @@ fn campos(c: &ComputedStyle) -> Vec<(&'static str, bool)> {
         ("transform-origin", c.transform_origin.is_some()),
         ("object-fit", c.object_fit.is_some()),
         ("object-position", c.object_position.is_some()),
-        ("background-image url()", c.bg_image.as_deref().is_some_and(|u| u.contains("url("))),
+        (
+            "background-image url()",
+            c.bg_image.as_deref().is_some_and(|u| u.contains("url(")),
+        ),
         // O ESQUEMA decide se e pintavel sem rede. O corpus nao tem rede: um
         // `url(https://…)` regista a intencao e nao pinta pixel nenhum.
-        ("  url(data:) pintavel", c.bg_image.as_deref().is_some_and(|u| u.contains("url(\"data:") || u.contains("url(data:"))),
-        ("  url(remoto) precisa de rede", c.bg_image.as_deref().is_some_and(|u| {
-            let t = u.trim_start_matches("url(").trim_start_matches('"').trim_start_matches('\'');
-            u.contains("url(") && (t.starts_with("http") || t.starts_with("//"))
-        })),
-        ("  url(relativo)", c.bg_image.as_deref().is_some_and(|u| {
-            let t = u.trim_start_matches("url(").trim_start_matches('"').trim_start_matches('\'');
-            u.contains("url(") && !t.starts_with("http") && !t.starts_with("//") && !t.starts_with("data:")
-        })),
+        (
+            "  url(data:) pintavel",
+            c.bg_image
+                .as_deref()
+                .is_some_and(|u| u.contains("url(\"data:") || u.contains("url(data:")),
+        ),
+        (
+            "  url(remoto) precisa de rede",
+            c.bg_image.as_deref().is_some_and(|u| {
+                let t = u
+                    .trim_start_matches("url(")
+                    .trim_start_matches('"')
+                    .trim_start_matches('\'');
+                u.contains("url(") && (t.starts_with("http") || t.starts_with("//"))
+            }),
+        ),
+        (
+            "  url(relativo)",
+            c.bg_image.as_deref().is_some_and(|u| {
+                let t = u
+                    .trim_start_matches("url(")
+                    .trim_start_matches('"')
+                    .trim_start_matches('\'');
+                u.contains("url(")
+                    && !t.starts_with("http")
+                    && !t.starts_with("//")
+                    && !t.starts_with("data:")
+            }),
+        ),
         ("background-position", c.bg_position.is_some()),
         ("background-size", c.bg_size.is_some()),
         ("background-repeat", c.bg_repeat.is_some()),
@@ -48,11 +71,35 @@ fn campos(c: &ComputedStyle) -> Vec<(&'static str, bool)> {
         // NAO-DEFAULT: `ter valor` nao e `mudar alguma coisa`. `direction:ltr` e
         // `tab-size:8` sao os iniciais — contar essas como candidatas inflaciona
         // a coluna com elementos onde honrar a propriedade nao move um pixel.
-        ("direction != ltr", matches!(c.direction, Some(crate::style::Direction::Rtl))),
+        (
+            "direction != ltr",
+            matches!(c.direction, Some(crate::style::Direction::Rtl)),
+        ),
         ("tab-size != 8", c.tab_size.is_some_and(|v| v != 8.0)),
-        ("caption-side != top", matches!(c.caption_side, Some(crate::style::vocab::CaptionSide::Bottom))),
-        ("scrollbar-width != auto", matches!(c.scrollbar_width, Some(crate::style::vocab::ScrollbarWidth::Thin | crate::style::vocab::ScrollbarWidth::None))),
-        ("pointer-events != auto", matches!(c.pointer_events, Some(crate::style::vocab::PointerEvents::None))),
+        (
+            "caption-side != top",
+            matches!(
+                c.caption_side,
+                Some(crate::style::vocab::CaptionSide::Bottom)
+            ),
+        ),
+        (
+            "scrollbar-width != auto",
+            matches!(
+                c.scrollbar_width,
+                Some(
+                    crate::style::vocab::ScrollbarWidth::Thin
+                        | crate::style::vocab::ScrollbarWidth::None
+                )
+            ),
+        ),
+        (
+            "pointer-events != auto",
+            matches!(
+                c.pointer_events,
+                Some(crate::style::vocab::PointerEvents::None)
+            ),
+        ),
         ("tab-size", c.tab_size.is_some()),
         ("direction", c.direction.is_some()),
         ("cursor", c.cursor.is_some()),
@@ -100,7 +147,10 @@ fn elementos_com_valor_efetivo() {
         // `pagina.html` traz 13 835 bytes de `<style>` e o `pagina.css` tem
         // 257 592. É a armadilha que o `docs/ui/css-support.md` já documenta
         // ("a combinada JÁ embute a folha") e eu caí nela na primeira passagem.
-        let css_path = format!("{raiz}/{}", pg.trim_end_matches(".html").to_string() + ".css");
+        let css_path = format!(
+            "{raiz}/{}",
+            pg.trim_end_matches(".html").to_string() + ".css"
+        );
         let mut bytes_css = 0usize;
         if let Ok(css) = std::fs::read_to_string(&css_path) {
             bytes_css = css.len();
@@ -143,7 +193,10 @@ fn elementos_com_valor_efetivo() {
         soma += n;
     }
     println!("SONDA TOTAL DE NOS: {soma}");
-    println!("SONDA --- elementos com valor efetivo, somando as {} paginas:", por_pagina.len());
+    println!(
+        "SONDA --- elementos com valor efetivo, somando as {} paginas:",
+        por_pagina.len()
+    );
     let mut linhas: Vec<_> = total.into_iter().collect();
     linhas.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     for (nome, n) in &linhas {

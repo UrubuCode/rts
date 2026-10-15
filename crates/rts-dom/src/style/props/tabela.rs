@@ -107,34 +107,19 @@ css_props! {
         /// `layout/block/block.rs` e `layout/block/box_kind.rs` — quatro ficheiros fora deste
         /// crate-módulo, dois deles de outra gente. O campo à parte diz a mesma
         /// coisa sem partir um único `match` exaustivo, que é o mesmo arranjo
-        /// que o `border_box` acima já faz para o `box-sizing`.
-        ///
-        /// **A distinção é o único conteúdo da palavra**: `flow-root` existe
-        /// para dizer "sou um contexto de formatação", e sem este campo o parse
-        /// aceitava-a e deitava fora a única coisa que a separa de `block`.
         [] flow_root: bool; [] display_contents: bool; // `contents`: see `parse/fluxo.rs`
         [] border_box: bool;
-        /// `display` parseado do CSS (block/flex/inline/none). `None` = não
-        /// declarado (o layout usa o default da tag via `block::lookup`). Combina
-        /// com `flex_wrap`.
+        /// Subgrid disabled by independent formatting context (contain:layout/paint, container-type).
+        [] disables_subgrid: bool;
+        /// `display` parseado do CSS (block/flex/inline/none). Combina com `flex_wrap`.
         [] display: DisplayKind;
-        /// `flex-wrap: nowrap|wrap|wrap-reverse` — só relevante com
-        /// `display:flex`; `Wrap`/`WrapReverse` promovem `Flex` a `FlexWrap` na
-        /// resolução (`effective_display`). `None` = nowrap. UMA representação
-        /// só: `WrapReverse` inverte a ordem das LINHAS/COLUNAS no eixo cruzado
-        /// (CSS Flexbox §5.3, `layout/flex/column_wrap.rs` inclusive), nunca a ordem
-        /// dos itens dentro de cada uma — o `flex_wrap_reverse: bool` que o
-        /// lote `flex-column-wrap` acrescentou ao lado foi absorvido aqui.
+        /// `flex-wrap: nowrap|wrap|wrap-reverse`. `WrapReverse` inverte ordem das linhas/colunas.
         [] flex_wrap: FlexWrap;
         /// Mínimo de linhas pedido por `flex-line-count` (Flexbox Level 2).
-        /// Só participa quando `flex-wrap:balance`; `None` deixa o algoritmo
-        /// usar o número mínimo de linhas que cabe no main axis.
         [] flex_line_count: i32;
-        /// `justify-content` — distribuição no eixo principal do flex. `None` =
-        /// FlexStart.
+        /// `justify-content` — distribuição no eixo principal do flex. `None` = FlexStart.
         [] justify: JustifyContent;
         /// `align-items` — alinhamento no eixo cruzado. `None` = Stretch.
-        /// `Baseline` só tem efeito real na LINHA (`layout/flex_baseline.rs`).
         [] align_items: AlignItems;
         /// `gap`/`column-gap` — espaço FIXO entre itens no eixo principal (em row).
         [] gap: Dimension;
@@ -142,15 +127,9 @@ css_props! {
         [] row_gap: Dimension;
         /// `flex-direction` — eixo principal (row/column). `None` = Row.
         [] flex_direction: FlexDirection;
-        /// Nº de COLUNAS do grid (`grid-template-columns`), quando `display:grid`. O
-        /// layout dá a cada filho largura = (container - gaps) / N. `None`/1 = coluna
-        /// única. Extraído de `repeat(N, ...)` ou da contagem de trilhas explícitas.
+        /// Nº de COLUNAS do grid (`grid-template-columns`). `None`/1 = coluna única.
         [] grid_columns: i32;
-        /// `grid-area: <nome>` — o NOME da área nomeada em que este item vive. Só a
-        /// forma de nome único (a numérica `r / c / r / c` não é aceita — ver
-        /// `style::grid_areas::parse_grid_area_name`). `None` = colocação
-        /// automática. É o item que aponta para o container: quem casa nome com
-        /// retângulo é o `grid_template_areas` do PAI.
+        /// `grid-area: <nome>` — o NOME da área nomeada em que este item vive.
         [] grid_area: String;
         /// `flex-grow` — fração do espaço LIVRE do container que este item
         /// recebe (o `.col` do Bootstrap é `flex: 1 0 0%`). `None` = 0.

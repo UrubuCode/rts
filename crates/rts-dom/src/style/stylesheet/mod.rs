@@ -27,7 +27,9 @@
 //! atravessam o pipeline actual.
 
 pub(in crate::style::stylesheet) use super::props::ComputedStyle;
-pub(in crate::style::stylesheet) use super::selector::{ComplexSelector, PseudoClass, Selector, compound_matches};
+pub(in crate::style::stylesheet) use super::selector::{
+    ComplexSelector, PseudoClass, Selector, compound_matches,
+};
 
 // `MediaQuery`/`MediaContext` moveram-se para `stylesheet::media` (lote P,
 // §5.P) — a gramática completa (`not`/`only`/listas, orientation,
@@ -319,13 +321,13 @@ impl Stylesheet {
 use super::{Combinator, CompoundSelector, Position, PseudoElement, SimpleSelector};
 use super::{props, ruleindex, selector, vars};
 
-mod sheet;
-mod rules;
-mod revert;
-mod supports;
 mod media;
 mod property;
+mod revert;
+mod rules;
+mod sheet;
+mod supports;
 
-pub use rules::*;
 pub use media::{MediaContext, MediaQuery, PrefersColorScheme};
 pub use property::{CustomPropertyRegistry, PropertySyntax, RegisteredProperty};
+pub use rules::*;

@@ -69,7 +69,9 @@ pub(in crate::layout) fn layout_svg_placeholder(
             let v = v.trim();
             let sem_unidade = v.parse::<f32>().ok();
             sem_unidade
-                .or_else(|| crate::style::lengths::parse_dimension_pub(v).and_then(|d| d.resolve(&resolve)))
+                .or_else(|| {
+                    crate::style::lengths::parse_dimension_pub(v).and_then(|d| d.resolve(&resolve))
+                })
                 .filter(|n| *n > 0.0)
         })
     };
@@ -114,8 +116,14 @@ pub(in crate::layout) fn layout_svg_placeholder(
     // o outer devolvido conta-as — sem isto um `svg{margin-bottom:4px}` não
     // empurrava o irmão seguinte (`claude-svg-atributo-em`, y=16 vs 20).
     let m = &css.margin;
-    let (ml, mr) = (m.left.resolve(&resolve).unwrap_or(0.0), m.right.resolve(&resolve).unwrap_or(0.0));
-    let (mt, mb) = (m.top.resolve(&resolve).unwrap_or(0.0), m.bottom.resolve(&resolve).unwrap_or(0.0));
+    let (ml, mr) = (
+        m.left.resolve(&resolve).unwrap_or(0.0),
+        m.right.resolve(&resolve).unwrap_or(0.0),
+    );
+    let (mt, mb) = (
+        m.top.resolve(&resolve).unwrap_or(0.0),
+        m.bottom.resolve(&resolve).unwrap_or(0.0),
+    );
     let rect = Rect::new(x + ml, y + mt, w, h);
     // placeholder cinza-claro (a caixa do ícone) — só quando não é minúsculo demais.
     list.push_item(DisplayItem::SolidRect {
@@ -173,14 +181,25 @@ pub(in crate::layout) fn layout_image(
     // nunca via padding nenhum, então um `forced_outer_w` de 240 com
     // `padding:20px` chegava a `replaced_inline_size` como CONTEÚDO 240 em
     // vez de 200, e a razão de aspeto derivava a altura errada.
-    let [border_top, border_right, border_bottom, border_left] = crate::style::borders::used_widths(css);
+    let [border_top, border_right, border_bottom, border_left] =
+        crate::style::borders::used_widths(css);
     let p = &css.padding;
-    let (pad_left, pad_right) = (p.left.resolve(&resolve).unwrap_or(0.0), p.right.resolve(&resolve).unwrap_or(0.0));
-    let (pad_top, pad_bottom) = (p.top.resolve(&resolve).unwrap_or(0.0), p.bottom.resolve(&resolve).unwrap_or(0.0));
-    let forced_w = forced_outer_w
-        .map(|w| (w - margin_left - margin_right - border_left - border_right - pad_left - pad_right).max(0.0));
-    let forced_h = forced_outer_h
-        .map(|h| (h - margin_top - margin_bottom - border_top - border_bottom - pad_top - pad_bottom).max(0.0));
+    let (pad_left, pad_right) = (
+        p.left.resolve(&resolve).unwrap_or(0.0),
+        p.right.resolve(&resolve).unwrap_or(0.0),
+    );
+    let (pad_top, pad_bottom) = (
+        p.top.resolve(&resolve).unwrap_or(0.0),
+        p.bottom.resolve(&resolve).unwrap_or(0.0),
+    );
+    let forced_w = forced_outer_w.map(|w| {
+        (w - margin_left - margin_right - border_left - border_right - pad_left - pad_right)
+            .max(0.0)
+    });
+    let forced_h = forced_outer_h.map(|h| {
+        (h - margin_top - margin_bottom - border_top - border_bottom - pad_top - pad_bottom)
+            .max(0.0)
+    });
     // A CAIXA não depende de haver pixels, e é por isso que ela vem de
     // `replaced_inline_size` em vez de uma segunda cópia das mesmas regras: o
     // `width`/`height` do CSS ou do atributo HTML já decide, que é o que o
@@ -202,7 +221,15 @@ pub(in crate::layout) fn layout_image(
     //
     // A alternativa — manter a subtração e corrigi-la só para o `calc` — punha a
     // regra de resolução em dois sítios, que é o que este ficheiro já pagou.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (forced_w, forced_h), ctx)?;
+    let (w, h) = crate::inline_box::replaced_inline_size(
+        dom,
+        id,
+        css,
+        avail_w,
+        cb_h,
+        (forced_w, forced_h),
+        ctx,
+    )?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, box_id, rect);
     // O FUNDO da caixa pinta-se com ou sem pixels — um `<img>` com
@@ -211,8 +238,15 @@ pub(in crate::layout) fn layout_image(
     // de pintura via 0 itens). CORTE dito: a cor sai crua — sem `filter` nem
     // `opacity` do elemento, que o caminho do bloco aplica por `cor()`; e sem
     // borda pintada (v1 acima) — só reservada na caixa (`used_widths` acima).
-    if let Some(color) = css.bg.filter(|_| !crate::paint::decor::deve_suprimir_fundo(css)) {
-        list.push_item(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO });
+    if let Some(color) = css
+        .bg
+        .filter(|_| !crate::paint::decor::deve_suprimir_fundo(css))
+    {
+        list.push_item(DisplayItem::SolidRect {
+            rect,
+            color,
+            radius: Corners::ZERO,
+        });
     }
     // Os PIXELS pintam só o CONTENT-BOX — a borda/padding reservados acima na
     // caixa não são a imagem (CSS2 §10.3.2: `<img>` sizes the replaced content
@@ -231,8 +265,16 @@ pub(in crate::layout) fn layout_image(
     // canvas — o rasterizador da régua pinta-o sem handle table. CORTE dito:
     // a imagem estica à caixa (`object-fit: fill`); `contain`/`cover`/`none`
     // ainda não recortam nem centram.
-    if let Some((data, pw, ph)) = dom.pixel_data_of(id).filter(|(_, pw, ph)| *pw > 0 && *ph > 0) {
-        list.push_item(DisplayItem::Pixels { rect: content_rect, data, w: pw, h: ph });
+    if let Some((data, pw, ph)) = dom
+        .pixel_data_of(id)
+        .filter(|(_, pw, ph)| *pw > 0 && *ph > 0)
+    {
+        list.push_item(DisplayItem::Pixels {
+            rect: content_rect,
+            data,
+            w: pw,
+            h: ph,
+        });
     } else if let Some((handle, off, iw, ih)) = dom
         .image_of(id)
         .filter(|(h, _, iw, ih)| *h != 0 && *iw != 0 && *ih != 0)
@@ -297,7 +339,8 @@ pub(in crate::layout) fn layout_canvas(
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
-    let (w, h) = crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (None, None), ctx)?;
+    let (w, h) =
+        crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (None, None), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, box_id, rect);
     if let Some(color) = css.bg {
@@ -312,8 +355,14 @@ pub(in crate::layout) fn layout_canvas(
     // que acontecia enquanto a caixa e o desenho eram o mesmo rectângulo.
     let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
     let p = &css.padding;
-    let (pl, pr) = (p.left.resolve(&resolve).unwrap_or(0.0), p.right.resolve(&resolve).unwrap_or(0.0));
-    let (pt, pb) = (p.top.resolve(&resolve).unwrap_or(0.0), p.bottom.resolve(&resolve).unwrap_or(0.0));
+    let (pl, pr) = (
+        p.left.resolve(&resolve).unwrap_or(0.0),
+        p.right.resolve(&resolve).unwrap_or(0.0),
+    );
+    let (pt, pb) = (
+        p.top.resolve(&resolve).unwrap_or(0.0),
+        p.bottom.resolve(&resolve).unwrap_or(0.0),
+    );
     let content_rect = Rect::new(
         rect.x + bl + pl,
         rect.y + bt + pt,
@@ -335,4 +384,3 @@ pub(in crate::layout) fn layout_canvas(
         h + margin_top + margin_bottom,
     ))
 }
-

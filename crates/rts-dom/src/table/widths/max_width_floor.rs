@@ -12,6 +12,11 @@ pub(in crate::table::widths) fn comprimento_outer(
     resolve: &ResolveCtx,
     frame: f32,
 ) -> Option<f32> {
-    crate::style::dimensao_absoluta(d?, resolve)
-        .map(|w| w + if css.border_box.unwrap_or(false) { 0.0 } else { frame })
+    crate::style::dimensao_absoluta(d?, resolve).map(|w| {
+        w + if css.border_box.unwrap_or(false) {
+            0.0
+        } else {
+            frame
+        }
+    })
 }

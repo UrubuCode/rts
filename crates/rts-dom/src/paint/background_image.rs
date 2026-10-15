@@ -34,8 +34,8 @@
 use crate::dom::{Dom, NodeIdx};
 use crate::paint::item::DisplayItem;
 use crate::paint::list::Rect;
-use crate::style::ComputedStyle;
 use crate::style::BgRepeat;
+use crate::style::ComputedStyle;
 
 /// Os itens de `Pixels` (mais o `BeginClip`/`EndClip` que os recorta) para o
 /// `background-image` deste nó, na ordem em que `layout/block/block.rs` os insere: depois
@@ -64,7 +64,8 @@ pub(crate) fn background_pixels_items(
     if !has_image {
         return Vec::new();
     }
-    let Some((data, img_w, img_h)) = dom.pixel_data_of(id).filter(|(_, w, h)| *w > 0 && *h > 0) else {
+    let Some((data, img_w, img_h)) = dom.pixel_data_of(id).filter(|(_, w, h)| *w > 0 && *h > 0)
+    else {
         return Vec::new();
     };
     let area = Rect::new(
@@ -93,8 +94,14 @@ pub(crate) fn background_pixels_items(
     // imagem à borda oposta em vez de a deixarem a meio caminho.
     let pos_x = area.x + resolve_bg_offset(pos.x, area.w, img_w as f32, &resolve);
     let pos_y = area.y + resolve_bg_offset(pos.y, area.h, img_h as f32, &resolve);
-    let repeats_x = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatX | BgRepeat::Space | BgRepeat::Round);
-    let repeats_y = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatY | BgRepeat::Space | BgRepeat::Round);
+    let repeats_x = matches!(
+        repeat,
+        BgRepeat::Repeat | BgRepeat::RepeatX | BgRepeat::Space | BgRepeat::Round
+    );
+    let repeats_y = matches!(
+        repeat,
+        BgRepeat::Repeat | BgRepeat::RepeatY | BgRepeat::Space | BgRepeat::Round
+    );
     let xs = tile_starts(area.x, area.w, pos_x, img_w as f32, repeats_x);
     let ys = tile_starts(area.y, area.h, pos_y, img_h as f32, repeats_y);
     if xs.is_empty() || ys.is_empty() {
@@ -124,7 +131,12 @@ pub(crate) fn background_pixels_items(
 /// A percentagem/comprimento de `background-position` num eixo, resolvida
 /// contra o espaço LIVRE (CSS Backgrounds 3 §3.8): `0%` cola ao início, `100%`
 /// ao fim, um comprimento é um deslocamento direto a partir do início.
-fn resolve_bg_offset(d: crate::style::Dimension, area_len: f32, img_len: f32, resolve: &crate::style::ResolveCtx) -> f32 {
+fn resolve_bg_offset(
+    d: crate::style::Dimension,
+    area_len: f32,
+    img_len: f32,
+    resolve: &crate::style::ResolveCtx,
+) -> f32 {
     match d {
         crate::style::Dimension::Percent(p) => (area_len - img_len) * (p / 100.0),
         other => other.resolve(resolve).unwrap_or(0.0),
@@ -191,8 +203,14 @@ fn rotated_frame_tiles(
     let (iw, ih) = (img_w as f32, img_h as f32);
     let off_x = resolve_bg_offset(pos.x, page_w, iw, &resolve);
     let off_y = resolve_bg_offset(pos.y, page_h, ih, &resolve);
-    let repeats_x = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatX | BgRepeat::Space | BgRepeat::Round);
-    let repeats_y = matches!(repeat, BgRepeat::Repeat | BgRepeat::RepeatY | BgRepeat::Space | BgRepeat::Round);
+    let repeats_x = matches!(
+        repeat,
+        BgRepeat::Repeat | BgRepeat::RepeatX | BgRepeat::Space | BgRepeat::Round
+    );
+    let repeats_y = matches!(
+        repeat,
+        BgRepeat::Repeat | BgRepeat::RepeatY | BgRepeat::Space | BgRepeat::Round
+    );
     let xs = tile_starts(0.0, page_w, off_x, iw, repeats_x);
     let ys = tile_starts(0.0, page_h, off_y, ih, repeats_y);
     if xs.is_empty() || ys.is_empty() {
@@ -202,7 +220,12 @@ fn rotated_frame_tiles(
     let from_left = matches!(wm, W::VerticalLr | W::SidewaysLr);
     let upwards = wm == W::SidewaysLr;
     let mut out = Vec::with_capacity(xs.len() * ys.len() + 2);
-    out.push(DisplayItem::BeginClip { rect: area, node: id, offset_x: 0.0, offset_y: 0.0 });
+    out.push(DisplayItem::BeginClip {
+        rect: area,
+        node: id,
+        offset_x: 0.0,
+        offset_y: 0.0,
+    });
     for &ty in &ys {
         for &tx in &xs {
             // Page offset (tx, ty) from the area's physical top-left, in the
@@ -210,8 +233,16 @@ fn rotated_frame_tiles(
             // block-start edge (left or right); the page's y is the frame's
             // x, counted from the inline-start edge (top, or the bottom in
             // `sideways-lr`).
-            let fy = if from_left { area.y + tx } else { area.y + area.h - tx - iw };
-            let fx = if upwards { area.x + area.w - ty - ih } else { area.x + ty };
+            let fy = if from_left {
+                area.y + tx
+            } else {
+                area.y + area.h - tx - iw
+            };
+            let fx = if upwards {
+                area.x + area.w - ty - ih
+            } else {
+                area.x + ty
+            };
             out.push(DisplayItem::Pixels {
                 rect: Rect::new(fx, fy, ih, iw),
                 data: std::rc::Rc::clone(data),

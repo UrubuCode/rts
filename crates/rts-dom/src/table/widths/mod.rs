@@ -88,7 +88,10 @@ pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &Layou
     let caixa = match tree.boxes_of(id) {
         [caixa] => *caixa,
         [] => return Coluna::default(),
-        caixas => panic!("a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata", caixas.len()),
+        caixas => panic!(
+            "a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata",
+            caixas.len()
+        ),
     };
     cell_min_max_na_arvore(dom, &tree, id, caixa, parent_font, ctx)
 }
@@ -217,7 +220,10 @@ fn percentagem_declarada(
         _ => {}
     }
     let v = dom.node(id).attr("width")?.trim();
-    v.strip_suffix('%')?.parse::<f32>().ok().filter(|p| *p > 0.0)
+    v.strip_suffix('%')?
+        .parse::<f32>()
+        .ok()
+        .filter(|p| *p > 0.0)
 }
 
 /// O atributo HTML `width` de uma célula/coluna (`<td width="120">`, ainda vivo
@@ -341,7 +347,9 @@ pub(super) fn min_content_na_arvore(
         // floor in Times (144px for "XXXX" at 50px) beat an Arial item's own
         // width (133); measured with the parent's `nowrap`/`pre` flag alone, a
         // `pre` text's newline joined its lines into one.
-        NodeKind::Text(_) => crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx),
+        NodeKind::Text(_) => {
+            crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx)
+        }
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
                 return 0.0;
@@ -389,14 +397,42 @@ pub(super) fn min_content_na_arvore(
             // min-content diferente do max-content: ele não quebra. Passar a
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
-            if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
-            {
+            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+                dom,
+                id,
+                &css,
+                f32::INFINITY,
+                None,
+                (None, None),
+                ctx,
+            ) {
                 // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
                 // com razão de aspeto, o piso vem dela, não da `width` acima
                 // (essa é a caixa REAL).
-                let w = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve).unwrap_or(w);
+                let w = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve)
+                    .unwrap_or(w);
                 return w + frame;
+            }
+            if css
+                .effective_display()
+                .is_some_and(crate::style::DisplayKind::is_grid_container)
+            {
+                let w = crate::layout::grid::max_content::grid_min_content_width(
+                    dom,
+                    tree,
+                    id,
+                    Some(caixa),
+                    f,
+                    ctx,
+                ) + frame;
+                let declarada = comprimento_outer(css.width, &css, &resolve, frame);
+                let max_width_cap = comprimento_outer(css.max_width, &css, &resolve, frame);
+                return if floor_width {
+                    let piso = declarada.unwrap_or(0.0).max(w);
+                    max_width_cap.map_or(piso, |mx| piso.min(mx.max(declarada.unwrap_or(0.0))))
+                } else {
+                    w
+                };
             }
             // Um `width` explícito é um PISO e não um teto, e a diferença é o
             // defeito inteiro. Isto respondia a largura declarada e **voltava
@@ -434,7 +470,15 @@ pub(super) fn min_content_na_arvore(
                     // para a árvore de caixas. Uma caixa anónima é SEMPRE de
                     // bloco (`boxes::context::formatting_context`), por isso
                     // entra pelo máximo `m`, nunca pela soma `linha`.
-                    let w = anonima::min_content_anonima(dom, tree, caixa_filho, f, ctx, sem_quebra, mono);
+                    let w = anonima::min_content_anonima(
+                        dom,
+                        tree,
+                        caixa_filho,
+                        f,
+                        ctx,
+                        sem_quebra,
+                        mono,
+                    );
                     m = m.max(w);
                     continue;
                 };
@@ -479,5 +523,3 @@ pub(super) fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
         _ => false,
     }
 }
-
-

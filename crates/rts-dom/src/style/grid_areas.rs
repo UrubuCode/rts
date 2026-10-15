@@ -64,7 +64,6 @@ impl GridAreas {
         self.named.iter().map(|(n, a)| (n.as_str(), *a))
     }
 
-
     /// Parseia `'a b' 'c d'` (ou com aspas duplas). Cada string é uma LINHA; os
     /// tokens separados por espaço são as colunas.
     ///

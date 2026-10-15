@@ -54,9 +54,15 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
     // max-content: o clamp pela linha é do chamador, e aplicá-lo aqui devolvia o
     // que coubesse em vez do que se quer.
     if let Some(css) = dom.computed_style_idx(id) {
-        if let Some((w, _)) =
-            crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
-        {
+        if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+            dom,
+            id,
+            &css,
+            f32::INFINITY,
+            None,
+            (None, None),
+            ctx,
+        ) {
             // `replaced_inline_size` devolve a caixa COM borda (o contrato
             // dela é border-box); esta função devolve CONTEÚDO, como o resto
             // dos ramos abaixo — todo chamador soma o frame (que já tem essa
@@ -69,7 +75,13 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             return w;
         }
     }
-    if let Some(w) = dom.computed_style_idx(id).and_then(|css| crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx)).map(|(w, _)| w) { return w; }
+    if let Some(w) = dom
+        .computed_style_idx(id)
+        .and_then(|css| crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx))
+        .map(|(w, _)| w)
+    {
+        return w;
+    }
     // An element whose children are all text: its lines, run by run
     // (`text_measure`). Each text node answers to its own `white-space`,
     // `tab-size`, weight, family and spacings — this element's, inherited —
@@ -78,7 +90,11 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
     // button 103px too many (`claude-intrinseco-whitespace`). It answers before
     // the table branch below because a text-only element never had cells.
     let only_text = !dom.node(id).children.is_empty()
-        && dom.node(id).children.iter().all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
+        && dom
+            .node(id)
+            .children
+            .iter()
+            .all(|&c| matches!(dom.node(c).kind, NodeKind::Text(_)));
     if only_text {
         let mut lines = super::text::Lines::new(false);
         for &c in &dom.node(id).children {
@@ -92,6 +108,11 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
     // SOMA (flex) somaria linhas inteiras. Quem sabe é o algoritmo de colunas.
     if used_display(dom, id).is_some_and(crate::style::DisplayKind::is_table_box) {
         return crate::table::max_content_width(dom, id, font, ctx);
+    }
+    if used_display(dom, id).is_some_and(crate::style::DisplayKind::is_grid_container) {
+        return crate::layout::grid::max_content::grid_max_content_width(
+            dom, tree, id, box_id, font, ctx,
+        );
     }
 
     match box_id {
@@ -151,8 +172,14 @@ fn intrinsic_content_width_general(
     // empilha como um bloco (o maior filho), mesmo com `flex-wrap` — a
     // multi-coluna do wrap é corte dito (`claude-flex-column-shrink-to-fit`).
     let display = css_display(dom, id);
-    let in_column = dom.computed_style_idx(id).and_then(|c| c.flex_direction).map(|f| f.is_column()).unwrap_or(false);
-    let is_row = (display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP) && !in_column;
+    let in_column = dom
+        .computed_style_idx(id)
+        .and_then(|c| c.flex_direction)
+        .map(|f| f.is_column())
+        .unwrap_or(false);
+    let is_row = (display == crate::block::DISPLAY_HORIZONTAL
+        || display == crate::block::DISPLAY_WRAP)
+        && !in_column;
     let gap = if is_row {
         let resolve = ResolveCtx {
             parent_content_w: ctx.viewport_w,
@@ -181,7 +208,9 @@ fn intrinsic_content_width_general(
     for &child_box in children {
         // `is_row` never meets an anonymous box: only a FLOW container splits
         // (`boxes::build`), never a flex.
-        let Some(child) = tree.node_of(child_box) else { continue };
+        let Some(child) = tree.node_of(child_box) else {
+            continue;
+        };
         // fora do fluxo não contribui para a largura intrínseca do container.
         if is_out_of_flow(dom, child) {
             continue;
@@ -202,7 +231,10 @@ fn intrinsic_content_width_general(
     }
     // `::before`/`::after` de um flex em linha são itens (Flexbox §4) e entram
     // na largura natural do contentor — o caret do botão do Bootstrap.
-    for pe in [crate::style::PseudoElement::Before, crate::style::PseudoElement::After] {
+    for pe in [
+        crate::style::PseudoElement::Before,
+        crate::style::PseudoElement::After,
+    ] {
         let w = crate::layout::flex::pseudo::width(dom, tree, box_id, pe, font, ctx);
         if w > 0.0 {
             sum += w;
@@ -212,7 +244,8 @@ fn intrinsic_content_width_general(
     // soma + gaps entre os itens. A grid lands here too (its axis code is
     // `wrap`), and a grid item sized by its ratio against a fixed row is as
     // wide as the row makes it — which its empty content cannot say.
-    let ratio_floor = crate::layout::grid::aspect::intrinsic_floor(dom, tree, id, box_id, font, ctx);
+    let ratio_floor =
+        crate::layout::grid::aspect::intrinsic_floor(dom, tree, id, box_id, font, ctx);
     (sum + (count.saturating_sub(1)) as f32 * gap).max(ratio_floor.unwrap_or(0.0))
 }
 
@@ -257,7 +290,8 @@ fn walk_children(
             // In a flex or grid container a white-space-only text is no item
             // at all (`layout_children_horizontal` drops it); fed to the lines
             // it would pin a space between two items that share none.
-            let in_flow = tree.formatting_context(dom, parent_box).inner == crate::boxes::InnerDisplay::Flow;
+            let in_flow =
+                tree.formatting_context(dom, parent_box).inner == crate::boxes::InnerDisplay::Flow;
             if in_flow || !t.trim().is_empty() {
                 lines.text(dom, child, font, ctx);
             }
@@ -291,7 +325,8 @@ fn walk_children(
             lines.forced_break(ctx);
         } else if close_run(dom, child) {
             lines.block(w, ctx);
-        } else if crate::layout::float::float::float_of(dom, child) != crate::style::FloatSide::None {
+        } else if crate::layout::float::float::float_of(dom, child) != crate::style::FloatSide::None
+        {
             lines.float(w, ctx);
         } else if w > 0.0 {
             // A zero-wide child (`display:none`, an empty inline-block) is not
@@ -316,7 +351,13 @@ fn anonymous_width(
     // An anonymous TABLE is as wide as the SUM of its columns, not the widest
     // of its cells: measuring the cells as stacked blocks gave a floated row
     // of two 48px cells a width of 48 where Blink gives 96.
-    if matches!(tree.kind(box_id), crate::boxes::BoxKind::Anonymous { role: crate::boxes::AnonymousRole::Table, .. }) {
+    if matches!(
+        tree.kind(box_id),
+        crate::boxes::BoxKind::Anonymous {
+            role: crate::boxes::AnonymousRole::Table,
+            ..
+        }
+    ) {
         return crate::table::anonymous_table_widths(dom, tree, box_id, font, ctx).1;
     }
     let mut lines = super::text::Lines::new(false);
@@ -368,10 +409,23 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             // runs down the page, not across it.
             if crate::layout::block::rotated::opens_frame(dom, id, &css) {
                 if let Some(caixa) = box_id.or_else(|| tree.boxes_of(id).first().copied()) {
-                    return measure_block(dom, id, caixa, ctx.viewport_w, None, None, None, true, ctx).0;
+                    return measure_block(
+                        dom,
+                        id,
+                        caixa,
+                        ctx.viewport_w,
+                        None,
+                        None,
+                        None,
+                        true,
+                        ctx,
+                    )
+                    .0;
                 }
             }
-            if let Some(h) = crate::layout::block::rotated::ortho_measure_in_frame(dom, tree, id, box_id, ctx) {
+            if let Some(h) =
+                crate::layout::block::rotated::ortho_measure_in_frame(dom, tree, id, box_id, ctx)
+            {
                 return h;
             }
             let f = font_px(&css, parent_font);
@@ -387,7 +441,10 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             // ou margem é contra a largura do containing block, que é o que esta
             // medição existe para ajudar a decidir.
             let frame = css.margin.resolve_h_intrinseco(&resolve)
-                + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r }
+                + {
+                    let [_, r, _, l] = crate::style::borders::used_widths(&css);
+                    l + r
+                }
                 + css.padding.resolve_h_intrinseco(&resolve);
             // `width` fixo: a caixa tem essa largura. Um `width` em PERCENTAGEM
             // não é fixo — contribui como `auto`, e o conteúdo decide. Sem esta
@@ -410,6 +467,15 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
                     w + css.margin.resolve_h_intrinseco(&resolve)
                 } else {
                     w + frame
+                };
+            }
+            if css.width == Some(crate::style::Dimension::MinContent) {
+                let content = crate::table::min_content(dom, id, f, ctx);
+                return if border_box {
+                    crate::style::clamp_size(content, mnw, mxw)
+                        + css.margin.resolve_h_intrinseco(&resolve)
+                } else {
+                    crate::style::clamp_size(content, mnw, mxw) + frame
                 };
             }
             // senão: a intrínseca do conteúdo, clampada, + frame. SEM cache

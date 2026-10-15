@@ -9,8 +9,8 @@
 
 use super::*;
 
-use super::fragment_key::fragment_key;
 pub(in crate::layout) use super::fragment_key::KeyBase;
+use super::fragment_key::fragment_key;
 
 /// Põe um filho-bloco do fluxo normal, REUSANDO o desenho dele quando nada que
 /// o afete mudou.
@@ -59,7 +59,10 @@ fn stitch(
     {
         return None;
     }
-    if crate::paint::pieces::children(&previous.pieces).next().is_none() {
+    if crate::paint::pieces::children(&previous.pieces)
+        .next()
+        .is_none()
+    {
         return None;
     }
     // Um container cujos filhos carregam tamanho IMPOSTO (flex, grid,
@@ -88,12 +91,8 @@ fn stitch(
     let previous = previous.remapped_to(&tree)?;
     // Inserção, remoção, reordenação ou uma caixa anónima nova mudam quem
     // desenha o quê, e trocar uma referência não daria conta disso.
-    if !super::stitching::same_children_sequence(
-        &old_tree,
-        old_box,
-        &tree,
-        previous.box_id,
-    ) || !super::stitching::dirt_covered(&tree, &dirty, &previous.pieces)
+    if !super::stitching::same_children_sequence(&old_tree, old_box, &tree, previous.box_id)
+        || !super::stitching::dirt_covered(&tree, &dirty, &previous.pieces)
     {
         return None;
     }
@@ -106,7 +105,9 @@ fn stitch(
     let mut grid_column_tracks = (*previous.grid_column_tracks).clone();
     let mut replaced = false;
     for piece in &mut pieces {
-        let super::Piece::Child(child) = piece else { continue };
+        let super::Piece::Child(child) = piece else {
+            continue;
+        };
         let Some(child_node) = tree.node_of(child.box_id) else {
             return None;
         };
@@ -188,9 +189,13 @@ fn stitch(
     if !replaced {
         return None;
     }
-    let last_line = crate::layout::inline::line_baseline::stitch_total(dom, id, &previous, &pieces, &tree);
+    let last_line =
+        crate::layout::inline::line_baseline::stitch_total(dom, id, &previous, &pieces, &tree);
     let fragment = std::rc::Rc::new(Fragment {
-        box_id: tree.boxes_of(key.target.node).get(key.target.ordinal as usize).copied()?,
+        box_id: tree
+            .boxes_of(key.target.node)
+            .get(key.target.ordinal as usize)
+            .copied()?,
         tree: std::rc::Rc::clone(&tree),
         // Shares what did NOT change; the sequence is new because a subtree in
         // it is.
@@ -332,7 +337,10 @@ pub(in crate::layout) fn layout_block_reusing(
     // de mil entradas de 48 bytes — a primeira versão disto (revertida) copiava
     // 3000 itens com String e por isso não ganhava nada.
     // The stitch re-lays dirty children into its own lists; their lines are already in `last_line`.
-    let (lines_before, stitched) = (crate::layout::inline::line_baseline::mark(), stitch(dom, id, key, ctx));
+    let (lines_before, stitched) = (
+        crate::layout::inline::line_baseline::mark(),
+        stitch(dom, id, key, ctx),
+    );
     crate::layout::inline::line_baseline::discard(lines_before);
     if let Some(fragment) = stitched {
         crate::bump!(fragment_patches);
@@ -388,7 +396,8 @@ pub(in crate::layout) fn layout_block_reusing(
     // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
     // documentado, não escondido, no cabeçalho de `block/bfc.rs`.
     let floats_escaped = bfc.len() != floats_before;
-    let (direct_line, last_line) = crate::layout::inline::line_baseline::collect_from_block(dom, id, lines_before, y, size.1);
+    let (direct_line, last_line) =
+        crate::layout::inline::line_baseline::collect_from_block(dom, id, lines_before, y, size.1);
     // O desenho guardado conserva a identidade que o produziu: `BoxId`. A
     // chave também a carrega; a passagem seguinte é fazer cada chamador levar
     // a caixa EXACTA, em vez de este caminho ainda obter a primeira do nó.

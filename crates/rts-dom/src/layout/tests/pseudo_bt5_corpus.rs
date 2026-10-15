@@ -34,7 +34,11 @@ fn pseudo_de_bloco_com_caixa_explicita_mede_120x60() {
     );
     let (dom, list) = geometria(&html, 1280.0);
     let r = rect(&dom, &list, "#caixa", 0);
-    assert_eq!((r.h), 60.0, "outer do ::after de bloco: 40 + 2*10 de margem");
+    assert_eq!(
+        (r.h),
+        60.0,
+        "outer do ::after de bloco: 40 + 2*10 de margem"
+    );
 }
 
 #[test]
@@ -52,7 +56,10 @@ fn pseudo_de_item_flex_com_a_mesma_caixa_explicita_mede_60_de_altura() {
     );
     let (dom, list) = geometria(&html, 1280.0);
     let r = rect(&dom, &list, "#caixa", 0);
-    assert_eq!(r.h, 60.0, "outer do ::after de item flex: a MESMA conta do caminho de bloco");
+    assert_eq!(
+        r.h, 60.0,
+        "outer do ::after de item flex: a MESMA conta do caminho de bloco"
+    );
 }
 
 /// A divergência LEGÍTIMA que a unificação tinha de preservar: sem `width`
@@ -88,7 +95,11 @@ fn largura_auto_diverge_entre_bloco_preenche_e_item_encolhe() {
     assert_eq!(fundos.len(), 1, "só o fundo do ::after de bloco é verde");
     // Bloco: ENCHE o content-box do dono (CSS 2.1 §10.3.3) — sem margem/
     // padding/borda declarados, isso é a largura inteira do dono, 300.
-    assert_eq!(fundos[0], 300.0, "::after de bloco enche o dono: {}", fundos[0]);
+    assert_eq!(
+        fundos[0], 300.0,
+        "::after de bloco enche o dono: {}",
+        fundos[0]
+    );
 
     let item_html = r#"<style>
       body { margin: 0; font: 16px/20px monospace; }
@@ -98,8 +109,16 @@ fn largura_auto_diverge_entre_bloco_preenche_e_item_encolhe() {
     <div id="caixa"></div>"#;
     let (_dom2, list2) = geometria(item_html, 1280.0);
     let fundos2 = larguras_de_fundo(&list2, 0x00FF00FF);
-    assert_eq!(fundos2.len(), 1, "só o fundo do ::after de item flex é verde");
+    assert_eq!(
+        fundos2.len(),
+        1,
+        "só o fundo do ::after de item flex é verde"
+    );
     // Item flex: ENCOLHE ao texto ("x" a 16px/monospace ~ 8px), bem abaixo
     // dos 300 do contentor — o oposto do bloco, e é suposto continuar assim.
-    assert!(fundos2[0] < 50.0, "::after de item flex encolhe ao texto: {}", fundos2[0]);
+    assert!(
+        fundos2[0] < 50.0,
+        "::after de item flex encolhe ao texto: {}",
+        fundos2[0]
+    );
 }

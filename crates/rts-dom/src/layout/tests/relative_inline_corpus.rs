@@ -32,9 +32,15 @@ fn a_relative_inline_moves_and_nothing_around_it_reflows() {
         ("#d4", (0.0, 160.0, 26.39, 19.0)),
     ] {
         let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
-        let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
+        let r = list
+            .rect_of(idx)
+            .unwrap_or_else(|| panic!("{sel} has no geometry"));
         let got = (r.x, r.y, r.w, r.h);
-        if !((got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL) {
+        if !((got.0 - e.0).abs() <= TOL
+            && (got.1 - e.1).abs() <= TOL
+            && (got.2 - e.2).abs() <= TOL
+            && (got.3 - e.3).abs() <= TOL)
+        {
             wrong.push(format!("{sel}: expected {e:?}, got {got:?}"));
         }
     }
@@ -55,12 +61,20 @@ fn the_glyphs_and_the_surface_move_with_the_box() {
         _ => None,
     });
     let fundo = itens.iter().find_map(|i| match i {
-        DisplayItem::SolidRect { rect, color, .. } if *color == 0xFFFF00FF => Some((rect.x, rect.y)),
+        DisplayItem::SolidRect { rect, color, .. } if *color == 0xFFFF00FF => {
+            Some((rect.x, rect.y))
+        }
         _ => None,
     });
     let natural_x = 4.0 * 16.0 * crate::style::MONO_ADVANCE;
     let (tx, ty) = texto.expect("the text of the span");
-    assert!((tx - (natural_x + 30.0)).abs() < 0.5 && (ty - 5.0).abs() < 1.0, "text at ({tx}, {ty})");
+    assert!(
+        (tx - (natural_x + 30.0)).abs() < 0.5 && (ty - 5.0).abs() < 1.0,
+        "text at ({tx}, {ty})"
+    );
     let (fx, fy) = fundo.expect("the background of the span");
-    assert!((fx - (natural_x + 30.0)).abs() < 0.5 && (fy - 5.0).abs() < 1.0, "background at ({fx}, {fy})");
+    assert!(
+        (fx - (natural_x + 30.0)).abs() < 0.5 && (fy - 5.0).abs() < 1.0,
+        "background at ({fx}, {fy})"
+    );
 }

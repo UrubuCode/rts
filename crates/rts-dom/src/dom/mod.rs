@@ -30,19 +30,19 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::html::{Token, tokenize};
 
-mod arvore;
 mod animacao;
+mod arvore;
 mod box_tree;
 mod caches;
-mod chaves_cache;
 mod cascade;
-mod css_url;
+mod chaves_cache;
 mod ciclo;
 mod consulta;
+mod css_url;
 mod direction_herdada;
 pub(crate) mod entities;
-mod eventos;
 mod estilo;
+mod eventos;
 mod formulario;
 mod freelist;
 mod geometria;
@@ -58,17 +58,17 @@ mod scroll;
 mod serial;
 mod travessia;
 
-pub use self::no::{Attr, Node, NodeId, NodeKind};
-pub use self::inspect::MatchedRuleView;
-pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
-pub use self::parser::{parse_fragmento, parse_html_to_dom};
 pub(crate) use self::chaves_cache::{
     BoxCacheTarget, FragmentKey, IntrinsicWidthKey, LayoutMeasureKey,
 };
-use self::matcher::TargetKey;
-use self::helpers::{memo_forget, memo_put, nth_casa};
-use self::parser::is_void;
+pub use self::eventos::{RawInputEvent, RawKeyboardEvent};
 use self::helpers::{is_plain_ident, references_self, upsert_css_decl};
+use self::helpers::{memo_forget, memo_put, nth_casa};
+pub use self::inspect::MatchedRuleView;
+use self::matcher::TargetKey;
+pub use self::no::{Attr, Node, NodeId, NodeKind};
+use self::parser::is_void;
+pub use self::parser::{parse_fragmento, parse_html_to_dom};
 
 /// Índice cru de um nó na arena (`Dom::nodes`). Uso INTERNO ao `dom.rs` — o que
 /// cruza a fronteira (TS/ABI) é sempre o `NodeId` VERSIONADO, nunca este índice.

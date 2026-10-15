@@ -27,7 +27,8 @@ pub(in crate::layout) fn transform_box_rects(
     mat: &Mat2d,
     list: &mut super::DisplayList,
 ) {
-    list.box_rects.map_fragments(id, |r| mat.transform_rect_bbox(r));
+    list.box_rects
+        .map_fragments(id, |r| mat.transform_rect_bbox(r));
     for &child in tree.children(id) {
         transform_box_rects(tree, child, mat, list);
     }

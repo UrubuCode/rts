@@ -1,21 +1,14 @@
-//! GRID: dimensionar as tracks (`fr`, `auto`, fixas), colocar os itens nas
-//! células — por área nomeada ou automaticamente — e alinhá-los lá dentro.
-//!
-//! Movido de `layout.rs` na modularização; nenhuma linha de lógica foi
-//! alterada — a reconstrução deste ficheiro é byte a byte a do original.
-
-use super::*;
-use super::lines::{GridItem, collect_items, place_grid_items};
+//! GRID layout: track sizing, placement, alignment.
+use super::abspos;
+use super::align::cell_align_offset;
+pub(in crate::layout) use super::align::span_size;
 use super::aspect;
-use super::tracks;
 use super::collapse;
-/// GRID real (css-grid track-sizing simplificado): resolve as trilhas de coluna
-/// (px/%/fr/auto) e de linha, faz auto-placement dos itens célula-a-célula
-/// (row-by-row), e posiciona cada item na sua célula com `justify-items`
-/// (horizontal) / `align-items` (vertical). Suporta o subset do MDN:
-/// grid-template-columns/rows, grid-auto-rows, gap, repeat(N,...), minmax(→max),
-/// fr. NÃO suporta: grid-column/row-span explícito, areas, auto-fill/fit reais,
-/// dense. Um item sem placement explícito preenche a próxima célula livre.
+use super::lines::{collect_items, place_grid_items, GridItem};
+use super::subgrid;
+use super::tracks;
+use super::*;
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_grid(
     dom: &Dom,
@@ -29,7 +22,7 @@ pub(in crate::layout) fn layout_children_grid(
     font_size: f32,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
-) -> f32 {
+) -> (f32, f32) {
     let resolve = ResolveCtx {
         parent_content_w: content_w,
         node_font_size: font_size,
@@ -37,90 +30,76 @@ pub(in crate::layout) fn layout_children_grid(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    let col_gap = css
-        .gap
-        .or(css.row_gap)
-        .and_then(|d| d.resolve(&resolve))
-        .unwrap_or(0.0)
-        .max(0.0);
-    let row_gap = css
-        .row_gap
-        .or(css.gap)
-        .and_then(|d| d.resolve(&resolve))
-        .unwrap_or(0.0)
-        .max(0.0);
+    let subgrid_ctx = subgrid::take_subgrid(container);
+    let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
+    let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
 
-    // ── COLUNAS: resolve as trilhas ──────────────────────────────────────────────
-    // Sem grid-template-columns explícito → 1 coluna 1fr (o container-do-logo do
-    // google: single-column grid). Com N colunas do grid_columns legado (repeat) →
-    // N trilhas 1fr.
+    let col_gap = col_sub
+        .map(|s| s.gap)
+        .unwrap_or_else(|| css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
+    let row_gap = row_sub
+        .map(|s| s.gap)
+        .unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
+
     let areas = css.grid_template_areas.clone();
-    let (col_tracks, col_collapsible, col_lines) = match css.grid_template_columns.as_deref() {
-        Some(crate::style::GridTemplate::Tracks(t)) => {
-            tracks::expand_auto_repeats(t, content_w, col_gap)
-        }
-        _ => {
-            let n = match &areas {
-                Some(a) => a.cols,
-                None => css.grid_columns.unwrap_or(1).max(1) as usize,
-            };
-            let tl = crate::style::TrackList::from_tracks(vec![crate::style::GridTrack::Fr(1.0); n]);
-            tracks::expand_auto_repeats(&tl, content_w, col_gap)
-        }
-    };
-    // O número de colunas vem da LISTA de trilhas e não dos tamanhos: os
-    // tamanhos ainda não estão decididos, porque uma trilha intrínseca precisa de
-    // saber que itens lhe calham — e para isso é preciso ter colocado os itens.
-    // A ordem é: quantas colunas → colocar os itens → medir → dimensionar.
-    let ncols = col_tracks.len().max(1);
+    let (col_tracks, col_collapsible, col_lines) =
+        subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap);
+    let explicit_cols_n = col_tracks.len();
 
-    // ── ITENS: os filhos renderizáveis (auto-placement row-by-row) ───────────────
     let tree = std::rc::Rc::clone(&list.tree);
     let children: Vec<GridItem> = collect_items(dom, &tree, container);
-    if children.is_empty() {
-        return 0.0;
+    let (explicit_rows, row_collapsible, row_lines) =
+        subgrid::init_row_tracks(row_sub, css, container_content_h, row_gap);
+    let has_oof = tree
+        .children_without_generated(container)
+        .iter()
+        .any(|&b| tree.node_of(b).map_or(false, |n| is_out_of_flow(dom, n)));
+    if children.is_empty() && !has_oof {
+        let h: f32 = explicit_rows.iter().map(|t| match t {
+            crate::style::GridTrack::Fixed(d) => {
+                resolve_height(Some(*d), container_content_h, &resolve).unwrap_or(0.0)
+            }
+            _ => 0.0,
+        }).sum();
+        let gaps = explicit_rows.len().saturating_sub(1) as f32 * row_gap;
+        return (content_w, h + gaps);
     }
-    // As LINHAS também repetem `auto-fill|auto-fit`, contra a altura do
-    // contentor quando ela é definida; sem ela a spec dá uma repetição só, que
-    // é o que `expand_auto_repeats` responde a um contentor de 0.
-    let (explicit_rows, row_collapsible, row_lines) = match css.grid_template_rows.as_deref() {
-        Some(crate::style::GridTemplate::Tracks(t)) => tracks::expand_auto_repeats(
-            t,
-            container_content_h.unwrap_or(0.0),
-            row_gap,
-        ),
-        _ => (Vec::new(), Vec::new(), Vec::new()),
-    };
     let explicit_rows_n = explicit_rows.len();
     let auto_flow = css.grid_auto_flow.unwrap_or(crate::style::grid_lines::GridAutoFlow {
         column: false,
         dense: false,
     });
-    let (cells, ncols_colocados) = place_grid_items(
+    let (mut cells, ncols_colocados) = place_grid_items(
         dom,
         &children,
         areas.as_deref(),
         &col_lines,
         &row_lines,
-        ncols,
+        explicit_cols_n,
         explicit_rows_n,
         auto_flow,
+        col_sub.is_some(),
+        row_sub.is_some(),
     );
-    // COLUNAS IMPLÍCITAS: um `grid-area`/`grid-column` que aponta lá da última
-    // coluna explícita fez `place_grid_items` devolver mais colunas do que as
-    // declaradas — estende `col_tracks` com `grid-auto-columns` (por omissão
-    // `auto`) para as colunas extra, e re-conta `ncols` a partir daqui.
     let mut col_tracks = col_tracks;
     let mut col_collapsible = col_collapsible;
-    while col_tracks.len() < ncols_colocados {
-        col_tracks.push(
-            css.grid_auto_columns
-                .clone()
-                .unwrap_or(crate::style::GridTrack::Auto),
-        );
-        col_collapsible.push(false);
+    if col_sub.is_none() {
+        while col_tracks.len() < ncols_colocados {
+            col_tracks.push(
+                css.grid_auto_columns
+                    .clone()
+                    .unwrap_or(crate::style::GridTrack::Auto),
+            );
+            col_collapsible.push(false);
+        }
     }
     let ncols = col_tracks.len().max(1);
+    if col_sub.is_some() {
+        for c in &mut cells {
+            c.c0 = c.c0.min(ncols.saturating_sub(1));
+            c.c1 = c.c1.min(ncols).max(c.c0 + 1);
+        }
+    }
     // `auto-fit`: as repetições sem NENHUM item colapsam, e só agora — depois
     // da colocação — se sabe quais são. Ver `grid_colapso`.
     let col_collapsed =
@@ -141,18 +120,7 @@ pub(in crate::layout) fn layout_children_grid(
     let (content_max, content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
         let mut wmax = vec![0.0f32; ncols];
         let mut wmin = vec![0.0f32; ncols];
-        for c in &cells {
-            // Um item que ATRAVESSA colunas não dita nenhuma delas sozinho: a
-            // repartição do que ele pede pelas colunas que ocupa é a mesma
-            // pergunta da tabela com `colspan`, e aqui não vale a complicação —
-            // o que uma grade real tem em trilha intrínseca é a barra lateral,
-            // que ocupa uma coluna só.
-            if c.c1 - c.c0 != 1 || c.c0 >= ncols {
-                continue;
-            }
-            // An item whose ratio turns a height definite against its FIXED
-            // rows into a width contributes that width to both sizes (Sizing 4
-            // §5.1: the transferred size is the min- and max-content size).
+        let item_w = |c: &lines::GridCell| {
             let area_h = aspect::definite_area_height(
                 &explicit_rows,
                 css.grid_auto_rows.as_ref(),
@@ -161,131 +129,151 @@ pub(in crate::layout) fn layout_children_grid(
                 container_content_h,
                 &resolve,
             );
-            let ratio_w = aspect::ratio_outer_width(dom, c.child, area_h, content_w, font_size, ctx);
-            let max = ratio_w.unwrap_or_else(|| intrinsic_outer_width(dom, c.child, font_size, ctx));
-            wmax[c.c0] = wmax[c.c0].max(max);
-            if needs_min {
-                let min = ratio_w.unwrap_or_else(|| crate::table::min_content(dom, c.child, font_size, ctx));
-                wmin[c.c0] = wmin[c.c0].max(min);
+            aspect::ratio_outer_width(dom, c.child, area_h, content_w, font_size, ctx)
+                .unwrap_or_else(|| intrinsic_outer_width(dom, c.child, font_size, ctx))
+        };
+        for c in &cells {
+            if c.c1 - c.c0 == 1 && c.c0 < ncols {
+                wmax[c.c0] = wmax[c.c0].max(item_w(c));
+                if needs_min {
+                    let min = crate::table::min_content(dom, c.child, font_size, ctx);
+                    wmin[c.c0] = wmin[c.c0].max(min);
+                }
             }
         }
+        tracks::distribute_spanning_columns(
+            &col_tracks,
+            &cells,
+            ncols,
+            col_gap,
+            &resolve,
+            |c| {
+                dom.computed_style_idx(c.child).is_some_and(|c| {
+                    subgrid::is_subgrid_item(&c, css.writing_mode.unwrap_or_default()).0
+                })
+            },
+            item_w,
+            &mut wmax,
+        );
+        subgrid::collect_column_contributions(
+            dom,
+            &tree,
+            &cells,
+            ncols,
+            needs_min,
+            font_size,
+            col_gap,
+            css.writing_mode.unwrap_or_default(),
+            ctx,
+            &col_lines,
+            areas.as_deref(),
+            &col_tracks,
+            &resolve,
+            &mut wmax,
+            &mut wmin,
+        );
         (Some(wmax), needs_min.then_some(wmin))
     } else {
         (None, None)
     };
-    let col_sizes = tracks::resolve_tracks(
-        &col_tracks,
-        content_w,
-        collapse::gutters(ncols, &col_collapsed, col_gap),
-        content_max.as_deref(),
-        content_min.as_deref(),
-        &resolve,
-    );
+    let col_sizes = if let Some(cs) = col_sub {
+        cs.track_sizes.clone()
+    } else {
+        tracks::resolve_tracks(
+            &col_tracks,
+            content_w,
+            collapse::gutters(ncols, &col_collapsed, col_gap),
+            content_max.as_deref(),
+            content_min.as_deref(),
+            css.justify.is_none(),
+            &resolve,
+        )
+    };
     // O computed style do Blink pode consultar o LayoutObject para propriedades
     // dependentes de used values. Guardamos a mesma resolução no container para o
     // DOM a serializar sem executar um segundo algoritmo de track sizing.
     if css.grid_template_columns.is_some() {
         list.grid_column_tracks.insert(id, col_sizes.clone());
     }
-    // Uma linha DECLARADA pela matriz existe mesmo sem item nela (ela ainda empurra
-    // as linhas seguintes pelo gap), daí o max com `areas.rows`.
-    let nrows = cells
-        .iter()
-        .map(|c| c.r1)
-        .max()
-        .unwrap_or(1)
-        .max(areas.as_ref().map(|a| a.rows).unwrap_or(0))
-        .max(1);
-
-    // ── LINHAS: altura de cada linha ─────────────────────────────────────────────
-    // grid-template-rows explícito (px/%/fr/auto), senão grid-auto-rows, senão a
-    // altura do conteúdo mais alto da linha. `fr`/`%` de linha precisam da altura
-    // do container (container_content_h).
-    let row_collapsed =
-        collapse::collapsed(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
-    let mut explicit_rows = explicit_rows;
-    collapse::as_fixed_zero(&mut explicit_rows, &row_collapsed);
-    // mede a altura de conteúdo de cada linha (o item mais alto medido em shrink).
-    // Um item que ATRAVESSA linhas reparte a sua altura IGUALMENTE pelas linhas do
-    // span. O algoritmo da spec (§12.5) distribui pela contribuição de cada trilha;
-    // a repartição igual foi escolhida por não precisar de uma segunda medição e por
-    // errar sempre para MAIS espaço, nunca para item cortado.
-    let mut content_row_h = vec![0.0f32; nrows];
-    for cell in &cells {
-        let cw = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
-        let (_, h) = measure_block(
+    let (row_sizes, nrows, row_collapsed) = if let Some(rs) = row_sub {
+        let nr = rs.track_sizes.len().max(1);
+        (rs.track_sizes.clone(), nr, vec![false; nr])
+    } else {
+        let nrows = cells
+            .iter()
+            .map(|c| c.r1)
+            .max()
+            .unwrap_or(1)
+            .max(areas.as_ref().map(|a| a.rows).unwrap_or(0))
+            .max(1);
+        let row_collapsed =
+            collapse::collapsed(&row_collapsible, nrows, cells.iter().map(|c| (c.r0, c.r1)));
+        let mut explicit_rows = explicit_rows;
+        collapse::as_fixed_zero(&mut explicit_rows, &row_collapsed);
+        subgrid::register_col_subgrids_for_measure(
             dom,
-            cell.child,
-            cell.box_id,
-            cw,
+            &cells,
+            &col_sizes,
+            col_gap,
+            row_gap,
+            &col_lines,
+            areas.as_deref(),
+            &resolve,
+            css.writing_mode.unwrap_or_default(),
+            col_sub.is_some(),
+        );
+        let mut content_row_h = tracks::measure_content_rows(
+            dom,
+            &cells,
+            &explicit_rows,
+            css.grid_auto_rows.as_ref(),
+            &col_sizes,
+            col_sub,
+            col_gap,
+            row_gap,
+            nrows,
             container_content_h,
-            None,
-            None,
-            true,
+            &resolve,
+            css.writing_mode.unwrap_or_default(),
             ctx,
         );
-        let each = h / cell.rows() as f32;
-        for r in cell.r0..cell.r1.min(nrows) {
-            content_row_h[r] = content_row_h[r].max(each);
-        }
-    }
-    let auto_row = css.grid_auto_rows.clone();
-    // Só `Fixed`/`Bounded` conta como "já dimensionada": `fr` existe PARA tomar
-    // espaço livre, mas caía no mesmo `explicit_rows.get(r).is_some()` que uma
-    // `Fixed` e ficava fora do laço de reparto abaixo — a linha do meio de
-    // `grid-template-rows: 60px 1fr 40px` media pelo CONTEÚDO (0 numa div vazia)
-    // e o rodapé subia para y=60 em vez de y=360
-    // (`tests/css/claude-grid-areas.html`, `#corpo.h`/`#lateral.h`/`#rodape.y`).
-    // As colunas nunca tiveram este bug: passam por `resolve_tracks`, que já
-    // distingue os quatro casos; as linhas tinham um segundo algoritmo à parte.
-    let is_fixed_row_track = |t: &Option<crate::style::GridTrack>| {
-        matches!(
-            t,
-            Some(crate::style::GridTrack::Fixed(_))
-                | Some(crate::style::GridTrack::Bounded { .. })
-        )
+        subgrid::collect_row_contributions(
+            dom,
+            &tree,
+            &cells,
+            &col_sizes,
+            col_gap,
+            nrows,
+            font_size,
+            row_gap,
+            css.writing_mode.unwrap_or_default(),
+            ctx,
+            &row_lines,
+            areas.as_deref(),
+            &explicit_rows,
+            css.grid_auto_rows.as_ref(),
+            &resolve,
+            container_content_h,
+            &mut content_row_h,
+        );
+        let row_sizes = tracks::resolve_row_tracks(
+            nrows,
+            &explicit_rows,
+            css.grid_auto_rows.as_ref(),
+            &content_row_h,
+            container_content_h,
+            &resolve,
+            css.align_content,
+            &row_collapsed,
+            row_gap,
+        );
+        (row_sizes, nrows, row_collapsed)
     };
-    let row_track = |r: usize| explicit_rows.get(r).cloned().or_else(|| auto_row.clone());
-    let has_explicit_row_track = |r: usize| is_fixed_row_track(&row_track(r));
-    let mut row_sizes: Vec<f32> = (0..nrows)
-        .map(|r| {
-            let track = row_track(r);
-            match track {
-                Some(crate::style::GridTrack::Fixed(d)) => {
-                    resolve_height(Some(d), container_content_h, &resolve)
-                        .unwrap_or(content_row_h[r])
-                }
-                _ => content_row_h[r], // Auto/None/Fr → conteúdo por ora (ajuste abaixo)
-            }
-        })
-        .collect();
-    // Se o container tem ALTURA definida e as linhas NÃO têm track FIXA, as linhas
-    // DIVIDEM a altura do container entre si — uma row `auto` ou `fr` num grid de
-    // altura fixa preenche o espaço (dá a track de 240 pro logo centrar, e a de
-    // 300 pro `1fr` do meio da fixture de áreas). Reparte o espaço livre em
-    // partes iguais (aproximação; `fr` por peso fica por fazer — nenhuma fixture
-    // do corpus tem mais de uma trilha flexível por eixo hoje).
-    // `align-content` explícito (não-stretch: `stretch`/`normal` não parseiam
-    // em `JustifyContent` — ver o cabeçalho da tabela — e por isso caem em
-    // `None`, que é exatamente o ramo que preserva o preenchimento acima) SUBSTITUI
-    // o preenchimento por espaço-livre-em-linhas-auto pela distribuição das
-    // LINHAS como blocos, via `collapse::starts` abaixo — as linhas
-    // mantêm o tamanho do conteúdo em vez de esticar.
-    if css.align_content.is_none() {
-        if let Some(ch) = container_content_h {
-            let auto_rows: Vec<usize> = (0..nrows).filter(|&r| !has_explicit_row_track(r)).collect();
-            if !auto_rows.is_empty() {
-                let fixed: f32 = (0..nrows)
-                    .filter(|r| has_explicit_row_track(*r))
-                    .map(|r| row_sizes[r])
-                    .sum();
-                let total_gap = collapse::gutters(nrows, &row_collapsed, row_gap);
-                let free = (ch - fixed - total_gap).max(0.0);
-                let each = free / auto_rows.len() as f32;
-                for r in auto_rows {
-                    row_sizes[r] = row_sizes[r].max(each);
-                }
-            }
+
+    if row_sub.is_some() {
+        for c in &mut cells {
+            c.r0 = c.r0.min(nrows.saturating_sub(1));
+            c.r1 = c.r1.min(nrows).max(c.r0 + 1);
         }
     }
 
@@ -297,71 +285,156 @@ pub(in crate::layout) fn layout_children_grid(
     // O início de cada coluna e de cada linha, com `justify-content` /
     // `align-content` já embutidos — o mesmo `justify_offsets` do flex (a spec
     // §8.4 partilha o vocabulário). `justify-content` ausente é `start`.
-    let col_x = collapse::starts(
-        &col_sizes,
-        &col_collapsed,
-        content_x,
-        col_gap,
-        css.justify.map(|j| (j, content_w)),
-    );
-    let row_y = collapse::starts(
-        &row_sizes,
-        &row_collapsed,
-        content_y,
-        row_gap,
-        css.align_content.zip(container_content_h),
-    );
+    let col_collapsed = if col_sub.is_some() {
+        vec![false; ncols]
+    } else {
+        col_collapsed
+    };
+    let is_rtl = css.direction == Some(crate::style::Direction::Rtl);
+    let mut col_x = if col_sub.is_none() {
+        collapse::starts(
+            &col_sizes,
+            &col_collapsed,
+            content_x,
+            col_gap,
+            css.justify.map(|j| (j, content_w)),
+        )
+    } else {
+        Vec::new()
+    };
+    if col_sub.is_none() && is_rtl {
+        let used =
+            col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gap);
+        let right_edge = content_x + if content_w > 0.0 { content_w } else { used };
+        for (i, x) in col_x.iter_mut().enumerate().take(col_sizes.len()) {
+            let orig_offset = *x - content_x;
+            *x = right_edge - orig_offset - col_sizes[i];
+        }
+    }
+    let row_y = if row_sub.is_none() {
+        collapse::starts(
+            &row_sizes,
+            &row_collapsed,
+            content_y,
+            row_gap,
+            css.align_content.zip(container_content_h),
+        )
+    } else {
+        Vec::new()
+    };
     for cell in &cells {
         let child = cell.child;
-        let cell_x = col_x[cell.c0];
-        let cell_y = row_y[cell.r0];
-        let cell_w = span_size(&col_sizes, cell.c0, cell.c1, col_gap);
-        let cell_h = span_size(&row_sizes, cell.r0, cell.r1.min(nrows), row_gap);
+        let (cell_x, cell_w) = if let Some(cs) = col_sub {
+            let (rel_x, w) = cs.cell_pos_and_span(cell.c0, cell.c1);
+            (content_x + rel_x, w)
+        } else {
+            let c0 = if is_rtl {
+                cell.c1.saturating_sub(1).min(col_x.len().saturating_sub(1))
+            } else {
+                cell.c0.min(col_x.len().saturating_sub(1))
+            };
+            (col_x[c0], span_size(&col_sizes, cell.c0, cell.c1, col_gap))
+        };
+        let (cell_y, cell_h) = if let Some(rs) = row_sub {
+            let (rel_y, h) = rs.cell_pos_and_span(cell.r0, cell.r1.min(nrows));
+            (content_y + rel_y, h)
+        } else {
+            let r0 = cell.r0.min(row_y.len().saturating_sub(1));
+            (
+                row_y[r0],
+                span_size(&row_sizes, cell.r0, cell.r1.min(nrows), row_gap),
+            )
+        };
         // `justify-self`/`align-self` do ITEM vencem `justify-items`/`align-items`
         // do container — mesma prioridade de `align-self` no flex.
         let item_css = dom.computed_style_idx(child).unwrap_or_default();
-        let justify = item_css.justify_self.unwrap_or(justify);
-        let align = item_css.align_self.unwrap_or(align);
+        let (is_col_sub, is_row_sub) =
+            subgrid::is_subgrid_item(&item_css, css.writing_mode.unwrap_or_default());
+        let justify = if is_col_sub {
+            crate::style::AlignItems::Stretch
+        } else {
+            item_css.justify_self.unwrap_or(justify)
+        };
+        let align = if is_row_sub {
+            crate::style::AlignItems::Stretch
+        } else {
+            item_css.align_self.unwrap_or(align)
+        };
         // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
-        //
-        // `stretch` só estica um eixo cujo tamanho é `auto` (spec §11.7 /
-        // css-align §7.1: "stretch — if the item's used cross-size is
-        // auto..."). Um `width`/`height` DECLARADO no item vence — o mesmo
-        // corte que o flex já tinha (`can_stretch` em `row.rs`) e que o grid
-        // não tinha: sem isto, `#item1`/`#item3`/`#item4` de
-        // `claude-grid-alinhamento.html` (que declaram `height:30px` mas
-        // NENHUM `align-self`, logo caem no `align-items:stretch` default do
-        // container) ganhavam a altura da CÉLULA (50px) em vez da declarada
-        // (30px) — medido pelo orquestrador contra o Chrome.
-        // A ratio fed by a height definite against the (now sized) area owns
-        // the width, and may overflow the cell. Only `normal` yields to it —
-        // Grid §6.6.1: `normal` "behaves as start" for an item with a
-        // preferred aspect ratio — while a DECLARED `stretch` (on the item or
-        // as the container's `justify-items`) still stretches, which is what
-        // Blink paints for `grid-aspect-ratio-018`/`-036`/`-037`.
         let ratio_w = aspect::ratio_outer_width(dom, child, Some(cell_h), cell_w, font_size, ctx);
+        let is_stretch =
+            |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
         let declared_x = item_css.justify_self.is_some() || css.grid_justify_items.is_some();
-        let stretch_x = justify == crate::style::AlignItems::Stretch
-            && item_css.width.is_none()
-            && (ratio_w.is_none() || declared_x);
+        let stretch_x = is_col_sub
+            || (is_stretch(justify)
+                && item_css.width.is_none()
+                && (ratio_w.is_none() || declared_x));
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = align == crate::style::AlignItems::Stretch && item_css.height.is_none();
-        let (nat_w, nat_h) = measure_block(dom, child, cell.box_id, cell_w, Some(cell_h), ratio_w, None, true, ctx);
+        let stretch_y = is_row_sub || (is_stretch(align) && item_css.height.is_none());
+        let (nat_w, nat_h) = measure_block(
+            dom,
+            child,
+            cell.box_id,
+            cell_w,
+            Some(cell_h),
+            ratio_w,
+            None,
+            true,
+            ctx,
+        );
         let iw = match ratio_w {
             Some(w) => w,
             None if stretch_x => cell_w,
+            None if item_css.width == Some(crate::style::Dimension::MinContent) => {
+                crate::table::min_content(dom, child, font_size, ctx).min(cell_w)
+            }
+            None if item_css.width.is_some() => nat_w,
             None => nat_w.min(cell_w),
         };
-        let ih = if stretch_y { cell_h } else { nat_h.min(cell_h) };
+        let ih = if stretch_y {
+            cell_h
+        } else if item_css.height.is_some() {
+            nat_h
+        } else {
+            nat_h.min(cell_h)
+        };
         let x = cell_x + cell_align_offset(justify, cell_w, iw);
         let y = cell_y + cell_align_offset(align, cell_h, ih);
-        // pinta o item: stretch no eixo → forced size; senão shrink-to-fit.
-        let forced_w = if stretch_x { None } else { Some(iw) };
-        let forced_h = if stretch_y { Some(cell_h) } else { None };
-        // `layout_block_reusing`: mesma razão do flex/coluna — o container
-        // (aqui, a passada de posicionamento das células) recalcula sempre,
-        // o item individual bate no cache por `FragmentKey` quando nada dele
-        // ou da célula que o impõe mudou.
+        let forced_w = if is_col_sub {
+            Some(cell_w)
+        } else if stretch_x {
+            if crate::layout::block::rotated::opens_frame(dom, child, &item_css)
+                || crate::layout::block::rotated::is_ortho_in_frame(child)
+            {
+                Some(cell_w)
+            } else {
+                None
+            }
+        } else {
+            Some(iw)
+        };
+        let forced_h = if is_row_sub || stretch_y {
+            Some(cell_h)
+        } else {
+            None
+        };
+        if is_col_sub || is_row_sub {
+            subgrid::register_if_subgrid(
+                dom,
+                child,
+                cell,
+                &col_sizes,
+                &row_sizes,
+                col_gap,
+                row_gap,
+                &col_lines,
+                &row_lines,
+                areas.as_deref(),
+                &resolve,
+                col_sub.is_some(),
+                row_sub.is_some(),
+            );
+        }
         layout_block_reusing(
             dom,
             child,
@@ -373,84 +446,51 @@ pub(in crate::layout) fn layout_children_grid(
             || (0.0, 0.0),
             forced_w,
             forced_h,
-            false,
+            is_row_sub,
             !stretch_x,
-            // Item de grid: mesma razão do flex, ver `column.rs`.
             &BlockFormattingContext::new(),
             ctx,
             list,
         );
     }
-    // altura total = soma das linhas + gaps.
-    let total_h: f32 = row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gap);
-    total_h.max(0.0)
-}
-
-/// Soma os tamanhos das trilhas `start..end` mais os gaps entre elas — o tamanho de
-/// uma célula, que para span 1 é a trilha e para span N inclui os gaps que o span
-/// atravessa (um span de 2 colunas cobre o gap do meio, não o perde).
-fn span_size(sizes: &[f32], start: usize, end: usize, gap: f32) -> f32 {
-    if sizes.is_empty() {
-        return 0.0;
+    subgrid::cleanup_subgrids(&cells);
+    let total_w = col_sub
+        .map(|cs| cs.content_span())
+        .unwrap_or_else(|| {
+            col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gap)
+        })
+        .max(0.0);
+    let total_h = row_sub
+        .map(|rs| rs.content_span())
+        .unwrap_or_else(|| {
+            row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gap)
+        })
+        .max(0.0);
+    if has_oof {
+        abspos::record_out_of_flow(
+            dom,
+            &tree,
+            container,
+            css,
+            &resolve,
+            content_x,
+            content_y,
+            total_w,
+            total_h,
+            is_rtl,
+            col_sub,
+            row_sub,
+            &col_x,
+            &row_y,
+            &col_sizes,
+            &row_sizes,
+            &col_lines,
+            &row_lines,
+            areas.as_deref(),
+            ncols,
+            nrows,
+            list,
+        );
     }
-    let end = end.max(start + 1).min(sizes.len());
-    let start = start.min(sizes.len() - 1);
-    let n = end.saturating_sub(start);
-    sizes[start..end].iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * gap
-}
-/// Offset de alinhamento de um item de tamanho `item` dentro de uma célula de
-/// tamanho `cell` (start=0, center=(cell-item)/2, end=cell-item; stretch=0).
-///
-/// `Center`/`FlexEnd` (sem o prefixo `safe`) NÃO recortam em `.max(0.0)` — a
-/// grelha é `unsafe` por omissão (css-align-3 §4.4: só as formas `safe *`
-/// pedem o fallback), e um item maior do que a célula transborda dos DOIS
-/// lados quando `justify-items`/`align-items` é `center` puro. O
-/// `.max(0.0)` que aqui estava antes desta correcção tornava `center`/
-/// `flex-end` sempre seguros, ao contrário do default da spec — `SafeCenter`/
-/// `SafeEnd` (que ANTES caíam no `_ => 0.0`, i.e. start incondicional) são o
-/// lugar certo para esse recorte.
-fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f32) -> f32 {
-    let free = cell - item;
-    match a {
-        crate::style::AlignItems::Center => free / 2.0,
-        crate::style::AlignItems::FlexEnd => free,
-        crate::style::AlignItems::SafeCenter => (free / 2.0).max(0.0),
-        crate::style::AlignItems::SafeEnd => free.max(0.0),
-        _ => 0.0, // FlexStart / Stretch
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::cell_align_offset;
-    use crate::style::AlignItems as A;
-
-    /// A cell 100 wide, an item 200 wide (`free = -100`) — the case where
-    /// `safe`/`unsafe` diverge. NOTE: the caller (`layout_children_grid`)
-    /// still shrinks a non-`stretch` item to `nat_w.min(cell_w)` before this
-    /// function ever sees it, so a real page cannot exercise `free < 0`
-    /// through this engine's grid today — this is the function's OWN
-    /// contract, pinned so a future caller (or a fix to that shrink) inherits
-    /// the right answer rather than a silently-clamped one.
-    #[test]
-    fn center_is_unsafe_by_default() {
-        assert_eq!(cell_align_offset(A::Center, 100.0, 200.0), -50.0);
-        assert_eq!(cell_align_offset(A::FlexEnd, 100.0, 200.0), -100.0);
-    }
-
-    #[test]
-    fn safe_falls_back_to_start_when_the_item_overflows() {
-        assert_eq!(cell_align_offset(A::SafeCenter, 100.0, 200.0), 0.0);
-        assert_eq!(cell_align_offset(A::SafeEnd, 100.0, 200.0), 0.0);
-    }
-
-    /// Guard: when the item fits, `safe`/`unsafe` answer the same as their
-    /// unprefixed counterpart.
-    #[test]
-    fn safe_matches_unsafe_when_the_item_fits() {
-        assert_eq!(cell_align_offset(A::Center, 100.0, 40.0), 30.0);
-        assert_eq!(cell_align_offset(A::SafeCenter, 100.0, 40.0), 30.0);
-        assert_eq!(cell_align_offset(A::FlexEnd, 100.0, 40.0), 60.0);
-        assert_eq!(cell_align_offset(A::SafeEnd, 100.0, 40.0), 60.0);
-    }
+    (total_w, total_h)
 }

@@ -33,12 +33,21 @@ fn align_items_center_centres_in_the_content_box_not_the_padding_box() {
 
 #[test]
 fn items_end_in_both_axes_reach_the_content_box_end() {
-    assert_eq!(place("align-items:end;justify-items:end", ""), (86.0, 497.0));
+    assert_eq!(
+        place("align-items:end;justify-items:end", ""),
+        (86.0, 497.0)
+    );
 }
 
 #[test]
 fn the_items_own_self_alignment_wins_over_the_containers() {
-    assert_eq!(place("align-items:center;justify-items:end", "align-self:start;justify-self:center"), (61.0, 97.0));
+    assert_eq!(
+        place(
+            "align-items:center;justify-items:end",
+            "align-self:start;justify-self:center"
+        ),
+        (61.0, 97.0)
+    );
 }
 
 #[test]

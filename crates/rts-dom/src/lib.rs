@@ -23,17 +23,20 @@
 /// o registro (`defineBlock`/`defineInline`) e os códigos de display. O DOM diz
 /// "esta tag é um bloco vertical / inline-flow"; o renderer decide como pintar.
 pub mod block;
-mod dom;
-/// Descodificação de PNG e `data:` URL (lote imagens-no-raster, movido de
-/// `rts-dom-bridge`) — só bytes já em memória, sem I/O. Ver o módulo.
-pub mod imagem;
 /// Hasher rápido para as chaves INTERNAS (índices de nó, chaves de cache de
 /// layout): nenhuma delas vem de fora do processo, e o SipHash da `std` cobra
 /// uma resistência que não se usa. Ver as ressalvas no módulo.
 pub mod boxes;
-pub mod fasthash;
+/// CONTADORES de CSS (`counter-reset`/`counter-increment`) e o valor que
+/// `counter()` lê dentro de um `content`.
+pub mod counters;
+mod dom;
 mod entity_refs;
+pub mod fasthash;
 mod html;
+/// Descodificação de PNG e `data:` URL (lote imagens-no-raster, movido de
+/// `rts-dom-bridge`) — só bytes já em memória, sem I/O. Ver o módulo.
+pub mod imagem;
 mod inline_box;
 /// Motor de LAYOUT (egui-free): calcula a geometria (x,y,w,h) de cada nó via box
 /// model + fluxo normal e emite uma `DisplayList` plana. Decisão 2026-06-27:
@@ -41,22 +44,19 @@ mod inline_box;
 /// só pinta a display-list. Medição de texto via trait `TextMeasurer` (o backend
 /// implementa; reimplementar largura de glifo aqui é a armadilha do roadmap).
 pub mod layout;
+/// The inspector's highlighted node (`rts-dom-bridge` feature `inspector`).
+pub mod overlay;
 /// What the paint list is and how it is painted — `paint/mod.rs`.
 pub mod paint;
-/// What is asked of a laid-out paint list — `query/mod.rs`.
-pub mod query;
 /// CONTEÚDO GERADO (`::before`/`::after`): resolução da caixa que a cascata manda
 /// existir, sem que ela entre na árvore de nós.
 pub mod pseudo;
-/// CONTADORES de CSS (`counter-reset`/`counter-increment`) e o valor que
-/// `counter()` lê dentro de um `content`.
-pub mod counters;
+/// What is asked of a laid-out paint list — `query/mod.rs`.
+pub mod query;
 /// Store de `Dom`s vivos por handle — a fonte única da verdade. A ABI headless e
 /// um renderer (rts-egui) acessam o MESMO `Dom` por handle (`with_dom`), então
 /// mutações pela fachada `document` mudam o que a janela pinta.
 pub mod store;
-/// The inspector's highlighted node (`rts-dom-bridge` feature `inspector`).
-pub mod overlay;
 /// Estado de ESTILO (egui-free): `ComputedStyle`, slots opacos, parse do `style=""`
 /// inline, e o registro por-tag (`defineStyle`). O DOM é dono do estilo; o renderer
 /// (egui) só LÊ. Os tipos são próprios (`u32` RGBA), nunca tipos de backend.
@@ -121,8 +121,7 @@ pub mod painteffects;
 
 pub use dom::{
     Attr, Dom, ListenerOptions, MatchedRuleView, Node, NodeId, NodeIdx, NodeKind, RawInputEvent,
-    RawKeyboardEvent,
-    parse_html_to_dom,
+    RawKeyboardEvent, parse_html_to_dom,
 };
 
 /// Prelude `.ts` da FACHADA DOM ergonômica (`document` global + `Element`, com a

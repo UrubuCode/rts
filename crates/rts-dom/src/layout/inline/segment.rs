@@ -88,7 +88,13 @@ pub(in crate::layout) fn collapse_ws(text: &str, leading_space: bool) -> std::bo
 /// run ANTERIOR (zero se não há espaço ou se ele é deste run). Ao abrir segmento
 /// novo o espaço sai do texto e vira vão, para ficar de fora da caixa dos donos;
 /// ao FUNDIR fica onde está, porque aí é interior ao segmento que o recebe.
-pub(in crate::layout) fn push_segment(cur: &mut Vec<Segment>, run: &InlineRun, text: &str, width: f32, lead: f32) {
+pub(in crate::layout) fn push_segment(
+    cur: &mut Vec<Segment>,
+    run: &InlineRun,
+    text: &str,
+    width: f32,
+    lead: f32,
+) {
     if let Some(last) = cur.last_mut() {
         if last.atomic.is_none()
             && last.color == run.color
@@ -185,17 +191,32 @@ pub(in crate::layout) fn apply_forced_ellipsis(
     // The ellipsis takes the font of the text it is appended to.
     let measure = |t: &str, owners: &[NodeIdx]| -> f32 {
         let (font_size, mono, ahem) = font_of(owners);
-        if ahem { t.chars().count() as f32 * font_size } else { m.text_width(t, font_size, mono, false, false) }
+        if ahem {
+            t.chars().count() as f32 * font_size
+        } else {
+            m.text_width(t, font_size, mono, false, false)
+        }
     };
     let of_last = |line: &[Segment]| -> Vec<NodeIdx> {
-        line.iter().rev().find(|s| s.atomic.is_none()).map(|s| s.owners.clone()).unwrap_or_default()
+        line.iter()
+            .rev()
+            .find(|s| s.atomic.is_none())
+            .map(|s| s.owners.clone())
+            .unwrap_or_default()
     };
     lines
         .into_iter()
         .map(|line| {
             let total: f32 = line
                 .iter()
-                .map(|s| s.lead_w + if s.atomic.is_some() { s.ww } else { s.text_width })
+                .map(|s| {
+                    s.lead_w
+                        + if s.atomic.is_some() {
+                            s.ww
+                        } else {
+                            s.text_width
+                        }
+                })
                 .sum();
             if total <= content_w && !force {
                 return line;
@@ -244,7 +265,9 @@ pub(in crate::layout) fn apply_forced_ellipsis(
                 if seg.atomic.is_none() {
                     let disp = budget - acc - seg.lead_w;
                     let (font_size, mono, ahem) = font_of(&seg.owners);
-                    let (n, w) = crate::inline_box::prefixo_que_cabe(&seg.text, disp, font_size, mono, seg.bold, seg.italic, ahem, m);
+                    let (n, w) = crate::inline_box::prefixo_que_cabe(
+                        &seg.text, disp, font_size, mono, seg.bold, seg.italic, ahem, m,
+                    );
                     seg.text.truncate(n);
                     seg.text.push_str(ELLIPSIS);
                     seg.text_width = w + ellipsis_w;

@@ -42,9 +42,18 @@ fn calc_aninhado_derruba_a_expressao_inteira() {
 /// mostram que o teto ficou onde não devia, e só ali.
 #[test]
 fn vw_e_vh_sao_clampados_a_cem_mas_a_percentagem_nao() {
-    assert_eq!(parse_inline("width:200vw").width, Some(Dimension::Vw(100.0)));
-    assert_eq!(parse_inline("height:150vh").height, Some(Dimension::Vh(100.0)));
-    assert_eq!(parse_inline("width:200%").width, Some(Dimension::Percent(200.0)));
+    assert_eq!(
+        parse_inline("width:200vw").width,
+        Some(Dimension::Vw(100.0))
+    );
+    assert_eq!(
+        parse_inline("height:150vh").height,
+        Some(Dimension::Vh(100.0))
+    );
+    assert_eq!(
+        parse_inline("width:200%").width,
+        Some(Dimension::Percent(200.0))
+    );
 }
 
 /// `estilo.computado.rem-na-propria-raiz` — um `rem` declarado NO PRÓPRIO
@@ -68,7 +77,11 @@ fn rem_na_raiz_nao_le_a_raiz_do_documento_anterior() {
     let a = parse_html_to_dom(
         "<html><head><style>html{font-size:10px}</style></head><body>x</body></html>",
     );
-    assert_eq!(font_size(&a, "html"), "10px", "o primeiro documento fixa a raiz em 10");
+    assert_eq!(
+        font_size(&a, "html"),
+        "10px",
+        "o primeiro documento fixa a raiz em 10"
+    );
 
     let b = parse_html_to_dom(
         "<html><head><style>html{font-size:2rem}</style></head><body>x</body></html>",
@@ -171,5 +184,8 @@ fn um_ponto_e_virgula_dentro_de_url_nao_separa_declaracoes() {
     // E a declaração SEGUINTE continua a ser lida — o `;` verdadeiro separa.
     let c = parse_inline("background-image:url(data:a;base64,A);color:red");
     assert!(c.bg_image.is_some());
-    assert!(c.color.is_some(), "o `;` de topo tem de continuar a separar");
+    assert!(
+        c.color.is_some(),
+        "o `;` de topo tem de continuar a separar"
+    );
 }

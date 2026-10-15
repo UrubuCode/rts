@@ -31,9 +31,14 @@ fn wrong(dom: &crate::Dom, ctx: &LayoutCtx) -> Vec<String> {
         .iter()
         .filter_map(|&(sel, e)| {
             let idx = dom.resolve(dom.query(sel).expect(sel)).expect("live node");
-            let r = list.rect_of(idx).unwrap_or_else(|| panic!("{sel} has no geometry"));
+            let r = list
+                .rect_of(idx)
+                .unwrap_or_else(|| panic!("{sel} has no geometry"));
             let got = (r.x, r.y, r.w, r.h);
-            let ok = (got.0 - e.0).abs() <= TOL && (got.1 - e.1).abs() <= TOL && (got.2 - e.2).abs() <= TOL && (got.3 - e.3).abs() <= TOL;
+            let ok = (got.0 - e.0).abs() <= TOL
+                && (got.1 - e.1).abs() <= TOL
+                && (got.2 - e.2).abs() <= TOL
+                && (got.3 - e.3).abs() <= TOL;
             (!ok).then(|| format!("{sel}: expected {e:?}, got {got:?}"))
         })
         .collect()
@@ -42,7 +47,11 @@ fn wrong(dom: &crate::Dom, ctx: &LayoutCtx) -> Vec<String> {
 #[test]
 fn an_absolute_box_mid_line_takes_the_static_position_blink_gives_it() {
     let dom = crate::parse_html_to_dom(&fixture());
-    let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &ApproxMeasurer,
+    };
     let w = wrong(&dom, &ctx);
     assert!(w.is_empty(), "against Blink:\n{}", w.join("\n"));
 }
@@ -55,7 +64,11 @@ fn an_absolute_box_mid_line_takes_the_static_position_blink_gives_it() {
 fn the_static_position_survives_the_fragment_cache() {
     let html = fixture().replace("</body>", "<p id=\"outro\">z</p></body>");
     let mut dom = crate::parse_html_to_dom(&html);
-    let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &ApproxMeasurer,
+    };
     for passagem in ["fresh", "cached"] {
         let w = wrong(&dom, &ctx);
         assert!(w.is_empty(), "{passagem} pass:\n{}", w.join("\n"));

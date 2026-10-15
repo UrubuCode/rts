@@ -217,11 +217,7 @@ impl PseudoClass {
                 .unwrap_or(0),
             // `:has()` toma a especificidade do argumento mais específico —
             // Selectors L4 §17, a mesma regra de `:not`/`:is`.
-            PseudoClass::Has(list) => list
-                .iter()
-                .map(|(_, s)| s.specificity())
-                .max()
-                .unwrap_or(0),
+            PseudoClass::Has(list) => list.iter().map(|(_, s)| s.specificity()).max().unwrap_or(0),
             _ => ESPEC_CLASSE,
         }
     }

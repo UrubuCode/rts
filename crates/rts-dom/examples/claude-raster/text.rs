@@ -57,7 +57,9 @@ const DEFAULT_AHEM: &str = "C:/Users/nexga/Documents/wpt-corpus/fonts/Ahem.ttf";
 pub fn font_store() -> Arc<FontStore> {
     let store = Arc::new(FontStore::new());
     let path = std::env::var("RTS_AHEM").unwrap_or_else(|_| DEFAULT_AHEM.to_string());
-    let registered = std::fs::read(&path).map(|bytes| store.register(bytes, "Ahem")).unwrap_or(0);
+    let registered = std::fs::read(&path)
+        .map(|bytes| store.register(bytes, "Ahem"))
+        .unwrap_or(0);
     if registered == 0 {
         eprintln!("rts-raster: no Ahem at {path}; Ahem text will be masked");
     }
@@ -97,14 +99,22 @@ pub struct TextPainter<'m> {
 
 impl<'m> TextPainter<'m> {
     pub fn new(measurer: &'m RealMeasurer) -> TextPainter<'m> {
-        TextPainter { measurer, glyphs: HashMap::new(), rects: HashMap::new() }
+        TextPainter {
+            measurer,
+            glyphs: HashMap::new(),
+            rects: HashMap::new(),
+        }
     }
 
     pub fn paint(&mut self, canvas: &mut Canvas, run: &TextRun, clip: Option<Rect>) -> Outcome {
         // `is_ahem` is the family by the layout's own rule
         // (`style::is_ahem_family`), and for a control it wins over the
         // `Arial` its label was measured in, as it does in the layout's widths.
-        let family = if run.is_ahem { Some("Ahem") } else { run.family };
+        let family = if run.is_ahem {
+            Some("Ahem")
+        } else {
+            run.family
+        };
         let Some(face) = self.face(family, run) else {
             return Outcome::NoFace(self.mask(run));
         };
@@ -126,10 +136,18 @@ impl<'m> TextPainter<'m> {
         let mut pen = run.x;
         for glyph in rts_text::shape(&face, run.text, run.size, true) {
             let (gx, gy) = (pen + glyph.x_offset, baseline - glyph.y_offset);
-            match run.is_ahem.then(|| self.solid_rect(&face, glyph.id)).flatten() {
+            match run
+                .is_ahem
+                .then(|| self.solid_rect(&face, glyph.id))
+                .flatten()
+            {
                 Some([l, t, w, h]) => {
                     let s = run.size;
-                    canvas.fill_rect(Rect::new(gx + l * s, gy - t * s, w * s, h * s), run.color, clip);
+                    canvas.fill_rect(
+                        Rect::new(gx + l * s, gy - t * s, w * s, h * s),
+                        run.color,
+                        clip,
+                    );
                 }
                 None => self.composite(canvas, &face, glyph.id, run.size, (gx, gy), (rgb, a), clip),
             }
@@ -141,19 +159,39 @@ impl<'m> TextPainter<'m> {
     /// A sideways run: the horizontal layout in the run's own coordinates,
     /// each glyph turned a quarter onto the page about `(run.x, run.y)`.
     #[allow(clippy::too_many_arguments)]
-    fn paint_sideways(&mut self, canvas: &mut Canvas, face: &Face, run: &TextRun, ascent: f32, (rgb, a): (u32, u8), clip: Option<Rect>) {
+    fn paint_sideways(
+        &mut self,
+        canvas: &mut Canvas,
+        face: &Face,
+        run: &TextRun,
+        ascent: f32,
+        (rgb, a): (u32, u8),
+        clip: Option<Rect>,
+    ) {
         let turn = |l: Rect| turn_rect(run, l);
         let mut pen = 0.0f32;
         for glyph in rts_text::shape(face, run.text, run.size, true) {
             let (gx, gy) = (pen + glyph.x_offset, ascent - glyph.y_offset);
-            match run.is_ahem.then(|| self.solid_rect(face, glyph.id)).flatten() {
+            match run
+                .is_ahem
+                .then(|| self.solid_rect(face, glyph.id))
+                .flatten()
+            {
                 Some([l, t, w, h]) => {
                     let s = run.size;
-                    canvas.fill_rect(turn(Rect::new(gx + l * s, gy - t * s, w * s, h * s)), run.color, clip);
+                    canvas.fill_rect(
+                        turn(Rect::new(gx + l * s, gy - t * s, w * s, h * s)),
+                        run.color,
+                        clip,
+                    );
                 }
                 None => {
                     let key = (face.id(), glyph.id, run.size.to_bits());
-                    if let Some(bm) = self.glyphs.entry(key).or_insert_with(|| rts_text::rasterise(face, glyph.id, run.size)) {
+                    if let Some(bm) = self
+                        .glyphs
+                        .entry(key)
+                        .or_insert_with(|| rts_text::rasterise(face, glyph.id, run.size))
+                    {
                         let ox = gx.round() as i32 + bm.left;
                         let oy = gy.round() as i32 - bm.top;
                         let (px0, py0) = (run.x.round() as i32, run.y.round() as i32);
@@ -184,9 +222,24 @@ impl<'m> TextPainter<'m> {
     /// pixels on Windows, and every face but Ahem has a rounded ascent, so
     /// the baseline is whole already wherever the line top is.
     #[allow(clippy::too_many_arguments)]
-    fn composite(&mut self, canvas: &mut Canvas, face: &Face, id: u16, size: f32, (x, y): (f32, f32), (rgb, a): (u32, u8), clip: Option<Rect>) {
+    fn composite(
+        &mut self,
+        canvas: &mut Canvas,
+        face: &Face,
+        id: u16,
+        size: f32,
+        (x, y): (f32, f32),
+        (rgb, a): (u32, u8),
+        clip: Option<Rect>,
+    ) {
         let key = (face.id(), id, size.to_bits());
-        let Some(bm) = self.glyphs.entry(key).or_insert_with(|| rts_text::rasterise(face, id, size)) else { return };
+        let Some(bm) = self
+            .glyphs
+            .entry(key)
+            .or_insert_with(|| rts_text::rasterise(face, id, size))
+        else {
+            return;
+        };
         let ox = x.round() as i32 + bm.left;
         let oy = y.round() as i32 - bm.top;
         for row in 0..bm.h as i32 {
@@ -220,7 +273,12 @@ impl<'m> TextPainter<'m> {
             if bm.w == 0 || bm.alpha.iter().any(|&c| c != 255) {
                 return None;
             }
-            Some([bm.left as f32 / upem, bm.top as f32 / upem, bm.w as f32 / upem, bm.h as f32 / upem])
+            Some([
+                bm.left as f32 / upem,
+                bm.top as f32 / upem,
+                bm.w as f32 / upem,
+                bm.h as f32 / upem,
+            ])
         })
     }
 
@@ -228,8 +286,14 @@ impl<'m> TextPainter<'m> {
     /// means Blink's default, `monospace` when `mono`, else `serif`.
     fn face(&self, family: Option<&str>, run: &TextRun) -> Option<Arc<Face>> {
         let list = family.unwrap_or(if run.mono { "monospace" } else { "serif" });
-        let style = if run.italic { Style::Italic } else { Style::Normal };
-        self.measurer.store().resolve(list, if run.bold { 700 } else { 400 }, style)
+        let style = if run.italic {
+            Style::Italic
+        } else {
+            Style::Normal
+        };
+        self.measurer
+            .store()
+            .resolve(list, if run.bold { 700 } else { 400 }, style)
     }
 
     /// The area an unpainted item covers, for the `.mask.json` the comparator

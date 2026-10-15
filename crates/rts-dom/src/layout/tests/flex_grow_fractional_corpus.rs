@@ -35,7 +35,12 @@ fn fractional_growth_and_frozen_limits_match_blink() {
     ] {
         let r = rect(&dom, &list, &format!("#{id}"), 0);
         let actual = [r.x, r.y, r.w, r.h];
-        assert!(actual.iter().zip(expected).all(|(a, e)| (a - e).abs() <= 1.0),
-            "#{id}: {actual:?}, Blink: {expected:?}");
+        assert!(
+            actual
+                .iter()
+                .zip(expected)
+                .all(|(a, e)| (a - e).abs() <= 1.0),
+            "#{id}: {actual:?}, Blink: {expected:?}"
+        );
     }
 }

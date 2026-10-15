@@ -10,7 +10,7 @@
 //! the same invalidation for free.
 
 use super::Dom;
-use crate::boxes::{build_mirror, BoxTree};
+use crate::boxes::{BoxTree, build_mirror};
 use std::rc::Rc;
 
 impl Dom {

@@ -28,17 +28,21 @@ pub(in crate::layout) use super::margin_collapse::{
 /// triggers there would be a second answer to a question this function already
 /// carries with the fixtures that pinned each one. The rule it encodes is a
 /// STYLE question and will move to `style/` with `is_block_level`.
-pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
+pub(crate) fn establishes_block_formatting_context(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+) -> bool {
     // The style half lives in `bfc_style.rs` since BT-5, so a box with no
     // node — a generated one — can ask it too. What stays is what only a node
     // answers: being the root, and `overflow` propagating to the viewport.
     let parent_css = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
     super::bfc_style::by_style(css, parent_css.as_deref())
-        || (super::bfc_style::overflow_establishes(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
+        || (super::bfc_style::overflow_establishes(css)
+            && !super::overflow_viewport::propagated_to_viewport(dom, id))
         || dom.node(id).parent == Some(dom.root)
         || super::rotated::is_frame_root(id)
 }
-
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
 /// disponível (a do container). Emite os itens (fundo/borda/texto/filhos) na
@@ -107,14 +111,34 @@ pub(crate) fn layout_block(
             // A vertical writing mode met at its boundary is laid out in a
             // rotated frame (`rotated.rs`); every other box answers `None`.
             if let Some(size) = super::rotated::layout_if_boundary(
-                dom, id, box_id, &css, tag, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+                dom,
+                id,
+                box_id,
+                &css,
+                tag,
+                x,
+                y,
+                avail_w,
+                avail_h,
+                forced_outer_w,
+                forced_outer_h,
+                ctx,
+                list,
             ) {
                 return size;
             }
             if tag == "select" {
                 return layout_select(
-                    box_id, &css, x, y, avail_w, avail_h, forced_outer_w,
-                    forced_outer_h, ctx, list,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    avail_h,
+                    forced_outer_w,
+                    forced_outer_h,
+                    ctx,
+                    list,
                 );
             }
             // `<input>`/`<textarea>` editável (mini-browser): void, sem filhos — o
@@ -163,16 +187,40 @@ pub(crate) fn layout_block(
                 .node(id)
                 .parent
                 .and_then(|p| dom.computed_style_idx(p))
-                .and_then(|pcss| crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h));
+                .and_then(|pcss| {
+                    crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h)
+                });
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, ctx, list) {
+                if let Some(r) = layout_canvas(
+                    dom,
+                    id,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    replaced_cb_h,
+                    ctx,
+                    list,
+                ) {
                     return r;
                 }
             }
             if tag == "img" {
-                if let Some(img) =
-                    layout_image(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, forced_outer_w, forced_outer_h, ctx, list)
-                {
+                if let Some(img) = layout_image(
+                    dom,
+                    id,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    replaced_cb_h,
+                    forced_outer_w,
+                    forced_outer_h,
+                    ctx,
+                    list,
+                ) {
                     return img;
                 }
                 // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
@@ -183,7 +231,9 @@ pub(crate) fn layout_block(
             // página fica correta mesmo sem o SVG (logo/ícones do google ocupam o
             // espaço certo em vez de colapsar pra 0×0).
             if tag == "svg" {
-                if let Some(r) = layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) =
+                    layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list)
+                {
                     return r;
                 }
             }
@@ -191,7 +241,9 @@ pub(crate) fn layout_block(
         }
         // Texto solto ao nível de bloco: uma linha com a fonte do PAI
         // (`bare_text.rs`); whitespace estrutural não cria linha nenhuma.
-        NodeKind::Text(t) => return super::bare_text::layout_bare_text(dom, id, t, x, y, ctx, list),
+        NodeKind::Text(t) => {
+            return super::bare_text::layout_bare_text(dom, id, box_id, t, x, y, avail_w, ctx, list);
+        }
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
 
@@ -264,7 +316,37 @@ pub(crate) fn layout_block(
     // ocupar o pai. É a diferença mais visível entre uma tabela e um `<div>`, e
     // sem ela cada tabela da página nasce com a largura da coluna inteira.
     let shrink_to_fit = shrink_to_fit || used.is_some_and(crate::style::DisplayKind::is_table_box);
-    let content_w = if let Some(fw) = forced_outer_w {
+    let mnw = crate::layout::measure::intrinsic_min_max::resolve(
+        css.min_width,
+        dom,
+        id,
+        font_for_content,
+        ctx,
+        &resolve,
+    )
+    .map(|v| {
+        if border_box {
+            (v - (padding_h + border_h)).max(0.0)
+        } else {
+            v
+        }
+    });
+    let mxw = crate::layout::measure::intrinsic_min_max::resolve(
+        css.max_width,
+        dom,
+        id,
+        font_for_content,
+        ctx,
+        &resolve,
+    )
+    .map(|v| {
+        if border_box {
+            (v - (padding_h + border_h)).max(0.0)
+        } else {
+            v
+        }
+    });
+    let mut content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
         // Vence width/min-max (o clamp no resolve flex é corte documentado).
@@ -292,9 +374,22 @@ pub(crate) fn layout_block(
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
         let base = if css.width == Some(crate::style::Dimension::MaxContent) {
-            crate::layout::flex::column_wrap_width::max_content_width(dom, id, box_id, font_for_content, avail_h, &css, ctx)
+            crate::layout::flex::column_wrap_width::max_content_width(
+                dom,
+                id,
+                box_id,
+                font_for_content,
+                avail_h,
+                &css,
+                ctx,
+            )
+        } else if css.width == Some(crate::style::Dimension::MinContent) {
+            (crate::table::min_content(dom, id, font_for_content, ctx) - frame).max(0.0)
         } else {
-            match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
+            match css
+                .width
+                .and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref()))
+            {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
                 // então o content é `width - (padding_h + 2*border)`. Em content-box
                 // (default), o `width` JÁ é o content.
@@ -314,33 +409,27 @@ pub(crate) fn layout_block(
                 None if shrink_to_fit => {
                     let h = forced_outer_h
                         .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
-                    crate::layout::replaced::transferred_size::transferred_intrinsic_width(dom, id, font_for_content, h, ctx)
-                        .unwrap_or_else(|| {
-                            crate::layout::flex::limits::shrink_to_fit_width(
-                                dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
-                            )
-                        })
+                    crate::layout::replaced::transferred_size::transferred_intrinsic_width(
+                        dom,
+                        id,
+                        font_for_content,
+                        h,
+                        ctx,
+                    )
+                    .unwrap_or_else(|| {
+                        crate::layout::flex::limits::shrink_to_fit_width(
+                            dom,
+                            id,
+                            (avail_w - frame).max(0.0),
+                            frame,
+                            font_for_content,
+                            ctx,
+                        )
+                    })
                 }
                 None => (avail_w - frame).max(0.0),
             }
         };
-        // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
-        // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
-        // content quando border-box; em content-box já são do content.
-        let mnw = crate::layout::measure::intrinsic_min_max::resolve(css.min_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
-            if border_box {
-                (v - (padding_h + border_h)).max(0.0)
-            } else {
-                v
-            }
-        });
-        let mxw = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
-            if border_box {
-                (v - (padding_h + border_h)).max(0.0)
-            } else {
-                v
-            }
-        });
         crate::style::clamp_size(base, mnw, mxw)
     };
 
@@ -392,7 +481,14 @@ pub(crate) fn layout_block(
     let content_x = x + margin_left + border_left + pad_left;
     // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `escaped_margin.rs`.
     let escaped_top_pre = crate::layout::block::escaped_margin::escaped_at_top(
-        dom, id, &css, content_w, font_for_content, pad_top, border_top, ctx,
+        dom,
+        id,
+        &css,
+        content_w,
+        font_for_content,
+        pad_top,
+        border_top,
+        ctx,
     );
     let content_y =
         y + (collapse_margin(margin_top, escaped_top_pre) - escaped_top_pre) + border_top + pad_top;
@@ -480,7 +576,12 @@ pub(crate) fn layout_block(
             // `aspect-ratio`: without a declared height, the width transfers
             // through the ratio (`measure::aspect_ratio`, shared with the grid).
             .or_else(|| {
-                crate::layout::measure::aspect_ratio::height_for_width(&css, content_w, padding_h + border_h, frame_v)
+                crate::layout::measure::aspect_ratio::height_for_width(
+                    &css,
+                    content_w,
+                    padding_h + border_h,
+                    frame_v,
+                )
             })
             // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
             // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
@@ -573,11 +674,13 @@ pub(crate) fn layout_block(
         .map(|f| {
             matches!(
                 f,
-                crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
+                crate::style::FlexDirection::RowReverse
+                    | crate::style::FlexDirection::ColumnReverse
             )
         })
         .unwrap_or(false);
-    let is_reverse = crate::layout::flex::axes::effective_reverse(wm, dir, is_column, is_reverse_kw);
+    let is_reverse =
+        crate::layout::flex::axes::effective_reverse(wm, dir, is_column, is_reverse_kw);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     // `gap`/`row-gap` seguem a KEYWORD, nunca o eixo físico que `writing-mode`
@@ -647,28 +750,33 @@ pub(crate) fn layout_block(
         // grid porque uma `<table>` que o autor não tocou tem eixo vertical e
         // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
         // `<div>` — que é exatamente o que a página real mostrava.
-        _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
-            dom,
-            id,
-            box_id,
-            content_x,
-            content_y,
-            children_w,
-            // Same definiteness the table's OWN children (`avail_children`,
-            // three lines above) already resolve `height:%` against: only an
-            // explicitly specified height (or its `aspect-ratio`/flex
-            // equivalents), never the auto result of stacking the rows. A
-            // `<tr>`/`<tbody>`'s `top:100%` (CSS 2.1 §9.3.2) reuses this same
-            // value rather than the laid-out row height — see
-            // `table::relative`.
-            explicit_content_h,
-            &css,
-            font_size,
-            ctx,
-            list,
-        ),
-        _ if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) => {
-            layout_children_grid(
+        _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => {
+            crate::table::layout_table(
+                dom,
+                id,
+                box_id,
+                content_x,
+                content_y,
+                children_w,
+                // Same definiteness the table's OWN children (`avail_children`,
+                // three lines above) already resolve `height:%` against: only an
+                // explicitly specified height (or its `aspect-ratio`/flex
+                // equivalents), never the auto result of stacking the rows. A
+                // `<tr>`/`<tbody>`'s `top:100%` (CSS 2.1 §9.3.2) reuses this same
+                // value rather than the laid-out row height — see
+                // `table::relative`.
+                explicit_content_h,
+                &css,
+                font_size,
+                ctx,
+                list,
+            )
+        }
+        _ if css
+            .effective_display()
+            .is_some_and(crate::style::DisplayKind::is_grid_container) =>
+        {
+            let (grid_w, grid_h) = layout_children_grid(
                 dom,
                 id,
                 box_id,
@@ -680,7 +788,11 @@ pub(crate) fn layout_block(
                 font_size,
                 ctx,
                 list,
-            )
+            );
+            if shrink_to_fit && css.width.is_none() && forced_outer_w.is_none() {
+                content_w = crate::style::clamp_size(grid_w, mnw, mxw);
+            }
+            grid_h
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
@@ -757,8 +869,16 @@ pub(crate) fn layout_block(
     // even when its `display` is only the tag's default — `effective_display`
     // cannot say so, having no tag — and a block's height is its LINES, not the
     // font's content area: a floated `<span>` is 18px tall, not 17.
-    let blockified = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
-        || css.position.is_some_and(|p| p.out_of_flow());
+    let blockified = css
+        .float_side
+        .is_some_and(|f| f != crate::style::FloatSide::None)
+        || css.position.is_some_and(|p| p.out_of_flow())
+        || dom
+            .node(id)
+            .parent
+            .and_then(|p| dom.computed_style_idx(p))
+            .and_then(|pcss| pcss.effective_display())
+            .is_some_and(|d| d.is_grid_container() || d.is_flex_container());
     let inline_box_id = used.is_none()
         && css.effective_display().is_none()
         && css.height.is_none()
@@ -773,8 +893,14 @@ pub(crate) fn layout_block(
     // pai (20px), usa a métrica interna do widget (~15px). O frame da UA já
     // está em `frame_v`; só substituímos o conteúdo natural, deixando o
     // `forced_outer_h` do flex atuar mais abaixo.
-    let is_button = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
-    let content_h = if is_button && css.height.is_none() {
+    let is_button =
+        matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
+    let content_h = if is_button
+        && css.height.is_none()
+        && !css
+            .effective_display()
+            .is_some_and(|d| d.is_grid_container() || d.is_flex_container())
+    {
         content_h.min(15.0)
     } else {
         content_h
@@ -784,7 +910,11 @@ pub(crate) fn layout_block(
     let content_h = explicit_content_h.unwrap_or(content_h);
     // CLAMP min/max-height (#1751): used = clamp(min, height, max) — eixo vertical
     // (`%` contra a ALTURA do containing block, como o height).
-    let content_h = crate::style::clamp_size(content_h, mnh_pre, mxh_pre);
+    let content_h = if forced_outer_h_hard {
+        content_h
+    } else {
+        crate::style::clamp_size(content_h, mnh_pre, mxh_pre)
+    };
     // STRETCH do flex: altura OUTER imposta pelo container (align-items/self:
     // stretch) → content = outer - margens - frame_v; nunca ENCOLHE o conteúdo
     // (max com o natural — um item mais alto que a linha não é cortado).
@@ -945,7 +1075,14 @@ pub(crate) fn layout_block(
         // (quando já carregados; ver `fundo_imagem`) tapam o que a cor pintou,
         // exatamente como o Blink compõe as camadas de `background`.
         for item in crate::paint::background_image::background_pixels_items(
-            dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
+            dom,
+            id,
+            &css,
+            box_rect,
+            border_top,
+            border_right,
+            border_bottom,
+            border_left,
         ) {
             list.pieces.insert(at, Piece::Item(item));
             at += 1;
@@ -1038,14 +1175,21 @@ pub(crate) fn layout_block(
         // INTEIRO, fundo e borda incluídos.
         list.pieces.insert(
             box_start,
-            Piece::Item(DisplayItem::BeginClip { rect, node: id, offset_x: 0.0, offset_y: 0.0 }),
+            Piece::Item(DisplayItem::BeginClip {
+                rect,
+                node: id,
+                offset_x: 0.0,
+                offset_y: 0.0,
+            }),
         );
         list.pieces.push(Piece::Item(DisplayItem::EndClip));
     }
 
     // POSITION:RELATIVE — porquê e o que desloca em `relative.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    apply_relative_offset(box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list);
+    apply_relative_offset(
+        box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list,
+    );
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
@@ -1069,7 +1213,9 @@ pub(crate) fn layout_block(
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
             let from_tree = std::rc::Rc::clone(&list.tree);
-            crate::layout::fragment::transform_rects::transform_box_rects(&from_tree, box_id, &mat, list);
+            crate::layout::fragment::transform_rects::transform_box_rects(
+                &from_tree, box_id, &mat, list,
+            );
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
@@ -1100,7 +1246,8 @@ pub(crate) fn layout_block(
                 // as this did, also flattened the preceding siblings, and the
                 // `PushTransform` then landed inside them (`pieces::flatten_from`).
                 crate::paint::pieces::flatten_from(&mut list.pieces, box_start);
-                list.pieces.insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
+                list.pieces
+                    .insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
                 list.pieces.push(Piece::Item(DisplayItem::PopTransform));
             }
         }

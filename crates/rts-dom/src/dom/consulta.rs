@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     // ── Query (base do querySelector) ───────────────────────────────────────
 
     /// Primeiro nó que casa com um seletor SIMPLES: `tag` (`"h1"`), `#id`
@@ -53,47 +52,48 @@ impl Dom {
         // (índice de id, de classe, e o caso geral), que casam pelo mesmo
         // `find_idx_pre_order_parsed`.
         self.query_scoped(self.root, || {
-        // Índices servem como filtro rápido, mas a resposta final sempre vem de uma
-        // busca em pré-ordem. Isso é necessário porque IDs/classes duplicados e
-        // reordenação por appendChild devem seguir a ordem documental do DOM, não a
-        // ordem de alocação da arena.
-        if let Some(key) = sel.strip_prefix('#') {
-            if is_plain_ident(key) {
-                let has_candidate = self
-                    .id_index
-                    .get(key)
-                    .map(|v| {
-                        v.iter()
-                            .any(|&i| self.is_attached(i) && self.nodes[i].attr("id") == Some(key))
-                    })
-                    .unwrap_or(false);
-                return has_candidate
-                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
-                    .flatten();
-            }
-        }
-        if let Some(cls) = sel.strip_prefix('.') {
-            if is_plain_ident(cls) {
-                let has_candidate = self
-                    .class_index
-                    .get(cls)
-                    .map(|v| {
-                        v.iter().any(|&i| {
-                            self.is_attached(i)
-                                && self.nodes[i]
-                                    .attr("class")
-                                    .map(|c| c.split_whitespace().any(|x| x == cls))
-                                    .unwrap_or(false)
+            // Índices servem como filtro rápido, mas a resposta final sempre vem de uma
+            // busca em pré-ordem. Isso é necessário porque IDs/classes duplicados e
+            // reordenação por appendChild devem seguir a ordem documental do DOM, não a
+            // ordem de alocação da arena.
+            if let Some(key) = sel.strip_prefix('#') {
+                if is_plain_ident(key) {
+                    let has_candidate = self
+                        .id_index
+                        .get(key)
+                        .map(|v| {
+                            v.iter().any(|&i| {
+                                self.is_attached(i) && self.nodes[i].attr("id") == Some(key)
+                            })
                         })
-                    })
-                    .unwrap_or(false);
-                return has_candidate
-                    .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
-                    .flatten();
+                        .unwrap_or(false);
+                    return has_candidate
+                        .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                        .flatten();
+                }
             }
-        }
-        // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
-        self.find_idx_pre_order_parsed(self.root, &selectors)
+            if let Some(cls) = sel.strip_prefix('.') {
+                if is_plain_ident(cls) {
+                    let has_candidate = self
+                        .class_index
+                        .get(cls)
+                        .map(|v| {
+                            v.iter().any(|&i| {
+                                self.is_attached(i)
+                                    && self.nodes[i]
+                                        .attr("class")
+                                        .map(|c| c.split_whitespace().any(|x| x == cls))
+                                        .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false);
+                    return has_candidate
+                        .then(|| self.find_idx_pre_order_parsed(self.root, &selectors))
+                        .flatten();
+                }
+            }
+            // Caso geral (composto/combinador/atributo/pseudo): pré-ordem + matches.
+            self.find_idx_pre_order_parsed(self.root, &selectors)
         })
     }
 
@@ -142,7 +142,6 @@ impl Dom {
         false
     }
 
-
     // ── Query por subárvore + getElementsBy* — #1758 ─────────────────────────────
 
     /// `element.querySelector(sel)`: o 1º descendente do nó que casa o seletor
@@ -178,7 +177,6 @@ impl Dom {
         self.scope_node.set(previous_scope);
         out
     }
-
 
     /// Todos os nós que casam um seletor (`querySelectorAll`), em ordem de documento.
     /// O seletor é parseado uma vez por chamada e a travessia preserva a ordem mesmo

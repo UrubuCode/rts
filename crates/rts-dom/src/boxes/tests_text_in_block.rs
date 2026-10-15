@@ -10,7 +10,13 @@ fn box_of_id(dom: &crate::dom::Dom, tree: &BoxTree, id: &str) -> BoxId {
 }
 
 fn is_anonymous(tree: &BoxTree, b: BoxId) -> bool {
-    matches!(tree.kind(b), BoxKind::Anonymous { role: AnonymousRole::Block, .. })
+    matches!(
+        tree.kind(b),
+        BoxKind::Anonymous {
+            role: AnonymousRole::Block,
+            ..
+        }
+    )
 }
 
 /// The text of a box's only child, for asserting WHAT a run enclosed.
@@ -98,13 +104,23 @@ fn each_anonymous_run_is_laid_out_as_a_block_around_the_block_sibling() {
     let tree = std::rc::Rc::clone(&list.tree);
     let o = box_of_id(&dom, &tree, "o");
     let children = tree.children(o).to_vec();
-    let before = list.rect_of_box(children[0]).expect("the first run has a rect");
-    let after = list.rect_of_box(children[2]).expect("the last run has a rect");
+    let before = list
+        .rect_of_box(children[0])
+        .expect("the first run has a rect");
+    let after = list
+        .rect_of_box(children[2])
+        .expect("the last run has a rect");
     let b = list.rect_of_box(children[1]).expect("the block has a rect");
     assert_eq!(before.w, 200.0);
     assert!(before.h > 0.0);
-    assert!((b.y - (before.y + before.h)).abs() < 0.01, "the block starts where the run ends");
-    assert!((after.y - (b.y + 30.0)).abs() < 0.01, "the last run starts under the block");
+    assert!(
+        (b.y - (before.y + before.h)).abs() < 0.01,
+        "the block starts where the run ends"
+    );
+    assert!(
+        (after.y - (b.y + 30.0)).abs() < 0.01,
+        "the last run starts under the block"
+    );
 }
 
 /// A float between two blocks is out-of-flow block-level, not inline content:
@@ -119,7 +135,11 @@ fn a_float_between_blocks_is_not_wrapped_and_keeps_its_box() {
     let f = tree.boxes_of(no_com_id(&dom, "f"));
     assert_eq!(f.len(), 1, "the float keeps its box");
     assert_eq!(tree.parent(f[0]), Some(o));
-    let anonymous = tree.children(o).iter().filter(|&&b| is_anonymous(&tree, b)).count();
+    let anonymous = tree
+        .children(o)
+        .iter()
+        .filter(|&&b| is_anonymous(&tree, b))
+        .count();
     assert_eq!(anonymous, 1, "only the text run is wrapped");
 }
 

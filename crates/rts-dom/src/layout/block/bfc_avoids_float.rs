@@ -46,7 +46,8 @@ pub(in crate::layout) fn push_down(
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
 ) -> Option<f32> {
-    if bfc.is_empty() || !super::block::establishes_block_formatting_context(dom, child, child_css) {
+    if bfc.is_empty() || !super::block::establishes_block_formatting_context(dom, child, child_css)
+    {
         return None;
     }
     let w = child_outer_width(dom, child, content_w, font_size, ctx);

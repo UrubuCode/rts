@@ -21,9 +21,20 @@ const HTML: &str = r#"<style>
 #[test]
 fn pseudo_elementos_de_um_flex_sao_itens() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#f"), (0.0, 0.0, 72.0, 30.0), "before 20 + span 40 + caret 12");
-    assert_eq!(r("#fs"), (20.0, 0.0, 40.0, 30.0), "o span vem depois do ::before");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#f"),
+        (0.0, 0.0, 72.0, 30.0),
+        "before 20 + span 40 + caret 12"
+    );
+    assert_eq!(
+        r("#fs"),
+        (20.0, 0.0, 40.0, 30.0),
+        "o span vem depois do ::before"
+    );
     let g = r("#g");
     assert!((g.2 - 57.59).abs() <= 1.0, "span 40 + \"ab\": {}", g.2);
     assert_eq!(r("#gs"), (0.0, 40.0, 40.0, 30.0));

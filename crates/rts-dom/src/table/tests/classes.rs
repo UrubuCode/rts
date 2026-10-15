@@ -48,7 +48,10 @@ fn acima_do_maximo_so_as_auto_crescem() {
     // (300): o excedente é TODO da coluna auto, e a declarada fica nos 200.
     // Nós repartimos proporcionalmente ao máximo → 400/200 em vez de 200/400.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#,
+            2
+        ),
         [200.0, 400.0]
     );
 }
@@ -58,7 +61,10 @@ fn entre_o_specified_e_o_max_guess_so_a_auto_cresce() {
     // Mesmo par, alvo 280: entre o kSpecifiedGuess (250) e o kMaxGuess (300).
     // A declarada continua congelada nos 200 e a auto leva os 30 da folga.
     iguais!(
-        larguras(r#"<table style="width:280px"><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:280px"><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#,
+            2
+        ),
         [200.0, 80.0]
     );
 }
@@ -68,7 +74,10 @@ fn duas_auto_repartem_entre_si_e_a_declarada_nao_participa() {
     // Declarada 100 + duas auto 50..100, alvo 260. A declarada não recebe nada
     // do excedente: 100 + 80 + 80.
     iguais!(
-        larguras(r#"<table style="width:260px"><tr><td style="width:100px"><b></b></td><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#, 3),
+        larguras(
+            r#"<table style="width:260px"><tr><td style="width:100px"><b></b></td><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#,
+            3
+        ),
         [100.0, 80.0, 80.0]
     );
 }
@@ -79,7 +88,10 @@ fn uma_coluna_em_percentagem_leva_a_sua_percentagem_da_tabela() {
     // dividem o resto. Nós não temos classe percent de todo: a coluna reparte
     // como se fosse texto livre.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:30%"><b></b></td><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#, 3),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:30%"><b></b></td><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#,
+            3
+        ),
         [180.0, 210.0, 210.0]
     );
 }
@@ -89,7 +101,10 @@ fn percentagens_acima_de_cem_por_cento_sao_normalizadas() {
     // 60% + 60% = 120%: o Blink normaliza para a soma dar a tabela inteira,
     // mantendo a razão — 360 e 240 e não 360 e 360.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:60%"><i></i></td><td style="width:60%"><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:60%"><i></i></td><td style="width:60%"><i></i></td></tr></table>"#,
+            2
+        ),
         [360.0, 240.0]
     );
 }
@@ -100,7 +115,10 @@ fn sem_width_a_tabela_fica_na_soma_dos_maximos() {
     // literalmente o seu máximo, sem passar pela matemática de distribuição.
     // É o caso mais comum de uma página inteira.
     iguais!(
-        larguras(r#"<table><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table><tr><td style="width:200px"><b></b></td><td><i></i><i></i></td></tr></table>"#,
+            2
+        ),
         [200.0, 100.0]
     );
 }
@@ -111,7 +129,10 @@ fn coluna_que_nenhuma_celula_toca_fica_a_zero() {
     // SALTADA — as duas reais dividem os 600 inteiros. Nós damos-lhe uma fatia
     // da sobra, o que estreita as duas outras.
     iguais!(
-        larguras(r#"<table style="width:600px"><colgroup><col><col><col></colgroup><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><colgroup><col><col><col></colgroup><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#,
+            2
+        ),
         [300.0, 300.0]
     );
 }
@@ -121,7 +142,10 @@ fn sem_colunas_auto_as_declaradas_escalam_para_a_largura_da_tabela() {
     // 200 e 300 numa tabela de 800: crescem em proporção ao que declararam,
     // porque o alvo é a largura da tabela.
     iguais!(
-        larguras(r#"<table style="width:800px"><tr><td style="width:200px"><b></b></td><td style="width:300px"><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:800px"><tr><td style="width:200px"><b></b></td><td style="width:300px"><b></b></td></tr></table>"#,
+            2
+        ),
         [320.0, 480.0]
     );
 }
@@ -131,7 +155,10 @@ fn abaixo_do_minimo_cada_coluna_fica_no_seu_minimo() {
     // Tabela pedida a 60px contra dois mínimos de 50: a tabela transborda para
     // 100 e cada coluna fica nos 50.
     iguais!(
-        larguras(r#"<table style="width:60px"><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:60px"><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table>"#,
+            2
+        ),
         [50.0, 50.0]
     );
 }
@@ -143,7 +170,10 @@ fn a_declarada_fica_parada_mesmo_sem_folga_nenhuma_na_auto() {
     // duas causas — aqui a medição intrínseca das células está certa nos dois
     // motores, portanto tudo o que restar de divergência é CLASSE.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><b></b></td></tr></table>"#,
+            2
+        ),
         [200.0, 400.0]
     );
 }
@@ -153,7 +183,10 @@ fn acima_do_maximo_as_auto_crescem_em_proporcao_ao_seu_maximo() {
     // Duas auto iguais e uma declarada: os 200 que sobram dividem-se pelas duas
     // auto, e a declarada não vê nada deles.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><b></b></td><td><b></b></td></tr></table>"#, 3),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:200px"><b></b></td><td><b></b></td><td><b></b></td></tr></table>"#,
+            3
+        ),
         [200.0, 200.0, 200.0]
     );
 }
@@ -196,7 +229,9 @@ fn a_percentagem_declarada_chega_a_reparticao_em_vez_de_ser_descartada() {
     // não é resolúvel onde a célula é medida — depende da largura da tabela — e
     // por isso viajava para lado nenhum. Agora viaja.
     assert_eq!(
-        classes(r#"<table><tr><td style="width:30%"><b></b></td><td style="width:200px"><b></b></td><td><i></i></td></tr></table>"#),
+        classes(
+            r#"<table><tr><td style="width:30%"><b></b></td><td style="width:200px"><b></b></td><td><i></i></td></tr></table>"#
+        ),
         vec![(Some(30.0), true), (None, true), (None, false)]
     );
 }
@@ -208,7 +243,9 @@ fn o_atributo_width_classifica_e_o_css_ganha_lhe() {
     // largura, e ler-lhe a percentagem daria a uma coluna de 200px a classe de
     // uma coluna de 40%.
     assert_eq!(
-        classes(r#"<table><tr><td width="40%"><b></b></td><td width="40%" style="width:200px"><b></b></td></tr></table>"#),
+        classes(
+            r#"<table><tr><td width="40%"><b></b></td><td width="40%" style="width:200px"><b></b></td></tr></table>"#
+        ),
         vec![(Some(40.0), true), (None, true)]
     );
 }
@@ -224,7 +261,10 @@ fn o_atributo_width_classifica_e_o_css_ganha_lhe() {
 #[test]
 fn a_percentagem_nao_soma_o_padding_em_content_box() {
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px"><b></b></td><td><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px"><b></b></td><td><b></b></td></tr></table>"#,
+            2
+        ),
         [180.0, 420.0]
     );
 }
@@ -235,7 +275,10 @@ fn a_percentagem_nao_muda_com_box_sizing() {
     // números diferentes. Dão o mesmo — é o par que prova que o termo não existe,
     // em vez de existir com o sinal a anular-se.
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px;box-sizing:border-box"><b></b></td><td><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:30%;padding:0 20px;box-sizing:border-box"><b></b></td><td><b></b></td></tr></table>"#,
+            2
+        ),
         [180.0, 420.0]
     );
 }
@@ -243,7 +286,10 @@ fn a_percentagem_nao_muda_com_box_sizing() {
 #[test]
 fn o_padding_de_uma_coluna_auto_nao_entra_na_percentagem_da_vizinha() {
     iguais!(
-        larguras(r#"<table style="width:600px"><tr><td style="width:30%"><b></b></td><td style="padding:0 25px"><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px"><tr><td style="width:30%"><b></b></td><td style="padding:0 25px"><b></b></td></tr></table>"#,
+            2
+        ),
         [180.0, 420.0]
     );
 }
@@ -267,7 +313,10 @@ fn uma_tabela_dentro_de_uma_celula_encolhe_ao_conteudo() {
     // shrink-to-fit e não ocupa o que lhe dão, que é a diferença mais visível
     // entre uma tabela e um `<div>`.
     iguais!(
-        tabelas(r#"<table style="width:600px"><tr><td><table><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#, 2),
+        tabelas(
+            r#"<table style="width:600px"><tr><td><table><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#,
+            2
+        ),
         [600.0, 200.0]
     );
 }
@@ -277,7 +326,10 @@ fn a_tabela_de_dentro_com_width_cem_por_cento_ocupa_a_celula() {
     // O contraste do teste anterior: com `width` declarado ela ocupa mesmo, e as
     // colunas dela repartem os 600.
     iguais!(
-        tabelas(r#"<table style="width:600px"><tr><td><table style="width:100%"><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#, 2),
+        tabelas(
+            r#"<table style="width:600px"><tr><td><table style="width:100%"><tr><td><b></b></td><td><b></b></td></tr></table></td></tr></table>"#,
+            2
+        ),
         [600.0, 600.0]
     );
 }
@@ -305,7 +357,10 @@ fn a_tabela_de_dentro_com_folga_encolhe_a_soma_dos_maximos() {
     // Colunas com folga (50..100) na de dentro: o alvo dela é a soma dos máximos
     // e não o espaço da célula, portanto 200 e não 600.
     iguais!(
-        tabelas(r#"<table style="width:600px"><tr><td><table><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table></td></tr></table>"#, 2),
+        tabelas(
+            r#"<table style="width:600px"><tr><td><table><tr><td><i></i><i></i></td><td><i></i><i></i></td></tr></table></td></tr></table>"#,
+            2
+        ),
         [600.0, 200.0]
     );
 }
@@ -323,7 +378,10 @@ fn um_rotulo_a_um_por_cento_fica_no_seu_minimo_e_nao_no_seu_um_por_cento() {
     // `padding:1px` na folha de UA (lote I) — 2px a mais no rótulo tiram 2px
     // à coluna medida aqui (600 total, mesma soma): 500 → 498.
     iguais!(
-        larguras(r#"<table style="width:600px;border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table>"#, 1),
+        larguras(
+            r#"<table style="width:600px;border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table>"#,
+            1
+        ),
         [498.0]
     );
 }
@@ -335,7 +393,10 @@ fn uma_tabela_com_coluna_em_percentagem_nao_encolhe_ao_conteudo() {
     // o máximo intrínseco — não a soma dos máximos das colunas. É por isso que
     // ela ocupa a célula toda em vez de encolher.
     iguais!(
-        tabelas(r#"<table style="width:600px;border-spacing:0"><tr><th colspan="2"><b></b></th></tr><tr><td colspan="2" style="width:100%"><table style="border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table></td></tr></table>"#, 2),
+        tabelas(
+            r#"<table style="width:600px;border-spacing:0"><tr><th colspan="2"><b></b></th></tr><tr><td colspan="2" style="width:100%"><table style="border-spacing:0"><tr><th style="width:1%"><b></b></th><td><b></b><b></b></td></tr></table></td></tr></table>"#,
+            2
+        ),
         [600.0, 600.0]
     );
 }
@@ -345,7 +406,10 @@ fn uma_celula_com_colspan_e_percentagem_nao_desequilibra_as_colunas() {
     // A célula que atravessa pede 100%; as duas colunas por baixo repartem em
     // partes iguais porque nenhuma delas declara nada.
     iguais!(
-        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td colspan="2" style="width:100%"><b></b></td></tr><tr><td><b></b></td><td><i></i><i></i></td></tr></table>"#, 3),
+        larguras(
+            r#"<table style="width:600px;border-spacing:0"><tr><td colspan="2" style="width:100%"><b></b></td></tr><tr><td><b></b></td><td><i></i><i></i></td></tr></table>"#,
+            3
+        ),
         [600.0, 300.0, 300.0]
     );
 }
@@ -360,7 +424,10 @@ fn uma_celula_com_colspan_e_percentagem_nao_desequilibra_as_colunas() {
 #[test]
 fn uma_coluna_com_imagem_vale_a_largura_da_imagem() {
     iguais!(
-        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><img width="152" height="117" alt=""></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><img width="152" height="117" alt=""></td></tr></table>"#,
+            2
+        ),
         [238.09, 361.91]
     );
 }
@@ -370,7 +437,10 @@ fn a_imagem_conta_mesmo_dentro_de_um_span_e_de_um_a() {
     // A forma da página real: a miniatura vem embrulhada em `<span><a>`, e o
     // embrulho não pode esconder a largura de quem está lá dentro.
     iguais!(
-        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><span><a><img width="152" height="117" alt=""></a></span></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td><span><a><img width="152" height="117" alt=""></a></span></td></tr></table>"#,
+            2
+        ),
         [238.09, 361.91]
     );
 }
@@ -383,7 +453,10 @@ fn uma_largura_declarada_de_um_pixel_e_levantada_ate_a_imagem() {
     // que numa imagem é a imagem. O Chrome dá 154 = 152 + 2 de padding, que é o
     // número que a página real mostra ao pixel.
     iguais!(
-        larguras(r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td style="width:1px;padding:0 0 0 2px"><img width="152" height="117" alt=""></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:600px;border-spacing:0"><tr><td><b></b></td><td style="width:1px;padding:0 0 0 2px"><img width="152" height="117" alt=""></td></tr></table>"#,
+            2
+        ),
         [446.0, 154.0]
     );
 }
@@ -399,7 +472,10 @@ fn uma_largura_declarada_de_um_pixel_e_levantada_ate_a_imagem() {
 fn numa_celula_nowrap_os_inline_block_somam_se() {
     // Sem quebra possível, os dois ficam na mesma linha: o mínimo é 50+50.
     iguais!(
-        larguras(r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><i></i></td><td><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><i></i></td><td><b></b></td></tr></table>"#,
+            2
+        ),
         [100.0, 100.0]
     );
 }
@@ -410,7 +486,10 @@ fn um_bloco_no_meio_quebra_a_linha_mesmo_com_nowrap() {
     // corrida, e o mínimo volta a ser o MAIOR dos dois e não a soma. O `nowrap`
     // não junta o que o fluxo de bloco separa.
     iguais!(
-        larguras(r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><div style="display:block"><i></i></div></td><td><b></b></td></tr></table>"#, 2),
+        larguras(
+            r#"<table style="width:60px;border-spacing:0"><tr><td style="white-space:nowrap"><i></i><div style="display:block"><i></i></div></td><td><b></b></td></tr></table>"#,
+            2
+        ),
         [50.0, 100.0]
     );
 }

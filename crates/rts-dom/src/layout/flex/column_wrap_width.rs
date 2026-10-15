@@ -87,14 +87,24 @@ pub(in crate::layout) fn max_content_width(
                 continue;
             }
             let h = crate::inline_box::altura_da_linha(css, font_size, ctx.measurer);
-            let w = ctx.measurer.text_width(&text, font_size, false, false, false);
+            let w = ctx
+                .measurer
+                .text_width(&text, font_size, false, false, false);
             items.push((h, w));
             continue;
         }
         let ccss = dom.computed_style_idx(child).unwrap_or_default();
         let child_font = font_px(&ccss, font_size);
-        let natural_h =
-            child_outer_height(dom, child, box_id, ctx.viewport_w, Some(container_content_h), css, font_size, ctx);
+        let natural_h = child_outer_height(
+            dom,
+            child,
+            box_id,
+            ctx.viewport_w,
+            Some(container_content_h),
+            css,
+            font_size,
+            ctx,
+        );
         let main = super::column_shrink::base_outer(
             &ccss,
             natural_h,
@@ -104,7 +114,15 @@ pub(in crate::layout) fn max_content_width(
             ctx,
         );
         let (cross, _) = measure_block(
-            dom, child, box_id, ctx.viewport_w, Some(container_content_h), None, None, true, ctx,
+            dom,
+            child,
+            box_id,
+            ctx.viewport_w,
+            Some(container_content_h),
+            None,
+            None,
+            true,
+            ctx,
         );
         items.push((main, cross));
     }

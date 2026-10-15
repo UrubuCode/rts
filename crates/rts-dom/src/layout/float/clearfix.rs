@@ -22,7 +22,11 @@ pub(in crate::layout) fn clearfix_bottom(
     let pseudo = dom.pseudo_box(id, crate::style::PseudoElement::After)?;
     let is_block = matches!(
         pseudo.css.effective_display(),
-        Some(crate::style::DisplayKind::Block | crate::style::DisplayKind::Flex | crate::style::DisplayKind::Grid)
+        Some(
+            crate::style::DisplayKind::Block
+                | crate::style::DisplayKind::Flex
+                | crate::style::DisplayKind::Grid
+        )
     );
     if !is_block {
         return None;

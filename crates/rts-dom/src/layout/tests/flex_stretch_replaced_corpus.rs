@@ -38,7 +38,11 @@ const HTML: &str = r#"<!DOCTYPE html>
 
 fn geometria(html: &str) -> (crate::Dom, DisplayList) {
     let dom = parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: 1280.0, viewport_h: 800.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &ApproxMeasurer,
+    };
     let list = layout_document(&dom, &ctx);
     (dom, list)
 }

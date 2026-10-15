@@ -19,9 +19,24 @@ const HTML: &str = r#"<style>
 #[test]
 fn item_de_flex_contem_os_seus_floats_e_o_bloco_normal_nao() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#item"), (0.0, 0.0, 1280.0, 40.0), "o item flex contém os floats");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#item"),
+        (0.0, 0.0, 1280.0, 40.0),
+        "o item flex contém os floats"
+    );
     assert_eq!(r("#dir"), (1200.0, 0.0, 80.0, 30.0));
-    assert_eq!(r("#bloco"), (0.0, 60.0, 1280.0, 0.0), "um bloco normal não os contém");
-    assert_eq!(r("#depois").1, 100.0, "o clear desce até ao fundo dos floats do bloco");
+    assert_eq!(
+        r("#bloco"),
+        (0.0, 60.0, 1280.0, 0.0),
+        "um bloco normal não os contém"
+    );
+    assert_eq!(
+        r("#depois").1,
+        100.0,
+        "o clear desce até ao fundo dos floats do bloco"
+    );
 }

@@ -192,7 +192,11 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(Dimension::Px(40.0))
     );
     // …e NÃO aplicam quando não casa (viewport 800 < 1200).
-    let ctx = crate::style::MediaContext { width: 800.0, height: 600.0, ..Default::default() };
+    let ctx = crate::style::MediaContext {
+        width: 800.0,
+        height: 600.0,
+        ..Default::default()
+    };
     let matched = sheet.matched_for_node(&ctx, "h1", None, &[], |sel| {
         sel.compounds.len() == 1
             && compound_matches(&sel.compounds[0], "h1", None, &[], &|_| None, &|_| false)
@@ -223,7 +227,6 @@ fn at_rules_nao_corrompem_o_parse() {
         Some(0x0000FFFF)
     );
 }
-
 
 #[test]
 fn layer_normal_e_regra_sem_layer_respeitam_a_precedencia() {
@@ -264,7 +267,6 @@ fn layer_important_inverte_a_ordem_e_favorece_layers() {
     );
 }
 
-
 #[test]
 fn layer_order_declaration_precedes_following_blocks() {
     let mut sheet = Stylesheet::new();
@@ -280,15 +282,16 @@ fn layer_order_declaration_precedes_following_blocks() {
     );
 }
 
-
 #[test]
 fn all_initial_resets_the_block_without_clearing_custom_properties() {
-    let block = parse_inline_block(
-        "--brand: rebeccapurple; width: 120px; color: red; all: initial",
-    );
+    let block =
+        parse_inline_block("--brand: rebeccapurple; width: 120px; color: red; all: initial");
     assert_eq!(block.normal.width, None);
     assert_eq!(block.normal.color, None);
-    assert_eq!(block.custom, vec![("--brand".into(), "rebeccapurple".into())]);
+    assert_eq!(
+        block.custom,
+        vec![("--brand".into(), "rebeccapurple".into())]
+    );
 
     let important = parse_inline_block("color: red !important; all: initial !important");
     assert_eq!(important.important.color, None);

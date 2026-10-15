@@ -30,16 +30,28 @@ fn atomo_depois_de_texto(estilo: &str, conteudo: &str, w: f32, h: f32) {
     );
     let (dom, list) = geometria(&html, 800.0);
     let (x, y, tw, th) = xywh(&dom, &list, "#t");
-    assert_eq!((tw, th), (w, h), "{estilo}: a caixa do átomo tem a medida declarada");
+    assert_eq!(
+        (tw, th),
+        (w, h),
+        "{estilo}: a caixa do átomo tem a medida declarada"
+    );
     assert_eq!(y, 0.0, "{estilo}: o átomo fica na primeira linha");
-    assert!(x > 0.0 && x < 40.0, "{estilo}: o átomo vem logo a seguir a `A `, x={x}");
+    assert!(
+        x > 0.0 && x < 40.0,
+        "{estilo}: o átomo vem logo a seguir a `A `, x={x}"
+    );
     let (_, _, pw, _) = xywh(&dom, &list, "#p");
     assert_eq!(pw, 400.0);
 }
 
 #[test]
 fn inline_flex_depois_de_texto_e_disposto_na_linha() {
-    atomo_depois_de_texto("display:inline-flex;width:16px;height:16px", "a", 16.0, 16.0);
+    atomo_depois_de_texto(
+        "display:inline-flex;width:16px;height:16px",
+        "a",
+        16.0,
+        16.0,
+    );
 }
 
 /// `inline-grid` e `inline-table` a meio de texto dispõem-se sem rebentar e
@@ -51,10 +63,22 @@ fn inline_flex_depois_de_texto_e_disposto_na_linha() {
 #[test]
 fn inline_grid_e_inline_table_depois_de_texto_tem_a_sua_caixa() {
     for (estilo, conteudo, w, h) in [
-        ("display:inline-grid;width:20px;height:12px", "a", 20.0, 12.0),
-        ("display:inline-table;width:30px;height:18px", "<div style=display:table-cell>a</div>", 30.0, 18.0),
+        (
+            "display:inline-grid;width:20px;height:12px",
+            "a",
+            20.0,
+            12.0,
+        ),
+        (
+            "display:inline-table;width:30px;height:18px",
+            "<div style=display:table-cell>a</div>",
+            30.0,
+            18.0,
+        ),
     ] {
-        let html = format!(r#"<div style="font:16px/20px monospace;width:400px">A <div id=t style="{estilo}">{conteudo}</div> B</div>"#);
+        let html = format!(
+            r#"<div style="font:16px/20px monospace;width:400px">A <div id=t style="{estilo}">{conteudo}</div> B</div>"#
+        );
         let (dom, list) = geometria(&html, 800.0);
         let (_, _, tw, th) = xywh(&dom, &list, "#t");
         assert_eq!((tw, th), (w, h), "{estilo}");
@@ -63,7 +87,12 @@ fn inline_grid_e_inline_table_depois_de_texto_tem_a_sua_caixa() {
 
 #[test]
 fn inline_flex_com_padding_soma_padding_a_border_box() {
-    atomo_depois_de_texto("display:inline-flex;width:16px;height:16px;padding:10px", "a", 36.0, 36.0);
+    atomo_depois_de_texto(
+        "display:inline-flex;width:16px;height:16px;padding:10px",
+        "a",
+        36.0,
+        36.0,
+    );
 }
 
 /// O caso exacto do `flexbox-baseline-single-item-001a`: o primeiro filho do
@@ -87,7 +116,11 @@ fn inline_flex_com_filho_absoluto_no_meio_de_texto() {
     // posição estática horizontal — dentro do contentor, depois do padding.
     let (ax, ay, _, _) = xywh(&dom, &list, "#abs");
     assert_eq!(ay, 0.0);
-    assert_eq!(ax, fx + 4.0, "a posição estática horizontal é a aresta do conteúdo do contentor");
+    assert_eq!(
+        ax,
+        fx + 4.0,
+        "a posição estática horizontal é a aresta do conteúdo do contentor"
+    );
     // O item em fluxo fica dentro do contentor, na aresta do conteúdo.
     let (ix, _, _, _) = xywh(&dom, &list, "#item");
     assert_eq!(ix, fx + 4.0);
@@ -102,7 +135,11 @@ fn inline_block_com_filho_absoluto_no_meio_de_texto() {
     let (bx, by, bw, bh) = xywh(&dom, &list, "#b");
     assert_eq!((by, bw, bh), (0.0, 30.0, 10.0));
     let (ax, ay, _, _) = xywh(&dom, &list, "#abs");
-    assert_eq!((ax, ay), (bx, 50.0), "posição estática horizontal = início do conteúdo do inline-block");
+    assert_eq!(
+        (ax, ay),
+        (bx, 50.0),
+        "posição estática horizontal = início do conteúdo do inline-block"
+    );
 }
 
 /// `<button>` e `<canvas>` no meio de texto são átomos que se dispõem pelo seu
@@ -118,7 +155,11 @@ fn botao_e_canvas_no_meio_de_texto_ficam_na_linha() {
     assert!(bx > 0.0 && bw > 0.0 && bh > 0.0);
     assert_eq!(by, 0.0);
     let (cx, _, cw, ch) = xywh(&dom, &list, "#cv");
-    assert_eq!((cw, ch), (12.0, 14.0), "o canvas tem os atributos width/height");
+    assert_eq!(
+        (cw, ch),
+        (12.0, 14.0),
+        "o canvas tem os atributos width/height"
+    );
     assert!(cx > bx + bw, "o canvas vem depois do botão na mesma linha");
 }
 
@@ -163,7 +204,9 @@ fn bloco_dentro_de_inline_so_de_espaco_e_disposto_uma_vez() {
     let pintados = list
         .materialized()
         .iter()
-        .filter(|it| matches!(it, crate::paint::DisplayItem::Text { text, .. } if text.contains("xyz")))
+        .filter(
+            |it| matches!(it, crate::paint::DisplayItem::Text { text, .. } if text.contains("xyz")),
+        )
         .count();
     assert_eq!(pintados, 1, "o texto do bloco pinta-se uma vez");
 }

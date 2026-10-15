@@ -30,7 +30,6 @@ pub struct RawInputEvent {
 }
 
 impl Dom {
-
     // ── Eventos (#1760) — modelo de polling + bubbling headless ──────────────────
     // O motor não guarda callbacks de fn de forma confiável (limite #195), então o
     // Rust registra só QUE TIPO cada nó escuta; os callbacks vivem no TS. O
@@ -65,8 +64,14 @@ impl Dom {
             .listener_cbs
             .entry((idx, event_type.to_string()))
             .or_default();
-        if !cbs.iter().any(|record| record.callback == cb && record.options.capture == options.capture) {
-            cbs.push(ListenerRecord { callback: cb, options });
+        if !cbs
+            .iter()
+            .any(|record| record.callback == cb && record.options.capture == options.capture)
+        {
+            cbs.push(ListenerRecord {
+                callback: cb,
+                options,
+            });
         }
     }
 
@@ -190,11 +195,17 @@ impl Dom {
 
     /// Metadata do callback colectado na última dispatch.
     pub fn last_dispatch_capture_at(&self, index: usize) -> bool {
-        self.last_dispatch_capture.get(index).copied().unwrap_or(false)
+        self.last_dispatch_capture
+            .get(index)
+            .copied()
+            .unwrap_or(false)
     }
 
     pub fn last_dispatch_passive_at(&self, index: usize) -> bool {
-        self.last_dispatch_passive.get(index).copied().unwrap_or(false)
+        self.last_dispatch_passive
+            .get(index)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Tipo devolvido pelo último `poll_event`.
@@ -437,7 +448,11 @@ impl Dom {
             .or_else(|| self.query_idx("body"))
             .or_else(|| self.document_element().map(|id| id.idx as usize))
             .unwrap_or(self.root);
-        self.raw_input_event_queue.push_back(RawInputEvent { target, kind: 1, text });
+        self.raw_input_event_queue.push_back(RawInputEvent {
+            target,
+            kind: 1,
+            text,
+        });
     }
 
     /// BACKEND → DOM: enfileira uma transição de composição IME.
@@ -450,7 +465,8 @@ impl Dom {
             .or_else(|| self.query_idx("body"))
             .or_else(|| self.document_element().map(|id| id.idx as usize))
             .unwrap_or(self.root);
-        self.raw_input_event_queue.push_back(RawInputEvent { target, kind, text });
+        self.raw_input_event_queue
+            .push_back(RawInputEvent { target, kind, text });
     }
 
     /// Retira o próximo evento raw de edição/composição produzido pelo backend.

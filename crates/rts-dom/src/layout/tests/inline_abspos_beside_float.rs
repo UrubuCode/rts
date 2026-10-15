@@ -35,7 +35,11 @@ fn abs_beside_float(direction: &str, align: &str, float: &str) -> Rect {
 #[test]
 fn ltr_line_starts_after_a_left_float() {
     let r = abs_beside_float("ltr", "left", "left");
-    assert_eq!((r.x, r.y), (50.0, 50.0), "beside the float, not below it nor at the edge");
+    assert_eq!(
+        (r.x, r.y),
+        (50.0, 50.0),
+        "beside the float, not below it nor at the edge"
+    );
 }
 
 #[test]

@@ -24,6 +24,10 @@ fn img_com_pixels_no_documento_mede_o_natural_e_pinta_pixels() {
     assert_eq!((s.w, s.h), (40.0, 20.0), "width sozinho mantém a razão");
     assert_eq!((a.w, a.h), (8.0, 8.0), "os atributos vencem o natural");
     assert_eq!((n.y, s.y, a.y), (0.0, 2.0, 22.0), "empilhados como blocos");
-    let pixels = list.materialized().iter().filter(|i| matches!(i, DisplayItem::Pixels { .. })).count();
+    let pixels = list
+        .materialized()
+        .iter()
+        .filter(|i| matches!(i, DisplayItem::Pixels { .. }))
+        .count();
     assert_eq!(pixels, 3, "um item Pixels por imagem");
 }

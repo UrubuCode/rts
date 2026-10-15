@@ -28,23 +28,38 @@ fn rect_cliente(html: &str, sel: &str) -> Option<Rect> {
 /// centésimo. A LARGURA, que é o que este lote muda, é exacta.
 fn perto(r: Rect, esperado: (f32, f32, f32, f32)) -> bool {
     let (x, y, w, h) = esperado;
-    (r.x - x).abs() <= 1.0 && (r.y - y).abs() <= 1.0 && (r.w - w).abs() <= 0.01 && (r.h - h).abs() <= 1.0
+    (r.x - x).abs() <= 1.0
+        && (r.y - y).abs() <= 1.0
+        && (r.w - w).abs() <= 0.01
+        && (r.h - h).abs() <= 1.0
 }
 
 #[test]
 fn inline_partido_com_borda_cobre_os_fragmentos_e_o_bloco() {
-    let html = include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-caixa-propria.html");
+    let html =
+        include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-caixa-propria.html");
     let quebra = rect_cliente(html, "#quebra").expect("#quebra tem rect");
-    assert!(perto(quebra, (0.0, -2.0, 1280.0, 73.0)), "#quebra {quebra:?}, Blink (0,-2,1280,73)");
+    assert!(
+        perto(quebra, (0.0, -2.0, 1280.0, 73.0)),
+        "#quebra {quebra:?}, Blink (0,-2,1280,73)"
+    );
     let bloco = rect_cliente(html, "#bloco").expect("#bloco tem rect");
-    assert!(perto(bloco, (0.0, 20.0, 1280.0, 30.0)), "#bloco {bloco:?}, Blink (0,20,1280,30)");
+    assert!(
+        perto(bloco, (0.0, 20.0, 1280.0, 30.0)),
+        "#bloco {bloco:?}, Blink (0,20,1280,30)"
+    );
 }
 
 #[test]
 fn inline_partido_com_texto_dos_dois_lados_cobre_o_bloco() {
-    let html = include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-texto-antes-depois.html");
+    let html = include_str!(
+        "../../../../../tests/css/claude-bloco-quebra-inline-com-texto-antes-depois.html"
+    );
     let quebra = rect_cliente(html, "#quebra").expect("#quebra tem rect");
-    assert!(perto(quebra, (0.0, 0.0, 1280.0, 69.0)), "#quebra {quebra:?}, Blink (0,0,1280,69)");
+    assert!(
+        perto(quebra, (0.0, 0.0, 1280.0, 69.0)),
+        "#quebra {quebra:?}, Blink (0,0,1280,69)"
+    );
 }
 
 /// O inline não tem fragmento nenhum — a partição consumiu-o todo e
@@ -54,14 +69,20 @@ fn inline_partido_com_texto_dos_dois_lados_cobre_o_bloco() {
 fn inline_sem_caixa_propria_responde_o_rect_do_bloco_que_o_partiu() {
     let html = include_str!("../../../../../tests/css/claude-bloco-unico-filho-do-inline.html");
     let quebra = rect_cliente(html, "#quebra").expect("#quebra tem rect");
-    assert!(perto(quebra, (0.0, 0.0, 1280.0, 30.0)), "#quebra {quebra:?}, Blink (0,0,1280,30)");
+    assert!(
+        perto(quebra, (0.0, 0.0, 1280.0, 30.0)),
+        "#quebra {quebra:?}, Blink (0,0,1280,30)"
+    );
 }
 
 #[test]
 fn inline_partido_por_dois_blocos_cobre_os_dois() {
     let html = include_str!("../../../../../tests/css/claude-dois-blocos-dentro-do-inline.html");
     let quebra = rect_cliente(html, "#quebra").expect("#quebra tem rect");
-    assert!(perto(quebra, (0.0, 0.0, 1280.0, 99.0)), "#quebra {quebra:?}, Blink (0,0,1280,99)");
+    assert!(
+        perto(quebra, (0.0, 0.0, 1280.0, 99.0)),
+        "#quebra {quebra:?}, Blink (0,0,1280,99)"
+    );
 }
 
 /// O rect do DOM cresce; o do HIT-TEST não. A ordem de hit do span partido é
@@ -70,7 +91,9 @@ fn inline_partido_por_dois_blocos_cobre_os_dois() {
 /// em toda a largura dele. O Chrome acerta o `<div>` (`elementFromPoint`).
 #[test]
 fn clique_em_cima_do_bloco_acerta_o_bloco_e_nao_o_inline_partido() {
-    let html = include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-texto-antes-depois.html");
+    let html = include_str!(
+        "../../../../../tests/css/claude-bloco-quebra-inline-com-texto-antes-depois.html"
+    );
     let dom = parse_html_to_dom(html);
     let ctx = LayoutCtx {
         viewport_w: 1280.0,
@@ -89,7 +112,8 @@ fn clique_em_cima_do_bloco_acerta_o_bloco_e_nao_o_inline_partido() {
 /// DOM é uma pergunta de geometria, não um fundo.
 #[test]
 fn fundo_do_inline_partido_fica_nos_fragmentos() {
-    let html = include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-caixa-propria.html");
+    let html =
+        include_str!("../../../../../tests/css/claude-bloco-quebra-inline-com-caixa-propria.html");
     let dom = parse_html_to_dom(html);
     let ctx = LayoutCtx {
         viewport_w: 1280.0,
@@ -106,7 +130,10 @@ fn fundo_do_inline_partido_fica_nos_fragmentos() {
         })
         .collect();
     assert_eq!(amarelos.len(), 2, "um fundo por fragmento: {amarelos:?}");
-    assert!(amarelos.iter().all(|r| r.w < 100.0), "nenhum fundo na largura do bloco: {amarelos:?}");
+    assert!(
+        amarelos.iter().all(|r| r.w < 100.0),
+        "nenhum fundo na largura do bloco: {amarelos:?}"
+    );
 }
 
 /// Um FLOAT dentro do inline sai do fluxo: não parte linha nenhuma e o Blink
@@ -137,6 +164,9 @@ fn bloco_entra_no_rect_de_cada_inline_que_atravessa() {
 <span id="fora"><em id="dentro">antes<div id="bloco"></div>depois</em></span>"#;
     for sel in ["#fora", "#dentro"] {
         let r = rect_cliente(html, sel).unwrap_or_else(|| panic!("{sel} tem rect"));
-        assert!(perto(r, (0.0, 0.0, 1280.0, 69.0)), "{sel} {r:?}, esperado (0,0,1280,69)");
+        assert!(
+            perto(r, (0.0, 0.0, 1280.0, 69.0)),
+            "{sel} {r:?}, esperado (0,0,1280,69)"
+        );
     }
 }

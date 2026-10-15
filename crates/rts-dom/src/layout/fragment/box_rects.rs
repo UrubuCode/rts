@@ -66,18 +66,26 @@ pub(crate) struct LineScope<'a> {
 
 impl<'a> LineScope<'a> {
     pub(crate) fn fresh(group: &'a [(crate::dom::NodeIdx, BoxId)]) -> Self {
-        LineScope { id: LineId::fresh(), group }
+        LineScope {
+            id: LineId::fresh(),
+            group,
+        }
     }
 
     /// The boxes of `node` this flow lays out: its only box, or — for a node
     /// with several — those whose ancestry reaches a member of the flow.
-    pub(crate) fn boxes_of(&self, tree: &crate::boxes::BoxTree, node: crate::dom::NodeIdx) -> Vec<BoxId> {
+    pub(crate) fn boxes_of(
+        &self,
+        tree: &crate::boxes::BoxTree,
+        node: crate::dom::NodeIdx,
+    ) -> Vec<BoxId> {
         let all = tree.boxes_of(node);
         if all.len() <= 1 {
             return all.to_vec();
         }
         let in_flow = |b: BoxId| {
-            std::iter::successors(Some(b), |&c| tree.parent(c)).any(|a| self.group.iter().any(|&(_, m)| m == a))
+            std::iter::successors(Some(b), |&c| tree.parent(c))
+                .any(|a| self.group.iter().any(|&(_, m)| m == a))
         };
         all.iter().copied().filter(|&b| in_flow(b)).collect()
     }
@@ -106,7 +114,12 @@ pub struct BoxRects {
 impl PartialEq for BoxRects {
     fn eq(&self, other: &Self) -> bool {
         self.map.len() == other.map.len()
-            && self.map.iter().all(|(id, e)| other.map.get(id).is_some_and(|o| o.fragments == e.fragments))
+            && self.map.iter().all(|(id, e)| {
+                other
+                    .map
+                    .get(id)
+                    .is_some_and(|o| o.fragments == e.fragments)
+            })
     }
 }
 
@@ -127,7 +140,14 @@ impl BoxRects {
             return false;
         }
         let placeholder = Rect::new(0.0, 0.0, 0.0, 0.0);
-        self.map.insert(box_id, Entry { fragments: vec![placeholder], reserved: true, line: None });
+        self.map.insert(
+            box_id,
+            Entry {
+                fragments: vec![placeholder],
+                reserved: true,
+                line: None,
+            },
+        );
         true
     }
 
@@ -135,7 +155,14 @@ impl BoxRects {
     /// True when the box is new.
     pub(crate) fn insert(&mut self, box_id: BoxId, rect: Rect) -> bool {
         self.map
-            .insert(box_id, Entry { fragments: vec![rect], reserved: false, line: None })
+            .insert(
+                box_id,
+                Entry {
+                    fragments: vec![rect],
+                    reserved: false,
+                    line: None,
+                },
+            )
             .is_none()
     }
 
@@ -145,7 +172,11 @@ impl BoxRects {
     pub(crate) fn add_on_line(&mut self, box_id: BoxId, rect: Rect, line: LineId) -> bool {
         match self.map.get_mut(&box_id) {
             Some(e) if e.reserved => {
-                *e = Entry { fragments: vec![rect], reserved: false, line: Some(line) };
+                *e = Entry {
+                    fragments: vec![rect],
+                    reserved: false,
+                    line: Some(line),
+                };
                 false
             }
             Some(e) if e.line == Some(line) => {
@@ -159,7 +190,14 @@ impl BoxRects {
                 false
             }
             None => {
-                self.map.insert(box_id, Entry { fragments: vec![rect], reserved: false, line: Some(line) });
+                self.map.insert(
+                    box_id,
+                    Entry {
+                        fragments: vec![rect],
+                        reserved: false,
+                        line: Some(line),
+                    },
+                );
                 true
             }
         }
@@ -178,7 +216,9 @@ impl BoxRects {
 
     /// Every box with its union.
     pub(crate) fn unions(&self) -> impl Iterator<Item = (BoxId, Rect)> + '_ {
-        self.map.iter().map(|(&id, e)| (id, union_all(&e.fragments)))
+        self.map
+            .iter()
+            .map(|(&id, e)| (id, union_all(&e.fragments)))
     }
 
     /// Applies `f` to each fragment of the box (a relative shift, a transform):
@@ -232,7 +272,8 @@ impl super::DisplayList {
     pub(crate) fn rects_of_box(&self, box_id: BoxId) -> Vec<Rect> {
         match self.box_rects.fragments(box_id) {
             Some(own) => own.to_vec(),
-            None => crate::paint::pieces::rects_in_children(&self.pieces, box_id, 0.0, 0.0).unwrap_or_default(),
+            None => crate::paint::pieces::rects_in_children(&self.pieces, box_id, 0.0, 0.0)
+                .unwrap_or_default(),
         }
     }
 }

@@ -93,12 +93,7 @@ pub(crate) fn emit_marker(
                 content_x - font_size * MARKER_GAP_EM
             };
             let line_h = ctx.measurer.line_height(font_size);
-            let rect = Rect::new(
-                borda_direita - d,
-                content_y + (line_h - d) / 2.0,
-                d,
-                d,
-            );
+            let rect = Rect::new(borda_direita - d, content_y + (line_h - d) / 2.0, d, d);
             list.push_item(DisplayItem::Image {
                 rect,
                 pixels_handle: handle,

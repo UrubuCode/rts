@@ -34,7 +34,10 @@ fn textarea_with_font_family_ahem_paints_text_as_ahem() {
             _ => None,
         })
         .expect("expected a DisplayItem::Text with the textarea's value");
-    assert!(is_ahem, "a textarea with font-family: Ahem should paint as Ahem");
+    assert!(
+        is_ahem,
+        "a textarea with font-family: Ahem should paint as Ahem"
+    );
 }
 
 /// With no Ahem in the computed family, the bit stays `false` — the same
@@ -53,7 +56,10 @@ fn textarea_without_ahem_stays_masked() {
             _ => None,
         })
         .expect("expected a DisplayItem::Text with the textarea's value");
-    assert!(!is_ahem, "a textarea without Ahem in the family should not paint as Ahem");
+    assert!(
+        !is_ahem,
+        "a textarea without Ahem in the family should not paint as Ahem"
+    );
 }
 
 /// A line break right after `<textarea>` is a markup convention (aligning
@@ -82,14 +88,22 @@ fn textarea_strips_only_the_leading_line_break() {
 #[test]
 fn textarea_with_a_spurious_value_attribute_still_reads_the_content() {
     let list = layout(r#"<textarea value="ignored">abc</textarea>"#, 400.0);
-    let found_content = list.materialized().iter().any(|it| {
-        matches!(it, DisplayItem::Text { text, .. } if text.as_ref() == "abc")
-    });
-    let found_attribute = list.materialized().iter().any(|it| {
-        matches!(it, DisplayItem::Text { text, .. } if text.as_ref() == "ignored")
-    });
-    assert!(found_content, "the textarea's CONTENT should win, even with a spurious value=");
-    assert!(!found_attribute, "the value= attribute should not be read on a textarea");
+    let found_content = list
+        .materialized()
+        .iter()
+        .any(|it| matches!(it, DisplayItem::Text { text, .. } if text.as_ref() == "abc"));
+    let found_attribute = list
+        .materialized()
+        .iter()
+        .any(|it| matches!(it, DisplayItem::Text { text, .. } if text.as_ref() == "ignored"));
+    assert!(
+        found_content,
+        "the textarea's CONTENT should win, even with a spurious value="
+    );
+    assert!(
+        !found_attribute,
+        "the value= attribute should not be read on a textarea"
+    );
 }
 
 /// Cause 3 of the same triage, and a fourth found while pinning it.
@@ -135,8 +149,7 @@ fn textarea_with_width_in_ch_and_ahem_family_uses_1ch_1em() {
 /// overrides it — pins the fix on its own axis, independent of cause 3.
 #[test]
 fn textarea_with_border_none_does_not_reserve_the_ua_border() {
-    const HTML: &str =
-        r#"<textarea id="ta" style="width: 100px; margin: 0; padding: 0; border: none;"></textarea>"#;
+    const HTML: &str = r#"<textarea id="ta" style="width: 100px; margin: 0; padding: 0; border: none;"></textarea>"#;
     let (dom, list) = geometria(HTML, 400.0);
     let r = rect(&dom, &list, "#ta", 0);
     assert!(
@@ -157,7 +170,9 @@ fn textarea_with_width_in_ch_without_ahem_uses_the_familys_zero_advance() {
     ">XX    XX</textarea>"#;
     let (dom, list) = geometria(HTML, 400.0);
     let r = rect(&dom, &list, "#ta", 0);
-    let expected = 4.0 * 20.0 * crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
+    let expected = 4.0
+        * 20.0
+        * crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
     assert!(
         (r.w - expected).abs() < 0.5,
         "the width of a <textarea> with width:4ch in Arial should be 4 times Arial's 0 advance (~{}), was {}",

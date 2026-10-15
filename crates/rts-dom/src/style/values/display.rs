@@ -197,6 +197,16 @@ impl DisplayKind {
         matches!(self, DisplayKind::Grid | DisplayKind::InlineGrid)
     }
 
+    pub fn is_flex_container(self) -> bool {
+        matches!(
+            self,
+            DisplayKind::Flex
+                | DisplayKind::InlineFlex
+                | DisplayKind::FlexWrap
+                | DisplayKind::InlineFlexWrap
+        )
+    }
+
     /// `true` para a caixa de TABELA em si — `table` ou `inline-table` — e NAO
     /// para as suas partes internas, que sao [`is_table_part`].
     pub fn is_table_box(self) -> bool {
@@ -211,7 +221,9 @@ impl DisplayKind {
     pub fn is_row_group(self) -> bool {
         matches!(
             self,
-            DisplayKind::TableRowGroup | DisplayKind::TableHeaderGroup | DisplayKind::TableFooterGroup
+            DisplayKind::TableRowGroup
+                | DisplayKind::TableHeaderGroup
+                | DisplayKind::TableFooterGroup
         )
     }
 
@@ -337,8 +349,8 @@ impl AlignItems {
             // no-op for `start` and irrelevant for the "unsafe" keyword,
             // which only spells out the default we already apply to the
             // unprefixed `center`/`end`.
-            "safe start" | "safe flex-start" | "safe self-start" | "unsafe start" | "unsafe flex-start"
-            | "unsafe self-start" => AlignItems::FlexStart,
+            "safe start" | "safe flex-start" | "safe self-start" | "unsafe start"
+            | "unsafe flex-start" | "unsafe self-start" => AlignItems::FlexStart,
             "unsafe end" | "unsafe flex-end" | "unsafe self-end" => AlignItems::FlexEnd,
             "unsafe center" => AlignItems::Center,
             "baseline" | "first baseline" => AlignItems::Baseline,
@@ -407,8 +419,14 @@ mod flow_start_flow_end_tests {
     /// matching the reference.
     #[test]
     fn justify_content_flow_start_end_alias_flex_start_end() {
-        assert_eq!(JustifyContent::parse("flow-start"), Some(JustifyContent::FlexStart));
-        assert_eq!(JustifyContent::parse("flow-end"), Some(JustifyContent::FlexEnd));
+        assert_eq!(
+            JustifyContent::parse("flow-start"),
+            Some(JustifyContent::FlexStart)
+        );
+        assert_eq!(
+            JustifyContent::parse("flow-end"),
+            Some(JustifyContent::FlexEnd)
+        );
     }
 
     /// Same alias, for `align-items`/`align-self`/`align-content` — all three
@@ -431,13 +449,31 @@ mod flow_start_flow_end_tests {
     /// `unsafe` is the default we already give `center`/`end`).
     #[test]
     fn align_items_parses_the_rest_of_safe_and_unsafe() {
-        assert_eq!(AlignItems::parse("safe flex-end"), Some(AlignItems::SafeEnd));
-        assert_eq!(AlignItems::parse("safe self-end"), Some(AlignItems::SafeEnd));
+        assert_eq!(
+            AlignItems::parse("safe flex-end"),
+            Some(AlignItems::SafeEnd)
+        );
+        assert_eq!(
+            AlignItems::parse("safe self-end"),
+            Some(AlignItems::SafeEnd)
+        );
         assert_eq!(AlignItems::parse("safe start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("safe flex-start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("unsafe start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("unsafe flex-end"), Some(AlignItems::FlexEnd));
-        assert_eq!(AlignItems::parse("unsafe self-end"), Some(AlignItems::FlexEnd));
+        assert_eq!(
+            AlignItems::parse("safe flex-start"),
+            Some(AlignItems::FlexStart)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe start"),
+            Some(AlignItems::FlexStart)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe flex-end"),
+            Some(AlignItems::FlexEnd)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe self-end"),
+            Some(AlignItems::FlexEnd)
+        );
         assert_eq!(AlignItems::parse("unsafe center"), Some(AlignItems::Center));
     }
 }

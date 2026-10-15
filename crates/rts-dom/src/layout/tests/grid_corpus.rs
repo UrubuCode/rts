@@ -53,7 +53,10 @@ fn rect_de(id: &str) -> Rect {
 }
 
 fn bate(got: Rect, x: f32, y: f32, w: f32, h: f32) -> bool {
-    (got.x - x).abs() < TOL && (got.y - y).abs() < TOL && (got.w - w).abs() < TOL && (got.h - h).abs() < TOL
+    (got.x - x).abs() < TOL
+        && (got.y - y).abs() < TOL
+        && (got.w - w).abs() < TOL
+        && (got.h - h).abs() < TOL
 }
 
 #[test]

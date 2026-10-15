@@ -118,7 +118,9 @@ impl Feature {
             }
             Feature::MinAspectRatio(v) => ctx.height > 0.0 && ctx.width / ctx.height >= v - 1e-4,
             Feature::MaxAspectRatio(v) => ctx.height > 0.0 && ctx.width / ctx.height <= v + 1e-4,
-            Feature::AspectRatio(v) => ctx.height > 0.0 && (ctx.width / ctx.height - v).abs() < 1e-3,
+            Feature::AspectRatio(v) => {
+                ctx.height > 0.0 && (ctx.width / ctx.height - v).abs() < 1e-3
+            }
             // resolução: headless não tem DPI real — 1dppx (96dpi) é o único
             // valor honesto de responder, como um monitor não-retina.
             Feature::MinResolution(v) => 1.0 >= v - 1e-4,
@@ -223,7 +225,10 @@ fn narrower_type(a: MediaType, b: MediaType) -> MediaType {
 
 /// Combina a query desta camada com a da camada envolvente (usado por
 /// `rules.rs` no lowering de `@media` aninhado).
-pub(in crate::style::stylesheet) fn combine(outer: Option<MediaQuery>, inner: MediaQuery) -> Option<MediaQuery> {
+pub(in crate::style::stylesheet) fn combine(
+    outer: Option<MediaQuery>,
+    inner: MediaQuery,
+) -> Option<MediaQuery> {
     Some(match outer {
         Some(outer) => inner.and(outer),
         None => inner,
@@ -474,7 +479,13 @@ fn strip_ci_word<'a>(s: &'a str, word: &str) -> Option<&'a str> {
         return None;
     }
     let (head, rest) = s.split_at(word.len());
-    if head.eq_ignore_ascii_case(word) && rest.chars().next().map(|c| c.is_whitespace()).unwrap_or(true) {
+    if head.eq_ignore_ascii_case(word)
+        && rest
+            .chars()
+            .next()
+            .map(|c| c.is_whitespace())
+            .unwrap_or(true)
+    {
         Some(rest)
     } else {
         None

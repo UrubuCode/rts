@@ -7,4 +7,4 @@ mod caixa;
 mod imagem;
 mod quebra;
 
-    use crate::table::tests::{geometria, rect, textos};
+use crate::table::tests::{geometria, rect, textos};

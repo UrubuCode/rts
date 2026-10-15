@@ -41,7 +41,12 @@ pub(super) fn resolve_reverts(sheet: &Stylesheet, matched: &MatchedRules, out: &
     resolve_layer(sheet, matched, &mut out.important, true);
 }
 
-fn resolve_layer(sheet: &Stylesheet, matched: &MatchedRules, layer: &mut ComputedStyle, important: bool) {
+fn resolve_layer(
+    sheet: &Stylesheet,
+    matched: &MatchedRules,
+    layer: &mut ComputedStyle,
+    important: bool,
+) {
     let revert_names = layer.revert_props.take();
     let revert_layer_names = layer.revert_layer_props.take();
     if revert_names.is_none() && revert_layer_names.is_none() {
@@ -53,7 +58,11 @@ fn resolve_layer(sheet: &Stylesheet, matched: &MatchedRules, layer: &mut Compute
     // forma"). Um nome repetido nas duas listas (regras diferentes pedindo
     // cada keyword) refaz a mesma busca duas vezes — idempotente, e raro
     // o bastante para não valer a pena um `HashSet` no caminho frio.
-    for name in revert_names.iter().flat_map(|v| v.iter()).chain(revert_layer_names.iter().flat_map(|v| v.iter())) {
+    for name in revert_names
+        .iter()
+        .flat_map(|v| v.iter())
+        .chain(revert_layer_names.iter().flat_map(|v| v.iter()))
+    {
         resolve_one(sheet, matched, layer, important, name);
     }
 }
@@ -67,7 +76,11 @@ enum Winner {
     /// A regra vencedora pediu `revert` (origem) ou `revert-layer` (layer);
     /// `true` = `revert-layer`. Carrega a origem/layer dela, o corte de onde
     /// recuar.
-    Reverted { origin: u32, layer: u32, is_layer: bool },
+    Reverted {
+        origin: u32,
+        layer: u32,
+        is_layer: bool,
+    },
 }
 
 fn resolve_one(
@@ -88,31 +101,46 @@ fn resolve_one(
     if important {
         order.sort_by_key(|k| super::sheet::important_key(*k));
     }
-    let winner = order.iter().rev().find_map(|&(origin, rlayer, _spec, _order, i)| {
-        let r = &sheet.rules[i];
-        let decls = if important { &r.decls.important } else { &r.decls.normal };
-        let mut scratch = ComputedStyle::default();
-        for d in decls.iter() {
-            d.apply(&mut scratch);
-        }
-        if property_is_set(&scratch, name) {
-            return Some(Winner::RealValue);
-        }
-        let reverts = scratch.revert_props.as_deref().is_some_and(|v| v.iter().any(|n| n == name));
-        let reverts_layer = scratch
-            .revert_layer_props
-            .as_deref()
-            .is_some_and(|v| v.iter().any(|n| n == name));
-        if reverts || reverts_layer {
-            return Some(Winner::Reverted {
-                origin,
-                layer: rlayer,
-                is_layer: reverts_layer,
-            });
-        }
-        None
-    });
-    let Some(Winner::Reverted { origin, layer: rlayer, is_layer }) = winner else {
+    let winner = order
+        .iter()
+        .rev()
+        .find_map(|&(origin, rlayer, _spec, _order, i)| {
+            let r = &sheet.rules[i];
+            let decls = if important {
+                &r.decls.important
+            } else {
+                &r.decls.normal
+            };
+            let mut scratch = ComputedStyle::default();
+            for d in decls.iter() {
+                d.apply(&mut scratch);
+            }
+            if property_is_set(&scratch, name) {
+                return Some(Winner::RealValue);
+            }
+            let reverts = scratch
+                .revert_props
+                .as_deref()
+                .is_some_and(|v| v.iter().any(|n| n == name));
+            let reverts_layer = scratch
+                .revert_layer_props
+                .as_deref()
+                .is_some_and(|v| v.iter().any(|n| n == name));
+            if reverts || reverts_layer {
+                return Some(Winner::Reverted {
+                    origin,
+                    layer: rlayer,
+                    is_layer: reverts_layer,
+                });
+            }
+            None
+        });
+    let Some(Winner::Reverted {
+        origin,
+        layer: rlayer,
+        is_layer,
+    }) = winner
+    else {
         return;
     };
     // `revert-layer` fora de qualquer layer não tem "layer anterior": recua
@@ -130,7 +158,11 @@ fn resolve_one(
     // comum, e não uma exceção.
     let mut boundary = ComputedStyle::default();
     for &(o, l, _spec, _order, i) in matched.rules.iter() {
-        let in_scope = if by_layer { o == origin && l < rlayer } else { o < origin };
+        let in_scope = if by_layer {
+            o == origin && l < rlayer
+        } else {
+            o < origin
+        };
         if !in_scope {
             continue;
         }
@@ -140,7 +172,11 @@ fn resolve_one(
         }
     }
     for &(o, l, _spec, _order, i) in matched.rules.iter() {
-        let in_scope = if by_layer { o == origin && l < rlayer } else { o < origin };
+        let in_scope = if by_layer {
+            o == origin && l < rlayer
+        } else {
+            o < origin
+        };
         if !in_scope {
             continue;
         }
@@ -169,8 +205,16 @@ mod tests {
         let s = sheet_of("a { color: revert; }");
         // `a:link` na folha de UA (lote I) dá `color: #0000EEff`.
         let out = s.computed_for("a", None, &[]);
-        assert_ne!(out.normal.color, Some(0xff0000ff), "não pode ficar vermelho");
-        assert!(out.normal.color.is_some(), "a UA declara cor para <a>: {:?}", out.normal.color);
+        assert_ne!(
+            out.normal.color,
+            Some(0xff0000ff),
+            "não pode ficar vermelho"
+        );
+        assert!(
+            out.normal.color.is_some(),
+            "a UA declara cor para <a>: {:?}",
+            out.normal.color
+        );
     }
 
     /// `revert` sobre uma propriedade que NENHUMA origem anterior declara cai
@@ -196,7 +240,11 @@ mod tests {
              @layer tema { .x { color: revert-layer; } }",
         );
         let out = s.computed_for("div", None, &["x"]);
-        assert_eq!(out.normal.color, Some(0x0000ffff), "devia recuar para a layer base (azul)");
+        assert_eq!(
+            out.normal.color,
+            Some(0x0000ffff),
+            "devia recuar para a layer base (azul)"
+        );
     }
 
     /// `revert-layer` FORA de qualquer layer comporta-se como `revert`
@@ -205,7 +253,10 @@ mod tests {
     fn revert_layer_sem_layer_cai_como_revert() {
         let s = sheet_of("a { color: revert-layer; }");
         let out = s.computed_for("a", None, &[]);
-        assert!(out.normal.color.is_some(), "sem layer, revert-layer devia recuar para a UA");
+        assert!(
+            out.normal.color.is_some(),
+            "sem layer, revert-layer devia recuar para a UA"
+        );
     }
 
     /// `revert` dentro de `!important`: a inversão de importância do lote I

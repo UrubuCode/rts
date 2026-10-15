@@ -35,9 +35,24 @@ impl DisplayList {
     /// refuses is transparent and the walk goes on beneath it. One traversal
     /// for both public answers, so they cannot disagree about anything but
     /// the filter.
-    pub(crate) fn hit_where(&self, x: f32, y: f32, accept: &dyn Fn(NodeIdx) -> bool) -> Option<NodeIdx> {
-        let own = |b: BoxId| self.box_rects.fragments(b).map(<[Rect]>::to_vec).unwrap_or_default();
-        let walk = Walk { tree: &self.tree, x, y, accept };
+    pub(crate) fn hit_where(
+        &self,
+        x: f32,
+        y: f32,
+        accept: &dyn Fn(NodeIdx) -> bool,
+    ) -> Option<NodeIdx> {
+        let own = |b: BoxId| {
+            self.box_rects
+                .fragments(b)
+                .map(<[Rect]>::to_vec)
+                .unwrap_or_default()
+        };
+        let walk = Walk {
+            tree: &self.tree,
+            x,
+            y,
+            accept,
+        };
         walk.range(&self.pieces, 0.0, 0.0, &own)
     }
 }
@@ -116,7 +131,13 @@ fn matching_begin(pieces: &[Piece], end: usize) -> Option<usize> {
 impl Walk<'_> {
     /// The top-most accepted hit in `pieces`, which sit at `(dx, dy)`; `rects`
     /// answers a box's fragments in the coordinates of `pieces`.
-    fn range(&self, pieces: &[Piece], dx: f32, dy: f32, rects: &dyn Fn(BoxId) -> Vec<Rect>) -> Option<NodeIdx> {
+    fn range(
+        &self,
+        pieces: &[Piece],
+        dx: f32,
+        dy: f32,
+        rects: &dyn Fn(BoxId) -> Vec<Rect>,
+    ) -> Option<NodeIdx> {
         // A clip opened here and closed by an ancestor's sequence encloses the
         // whole tail: test that first (it paints last), and only inside it.
         if let Some(k) = unclosed_begin(pieces) {
@@ -135,7 +156,9 @@ impl Walk<'_> {
                 Piece::Item(DisplayItem::EndClip) => {
                     // An `EndClip` without its opener here closes a clip an
                     // ancestor already tested; it bounds nothing in this range.
-                    let Some(i) = matching_begin(pieces, j) else { continue };
+                    let Some(i) = matching_begin(pieces, j) else {
+                        continue;
+                    };
                     let rect = clip_rect(&pieces[i]).expect("matching_begin answers a BeginClip");
                     if contains(rect, dx, dy, self.x, self.y) {
                         if let Some(hit) = self.range(&pieces[i + 1..j], dx, dy, rects) {
@@ -148,8 +171,14 @@ impl Walk<'_> {
                 Piece::Rect(box_id) => {
                     // An anonymous box has no node to answer: the bridge
                     // promises nodes, so it is skipped rather than climbed.
-                    let Some(node) = self.tree.node_of(*box_id) else { continue };
-                    if (self.accept)(node) && rects(*box_id).iter().any(|r| contains(*r, dx, dy, self.x, self.y)) {
+                    let Some(node) = self.tree.node_of(*box_id) else {
+                        continue;
+                    };
+                    if (self.accept)(node)
+                        && rects(*box_id)
+                            .iter()
+                            .any(|r| contains(*r, dx, dy, self.x, self.y))
+                    {
                         return Some(node);
                     }
                 }
@@ -171,4 +200,3 @@ impl Walk<'_> {
         None
     }
 }
-

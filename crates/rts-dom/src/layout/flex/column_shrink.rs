@@ -104,8 +104,14 @@ pub(in crate::layout) fn min_main_auto(
         None => {
             let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
             let content = content_height_without_height(
-                dom, box_id, ccss, resolve.parent_content_w, resolve.node_font_size, ctx,
-            ) + bt + bb;
+                dom,
+                box_id,
+                ccss,
+                resolve.parent_content_w,
+                resolve.node_font_size,
+                ctx,
+            ) + bt
+                + bb;
             natural_h.min(content)
         }
     }
@@ -168,7 +174,9 @@ fn stacked(
             Some(c) if is_out_of_flow(dom, c) || is_display_none(dom, c) => 0.0,
             Some(c) => match &dom.node(c).kind {
                 NodeKind::Text(_) if collect_text(dom, c).trim().is_empty() => 0.0,
-                NodeKind::Text(_) => crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer),
+                NodeKind::Text(_) => {
+                    crate::inline_box::altura_da_linha(ccss, font_size, ctx.measurer)
+                }
                 _ => child_outer_height(dom, c, child, container_w, None, ccss, font_size, ctx),
             },
         })
@@ -201,7 +209,6 @@ pub(in crate::layout) fn min_main(
         .unwrap_or_else(|| min_main_auto(dom, id, box_id, ccss, natural_h, resolve, ctx))
 }
 
-
 /// ENCOLHIMENTO com piso de `min_main` (CSS Flexbox §9.7) — a mesma iteração
 /// de congelamento de `row.rs:319-370`, extraída para slices paralelas em
 /// vez de reusar `FlexItem` (que carrega campos do eixo horizontal, como
@@ -209,7 +216,12 @@ pub(in crate::layout) fn min_main(
 /// cabeçalho de `column.rs`). Devolve o `main` final de cada item, na mesma
 /// ordem de `bases`. `free_pre >= 0.0` devolve `bases` sem tocar (sem
 /// défice: quem cresce é o `flex-grow`, tratado à parte em `column.rs`).
-pub(in crate::layout) fn shrink(bases: &[f32], shrinks: &[f32], mins: &[f32], free_pre: f32) -> Vec<f32> {
+pub(in crate::layout) fn shrink(
+    bases: &[f32],
+    shrinks: &[f32],
+    mins: &[f32],
+    free_pre: f32,
+) -> Vec<f32> {
     let n = bases.len();
     let mut main: Vec<f32> = bases.to_vec();
     if free_pre >= 0.0 {
@@ -217,7 +229,11 @@ pub(in crate::layout) fn shrink(bases: &[f32], shrinks: &[f32], mins: &[f32], fr
     }
     let mut frozen = vec![false; n];
     let sum_shrink: f32 = shrinks.iter().sum();
-    let mut deficit = if sum_shrink < 1.0 { free_pre * sum_shrink } else { free_pre };
+    let mut deficit = if sum_shrink < 1.0 {
+        free_pre * sum_shrink
+    } else {
+        free_pre
+    };
     loop {
         let weighted: f32 = (0..n)
             .filter(|&i| !frozen[i])

@@ -34,8 +34,16 @@ fn linha_unica_sem_wrap_usa_a_altura_do_contentor_mesmo_com_item_maior() {
         (r.x, r.y, r.w, r.h)
     };
     assert_eq!(r(".f"), (0.0, 0.0, 200.0, 64.0));
-    assert_eq!(r("#grande"), (0.0, 0.0, 40.0, 128.0), "transborda: altura própria, não a do contentor");
-    assert_eq!(r("#pequeno"), (40.0, 0.0, 40.0, 56.0), "estica ao CONTENTOR (64-8), não ao #grande (128-8)");
+    assert_eq!(
+        r("#grande"),
+        (0.0, 0.0, 40.0, 128.0),
+        "transborda: altura própria, não a do contentor"
+    );
+    assert_eq!(
+        r("#pequeno"),
+        (40.0, 0.0, 40.0, 56.0),
+        "estica ao CONTENTOR (64-8), não ao #grande (128-8)"
+    );
 }
 
 #[test]
@@ -54,7 +62,11 @@ fn linha_unica_com_wrap_tambem_usa_a_altura_do_contentor() {
         let r = rect(&dom, &list, s, 0);
         (r.x, r.y, r.w, r.h)
     };
-    assert_eq!(r("#s1"), (0.0, 0.0, 80.0, 50.0), "linha única com wrap: estica aos 50 do contentor, não a 0");
+    assert_eq!(
+        r("#s1"),
+        (0.0, 0.0, 80.0, 50.0),
+        "linha única com wrap: estica aos 50 do contentor, não a 0"
+    );
 }
 
 #[test]
@@ -101,7 +113,11 @@ fn align_content_center_deixa_as_linhas_transbordarem_simetricamente() {
     };
     assert_eq!(r("#i1"), (0.0, -8.0, 128.0, 40.0));
     assert_eq!(r("#i2"), (128.0, -8.0, 128.0, 40.0));
-    assert_eq!(r("#i3"), (0.0, 32.0, 128.0, 40.0), "leading negativo: -8+40, não o 0+40 do clamp antigo");
+    assert_eq!(
+        r("#i3"),
+        (0.0, 32.0, 128.0, 40.0),
+        "leading negativo: -8+40, não o 0+40 do clamp antigo"
+    );
     assert_eq!(r("#i4"), (128.0, 32.0, 128.0, 40.0));
 }
 
@@ -126,7 +142,11 @@ fn gap_com_calc_de_percentagem_e_rem_nao_resolve_a_zero() {
     };
     assert_eq!(r("#s"), (0.0, 0.0, 400.0, 100.0));
     assert_eq!(r("#a"), (0.0, 0.0, 76.0, 100.0));
-    assert_eq!(r("#b"), (108.0, 0.0, 76.0, 100.0), "gap=32 (10%×400-8), não 0");
+    assert_eq!(
+        r("#b"),
+        (108.0, 0.0, 76.0, 100.0),
+        "gap=32 (10%×400-8), não 0"
+    );
     assert_eq!(r("#c"), (216.0, 0.0, 76.0, 100.0));
     assert_eq!(r("#d"), (324.0, 0.0, 76.0, 100.0));
 }

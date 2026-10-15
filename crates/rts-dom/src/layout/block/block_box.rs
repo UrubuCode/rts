@@ -61,10 +61,32 @@ pub(in crate::layout) fn layout_anonymous(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    if matches!(tree.kind(anonymous), BoxKind::Anonymous { role: AnonymousRole::Table, .. }) {
-        return crate::table::layout_anonymous_table(dom, tree, anonymous, x, y, content_w, font_size, ctx, list).1;
+    if matches!(
+        tree.kind(anonymous),
+        BoxKind::Anonymous {
+            role: AnonymousRole::Table,
+            ..
+        }
+    ) {
+        return crate::table::layout_anonymous_table(
+            dom, tree, anonymous, x, y, content_w, font_size, ctx, list,
+        )
+        .1;
     }
-    let h = layout_anonymous_box(dom, tree, anonymous, x, y, content_w, avail_h, parent_style, font_size, bfc, ctx, list);
+    let h = layout_anonymous_box(
+        dom,
+        tree,
+        anonymous,
+        x,
+        y,
+        content_w,
+        avail_h,
+        parent_style,
+        font_size,
+        bfc,
+        ctx,
+        list,
+    );
     record_box_rect(list, anonymous, Rect::new(x, y, content_w, h));
     h
 }

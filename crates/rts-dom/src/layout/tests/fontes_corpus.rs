@@ -34,11 +34,35 @@ fn ch_e_ex_medem_pela_fonte_e_a_familia_inexistente_cai_na_seguinte() {
     let normal = rect(&dom, &list, "#normal", 0);
     let mono = rect(&dom, &list, "#mono", 0);
     let fallback = rect(&dom, &list, "#fallback", 0);
-    assert!(perto(dezch.w, 87.97), "10ch: Blink 87.97, obtido {}", dezch.w);
-    assert!(perto(dezex.w, 78.44), "10ex: Blink 78.44, obtido {}", dezex.w);
-    assert!(perto(normal.h, 19.0), "line-height normal: Blink 19, obtido {}", normal.h);
-    assert!(perto(mono.w, 87.97), "10 chars mono: Blink 87.97, obtido {}", mono.w);
-    assert_eq!(fallback.w, mono.w, "a família inexistente cai na monospace da lista");
-    let css = dom.computed_style(dom.query("#fallback").expect("#fallback")).expect("css");
-    assert_eq!(css.computed_value("font-family", None), "FamiliaQueNaoExiste, monospace");
+    assert!(
+        perto(dezch.w, 87.97),
+        "10ch: Blink 87.97, obtido {}",
+        dezch.w
+    );
+    assert!(
+        perto(dezex.w, 78.44),
+        "10ex: Blink 78.44, obtido {}",
+        dezex.w
+    );
+    assert!(
+        perto(normal.h, 19.0),
+        "line-height normal: Blink 19, obtido {}",
+        normal.h
+    );
+    assert!(
+        perto(mono.w, 87.97),
+        "10 chars mono: Blink 87.97, obtido {}",
+        mono.w
+    );
+    assert_eq!(
+        fallback.w, mono.w,
+        "a família inexistente cai na monospace da lista"
+    );
+    let css = dom
+        .computed_style(dom.query("#fallback").expect("#fallback"))
+        .expect("css");
+    assert_eq!(
+        css.computed_value("font-family", None),
+        "FamiliaQueNaoExiste, monospace"
+    );
 }

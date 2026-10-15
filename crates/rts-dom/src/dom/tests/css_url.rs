@@ -9,7 +9,11 @@ fn cursor_url_relativa_resolve_contra_a_pagina_da_fixture() {
     let dom = parse_html_to_dom(HTML);
     let id = dom.query("#url-fallback").expect("div com cursor");
     assert_eq!(
-        dom.computed_property_at(id, "cursor", "http://127.0.0.1:8731/claude-cursor-pointer-events.html"),
+        dom.computed_property_at(
+            id,
+            "cursor",
+            "http://127.0.0.1:8731/claude-cursor-pointer-events.html"
+        ),
         "url(\"http://127.0.0.1:8731/x.png\"), auto"
     );
 }

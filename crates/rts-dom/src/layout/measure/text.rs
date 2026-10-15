@@ -19,8 +19,8 @@
 //! measurer is not obliged to be additive (rounding, kerning) and a width that
 //! moved by a hundredth would move every shrink-to-fit box that contains text.
 
-use crate::layout::inline::preserved_spaces::{tokens, Token, WhiteSpaceRegime};
 use super::*;
+use crate::layout::inline::preserved_spaces::{Token, WhiteSpaceRegime, tokens};
 
 /// The font a run of text is measured in: everything the measurer and the
 /// two spacings need. Two runs with an equal `RunStyle` share one buffer.
@@ -55,7 +55,15 @@ pub(in crate::layout) struct Lines {
 
 impl Lines {
     pub(in crate::layout) fn new(min: bool) -> Lines {
-        Lines { min, line: 0.0, buf: String::new(), style: None, space: None, after_space: true, widest: 0.0 }
+        Lines {
+            min,
+            line: 0.0,
+            buf: String::new(),
+            style: None,
+            space: None,
+            after_space: true,
+            widest: 0.0,
+        }
     }
 
     /// The widest line, once the last one is closed.
@@ -113,7 +121,9 @@ impl Lines {
 
     /// One text node, under its parent element's style.
     pub(in crate::layout) fn text(&mut self, dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) {
-        let NodeKind::Text(t) = &dom.node(id).kind else { return };
+        let NodeKind::Text(t) = &dom.node(id).kind else {
+            return;
+        };
         let parent = dom.node(id).parent;
         let css = parent.and_then(|p| dom.computed_style_idx(p));
         let css = css.as_deref();
@@ -127,9 +137,17 @@ impl Lines {
             letter: css.and_then(|c| c.letter_spacing).unwrap_or(0.0),
             word: css.and_then(|c| c.word_spacing).unwrap_or(0.0),
         };
-        let regime = css.map(WhiteSpaceRegime::from_css).unwrap_or_else(|| WhiteSpaceRegime::from_css(&Default::default()));
-        let ws = css.and_then(|c| c.white_space).unwrap_or(crate::style::WhiteSpace::Normal);
-        let soft_breaks = self.min && !matches!(ws, crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre);
+        let regime = css
+            .map(WhiteSpaceRegime::from_css)
+            .unwrap_or_else(|| WhiteSpaceRegime::from_css(&Default::default()));
+        let ws = css
+            .and_then(|c| c.white_space)
+            .unwrap_or(crate::style::WhiteSpace::Normal);
+        let soft_breaks = self.min
+            && !matches!(
+                ws,
+                crate::style::WhiteSpace::Nowrap | crate::style::WhiteSpace::Pre
+            );
         // The soft hyphen has no width unless a line breaks at it (`hyphen.rs`, rule 1).
         let t = crate::layout::inline::hyphen::without_shy(t);
         let keep_all = css.is_some_and(|c| c.word_break == Some(crate::style::WordBreak::KeepAll));
@@ -163,7 +181,12 @@ impl Lines {
         let mut rest: &str = &t;
         while let Some(c) = rest.chars().next() {
             let is_white = |c: char| c == '\t' || c == '\n' || crate::inline_box::e_espaco_css(c);
-            let end = if is_white(c) { rest.find(|c| !is_white(c)) } else { rest.find(is_white) }.unwrap_or(rest.len());
+            let end = if is_white(c) {
+                rest.find(|c| !is_white(c))
+            } else {
+                rest.find(is_white)
+            }
+            .unwrap_or(rest.len());
             let (chunk, after) = rest.split_at(end);
             rest = after;
             if !is_white(c) {
@@ -184,8 +207,20 @@ impl Lines {
     /// A word, broken at its UAX #14 opportunities when every soft wrap
     /// opportunity breaks (min-content) — the same pieces `wrap_runs` makes
     /// (`inline/break_opportunities.rs`), so a box sized by this width holds them.
-    fn word(&mut self, style: &RunStyle, s: &str, soft_breaks: bool, keep_all: bool, ctx: &LayoutCtx) {
-        let pieces = crate::layout::inline::break_opportunities::pieces(ctx.measurer, s, soft_breaks, keep_all);
+    fn word(
+        &mut self,
+        style: &RunStyle,
+        s: &str,
+        soft_breaks: bool,
+        keep_all: bool,
+        ctx: &LayoutCtx,
+    ) {
+        let pieces = crate::layout::inline::break_opportunities::pieces(
+            ctx.measurer,
+            s,
+            soft_breaks,
+            keep_all,
+        );
         for (k, piece) in pieces.enumerate() {
             if k > 0 {
                 self.forced_break(ctx);
@@ -228,14 +263,21 @@ impl Lines {
 /// per character and one word-spacing per space — the same sums `wrap_runs`
 /// adds to a line, so a box sized by this width fits the line it lays out.
 fn measure(ctx: &LayoutCtx, e: &RunStyle, s: &str) -> f32 {
-    ctx.measurer.text_width_family(s, e.font, e.family.as_deref(), e.mono, e.bold, e.italic)
+    ctx.measurer
+        .text_width_family(s, e.font, e.family.as_deref(), e.mono, e.bold, e.italic)
         + crate::style::spacing_width(s.chars().count(), e.letter)
         + s.matches(' ').count() as f32 * e.word
 }
 
 /// The width of one text node standing alone — a loose text that is its own
 /// flex item or anonymous cell, or the min-content of a table's text.
-pub(crate) fn intrinsic_text_width(dom: &Dom, id: NodeIdx, font: f32, min: bool, ctx: &LayoutCtx) -> f32 {
+pub(crate) fn intrinsic_text_width(
+    dom: &Dom,
+    id: NodeIdx,
+    font: f32,
+    min: bool,
+    ctx: &LayoutCtx,
+) -> f32 {
     let mut lines = Lines::new(min);
     lines.text(dom, id, font, ctx);
     lines.finish(ctx)
@@ -257,23 +299,39 @@ pub(in crate::layout) fn is_open_inline(
     id: NodeIdx,
     ctx: &LayoutCtx,
 ) -> bool {
-    let NodeKind::Element { tag } = &dom.node(id).kind else { return false };
+    let NodeKind::Element { tag } = &dom.node(id).kind else {
+        return false;
+    };
     if tag == "br" || is_non_rendered_tag(tag) {
         return false;
     }
-    let Some(css) = dom.computed_style_idx(id) else { return false };
+    let Some(css) = dom.computed_style_idx(id) else {
+        return false;
+    };
     let fc = tree.formatting_context(dom, child_box);
     tree.formatting_context(dom, parent).inner == crate::boxes::InnerDisplay::Flow
         && fc.is_inline_level()
         && !fc.is_atomic_inline()
         && float_of(dom, id) == crate::style::FloatSide::None
-        && crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx).is_none()
+        && crate::inline_box::replaced_inline_size(
+            dom,
+            id,
+            &css,
+            f32::INFINITY,
+            None,
+            (None, None),
+            ctx,
+        )
+        .is_none()
         && crate::layout::replaced::input::control_natural_size(dom, id, &css, ctx).is_none()
 }
 
 /// An inline box's margin + border + padding on its start and end sides:
 /// they sit on the first and the last of its lines, not on every one.
-pub(in crate::layout) fn frame_inline(css: &crate::style::ComputedStyle, resolve: &ResolveCtx) -> (f32, f32) {
+pub(in crate::layout) fn frame_inline(
+    css: &crate::style::ComputedStyle,
+    resolve: &ResolveCtx,
+) -> (f32, f32) {
     let side = |s: &crate::style::Side| match s {
         crate::style::Side::Len(d) => crate::style::dimensao_absoluta(*d, resolve).unwrap_or(0.0),
         _ => 0.0,

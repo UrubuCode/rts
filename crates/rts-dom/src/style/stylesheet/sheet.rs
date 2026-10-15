@@ -5,13 +5,21 @@
 use super::*;
 
 impl Default for Stylesheet {
-    fn default() -> Stylesheet { Stylesheet::new() }
+    fn default() -> Stylesheet {
+        Stylesheet::new()
+    }
 }
 
 /// A chave `!important`: layer e `origin` invertidas (a UA vence o autor —
 /// CSS Cascade 5 §6.1), partilhada por `custom_important_from`/`declarations_from`.
-pub(super) fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
-    let layer = if layer == u32::MAX { 0 } else { u32::MAX - layer };
+pub(super) fn important_key(
+    (origin, layer, spec, order, _): (u32, u32, u32, u32, usize),
+) -> (u32, u32, u32, u32) {
+    let layer = if layer == u32::MAX {
+        0
+    } else {
+        u32::MAX - layer
+    };
     (1 - origin, layer, spec, order)
 }
 
@@ -334,10 +342,8 @@ impl Stylesheet {
                     let keyframe_name = keyframe_name.trim();
                     if !keyframe_name.is_empty() {
                         crate::bump!(css_keyframes);
-                        self.keyframes.insert(
-                            keyframe_name.to_string(),
-                            super::parse_keyframe_ast(block),
-                        );
+                        self.keyframes
+                            .insert(keyframe_name.to_string(), super::parse_keyframe_ast(block));
                     }
                 }
                 // `@property --nome { … }` — estrutural como `@keyframes`
@@ -356,10 +362,8 @@ impl Stylesheet {
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
         let base = self.rules.len() as u32;
-        let parsed_rules = super::rules::parse_rules_ast_with_layers(
-            &ast,
-            &mut self.layer_names.borrow_mut(),
-        );
+        let parsed_rules =
+            super::rules::parse_rules_ast_with_layers(&ast, &mut self.layer_names.borrow_mut());
         for (i, rule) in parsed_rules.into_iter().enumerate() {
             crate::bump!(css_rules);
             self.rules.push(Rule {
@@ -409,7 +413,10 @@ impl Stylesheet {
                 // `<p>` de vermelho — e o `::before` foi durante muito tempo
                 // recusado no parse justamente para evitar isso.
                 (r.selector.pseudo_element.is_none()
-                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
+                    && r.media
+                        .as_ref()
+                        .map(|m| m.matches(media_ctx))
+                        .unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -457,7 +464,10 @@ impl Stylesheet {
             .filter_map(|&i| {
                 let r = &self.rules[i];
                 (r.selector.pseudo_element == Some(pe)
-                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
+                    && r.media
+                        .as_ref()
+                        .map(|m| m.matches(media_ctx))
+                        .unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -591,8 +601,16 @@ impl Stylesheet {
                 if !*important || (raw.contains("var(") && vars.is_none()) {
                     continue;
                 }
-                let dir = out.important.direction.or(out.normal.direction).or(direction);
-                let wm = out.important.writing_mode.or(out.normal.writing_mode).or(writing_mode);
+                let dir = out
+                    .important
+                    .direction
+                    .or(out.normal.direction)
+                    .or(direction);
+                let wm = out
+                    .important
+                    .writing_mode
+                    .or(out.normal.writing_mode)
+                    .or(writing_mode);
                 apply_resolved_decl(&mut out.important, prop, raw, vars_map, dir, wm);
             }
         }

@@ -4,374 +4,371 @@
 //! `const FRASE` vive aqui porque dois submódulos o usam — no original estava
 //! ao nível do `mod tests`, e é o item que o chunker por `    }` não via.
 
+mod ahem_corpus;
+mod align_safe_corpus;
+mod anonymous_table_corpus;
+mod aspect_ratio_replaced_corpus;
 mod atomo_inline_caixa;
 mod bloco;
 mod bloco_em_inline_vazio;
-mod canvas_corpus;
+mod bloco_quebra_paragrafo_corpus;
+mod borda_em_corpus;
+mod borda_por_lado_corpus;
+mod box_fragments_i4;
+mod box_tree_anonimas_largura_corpus;
+mod break_spaces_corpus;
 mod cache;
 mod cache_flex;
 mod cache_incremental;
-mod colapso;
-mod dimensoes;
-mod flex;
-mod flex_grow_fractional_corpus;
-mod flex_basis_content_column_corpus;
-mod flex_avancado;
-mod flex_coluna_shrink_corpus;
-mod flex_baseline_corpus;
-mod flex_baseline_2_corpus;
-mod flex_column_wrap_corpus;
-mod flex_cross_size_corpus;
-mod flex_max_width_corpus;
-mod flex_min_content_corpus;
-mod flex_min_auto_content_corpus;
-mod flex_item_floats_corpus;
-mod intrinseco_whitespace_corpus;
-mod svg_atributo_corpus;
-mod borda_por_lado_corpus;
-mod ib_nowrap_corpus;
-mod justify_fisico_corpus;
+mod caixa_gerada_arvore;
+mod canvas_corpus;
 mod clearfix_corpus;
-mod pseudo_flex_corpus;
-mod pseudo_bt5_corpus;
-mod borda_em_corpus;
-mod flex_margens_auto_corpus;
-mod flex_justify_logico_corpus;
-mod flex_basis_piso_corpus;
-mod table_texto_solto_corpus;
-mod pequenos_1_corpus;
-mod float_corpus;
-mod grid;
-mod grid_colocacao;
-mod grid_colapso_corpus;
-mod grid_corpus;
-mod grid_align_safe_corpus;
-mod align_safe_corpus;
-mod grid_intrinseco_corpus;
-mod hifen_corpus;
-mod break_spaces_corpus;
-mod tab_stop_float_corpus;
-mod white_space_per_inline;
-mod text_measure_corpus;
-mod fontes_corpus;
-mod imagens_corpus;
-mod box_fragments_i4;
-mod inline;
-mod inline_corpus;
-mod inline_fragmentos_corpus;
-mod inline_partido_rect_corpus;
-mod out_of_flow_in_inline_corpus;
-mod anonymous_table_corpus;
-mod table_groups_corpus;
-mod static_position_in_line_corpus;
-mod static_position_empty_line_corpus;
-mod relative_inline_corpus;
-mod inline_block_baseline_corpus;
-mod pseudo_caixa_gerada_corpus;
-mod pintura;
-mod pintura_transform_clip;
-mod pintura_juncao;
-mod pintura_e_caixas_corpus;
-mod pieces_order;
-mod replaced_fundo;
-mod replaced_pixels;
-mod posicionado;
+mod colapso;
+mod controlo_natural_corpus;
+mod dimensoes;
 mod empilhamento_camada8;
+mod flex;
+mod flex_align_justify_familia_corpus;
+mod flex_avancado;
+mod flex_baseline_2_corpus;
+mod flex_baseline_corpus;
+mod flex_basis_content_column_corpus;
+mod flex_basis_content_wrap_corpus;
+mod flex_basis_piso_corpus;
+mod flex_column_wrap_corpus;
+mod flex_coluna_shrink_corpus;
+mod flex_cross_size_corpus;
+mod flex_gap_2_corpus;
+mod flex_grow_fractional_corpus;
+mod flex_item_floats_corpus;
+mod flex_justify_logico_corpus;
+mod flex_margens_auto_corpus;
+mod flex_max_width_corpus;
+mod flex_min_auto_content_corpus;
+mod flex_min_content_corpus;
+mod flex_reverse_order_corpus;
+mod flex_scroll_overflow_corpus;
+mod flex_stretch_replaced_corpus;
+mod flex_wrap_balance_negative_margin_corpus;
+mod float_corpus;
+mod fontes_corpus;
+mod grid;
+mod grid_align_safe_corpus;
+mod grid_colapso_corpus;
+mod grid_colocacao;
+mod grid_corpus;
+mod grid_intrinseco_corpus;
+mod grid_item_aspect_ratio;
+mod hifen_corpus;
+mod ib_nowrap_corpus;
+mod imagens_corpus;
+mod inline;
+mod inline_abspos_beside_float;
+mod inline_block_baseline_corpus;
+mod inline_corpus;
+mod inline_flex_corpus;
+mod inline_fragmentos_corpus;
+mod inline_grid_sits_on_the_line;
+mod inline_partido_rect_corpus;
+mod intrinseco_whitespace_corpus;
+mod justify_fisico_corpus;
+mod kerned_shrink_to_fit;
+mod line_break_anywhere_corpus;
+mod out_of_flow_in_inline_corpus;
+mod pequenos_1_corpus;
+mod pieces_order;
+mod pintura;
+mod pintura_e_caixas_corpus;
+mod pintura_juncao;
+mod pintura_transform_clip;
+mod posicao_estatica_corpus;
+mod posicionado;
 mod position_corpus;
+mod pseudo_bt5_corpus;
+mod pseudo_caixa_gerada_corpus;
+mod pseudo_flex_corpus;
+mod relative_inline_corpus;
+mod relative_inline_percent_offsets;
+mod replaced_fundo;
+mod replaced_percent_height;
+mod replaced_pixels;
+mod static_position_empty_line_corpus;
+mod static_position_in_line_corpus;
+mod svg_atributo_corpus;
+mod tab_stop_float_corpus;
+mod table_groups_corpus;
+mod table_texto_solto_corpus;
+mod text_family_corpus;
+mod text_measure_corpus;
+mod textarea_ahem_corpus;
 mod texto_lote_s;
 mod transform_corpus;
 mod visibility_collapse_corpus;
-mod flex_stretch_replaced_corpus;
-mod inline_flex_corpus;
-mod flex_basis_content_wrap_corpus;
-mod flex_align_justify_familia_corpus;
-mod flex_reverse_order_corpus;
-mod flex_gap_2_corpus;
-mod flex_wrap_balance_negative_margin_corpus;
-mod aspect_ratio_replaced_corpus;
-mod relative_inline_percent_offsets;
-mod replaced_percent_height;
-mod grid_item_aspect_ratio;
-mod posicao_estatica_corpus;
-mod inline_abspos_beside_float;
-mod inline_grid_sits_on_the_line;
-mod controlo_natural_corpus;
-mod box_tree_anonimas_largura_corpus;
-mod ahem_corpus;
-mod line_break_anywhere_corpus;
-mod textarea_ahem_corpus;
-mod text_family_corpus;
-mod kerned_shrink_to_fit;
-mod bloco_quebra_paragrafo_corpus;
-mod caixa_gerada_arvore;
-mod flex_scroll_overflow_corpus;
-    use super::*;
-    use crate::dom::parse_html_to_dom;
+mod white_space_per_inline;
+use super::*;
+use crate::dom::parse_html_to_dom;
 
-    /// Tolerância da comparação reuso × cálculo.
-    ///
-    /// Reusar um fragmento numa posição nova é somar um deslocamento às
-    /// coordenadas, e somar não dá bit a bit o mesmo que calcular a posição do
-    /// zero: `67.4` calculado vira `67.399994` deslocado. É a mesma aritmética
-    /// que qualquer motor de layout com reuso tem, a diferença é da ordem de
-    /// 1e-5 pontos — invisível em tela e irrelevante para hit-test. O que o
-    /// teste NÃO tolera é diferença de conteúdo, de contagem ou de ordem.
-    const TOL: f32 = 0.01;
+/// Tolerância da comparação reuso × cálculo.
+///
+/// Reusar um fragmento numa posição nova é somar um deslocamento às
+/// coordenadas, e somar não dá bit a bit o mesmo que calcular a posição do
+/// zero: `67.4` calculado vira `67.399994` deslocado. É a mesma aritmética
+/// que qualquer motor de layout com reuso tem, a diferença é da ordem de
+/// 1e-5 pontos — invisível em tela e irrelevante para hit-test. O que o
+/// teste NÃO tolera é diferença de conteúdo, de contagem ou de ordem.
+const TOL: f32 = 0.01;
 
-    fn rects_equivalentes(a: &Rect, b: &Rect) -> bool {
-        (a.x - b.x).abs() < TOL
-            && (a.y - b.y).abs() < TOL
-            && (a.w - b.w).abs() < TOL
-            && (a.h - b.h).abs() < TOL
-    }
+fn rects_equivalentes(a: &Rect, b: &Rect) -> bool {
+    (a.x - b.x).abs() < TOL
+        && (a.y - b.y).abs() < TOL
+        && (a.w - b.w).abs() < TOL
+        && (a.h - b.h).abs() < TOL
+}
 
-    /// Os quatro cantos iguais a menos da tolerância — a mesma pergunta que se
-    /// fazia a um raio só, feita quatro vezes em vez de uma.
-    fn cantos_equivalentes(a: &Corners, b: &Corners) -> bool {
-        (a.tl - b.tl).abs() < TOL
-            && (a.tr - b.tr).abs() < TOL
-            && (a.br - b.br).abs() < TOL
-            && (a.bl - b.bl).abs() < TOL
-    }
+/// Os quatro cantos iguais a menos da tolerância — a mesma pergunta que se
+/// fazia a um raio só, feita quatro vezes em vez de uma.
+fn cantos_equivalentes(a: &Corners, b: &Corners) -> bool {
+    (a.tl - b.tl).abs() < TOL
+        && (a.tr - b.tr).abs() < TOL
+        && (a.br - b.br).abs() < TOL
+        && (a.bl - b.bl).abs() < TOL
+}
 
-    /// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
-    /// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
-    /// deslocamento.
-    fn itens_equivalentes(a: &DisplayItem, b: &DisplayItem) -> bool {
-        use DisplayItem as D;
-        match (a, b) {
-            (
-                D::SolidRect {
-                    rect: ra,
-                    color: ca,
-                    radius: da,
-                },
-                D::SolidRect {
-                    rect: rb,
-                    color: cb,
-                    radius: db,
-                },
-            ) => rects_equivalentes(ra, rb) && ca == cb && cantos_equivalentes(da, db),
-            (
-                D::Border {
-                    rect: ra,
-                    width: wa,
-                    color: ca,
-                    radius: da,
-                },
-                D::Border {
-                    rect: rb,
-                    width: wb,
-                    color: cb,
-                    radius: db,
-                },
-            ) => {
-                rects_equivalentes(ra, rb)
-                    && (wa - wb).abs() < TOL
-                    && ca == cb
-                    && (da - db).abs() < TOL
-            }
-            (
-                D::Text {
-                    x: xa,
-                    y: ya,
-                    text: ta,
-                    color: ca,
-                    size: sa,
-                    mono: ma,
-                    bold: ba,
-                    italic: ia,
-                    letter_spacing: la,
-                    decoration: dea,
-                    is_ahem: _,
-                    family: fa,
-                    orientation: oa,
-                },
-                D::Text {
-                    x: xb,
-                    y: yb,
-                    text: tb,
-                    color: cb,
-                    size: sb,
-                    mono: mb,
-                    bold: bb,
-                    italic: ib,
-                    letter_spacing: lb,
-                    decoration: deb,
-                    is_ahem: _,
-                    family: fb,
-                    orientation: ob,
-                },
-            ) => {
-                (xa - xb).abs() < TOL
-                    && (ya - yb).abs() < TOL
-                    && ta == tb
-                    && fa == fb
-                    && ca == cb
-                    && (sa - sb).abs() < TOL
-                    && ma == mb
-                    && ba == bb
-                    && ia == ib
-                    && (la - lb).abs() < TOL
-                    && dea == deb
-                    && oa == ob
-            }
-            (D::EndClip { .. }, D::EndClip { .. }) => true,
-            // As demais variantes não aparecem neste corpus; comparar por
-            // igualdade estrita aqui é o certo — se um dia aparecerem com
-            // deslocamento, o teste falha e o braço é escrito.
-            _ => a == b,
+/// Dois itens de pintura iguais a menos da tolerância acima. Texto, cor e
+/// tipo têm de bater EXATAMENTE: só a geometria admite o erro do
+/// deslocamento.
+fn itens_equivalentes(a: &DisplayItem, b: &DisplayItem) -> bool {
+    use DisplayItem as D;
+    match (a, b) {
+        (
+            D::SolidRect {
+                rect: ra,
+                color: ca,
+                radius: da,
+            },
+            D::SolidRect {
+                rect: rb,
+                color: cb,
+                radius: db,
+            },
+        ) => rects_equivalentes(ra, rb) && ca == cb && cantos_equivalentes(da, db),
+        (
+            D::Border {
+                rect: ra,
+                width: wa,
+                color: ca,
+                radius: da,
+            },
+            D::Border {
+                rect: rb,
+                width: wb,
+                color: cb,
+                radius: db,
+            },
+        ) => {
+            rects_equivalentes(ra, rb) && (wa - wb).abs() < TOL && ca == cb && (da - db).abs() < TOL
         }
-    }
-
-    /// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
-    /// layout de bloco para entrar no caminho `layout_block` dos filhos).
-    fn def_div() {
-        crate::block::define(
-            "div",
-            crate::block::BlockDef {
-                display: 0,
-                indent: 0.0,
-                prefix: 0,
-                flags: 0,
+        (
+            D::Text {
+                x: xa,
+                y: ya,
+                text: ta,
+                color: ca,
+                size: sa,
+                mono: ma,
+                bold: ba,
+                italic: ia,
+                letter_spacing: la,
+                decoration: dea,
+                is_ahem: _,
+                family: fa,
+                orientation: oa,
             },
-        );
-    }
-
-    /// Os itens de texto de um layout, como `(texto, itálico)`. Serve às provas
-    /// do `font-style` — o que se pergunta é quais palavras saem inclinadas.
-    fn textos_italicos(html: &str) -> Vec<(String, bool)> {
-        crate::block::install_ua_defaults();
-        let list = layout(html, 800.0);
-        list.materialized()
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::Text { text, italic, .. } => Some((text.to_string(), *italic)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Layout determinístico com medidor aproximado e viewport fixo.
-    ///
-    /// Prefixa `body { margin: 0 }`: a folha de UA (lote I, `style/ua.css`)
-    /// dá ao `body` os 8px que o Chrome também dá, e este corpus de testes
-    /// mede coordenadas de conteúdo a partir de `(0,0)` — como o corpus real
-    /// de `tests/css/` faz, que declara o mesmo reset em toda fixture que não
-    /// é SOBRE a margem do body. Sem isto, cada rect vinha deslocado 8px.
-    fn layout(html: &str, vw: f32) -> DisplayList {
-        def_div();
-        let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
-        let ctx = LayoutCtx {
-            viewport_w: vw,
-            viewport_h: 600.0,
-            measurer: &ApproxMeasurer,
-        };
-        layout_document(&dom, &ctx)
-    }
-
-    /// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.
-    ///
-    /// PLANA (`materialized`), como o `all_rects`: desde que a saída passou a ser
-    /// uma árvore de fragmentos, o fundo de um filho de bloco vive no fragmento
-    /// dele e não no buffer próprio da lista. Ler `list.items` direto respondia
-    /// "não há SolidRect nenhum" numa página que pinta — o erro não estava no
-    /// motor, estava na navegação.
-    fn first_rect(list: &DisplayList) -> Rect {
-        list.materialized()
-            .iter()
-            .find_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .expect("esperava ao menos um SolidRect")
-    }
-
-    /// Todos os itens de TEXTO, na ordem de pintura: `(texto, x, y, cor)`.
-    /// Mesma razão do `first_rect` para não ler `list.items`.
-    fn all_texts(list: &DisplayList) -> Vec<(String, f32, f32, u32)> {
-        list.materialized()
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::Text {
-                    text, x, y, color, ..
-                } => Some((text.to_string(), *x, *y, *color)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Helper: layout de um HTML num row flex e os rects (x ordenado) dos N cards.
-    fn flex_card_rects(style: &str, n_cards: usize, vw: f32) -> Vec<Rect> {
-        crate::block::define(
-            "row",
-            crate::block::BlockDef {
-                display: 2,
-                indent: 0.0,
-                prefix: 0,
-                flags: 0,
+            D::Text {
+                x: xb,
+                y: yb,
+                text: tb,
+                color: cb,
+                size: sb,
+                mono: mb,
+                bold: bb,
+                italic: ib,
+                letter_spacing: lb,
+                decoration: deb,
+                is_ahem: _,
+                family: fb,
+                orientation: ob,
             },
-        );
-        crate::block::define(
-            "div",
-            crate::block::BlockDef {
-                display: 0,
-                indent: 0.0,
-                prefix: 0,
-                flags: 0,
-            },
-        );
-        // flex-shrink:0 nos cards: estes testes validam JUSTIFY (inclusive em
-        // overflow real, como o Chrome foi medido); sem o 0, o shrink default=1
-        // (agora implementado!) encolheria os itens e não haveria overflow.
-        // body{margin:0}: a folha de UA (lote I) dá 8px ao body; estes testes
-        // medem `x` a partir do viewport.
-        let mut html = format!(
-            "<style>body{{margin:0}}row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>"
-        );
-        for i in 0..n_cards {
-            html.push_str(&format!("<div class='c' id='c{i}'>x</div>"));
+        ) => {
+            (xa - xb).abs() < TOL
+                && (ya - yb).abs() < TOL
+                && ta == tb
+                && fa == fb
+                && ca == cb
+                && (sa - sb).abs() < TOL
+                && ma == mb
+                && ba == bb
+                && ia == ib
+                && (la - lb).abs() < TOL
+                && dea == deb
+                && oa == ob
         }
-        html.push_str("</row>");
-        let dom = parse_html_to_dom(&html);
-        let ctx = LayoutCtx {
-            viewport_w: vw,
-            viewport_h: 600.0,
-            measurer: &ApproxMeasurer,
-        };
-        let list = layout_document(&dom, &ctx);
-        let mut rects: Vec<Rect> = list
-            .materialized()
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .collect();
-        rects.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
-        rects
+        (D::EndClip { .. }, D::EndClip { .. }) => true,
+        // As demais variantes não aparecem neste corpus; comparar por
+        // igualdade estrita aqui é o certo — se um dia aparecerem com
+        // deslocamento, o teste falha e o braço é escrito.
+        _ => a == b,
     }
+}
 
-    /// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
-    /// depois — o fundo do container é inserido ATRÁS dos filhos).
-    fn all_rects(list: &DisplayList) -> Vec<Rect> {
-        // PLANA: os itens de uma subárvore reusada não estão no buffer próprio,
-        // e um teste que lesse só ele veria a página pela metade.
-        list.materialized()
-            .iter()
-            .filter_map(|it| match it {
-                DisplayItem::SolidRect { rect, .. } => Some(*rect),
-                _ => None,
-            })
-            .collect()
+/// Registra `<div>` como bloco vertical (os testes precisam que a tag tenha
+/// layout de bloco para entrar no caminho `layout_block` dos filhos).
+fn def_div() {
+    crate::block::define(
+        "div",
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
+    );
+}
+
+/// Os itens de texto de um layout, como `(texto, itálico)`. Serve às provas
+/// do `font-style` — o que se pergunta é quais palavras saem inclinadas.
+fn textos_italicos(html: &str) -> Vec<(String, bool)> {
+    crate::block::install_ua_defaults();
+    let list = layout(html, 800.0);
+    list.materialized()
+        .iter()
+        .filter_map(|it| match it {
+            DisplayItem::Text { text, italic, .. } => Some((text.to_string(), *italic)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Layout determinístico com medidor aproximado e viewport fixo.
+///
+/// Prefixa `body { margin: 0 }`: a folha de UA (lote I, `style/ua.css`)
+/// dá ao `body` os 8px que o Chrome também dá, e este corpus de testes
+/// mede coordenadas de conteúdo a partir de `(0,0)` — como o corpus real
+/// de `tests/css/` faz, que declara o mesmo reset em toda fixture que não
+/// é SOBRE a margem do body. Sem isto, cada rect vinha deslocado 8px.
+fn layout(html: &str, vw: f32) -> DisplayList {
+    def_div();
+    let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
+    let ctx = LayoutCtx {
+        viewport_w: vw,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
+    layout_document(&dom, &ctx)
+}
+
+/// Primeiro `SolidRect` da lista (o fundo da 1ª caixa) — atalho de assert.
+///
+/// PLANA (`materialized`), como o `all_rects`: desde que a saída passou a ser
+/// uma árvore de fragmentos, o fundo de um filho de bloco vive no fragmento
+/// dele e não no buffer próprio da lista. Ler `list.items` direto respondia
+/// "não há SolidRect nenhum" numa página que pinta — o erro não estava no
+/// motor, estava na navegação.
+fn first_rect(list: &DisplayList) -> Rect {
+    list.materialized()
+        .iter()
+        .find_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .expect("esperava ao menos um SolidRect")
+}
+
+/// Todos os itens de TEXTO, na ordem de pintura: `(texto, x, y, cor)`.
+/// Mesma razão do `first_rect` para não ler `list.items`.
+fn all_texts(list: &DisplayList) -> Vec<(String, f32, f32, u32)> {
+    list.materialized()
+        .iter()
+        .filter_map(|it| match it {
+            DisplayItem::Text {
+                text, x, y, color, ..
+            } => Some((text.to_string(), *x, *y, *color)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Helper: layout de um HTML num row flex e os rects (x ordenado) dos N cards.
+fn flex_card_rects(style: &str, n_cards: usize, vw: f32) -> Vec<Rect> {
+    crate::block::define(
+        "row",
+        crate::block::BlockDef {
+            display: 2,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
+    );
+    crate::block::define(
+        "div",
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
+    );
+    // flex-shrink:0 nos cards: estes testes validam JUSTIFY (inclusive em
+    // overflow real, como o Chrome foi medido); sem o 0, o shrink default=1
+    // (agora implementado!) encolheria os itens e não haveria overflow.
+    // body{margin:0}: a folha de UA (lote I) dá 8px ao body; estes testes
+    // medem `x` a partir do viewport.
+    let mut html = format!(
+        "<style>body{{margin:0}}row{{display:flex;{style}}} .c{{width:100px;flex-shrink:0;background:#111}}</style><row>"
+    );
+    for i in 0..n_cards {
+        html.push_str(&format!("<div class='c' id='c{i}'>x</div>"));
     }
+    html.push_str("</row>");
+    let dom = parse_html_to_dom(&html);
+    let ctx = LayoutCtx {
+        viewport_w: vw,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
+    let list = layout_document(&dom, &ctx);
+    let mut rects: Vec<Rect> = list
+        .materialized()
+        .iter()
+        .filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .collect();
+    rects.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap());
+    rects
+}
 
-    /// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
-    /// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
-    const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
-mod medida_por_caixa_corpus;
+/// Coleta todos os SolidRect da lista, em ordem (container primeiro, filhos
+/// depois — o fundo do container é inserido ATRÁS dos filhos).
+fn all_rects(list: &DisplayList) -> Vec<Rect> {
+    // PLANA: os itens de uma subárvore reusada não estão no buffer próprio,
+    // e um teste que lesse só ele veria a página pela metade.
+    list.materialized()
+        .iter()
+        .filter_map(|it| match it {
+            DisplayItem::SolidRect { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Uma frase comprida, para forçar várias linhas com o `ApproxMeasurer`
+/// (0,5 × font-size por carácter): 16px × 0,5 = 8pt por carácter.
+const FRASE: &str = "alfa beta gama delta epsilon zeta eta teta iota kapa lambda mi ni xi omicron pi ro sigma tau upsilon fi qui psi omega";
 mod ch_unit_advance_corpus;
 mod grid_abspos_static_alignment;
 mod grid_area_line_numbers;
+mod medida_por_caixa_corpus;
 mod unicode_break_opportunities;
 mod writing_mode_rotated;

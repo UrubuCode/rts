@@ -61,8 +61,14 @@ fn block_flow_e_inline_flow_sao_lidos() {
 /// `flex` / `inline-flex` — a ordem dos dois tokens não importa.
 #[test]
 fn block_flex_e_inline_flex_de_duas_palavras() {
-    assert_eq!(parse_inline("display:block flex").display, Some(DisplayKind::Flex));
-    assert_eq!(parse_inline("display:flex block").display, Some(DisplayKind::Flex));
+    assert_eq!(
+        parse_inline("display:block flex").display,
+        Some(DisplayKind::Flex)
+    );
+    assert_eq!(
+        parse_inline("display:flex block").display,
+        Some(DisplayKind::Flex)
+    );
     let ifx = parse_inline("display:inline flex");
     assert_eq!(ifx.display, Some(DisplayKind::InlineFlex));
     assert_eq!(ifx.computed_value("display", None), "inline-flex");
@@ -92,10 +98,26 @@ fn list_item_de_duas_e_tres_palavras() {
 /// — cai no `None` (default da tag), nunca numa adivinhação.
 #[test]
 fn combinacao_invalida_e_recusada() {
-    assert_eq!(parse_inline("display:block block").display, None, "outer repetido");
-    assert_eq!(parse_inline("display:flow flow").display, None, "inner repetido");
-    assert_eq!(parse_inline("display:run-in flow").display, None, "run-in não é modelado");
-    assert_eq!(parse_inline("display:contents").display, None, "contents não é modelado");
+    assert_eq!(
+        parse_inline("display:block block").display,
+        None,
+        "outer repetido"
+    );
+    assert_eq!(
+        parse_inline("display:flow flow").display,
+        None,
+        "inner repetido"
+    );
+    assert_eq!(
+        parse_inline("display:run-in flow").display,
+        None,
+        "run-in não é modelado"
+    );
+    assert_eq!(
+        parse_inline("display:contents").display,
+        None,
+        "contents não é modelado"
+    );
     assert_eq!(
         parse_inline("display:block flow flow-root extra").display,
         None,
@@ -117,8 +139,20 @@ fn inline_grid_e_inline_table_guardam_o_display_exterior() {
     assert!(DisplayKind::InlineTable.is_inline_level());
     assert!(DisplayKind::InlineGrid.is_grid_container());
     assert!(DisplayKind::InlineTable.is_table_box());
-    assert_eq!(parse_inline("display:inline-grid").display, Some(DisplayKind::InlineGrid));
-    assert_eq!(parse_inline("display:inline grid").display, Some(DisplayKind::InlineGrid));
-    assert_eq!(parse_inline("display:inline-table").display, Some(DisplayKind::InlineTable));
-    assert_eq!(parse_inline("display:inline table").display, Some(DisplayKind::InlineTable));
+    assert_eq!(
+        parse_inline("display:inline-grid").display,
+        Some(DisplayKind::InlineGrid)
+    );
+    assert_eq!(
+        parse_inline("display:inline grid").display,
+        Some(DisplayKind::InlineGrid)
+    );
+    assert_eq!(
+        parse_inline("display:inline-table").display,
+        Some(DisplayKind::InlineTable)
+    );
+    assert_eq!(
+        parse_inline("display:inline table").display,
+        Some(DisplayKind::InlineTable)
+    );
 }

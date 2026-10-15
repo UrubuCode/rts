@@ -34,10 +34,25 @@ fn flex_stretch_transfere_a_razao_atraves_de_dois_niveis() {
   </div>
 </div>"#;
     let (dom, list) = geometria_com(html, 1280.0, |_d| {});
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#fora"), (0.0, 0.0, 102.0, 102.0), "declarado + 1px de borda por lado");
-    assert_eq!(r("#dentro"), (1.0, 1.0, 100.0, 100.0), "encolhe ao alvo transferido, não ao natural (20×20)");
-    assert_eq!(r("#alvo"), (1.0, 1.0, 100.0, 100.0), "100×100: a altura definite de #dentro transferida à largura pela razão 1:1, lida do SVG sem rasterizar");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#fora"),
+        (0.0, 0.0, 102.0, 102.0),
+        "declarado + 1px de borda por lado"
+    );
+    assert_eq!(
+        r("#dentro"),
+        (1.0, 1.0, 100.0, 100.0),
+        "encolhe ao alvo transferido, não ao natural (20×20)"
+    );
+    assert_eq!(
+        r("#alvo"),
+        (1.0, 1.0, 100.0, 100.0),
+        "100×100: a altura definite de #dentro transferida à largura pela razão 1:1, lida do SVG sem rasterizar"
+    );
 }
 
 /// `claude-flex-abspos-img-aspect-ratio`: `#inner` (flex-row,
@@ -56,7 +71,11 @@ fn abspos_esticado_deriva_a_largura_pela_razao_do_png_data_url() {
         iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
     let bytes = crate::imagem::bytes_da_data_url(data_url).expect("data: url");
     let (rgba, w, h) = crate::imagem::png::decodificar(&bytes).expect("png 1x1");
-    assert_eq!((w, h), (1, 1), "a fixture depende de um PNG 1×1 (razão 1:1)");
+    assert_eq!(
+        (w, h),
+        (1, 1),
+        "a fixture depende de um PNG 1×1 (razão 1:1)"
+    );
 
     let html = r#"<style>
   #outer { display: flex; width: 320px; height: 160px; }
@@ -70,10 +89,21 @@ fn abspos_esticado_deriva_a_largura_pela_razao_do_png_data_url() {
         let id = d.query("#img").unwrap();
         d.set_pixel_data(id, rgba, w, h);
     });
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#outer"), (0.0, 0.0, 320.0, 160.0), "declarado");
-    assert_eq!(r("#inner"), (0.0, 0.0, 160.0, 160.0), "shrink-to-fit da largura TRANSFERIDA, não do 1×1 natural");
-    assert_eq!(r("#img"), (0.0, 0.0, 160.0, 160.0), "altura esticada (160) × razão 1:1 = largura 160");
+    assert_eq!(
+        r("#inner"),
+        (0.0, 0.0, 160.0, 160.0),
+        "shrink-to-fit da largura TRANSFERIDA, não do 1×1 natural"
+    );
+    assert_eq!(
+        r("#img"),
+        (0.0, 0.0, 160.0, 160.0),
+        "altura esticada (160) × razão 1:1 = largura 160"
+    );
 }
 
 /// `claude-img-aspect-ratio-sem-loader`: um `<img>` com só `width` (CSS) e um
@@ -90,8 +120,12 @@ fn abspos_esticado_deriva_a_largura_pela_razao_do_png_data_url() {
 /// únicos que a spec permite nessas profundidades).
 #[test]
 fn largura_so_declarada_deriva_a_altura_pela_razao_do_png_de_1_bit() {
-    let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/css/support/20x50-green.png");
-    let (rgba, w, h) = crate::imagem::png::decodificar(&std::fs::read(p).expect("png no repo")).expect("png de 1 bit");
+    let p = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/css/support/20x50-green.png"
+    );
+    let (rgba, w, h) = crate::imagem::png::decodificar(&std::fs::read(p).expect("png no repo"))
+        .expect("png de 1 bit");
     assert_eq!((w, h), (20, 50), "a fixture depende de um PNG 20×50 real");
     let html = r#"<style>#img1{width:90px;display:block}</style>
 <img id="img1" src="support/20x50-green.png">"#;
@@ -100,7 +134,11 @@ fn largura_so_declarada_deriva_a_altura_pela_razao_do_png_de_1_bit() {
         d.set_pixel_data(id, rgba, w, h);
     });
     let r = rect(&dom, &list, "#img1", 0);
-    assert_eq!((r.w, r.h), (90.0, 225.0), "90 declarado; altura = 90 × (50/20), a razão natural do PNG");
+    assert_eq!(
+        (r.w, r.h),
+        (90.0, 225.0),
+        "90 declarado; altura = 90 × (50/20), a razão natural do PNG"
+    );
 }
 
 /// `flexbox-min-width-auto-002a` (WPT, retrabalho do lote): `min-width:auto`
@@ -125,7 +163,11 @@ fn min_width_auto_deriva_da_razao_quando_a_altura_tambem_esta_declarada() {
         d.set_pixel_data(id, vec![0, 0, 200, 255].repeat(256), 16, 16);
     });
     let r = rect(&dom, &list, "#alvo", 0);
-    assert_eq!((r.w, r.h), (34.0, 34.0), "encolhe ao piso 30(+4 de borda)=34, derivado da altura 30 pela razão 1:1 — não fica em 104 (100+4, a largura declarada)");
+    assert_eq!(
+        (r.w, r.h),
+        (34.0, 34.0),
+        "encolhe ao piso 30(+4 de borda)=34, derivado da altura 30 pela razão 1:1 — não fica em 104 (100+4, a largura declarada)"
+    );
 }
 
 /// `flexbox-min-height-auto-002a` (WPT, retrabalho do lote): o mesmo
@@ -146,7 +188,11 @@ fn min_height_auto_deriva_da_razao_quando_a_largura_tambem_esta_declarada() {
         d.set_pixel_data(id, vec![0, 0, 200, 255].repeat(256), 16, 16);
     });
     let r = rect(&dom, &list, "#alvo", 0);
-    assert_eq!((r.w, r.h), (34.0, 34.0), "encolhe ao piso 30(+4 de borda)=34, derivado da largura 30 pela razão 1:1 — não fica em 104 (100+4, a altura declarada)");
+    assert_eq!(
+        (r.w, r.h),
+        (34.0, 34.0),
+        "encolhe ao piso 30(+4 de borda)=34, derivado da largura 30 pela razão 1:1 — não fica em 104 (100+4, a altura declarada)"
+    );
 }
 
 /// `flexbox-definite-cross-size-constrained-percentage` (WPT, retrabalho do
@@ -170,5 +216,9 @@ fn item_transferido_nao_e_erguido_de_volta_ao_natural_pelo_piso() {
         d.set_pixel_data(id, vec![0, 200, 0, 255].repeat(3600), 60, 60);
     });
     let r = rect(&dom, &list, "#alvo", 0);
-    assert_eq!((r.w, r.h), (25.0, 25.0), "25×25 (altura de 25 do flex, transferida pela razão 1:1) — não 60×60 (o natural dos pixels, se o piso automático o erguer de volta)");
+    assert_eq!(
+        (r.w, r.h),
+        (25.0, 25.0),
+        "25×25 (altura de 25 do flex, transferida pela razão 1:1) — não 60×60 (o natural dos pixels, se o piso automático o erguer de volta)"
+    );
 }

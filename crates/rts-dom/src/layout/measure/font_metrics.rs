@@ -57,13 +57,37 @@ struct FontTable {
 }
 
 /// Times New Roman — Blink's `serif`, and its default font.
-const TIMES: FontTable = FontTable { ascent: 1825.0 / 2048.0, descent: 443.0 / 2048.0, gap: 87.0 / 2048.0, advances: &advances_table::TIMES, fallback_fraction: crate::style::PROP_ADVANCE };
+const TIMES: FontTable = FontTable {
+    ascent: 1825.0 / 2048.0,
+    descent: 443.0 / 2048.0,
+    gap: 87.0 / 2048.0,
+    advances: &advances_table::TIMES,
+    fallback_fraction: crate::style::PROP_ADVANCE,
+};
 /// Arial — `sans-serif`.
-const ARIAL: FontTable = FontTable { ascent: 1854.0 / 2048.0, descent: 434.0 / 2048.0, gap: 67.0 / 2048.0, advances: &advances_table::ARIAL, fallback_fraction: crate::style::PROP_ADVANCE };
+const ARIAL: FontTable = FontTable {
+    ascent: 1854.0 / 2048.0,
+    descent: 434.0 / 2048.0,
+    gap: 67.0 / 2048.0,
+    advances: &advances_table::ARIAL,
+    fallback_fraction: crate::style::PROP_ADVANCE,
+};
 /// Consolas — `monospace`.
-const CONSOLAS: FontTable = FontTable { ascent: 1884.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, advances: &advances_table::CONSOLAS, fallback_fraction: crate::style::MONO_ADVANCE };
+const CONSOLAS: FontTable = FontTable {
+    ascent: 1884.0 / 2048.0,
+    descent: 514.0 / 2048.0,
+    gap: 0.0,
+    advances: &advances_table::CONSOLAS,
+    fallback_fraction: crate::style::MONO_ADVANCE,
+};
 /// Segoe UI — `system-ui`, which is what Bootstrap's font stack reaches first.
-const SEGOE_UI: FontTable = FontTable { ascent: 2210.0 / 2048.0, descent: 514.0 / 2048.0, gap: 0.0, advances: &advances_table::SEGOE_UI, fallback_fraction: crate::style::PROP_ADVANCE };
+const SEGOE_UI: FontTable = FontTable {
+    ascent: 2210.0 / 2048.0,
+    descent: 514.0 / 2048.0,
+    gap: 0.0,
+    advances: &advances_table::SEGOE_UI,
+    fallback_fraction: crate::style::PROP_ADVANCE,
+};
 
 /// The table of the FIRST family of the list this engine can place, as a
 /// browser walks a `font-family` list to the first font it has. A name it
@@ -75,23 +99,48 @@ const SEGOE_UI: FontTable = FontTable { ascent: 2210.0 / 2048.0, descent: 514.0 
 /// pixel here and there, and adding one is a row here plus a row in the ruler.
 fn font_table(family: Option<&str>) -> FontTable {
     for nome in family.unwrap_or("").split(',') {
-        let n = nome.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        let n = nome
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_ascii_lowercase();
         if n.is_empty() {
             continue;
         }
         if crate::style::is_mono_family(&n) {
             return CONSOLAS;
         }
-        if matches!(n.as_str(), "system-ui" | "ui-sans-serif" | "-apple-system" | "blinkmacsystemfont") || n.contains("segoe") {
+        if matches!(
+            n.as_str(),
+            "system-ui" | "ui-sans-serif" | "-apple-system" | "blinkmacsystemfont"
+        ) || n.contains("segoe")
+        {
             return SEGOE_UI;
         }
-        if n == "serif" || n == "ui-serif" || ["times", "georgia", "cambria", "garamond", "palatino"].iter().any(|k| n.contains(k)) {
+        if n == "serif"
+            || n == "ui-serif"
+            || ["times", "georgia", "cambria", "garamond", "palatino"]
+                .iter()
+                .any(|k| n.contains(k))
+        {
             return TIMES;
         }
         if n == "sans-serif"
-            || ["arial", "helvetica", "verdana", "tahoma", "trebuchet", "roboto", "inter", "open sans", "lato", "noto sans", "ubuntu", "calibri"]
-                .iter()
-                .any(|k| n.contains(k))
+            || [
+                "arial",
+                "helvetica",
+                "verdana",
+                "tahoma",
+                "trebuchet",
+                "roboto",
+                "inter",
+                "open sans",
+                "lato",
+                "noto sans",
+                "ubuntu",
+                "calibri",
+            ]
+            .iter()
+            .any(|k| n.contains(k))
         {
             return ARIAL;
         }
@@ -136,7 +185,11 @@ impl FontMetricsModel {
         if uses_ahem(family) {
             return text.chars().count() as f32 * size * crate::style::AHEM_ADVANCE;
         }
-        let t = if family.is_none() && mono { CONSOLAS } else { font_table(family) };
+        let t = if family.is_none() && mono {
+            CONSOLAS
+        } else {
+            font_table(family)
+        };
         let face = &t.advances[usize::from(bold)];
         let units: f32 = text
             .chars()
@@ -177,7 +230,8 @@ impl FontMetricsModel {
         if uses_ahem(family) {
             return size * (crate::style::AHEM_ASCENT_RATIO + crate::style::AHEM_DESCENT_RATIO);
         }
-        (Self::ascent(size, family) + Self::descent(size, family) + size * font_table(family).gap).round()
+        (Self::ascent(size, family) + Self::descent(size, family) + size * font_table(family).gap)
+            .round()
     }
 }
 
@@ -191,10 +245,54 @@ mod tests {
     /// not a sample — the rounding is what is being pinned, and it only shows
     /// at the sizes where a half lands.
     const BLINK: [(&str, [(f32, f32, f32, f32); 7]); 4] = [
-        ("serif", [(10.0, 9.0, 2.0, 11.0), (12.0, 11.0, 3.0, 15.0), (14.0, 12.0, 3.0, 16.0), (16.0, 14.0, 3.0, 18.0), (20.0, 18.0, 4.0, 23.0), (24.0, 21.0, 5.0, 27.0), (32.0, 29.0, 7.0, 37.0)]),
-        ("sans-serif", [(10.0, 9.0, 2.0, 11.0), (12.0, 11.0, 3.0, 14.0), (14.0, 13.0, 3.0, 16.0), (16.0, 14.0, 3.0, 18.0), (20.0, 18.0, 4.0, 23.0), (24.0, 22.0, 5.0, 28.0), (32.0, 29.0, 7.0, 37.0)]),
-        ("monospace", [(10.0, 9.0, 3.0, 12.0), (12.0, 11.0, 3.0, 14.0), (14.0, 13.0, 4.0, 17.0), (16.0, 15.0, 4.0, 19.0), (20.0, 18.0, 5.0, 23.0), (24.0, 22.0, 6.0, 28.0), (32.0, 29.0, 8.0, 37.0)]),
-        ("system-ui", [(10.0, 11.0, 3.0, 14.0), (12.0, 13.0, 3.0, 16.0), (14.0, 15.0, 4.0, 19.0), (16.0, 17.0, 4.0, 21.0), (20.0, 22.0, 5.0, 27.0), (24.0, 26.0, 6.0, 32.0), (32.0, 35.0, 8.0, 43.0)]),
+        (
+            "serif",
+            [
+                (10.0, 9.0, 2.0, 11.0),
+                (12.0, 11.0, 3.0, 15.0),
+                (14.0, 12.0, 3.0, 16.0),
+                (16.0, 14.0, 3.0, 18.0),
+                (20.0, 18.0, 4.0, 23.0),
+                (24.0, 21.0, 5.0, 27.0),
+                (32.0, 29.0, 7.0, 37.0),
+            ],
+        ),
+        (
+            "sans-serif",
+            [
+                (10.0, 9.0, 2.0, 11.0),
+                (12.0, 11.0, 3.0, 14.0),
+                (14.0, 13.0, 3.0, 16.0),
+                (16.0, 14.0, 3.0, 18.0),
+                (20.0, 18.0, 4.0, 23.0),
+                (24.0, 22.0, 5.0, 28.0),
+                (32.0, 29.0, 7.0, 37.0),
+            ],
+        ),
+        (
+            "monospace",
+            [
+                (10.0, 9.0, 3.0, 12.0),
+                (12.0, 11.0, 3.0, 14.0),
+                (14.0, 13.0, 4.0, 17.0),
+                (16.0, 15.0, 4.0, 19.0),
+                (20.0, 18.0, 5.0, 23.0),
+                (24.0, 22.0, 6.0, 28.0),
+                (32.0, 29.0, 8.0, 37.0),
+            ],
+        ),
+        (
+            "system-ui",
+            [
+                (10.0, 11.0, 3.0, 14.0),
+                (12.0, 13.0, 3.0, 16.0),
+                (14.0, 15.0, 4.0, 19.0),
+                (16.0, 17.0, 4.0, 21.0),
+                (20.0, 22.0, 5.0, 27.0),
+                (24.0, 26.0, 6.0, 32.0),
+                (32.0, 35.0, 8.0, 43.0),
+            ],
+        ),
     ];
 
     #[test]
@@ -202,7 +300,11 @@ mod tests {
         for (family, rows) in BLINK {
             for (size, ascent, descent, line) in rows {
                 let f = Some(family);
-                let got = (FontMetricsModel::ascent(size, f), FontMetricsModel::descent(size, f), FontMetricsModel::normal_line_height(size, f));
+                let got = (
+                    FontMetricsModel::ascent(size, f),
+                    FontMetricsModel::descent(size, f),
+                    FontMetricsModel::normal_line_height(size, f),
+                );
                 assert_eq!(got, (ascent, descent, line), "{family} {size}px");
             }
         }
@@ -214,9 +316,15 @@ mod tests {
     fn the_list_is_walked_to_the_first_font_the_engine_can_place() {
         let serif = FontMetricsModel::normal_line_height(12.0, Some("serif"));
         assert_eq!(FontMetricsModel::normal_line_height(12.0, None), serif);
-        assert_eq!(FontMetricsModel::normal_line_height(12.0, Some("NoSuchFont")), serif);
+        assert_eq!(
+            FontMetricsModel::normal_line_height(12.0, Some("NoSuchFont")),
+            serif
+        );
         let mono = FontMetricsModel::ascent(16.0, Some("monospace"));
-        assert_eq!(FontMetricsModel::ascent(16.0, Some("NoSuchFont, monospace")), mono);
+        assert_eq!(
+            FontMetricsModel::ascent(16.0, Some("NoSuchFont, monospace")),
+            mono
+        );
         assert_ne!(mono, FontMetricsModel::ascent(16.0, Some("serif")));
     }
 
@@ -225,7 +333,8 @@ mod tests {
     fn ahem_is_exact_and_not_rounded() {
         assert_eq!(FontMetricsModel::ascent(15.0, Some("Ahem")), 15.0 * 0.8);
         assert_eq!(FontMetricsModel::descent(15.0, Some("Ahem")), 15.0 * 0.2);
-        let soma = FontMetricsModel::ascent(15.0, Some("Ahem")) + FontMetricsModel::descent(15.0, Some("Ahem"));
+        let soma = FontMetricsModel::ascent(15.0, Some("Ahem"))
+            + FontMetricsModel::descent(15.0, Some("Ahem"));
         assert!((soma - FontMetricsModel::normal_line_height(15.0, Some("Ahem"))).abs() < 1e-5);
     }
 }

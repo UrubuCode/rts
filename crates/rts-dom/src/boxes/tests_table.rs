@@ -1,8 +1,8 @@
 //! The anonymous TABLE family of the box tree (CSS 2.1 §17.2.1, rule 3),
 //! apart from `tests.rs` because that file is past the 500-line ceiling.
 
-use super::*;
 use super::tests::no_com_id;
+use super::*;
 
 /// CSS 2.1 §17.2.1 rule 3: a run of consecutive table parts whose parent is
 /// not a table gets ONE anonymous table around it. The whitespace between the
@@ -19,14 +19,33 @@ fn misparented_table_parts_are_wrapped_in_one_anonymous_table() {
     let tabelas: Vec<_> = filhas
         .iter()
         .copied()
-        .filter(|&c| matches!(tree.kind(c), BoxKind::Anonymous { role: AnonymousRole::Table, .. }))
+        .filter(|&c| {
+            matches!(
+                tree.kind(c),
+                BoxKind::Anonymous {
+                    role: AnonymousRole::Table,
+                    ..
+                }
+            )
+        })
         .collect();
     assert_eq!(tabelas.len(), 1, "one run, one table: {filhas:?}");
-    let dentro: Vec<_> = tree.children(tabelas[0]).iter().filter_map(|&c| tree.node_of(c)).collect();
+    let dentro: Vec<_> = tree
+        .children(tabelas[0])
+        .iter()
+        .filter_map(|&c| tree.node_of(c))
+        .collect();
     assert_eq!(dentro.first(), Some(&no_com_id(&dom, "a")));
-    assert_eq!(dentro.last(), Some(&no_com_id(&dom, "b")), "the trailing space stays outside");
+    assert_eq!(
+        dentro.last(),
+        Some(&no_com_id(&dom, "b")),
+        "the trailing space stays outside"
+    );
     assert_eq!(dentro.len(), 3, "cell, the space between, row: {dentro:?}");
-    assert_eq!(tree.formatting_context(&dom, tabelas[0]).inner, InnerDisplay::Table);
+    assert_eq!(
+        tree.formatting_context(&dom, tabelas[0]).inner,
+        InnerDisplay::Table
+    );
 }
 
 /// The refusals: a flex container blockifies its children (a `table-cell`

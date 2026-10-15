@@ -13,19 +13,29 @@ use super::*;
 fn ch_of_a_monospace_block_matches_the_table_advance_of_zero_exactly() {
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0}</style><div id=\"t\" style=\"font-family:monospace;font-size:16px;width:4ch\">x</div>",
     );
     let t = dom.query("#t").unwrap();
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
 
     // The table's own advance of "0" in Consolas, not `MONO_ADVANCE`
     // (0.5498): `crates/rts-dom/src/layout/measure/font_advances.rs` carries the raw
     // `hmtx` unit and `fonte_metricas.rs::CONSOLAS` states it as `1126/2048`.
-    let zero_em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("monospace"));
+    let zero_em =
+        crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("monospace"));
     let expected = 4.0 * 16.0 * zero_em;
     assert!(
         (rect.w - expected).abs() < 0.01,
@@ -42,16 +52,26 @@ fn ch_of_a_monospace_block_matches_the_table_advance_of_zero_exactly() {
 fn ch_of_a_proportional_block_uses_its_own_familys_zero_not_mono_advance() {
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0}</style><div id=\"t\" style=\"font-family:Arial;font-size:16px;width:4ch\">x</div>",
     );
     let t = dom.query("#t").unwrap();
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     let rect = bounding_rect(&dom, dom.resolve(t).unwrap(), &ctx).unwrap();
 
-    let zero_em = crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
+    let zero_em =
+        crate::layout::measure::font_metrics::FontMetricsModel::ch_advance_em(Some("Arial"));
     // Arial's "0" is NOT the Consolas fraction MONO_ADVANCE resolved into.
     assert!(
         (zero_em - crate::style::MONO_ADVANCE).abs() > 0.001,

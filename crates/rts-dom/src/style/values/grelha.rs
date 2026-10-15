@@ -19,9 +19,10 @@ pub enum TrackBound {
     /// `min-content` — a palavra mais larga do conteúdo da trilha (o piso que
     /// `table::min_content` já calcula para o `flex-shrink`, reusado aqui).
     MinContent,
-    /// `max-content`, ou `auto` do lado do MÁXIMO — a largura sem quebra
-    /// nenhuma (`layout::medida::intrinsic_outer_width`).
+    /// `max-content` do lado do MÁXIMO
     MaxContent,
+    /// `auto` do lado do MÍNIMO ou MÁXIMO
+    Auto,
     /// `fit-content(<len>)` do lado do MÁXIMO: `min(<len>, max-content)` —
     /// cresce com o conteúdo até `<len>`, e não além disso mesmo que o
     /// conteúdo pedisse mais.
@@ -161,7 +162,10 @@ impl GridTrack {
     pub fn count_unit(&self) -> f32 {
         match self {
             GridTrack::Fixed(Dimension::Px(p)) => *p,
-            GridTrack::Bounded { min: Dimension::Px(p), .. } => *p,
+            GridTrack::Bounded {
+                min: Dimension::Px(p),
+                ..
+            } => *p,
             _ => 0.0,
         }
     }
@@ -186,7 +190,8 @@ fn parse_track_bound(s: &str) -> Option<TrackBound> {
     let low = s.to_ascii_lowercase();
     match low.as_str() {
         "min-content" => Some(TrackBound::MinContent),
-        "max-content" | "auto" => Some(TrackBound::MaxContent),
+        "max-content" => Some(TrackBound::MaxContent),
+        "auto" => Some(TrackBound::Auto),
         _ => {
             if let Some(inner) = low
                 .strip_prefix("fit-content(")

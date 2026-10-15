@@ -53,14 +53,18 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // para saber que a forma da caixa vem de fora. O prefixo `-webkit-` é
         // o que a folha real traz ao lado da propriedade padrão (a Wikipédia
         // declara as duas), e ignorá-lo deixava metade das páginas de fora.
-        "mask-image" | "-webkit-mask-image" => set_if(&mut css.mask_image, Some(val.trim().to_string())),
+        "mask-image" | "-webkit-mask-image" => {
+            set_if(&mut css.mask_image, Some(val.trim().to_string()))
+        }
         // `filter` e `clip-path` guardados CRUS, para o paint. O prefixo
         // `-webkit-` está ao lado do nome padrão porque a folha real declara
         // os dois na mesma regra, e reconhecer só um deixaria a metade que a
         // página escreveu primeiro a decidir o resultado. Ver os campos em
         // `props.rs` para o motivo de não serem tipados aqui.
         "filter" | "-webkit-filter" => set_if(&mut css.filter, Some(val.trim().to_string())),
-        "clip-path" | "-webkit-clip-path" => set_if(&mut css.clip_path, Some(val.trim().to_string())),
+        "clip-path" | "-webkit-clip-path" => {
+            set_if(&mut css.clip_path, Some(val.trim().to_string()))
+        }
         "background-repeat" => {
             set_if(&mut css.bg_repeat, crate::style::BgRepeat::parse(val));
             set_if(&mut css.bg_repeat_layers, Some(val.trim().to_string()));
@@ -73,21 +77,37 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             set_if(&mut css.bg_size, crate::style::BgSize::parse(val));
             set_if(&mut css.bg_size_layers, Some(val.trim().to_string()));
         }
-        "box-shadow" => set_ou_limpa(&mut css.box_shadow, val, crate::style::effects::BoxShadow::parse(val)),
+        "box-shadow" => set_ou_limpa(
+            &mut css.box_shadow,
+            val,
+            crate::style::effects::BoxShadow::parse(val),
+        ),
         "grid-template-columns" => {
-            set_if(&mut css.grid_columns, parse_grid_columns(val));
-            set_ou_limpa(&mut css.grid_template_columns, val,
-                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new));
+            set_ou_limpa(&mut css.grid_columns, val, parse_grid_columns(val));
+            set_ou_limpa(
+                &mut css.grid_template_columns,
+                val,
+                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new),
+            );
         }
         "grid-template-rows" => {
-            set_ou_limpa(&mut css.grid_template_rows, val,
-                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new));
+            set_ou_limpa(
+                &mut css.grid_template_rows,
+                val,
+                crate::style::GridTemplate::parse(val).map(std::sync::Arc::new),
+            );
         }
         "grid-auto-rows" => {
-            set_if(&mut css.grid_auto_rows, crate::style::GridTrack::parse_one(val));
+            set_if(
+                &mut css.grid_auto_rows,
+                crate::style::GridTrack::parse_one(val),
+            );
         }
         "justify-items" => {
-            set_if(&mut css.grid_justify_items, crate::style::AlignItems::parse(val));
+            set_if(
+                &mut css.grid_justify_items,
+                crate::style::AlignItems::parse(val),
+            );
         }
         "grid-template-areas" => {
             css.grid_template_areas = crate::style::GridAreas::parse(val).map(std::sync::Arc::new);
@@ -104,7 +124,30 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
                     crate::style::GridTemplate::parse(rows).map(std::sync::Arc::new);
                 css.grid_template_columns =
                     crate::style::GridTemplate::parse(cols).map(std::sync::Arc::new);
-                set_if(&mut css.grid_columns, parse_grid_columns(cols));
+                set_ou_limpa(&mut css.grid_columns, cols, parse_grid_columns(cols));
+            }
+        }
+        "contain" => {
+            let low = val.to_ascii_lowercase();
+            let tokens: Vec<&str> = low.split_ascii_whitespace().collect();
+            if tokens
+                .iter()
+                .any(|&t| matches!(t, "layout" | "paint" | "strict" | "content"))
+            {
+                css.disables_subgrid = Some(true);
+            } else if tokens
+                .iter()
+                .any(|&t| matches!(t, "none" | "size" | "style"))
+            {
+                css.disables_subgrid = Some(false);
+            }
+        }
+        "container-type" => {
+            let low = val.trim().to_ascii_lowercase();
+            if low == "size" || low == "inline-size" {
+                css.disables_subgrid = Some(true);
+            } else if low == "normal" {
+                css.disables_subgrid = Some(false);
             }
         }
         _ => return false,

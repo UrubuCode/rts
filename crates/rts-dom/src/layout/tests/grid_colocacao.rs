@@ -45,7 +45,11 @@ fn grid_column_negativo_conta_do_fim_do_eixo_explicito() {
     let list = layout_document(&dom, &ctx);
     let idx = dom.resolve(dom.query("#a").unwrap()).unwrap();
     let a = list.geometry_now().rects[&idx];
-    assert!((a.x - 200.0).abs() < 1.0, "x das 2 últimas colunas: {}", a.x);
+    assert!(
+        (a.x - 200.0).abs() < 1.0,
+        "x das 2 últimas colunas: {}",
+        a.x
+    );
     assert!((a.w - 200.0).abs() < 1.0, "largura das 2 últimas: {}", a.w);
 }
 

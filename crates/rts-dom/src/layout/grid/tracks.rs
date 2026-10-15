@@ -28,7 +28,11 @@ pub(crate) fn expand_auto_repeats(
     track_list: &crate::style::TrackList,
     container: f32,
     gap: f32,
-) -> (Vec<crate::style::GridTrack>, Vec<bool>, Vec<crate::style::LineNames>) {
+) -> (
+    Vec<crate::style::GridTrack>,
+    Vec<bool>,
+    Vec<crate::style::LineNames>,
+) {
     use crate::style::GridTrack as T;
     let mut out_tracks = Vec::with_capacity(track_list.entries.len());
     let mut collapsible = Vec::with_capacity(track_list.entries.len());
@@ -77,7 +81,6 @@ pub(crate) fn expand_auto_repeats(
     (out_tracks, collapsible, out_lines)
 }
 
-
 /// A LARGURA (ou altura) de cada trilha de uma grade — CSS Grid 1 §11,
 /// reduzido ao que este motor sustenta: sem itens a atravessar trilhas (essa
 /// repartição é a mesma pergunta do `colspan` de tabela, tratada à parte em
@@ -102,6 +105,7 @@ pub(in crate::layout) fn resolve_tracks(
     total_gap: f32,
     content_max: Option<&[f32]>,
     content_min: Option<&[f32]>,
+    stretch: bool,
     ctx: &ResolveCtx,
 ) -> Vec<f32> {
     use crate::style::{GridTrack as T, TrackBound as B};
@@ -121,7 +125,7 @@ pub(in crate::layout) fn resolve_tracks(
         match b {
             B::Fixed(d) => dim(d),
             B::MinContent => min_of(i),
-            B::MaxContent => max_of(i),
+            B::MaxContent | B::Auto => max_of(i),
             B::FitContent(d) => dim(d).min(max_of(i)),
         }
     };
@@ -134,7 +138,18 @@ pub(in crate::layout) fn resolve_tracks(
             T::Fixed(d) => dim(d),
             T::Bounded { min, .. } => dim(min),
             T::Auto => max_of(i),
-            T::Intrinsic { min, .. } => eval_bound(min, i),
+            T::Intrinsic { min, max } => {
+                let base = eval_bound(min, i);
+                if matches!(min, B::Auto) {
+                    match max {
+                        B::Fixed(d) => base.min(dim(d)),
+                        B::FitContent(d) => base.min(dim(d)),
+                        _ => base,
+                    }
+                } else {
+                    base
+                }
+            }
             T::Fr(f) => {
                 sum_fr += f.max(0.0);
                 0.0
@@ -143,6 +158,29 @@ pub(in crate::layout) fn resolve_tracks(
             // lista com um `AutoRepeat` por resolver é um erro do chamador.
             T::AutoRepeat { .. } => 0.0,
         };
+    }
+    let total_used = sizes.iter().sum::<f32>() + total_gap;
+    if container > 0.0 && total_used > container {
+        let overflow = total_used - container;
+        let auto_tracks: Vec<usize> = tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| matches!(t, T::Auto))
+            .map(|(i, _)| i)
+            .collect();
+        if !auto_tracks.is_empty() {
+            let reducible: f32 = auto_tracks
+                .iter()
+                .map(|&i| (sizes[i] - min_of(i)).max(0.0))
+                .sum();
+            if reducible > 0.0 {
+                let factor = (overflow / reducible).min(1.0);
+                for &i in &auto_tracks {
+                    let can_reduce = (sizes[i] - min_of(i)).max(0.0);
+                    sizes[i] -= can_reduce * factor;
+                }
+            }
+        }
     }
     let free = (container - sizes.iter().sum::<f32>() - total_gap).max(0.0);
 
@@ -181,7 +219,14 @@ pub(in crate::layout) fn resolve_tracks(
                 // larga do que o `minmax(min-content, 200px)` permite) — a
                 // spec (§11.1) manda o TECTO subir para acompanhar a base
                 // nesse caso, nunca encolher a base para caber nele.
-                T::Intrinsic { max, .. } => eval_bound(max, i).max(sizes[i]),
+                T::Intrinsic { max, min } => {
+                    let c = eval_bound(max, i);
+                    if matches!(min, B::Auto) {
+                        c
+                    } else {
+                        c.max(sizes[i])
+                    }
+                }
                 _ => unreachable!("filtrado acima"),
             };
             let new_size = (sizes[i] + quota).min(ceiling);
@@ -195,11 +240,246 @@ pub(in crate::layout) fn resolve_tracks(
         .filter(|(_, t)| matches!(t, T::Auto))
         .map(|(i, _)| i)
         .collect();
-    if !auto_tracks.is_empty() && remaining > 0.0 {
+    if stretch && !auto_tracks.is_empty() && remaining > 0.0 {
         let each = remaining / auto_tracks.len() as f32;
         for i in auto_tracks {
             sizes[i] += each;
         }
     }
     sizes
+}
+
+pub(in crate::layout) fn distribute_spanning_columns<F, S>(
+    col_tracks: &[crate::style::GridTrack],
+    cells: &[super::lines::GridCell],
+    ncols: usize,
+    col_gap: f32,
+    resolve: &ResolveCtx,
+    is_sub: S,
+    mut get_width: F,
+    wmax: &mut [f32],
+) where
+    F: FnMut(&super::lines::GridCell) -> f32,
+    S: Fn(&super::lines::GridCell) -> bool,
+{
+    for c in cells {
+        if c.c1 <= c.c0 || c.c0 >= ncols || is_sub(c) {
+            continue;
+        }
+        let span = c.c1 - c.c0;
+        if span > 1 {
+            let end = c.c1.min(ncols);
+            let mut current_span_w = (end.saturating_sub(c.c0 + 1)) as f32 * col_gap;
+            let mut content_cols = Vec::new();
+            for col in c.c0..end {
+                match col_tracks.get(col) {
+                    Some(crate::style::GridTrack::Fixed(d)) => {
+                        current_span_w += d.resolve(resolve).unwrap_or(0.0);
+                    }
+                    _ => {
+                        current_span_w += wmax[col];
+                        content_cols.push(col);
+                    }
+                }
+            }
+            let item_w = get_width(c);
+            if item_w > current_span_w {
+                let targets = if !content_cols.is_empty() {
+                    content_cols
+                } else {
+                    (c.c0..end).collect()
+                };
+                let extra = (item_w - current_span_w) / targets.len() as f32;
+                for col in targets {
+                    wmax[col] += extra;
+                }
+            }
+        }
+    }
+}
+
+pub(in crate::layout) fn measure_content_rows(
+    dom: &Dom,
+    cells: &[super::lines::GridCell],
+    explicit_rows: &[crate::style::GridTrack],
+    auto_row: Option<&crate::style::GridTrack>,
+    col_sizes: &[f32],
+    col_sub: Option<&super::subgrid::SubgriddedAxis>,
+    col_gap: f32,
+    row_gap: f32,
+    nrows: usize,
+    container_content_h: Option<f32>,
+    resolve: &ResolveCtx,
+    wm: crate::style::WritingMode,
+    ctx: &LayoutCtx,
+) -> Vec<f32> {
+    let mut content_row_h = vec![0.0f32; nrows];
+    let mut multi_row_items = Vec::new();
+    for cell in cells {
+        let is_row_sub = dom
+            .computed_style_idx(cell.child)
+            .is_some_and(|c| super::subgrid::is_subgrid_item(&c, wm).1);
+        if is_row_sub {
+            continue;
+        }
+        let cw = col_sub
+            .map(|s| s.cell_span(cell.c0, cell.c1))
+            .unwrap_or_else(|| super::grid::span_size(col_sizes, cell.c0, cell.c1, col_gap));
+        let item_css = dom.computed_style_idx(cell.child);
+        let stretch_x = item_css
+            .as_ref()
+            .map(|c| {
+                let j = c.justify_self.unwrap_or(crate::style::AlignItems::Stretch);
+                matches!(j, crate::style::AlignItems::Stretch) && c.width.is_none()
+            })
+            .unwrap_or(false);
+        let forced_w = if stretch_x { Some(cw) } else { None };
+        let (_, h) = measure_block(
+            dom,
+            cell.child,
+            cell.box_id,
+            cw,
+            container_content_h,
+            forced_w,
+            None,
+            !stretch_x,
+            ctx,
+        );
+        if cell.rows() == 1 {
+            if cell.r0 < nrows {
+                content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
+            }
+        } else {
+            multi_row_items.push((cell, h));
+        }
+    }
+    for (cell, h) in multi_row_items {
+        let end = cell.r1.min(nrows);
+        let mut current_span_h = (end.saturating_sub(cell.r0 + 1)) as f32 * row_gap;
+        let mut unfixed_rows = Vec::new();
+        for r in cell.r0..end {
+            let track = explicit_rows.get(r).or(auto_row);
+            match track {
+                Some(crate::style::GridTrack::Fixed(d)) => {
+                    current_span_h +=
+                        resolve_height(Some(*d), container_content_h, resolve).unwrap_or(0.0);
+                }
+                _ => {
+                    current_span_h += content_row_h[r];
+                    unfixed_rows.push(r);
+                }
+            }
+        }
+        if h > current_span_h {
+            let targets = if !unfixed_rows.is_empty() {
+                unfixed_rows
+            } else {
+                (cell.r0..end).collect()
+            };
+            let extra = (h - current_span_h) / targets.len() as f32;
+            for r in targets {
+                content_row_h[r] += extra;
+            }
+        }
+    }
+    content_row_h
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn resolve_row_tracks(
+    nrows: usize,
+    explicit_rows: &[crate::style::GridTrack],
+    auto_row: Option<&crate::style::GridTrack>,
+    content_row_h: &[f32],
+    container_h: Option<f32>,
+    resolve: &ResolveCtx,
+    align_content: Option<crate::style::JustifyContent>,
+    row_collapsed: &[bool],
+    row_gap: f32,
+) -> Vec<f32> {
+    use crate::style::{GridTrack as T, TrackBound as B};
+    let row_track = |r: usize| explicit_rows.get(r).or(auto_row);
+    let mut row_sizes: Vec<f32> = (0..nrows)
+        .map(|r| {
+            let ch = content_row_h.get(r).copied().unwrap_or(0.0);
+            match row_track(r) {
+                Some(T::Fixed(d)) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
+                Some(T::Bounded { min, max }) => {
+                    let mn = resolve_height(Some(*min), container_h, resolve).unwrap_or(0.0);
+                    let mx =
+                        resolve_height(Some(*max), container_h, resolve).unwrap_or(f32::INFINITY);
+                    ch.clamp(mn, mx)
+                }
+                Some(T::Intrinsic { min, max }) => {
+                    let mn = match min {
+                        B::Fixed(d) => {
+                            resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0)
+                        }
+                        B::MinContent | B::MaxContent | B::Auto => ch,
+                        B::FitContent(d) => {
+                            resolve_height(Some(*d), container_h, resolve).unwrap_or(ch)
+                        }
+                    };
+                    let mx = match max {
+                        B::Fixed(d) => {
+                            resolve_height(Some(*d), container_h, resolve).unwrap_or(f32::INFINITY)
+                        }
+                        B::MaxContent | B::Auto => f32::INFINITY,
+                        B::MinContent => ch,
+                        B::FitContent(d) => {
+                            resolve_height(Some(*d), container_h, resolve).unwrap_or(ch)
+                        }
+                    };
+                    let base = if matches!(min, B::Auto) {
+                        mn.min(mx)
+                    } else {
+                        mn
+                    };
+                    ch.max(base).min(mx.max(base))
+                }
+                _ => ch,
+            }
+        })
+        .collect();
+
+    if align_content.is_none() {
+        if let Some(ch) = container_h {
+            let auto_rows: Vec<usize> = (0..nrows)
+                .filter(|&r| {
+                    !matches!(
+                        row_track(r),
+                        Some(T::Fixed(_) | T::Bounded { .. } | T::Intrinsic { .. })
+                    )
+                })
+                .collect();
+            if !auto_rows.is_empty() {
+                let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+                let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
+                if ch > current_used {
+                    let each = (ch - current_used) / auto_rows.len() as f32;
+                    for r in auto_rows {
+                        row_sizes[r] += each;
+                    }
+                }
+            }
+        } else {
+            let mut max_fr_share = 0.0f32;
+            for r in 0..nrows {
+                if let Some(T::Fr(f)) = row_track(r) {
+                    if *f > 0.0 {
+                        let ch = content_row_h.get(r).copied().unwrap_or(0.0);
+                        max_fr_share = max_fr_share.max(ch / f);
+                    }
+                }
+            }
+            if max_fr_share > 0.0 {
+                for r in 0..nrows {
+                    if let Some(T::Fr(f)) = row_track(r) {
+                        row_sizes[r] = row_sizes[r].max(max_fr_share * f);
+                    }
+                }
+            }
+        }
+    }
+    row_sizes
 }

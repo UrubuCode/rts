@@ -118,7 +118,11 @@ fn tr_relative_top_percent_does_not_move_without_definite_table_height() {
     );
     let (dom, list) = geometria(&html, 900.0);
     let tr = rect(&dom, &list, "tr", 0);
-    assert!(tr.y.abs() < 0.51, "tr.y = {} (table height is auto, top:100% must not move it)", tr.y);
+    assert!(
+        tr.y.abs() < 0.51,
+        "tr.y = {} (table height is auto, top:100% must not move it)",
+        tr.y
+    );
 }
 
 /// Same shape, but the table DOES specify a height — CSS 2.1's definiteness

@@ -88,7 +88,10 @@ fn perto(a: f32, b: f32) -> bool {
 fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, id: &str, esperado: Rect) {
     let r = rect(dom, list, &format!("#{id}"), 0);
     assert!(
-        perto(r.x, esperado.x) && perto(r.y, esperado.y) && perto(r.w, esperado.w) && perto(r.h, esperado.h),
+        perto(r.x, esperado.x)
+            && perto(r.y, esperado.y)
+            && perto(r.w, esperado.w)
+            && perto(r.h, esperado.h),
         "#{id} = {r:?}, esperado (Chrome) {esperado:?}"
     );
 }

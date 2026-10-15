@@ -63,7 +63,12 @@ pub(in crate::layout) fn transferred(
     let mb = css.margin.bottom.resolve(&resolve).unwrap_or(0.0);
     let borders = crate::style::borders::resolved_sides(&css);
     let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
-    let (bt, br, bb, bl) = (px(borders[0]), px(borders[1]), px(borders[2]), px(borders[3]));
+    let (bt, br, bb, bl) = (
+        px(borders[0]),
+        px(borders[1]),
+        px(borders[2]),
+        px(borders[3]),
+    );
     let h_content = (cross_h - mt - mb - bt - bb).max(0.0);
     let w_content = h_content * nw as f32 / nh as f32;
     Some((w_content + margin_h + bl + br, cross_h))
@@ -112,7 +117,8 @@ pub(in crate::layout) fn item_basis_and_height(
     match t {
         Some((w, h)) => (w, h, true),
         None => {
-            let base = crate::layout::flex::limits::flex_base_outer(dom, child, content_w, font_size, ctx);
+            let base =
+                crate::layout::flex::limits::flex_base_outer(dom, child, content_w, font_size, ctx);
             let (_, h) = measure_block(
                 dom,
                 child,

@@ -21,8 +21,8 @@
 //! mesma forma (`try_apply` + `get_property`, ligados por um braço `_ if` em
 //! `parse.rs` e um `or_else` em `fmt.rs`) em vez de o rebentar.
 
-use super::effects::BoxShadow;
 use super::aplica::{set_if, set_ou_limpa};
+use super::effects::BoxShadow;
 use super::props::ComputedStyle;
 use super::values::Rgba;
 
@@ -303,7 +303,10 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             css.background_origin =
                 BackgroundClip::parse(val).filter(|v| *v != BackgroundClip::Text)
         }
-        "text-decoration-style" => set_if(&mut css.text_decoration_style, TextDecorationStyle::parse(val)),
+        "text-decoration-style" => set_if(
+            &mut css.text_decoration_style,
+            TextDecorationStyle::parse(val),
+        ),
         // `text-decoration-thickness: auto | from-font | <comprimento>`. Como o
         // `text-underline-offset` ao lado: `auto` é o inicial e o `Option` já o
         // diz. `from-font` pede à fonte uma métrica que o medidor não expõe, e
@@ -321,17 +324,25 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // `background-attachment` — se o fundo rola com o conteúdo. GUARDADA SEM
         // EFEITO: `fixed` pede um fundo preso à viewport, e o pintor de fundo
         // desenha sempre no retângulo do elemento.
-        "background-attachment" => set_if(&mut css.background_attachment, BackgroundAttachment::parse(val)),
+        "background-attachment" => set_if(
+            &mut css.background_attachment,
+            BackgroundAttachment::parse(val),
+        ),
         // `box-decoration-break` — o que acontece à borda/fundo de uma caixa
         // inline PARTIDA por uma quebra de linha. GUARDADA SEM EFEITO: o fluxo
         // inline pinta cada fragmento com a caixa inteira (que é `clone`), e não
         // tem a noção de "a mesma caixa continuada" para fazer `slice`.
-        "box-decoration-break" => set_if(&mut css.box_decoration_break, BoxDecorationBreak::parse(val)),
+        "box-decoration-break" => set_if(
+            &mut css.box_decoration_break,
+            BoxDecorationBreak::parse(val),
+        ),
         // `line-break` — a rigidez das regras de quebra em CJK. GUARDADA SEM
         // EFEITO: o quebrador de linha deste motor parte em espaços, e as quatro
         // variantes só se distinguem umas das outras num texto CJK.
         "line-break" => set_if(&mut css.line_break, LineBreak::parse(val)),
-        "text-decoration-skip-ink" => set_if(&mut css.text_decoration_skip_ink, SkipInk::parse(val)),
+        "text-decoration-skip-ink" => {
+            set_if(&mut css.text_decoration_skip_ink, SkipInk::parse(val))
+        }
         // `-webkit-text-fill-color` é a cor de PREENCHIMENTO do glifo, e no
         // WebKit ganha ao `color` quando ambas estão postas. Guardada sem
         // consumidor: quem pinta texto lê `color`. É a outra metade do idioma do
@@ -435,20 +446,34 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
             .map(super::fmt_values::fmt_dim)
             .unwrap_or_default(),
         "tab-size" => css.tab_size.map(|n| n.to_string()).unwrap_or_default(),
-        "background-attachment" => {
-            css.background_attachment.map(|v| v.css()).unwrap_or_default().to_string()
-        }
-        "box-decoration-break" => {
-            css.box_decoration_break.map(|v| v.css()).unwrap_or_default().to_string()
-        }
-        "line-break" => css.line_break.map(|v| v.css()).unwrap_or_default().to_string(),
-        "text-decoration-skip-ink" => {
-            css.text_decoration_skip_ink.map(|v| v.css()).unwrap_or_default().to_string()
-        }
-        "caret-color" => css.caret_color.map(super::fmt_values::fmt_color).unwrap_or_default(),
-        "text-decoration-thickness" => {
-            css.text_decoration_thickness.map(super::fmt_values::fmt_dim).unwrap_or_default()
-        }
+        "background-attachment" => css
+            .background_attachment
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "box-decoration-break" => css
+            .box_decoration_break
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "line-break" => css
+            .line_break
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "text-decoration-skip-ink" => css
+            .text_decoration_skip_ink
+            .map(|v| v.css())
+            .unwrap_or_default()
+            .to_string(),
+        "caret-color" => css
+            .caret_color
+            .map(super::fmt_values::fmt_color)
+            .unwrap_or_default(),
+        "text-decoration-thickness" => css
+            .text_decoration_thickness
+            .map(super::fmt_values::fmt_dim)
+            .unwrap_or_default(),
         "scrollbar-color" => css
             .scrollbar_color
             .map(|c| {
@@ -464,9 +489,11 @@ pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
         // e nunca lido de volta pelo computed; agora também leva aspas duplas
         // no `url(...)`, pela mesma `fmt_url` de `list-style-image`/
         // `background-image`/`cursor`.
-        "mask-image" | "-webkit-mask-image" => {
-            css.mask_image.as_deref().map(super::fmt_values::fmt_url).unwrap_or_default()
-        }
+        "mask-image" | "-webkit-mask-image" => css
+            .mask_image
+            .as_deref()
+            .map(super::fmt_values::fmt_url)
+            .unwrap_or_default(),
         // As da máscara respondem pelos mesmos formatadores das de fundo, que é
         // a outra metade do reúso da gramática.
         "mask-position" => css

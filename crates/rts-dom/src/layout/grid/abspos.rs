@@ -1,0 +1,233 @@
+//! Static position anchors and grid-area containing blocks for out-of-flow items inside a grid container.
+
+use super::lines::{axis_placement, effective_lines, resolve_edge, Edge};
+use crate::boxes::BoxId;
+use crate::dom::Dom;
+use crate::layout::grid::subgrid::SubgriddedAxis;
+use crate::layout::positioned::positioned::is_out_of_flow;
+use crate::layout::ResolveCtx;
+use crate::paint::list::DisplayList;
+use crate::paint::Rect;
+use crate::style::grid_lines::GridLine;
+use crate::style::{ComputedStyle, GridAreas};
+
+thread_local! {
+    static GRID_CB_RECTS: std::cell::RefCell<crate::fasthash::FastMap<BoxId, Rect>> =
+        std::cell::RefCell::new(crate::fasthash::FastMap::default());
+}
+
+pub(in crate::layout) fn get_grid_cb(box_id: BoxId) -> Option<Rect> {
+    GRID_CB_RECTS.with(|cell| cell.borrow().get(&box_id).copied())
+}
+
+pub(in crate::layout) fn clear_grid_cb() {
+    GRID_CB_RECTS.with(|cell| cell.borrow_mut().clear());
+}
+
+fn col_line_x(
+    line: i32,
+    ncols: usize,
+    col_x: &[f32],
+    col_sizes: &[f32],
+    col_sub: Option<&SubgriddedAxis>,
+    content_x: f32,
+    content_w: f32,
+    is_rtl: bool,
+) -> f32 {
+    if ncols == 0 {
+        return content_x;
+    }
+    let idx = (line - 1).clamp(0, ncols as i32) as usize;
+    if let Some(cs) = col_sub {
+        content_x + cs.line_pos.get(idx).copied().unwrap_or(0.0)
+    } else if is_rtl {
+        if idx == 0 {
+            content_x + content_w
+        } else {
+            col_x.get(idx - 1).copied().unwrap_or(content_x)
+        }
+    } else if idx >= ncols {
+        col_x.last().copied().unwrap_or(content_x) + col_sizes.last().copied().unwrap_or(0.0)
+    } else {
+        col_x.get(idx).copied().unwrap_or(content_x)
+    }
+}
+
+fn row_line_y(
+    line: i32,
+    nrows: usize,
+    row_y: &[f32],
+    row_sizes: &[f32],
+    row_sub: Option<&SubgriddedAxis>,
+    content_y: f32,
+) -> f32 {
+    if nrows == 0 {
+        return content_y;
+    }
+    let idx = (line - 1).clamp(0, nrows as i32) as usize;
+    if let Some(rs) = row_sub {
+        content_y + rs.line_pos.get(idx).copied().unwrap_or(0.0)
+    } else if idx >= nrows {
+        row_y.last().copied().unwrap_or(content_y) + row_sizes.last().copied().unwrap_or(0.0)
+    } else {
+        row_y.get(idx).copied().unwrap_or(content_y)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn record_out_of_flow(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    container: BoxId,
+    css: &ComputedStyle,
+    resolve: &ResolveCtx,
+    content_x: f32,
+    content_y: f32,
+    total_w: f32,
+    total_h: f32,
+    is_rtl: bool,
+    col_sub: Option<&SubgriddedAxis>,
+    row_sub: Option<&SubgriddedAxis>,
+    col_x: &[f32],
+    row_y: &[f32],
+    col_sizes: &[f32],
+    row_sizes: &[f32],
+    col_lines: &[crate::style::LineNames],
+    row_lines: &[crate::style::LineNames],
+    areas: Option<&GridAreas>,
+    ncols: usize,
+    nrows: usize,
+    list: &mut DisplayList,
+) {
+    let eff_col_lines = effective_lines(col_lines, ncols, areas, true, col_sub.is_some());
+    let eff_row_lines = effective_lines(row_lines, nrows, areas, false, row_sub.is_some());
+    let auto_line = GridLine::Auto;
+
+    let padding = |lado: crate::style::Side| match lado {
+        crate::style::Side::Len(d) => d.resolve(resolve).unwrap_or(0.0),
+        _ => 0.0,
+    };
+    let pt = padding(css.padding.top);
+    let pr = padding(css.padding.right);
+    let pb = padding(css.padding.bottom);
+    let pl = padding(css.padding.left);
+
+    let container_w = if resolve.parent_content_w > 0.0 {
+        resolve.parent_content_w
+    } else {
+        total_w
+    };
+    let pad_left = content_x - pl;
+    let pad_right = content_x + container_w + pr;
+    let pad_top = content_y - pt;
+    let pad_bottom = content_y + total_h + pb;
+    let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static)
+        || css.transform.is_some();
+
+    for &child_box in tree.children_without_generated(container) {
+        let Some(child_node) = tree.node_of(child_box) else {
+            continue;
+        };
+        if !is_out_of_flow(dom, child_node) {
+            continue;
+        };
+        let child_css = dom.computed_style_idx(child_node).unwrap_or_default();
+        let cs = child_css.grid_column_start.as_ref().unwrap_or(&auto_line);
+        let ce = child_css.grid_column_end.as_ref().unwrap_or(&auto_line);
+        let rs = child_css.grid_row_start.as_ref().unwrap_or(&auto_line);
+        let re = child_css.grid_row_end.as_ref().unwrap_or(&auto_line);
+
+        let colp = axis_placement(cs, ce, ncols, &eff_col_lines, col_sub.is_some());
+        let rowp = axis_placement(rs, re, nrows, &eff_row_lines, row_sub.is_some());
+
+        if colp.is_some() || rowp.is_some() {
+            let area_x = match colp {
+                Some((c0, c1)) => {
+                    if let Some(cs) = col_sub {
+                        let (rel_x, _) = cs.cell_pos_and_span(c0, c1);
+                        content_x + rel_x
+                    } else if !col_x.is_empty() {
+                        let idx = if is_rtl {
+                            c1.saturating_sub(1).min(col_x.len().saturating_sub(1))
+                        } else {
+                            c0.min(col_x.len().saturating_sub(1))
+                        };
+                        col_x[idx]
+                    } else {
+                        content_x
+                    }
+                }
+                None => content_x,
+            };
+
+            let area_y = match rowp {
+                Some((r0, r1)) => {
+                    if let Some(rs) = row_sub {
+                        let (rel_y, _) = rs.cell_pos_and_span(r0, r1);
+                        content_y + rel_y
+                    } else if !row_y.is_empty() {
+                        let idx = r0.min(row_y.len().saturating_sub(1));
+                        row_y[idx]
+                    } else {
+                        content_y
+                    }
+                }
+                None => content_y,
+            };
+
+            list.static_anchors.push((child_box, area_x, area_y, 0.0));
+        }
+
+        if establishes_cb {
+            let col_s_line = match resolve_edge(cs, false, ncols, &eff_col_lines, col_sub.is_some()) {
+                Edge::Abs(n) => Some(n),
+                _ => None,
+            };
+            let col_e_line = match resolve_edge(ce, true, ncols, &eff_col_lines, col_sub.is_some()) {
+                Edge::Abs(n) => Some(n),
+                _ => None,
+            };
+            let (col_s_line, col_e_line) = match (col_s_line, col_e_line) {
+                (Some(s), Some(e)) if s > e => (Some(e), Some(s)),
+                other => other,
+            };
+            let edge_start_x = match col_s_line {
+                Some(l) => col_line_x(l, ncols, col_x, col_sizes, col_sub, content_x, container_w, is_rtl),
+                None => if is_rtl { pad_right } else { pad_left },
+            };
+            let edge_end_x = match col_e_line {
+                Some(l) => col_line_x(l, ncols, col_x, col_sizes, col_sub, content_x, container_w, is_rtl),
+                None => if is_rtl { pad_left } else { pad_right },
+            };
+            let cb_x = edge_start_x.min(edge_end_x);
+            let cb_w = (edge_start_x.max(edge_end_x) - cb_x).max(0.0);
+
+            let row_s_line = match resolve_edge(rs, false, nrows, &eff_row_lines, row_sub.is_some()) {
+                Edge::Abs(n) => Some(n),
+                _ => None,
+            };
+            let row_e_line = match resolve_edge(re, true, nrows, &eff_row_lines, row_sub.is_some()) {
+                Edge::Abs(n) => Some(n),
+                _ => None,
+            };
+            let (row_s_line, row_e_line) = match (row_s_line, row_e_line) {
+                (Some(s), Some(e)) if s > e => (Some(e), Some(s)),
+                other => other,
+            };
+            let edge_start_y = match row_s_line {
+                Some(l) => row_line_y(l, nrows, row_y, row_sizes, row_sub, content_y),
+                None => pad_top,
+            };
+            let edge_end_y = match row_e_line {
+                Some(l) => row_line_y(l, nrows, row_y, row_sizes, row_sub, content_y),
+                None => pad_bottom,
+            };
+            let cb_y = edge_start_y.min(edge_end_y);
+            let cb_h = (edge_end_y - edge_start_y).abs();
+
+            GRID_CB_RECTS.with(|cell| {
+                cell.borrow_mut().insert(child_box, Rect::new(cb_x, cb_y, cb_w, cb_h));
+            });
+        }
+    }
+}

@@ -164,8 +164,17 @@ pub(in crate::layout) fn collect_runs(
                 }
                 // A FLOAT in the middle of the flow: only an anchor (`in_line.rs`).
                 // An absolutely positioned box: the anchor of its static position.
-                let anchor_run = crate::layout::float::in_line::anchor(dom, id, box_id, inherited_color)
-                    .or_else(|| super::static_anchor::anchor(dom, id, box_id, inherited_color, inherited_owners));
+                let anchor_run =
+                    crate::layout::float::in_line::anchor(dom, id, box_id, inherited_color)
+                        .or_else(|| {
+                            super::static_anchor::anchor(
+                                dom,
+                                id,
+                                box_id,
+                                inherited_color,
+                                inherited_owners,
+                            )
+                        });
                 if let Some(anchor_run) = anchor_run {
                     out.push(anchor_run);
                     return;
@@ -182,7 +191,9 @@ pub(in crate::layout) fn collect_runs(
                     if itype == "hidden" {
                         return;
                     }
-                    let (ww, wh) = crate::layout::replaced::input::inline_widget_size(dom, id, &itype, avail_w, ctx);
+                    let (ww, wh) = crate::layout::replaced::input::inline_widget_size(
+                        dom, id, &itype, avail_w, ctx,
+                    );
                     // Os ANCESTRAIS inline não engolem a caixa deste widget: no
                     // browser a caixa de um inline tem a largura do que ele
                     // contém e a altura da FONTE. Quem recebe `ww × wh` é só o
@@ -227,9 +238,15 @@ pub(in crate::layout) fn collect_runs(
                 // texto e não tem filhos que o descrevam, por isso não produzia run
                 // nenhum e ficava sem caixa. Flui como palavra inquebrável.
                 let rcss = dom.computed_style_idx(id).unwrap_or_default();
-                if let Some((ww, wh)) =
-                    crate::inline_box::replaced_inline_size(dom, id, &rcss, avail_w, cb_h, (None, None), ctx)
-                {
+                if let Some((ww, wh)) = crate::inline_box::replaced_inline_size(
+                    dom,
+                    id,
+                    &rcss,
+                    avail_w,
+                    cb_h,
+                    (None, None),
+                    ctx,
+                ) {
                     // Como no widget: a caixa do replaced é dele; os ancestrais
                     // inline recebem só a linha que ele ocupa.
                     let owners = inherited_owners.to_vec();
@@ -253,7 +270,8 @@ pub(in crate::layout) fn collect_runs(
                 // texto</p>` saía em TRÊS linhas em vez de uma, e numa página
                 // real isso multiplicava a altura do documento por ~2,7.
                 if is_inline_block(dom, id) {
-                    let (bw, bh) = measure_block(dom, id, box_id, avail_w, None, None, None, true, ctx);
+                    let (bw, bh) =
+                        measure_block(dom, id, box_id, avail_w, None, None, None, true, ctx);
                     let mut owners = inherited_owners.to_vec();
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
@@ -272,10 +290,10 @@ pub(in crate::layout) fn collect_runs(
                 // a cor/text-transform/peso/decoração DESTE inline (se declarar)
                 // vence p/ os filhos (o <a> sublinha só o próprio texto).
                 let css = dom.computed_style_idx(id);
-                let color = css
-                    .as_ref()
-                    .and_then(|c| c.color)
-                    .unwrap_or(inherited_color);
+                let color = match css.as_deref() {
+                    Some(c) => cor_visivel(c, c.color.unwrap_or(inherited_color)),
+                    None => inherited_color,
+                };
                 let tt = css.as_ref().and_then(|c| c.text_transform).or(inherited_tt);
                 let bold = css.as_ref().and_then(|c| c.bold).unwrap_or(inherited_bold);
                 let italic = italico(css.as_deref(), Some(tag), inherited_italic);
@@ -358,7 +376,9 @@ pub(in crate::layout) fn collect_runs(
                 // without one still emitted the run from `Dom::pseudo_box`, and a
                 // split inline painted its pseudo once per fragment: the "found,
                 // not fixed" of BT-5. Requiring the box is what closes it.
-                if let Some(generated) = tree.generated_child(box_id, crate::style::PseudoElement::Before) {
+                if let Some(generated) =
+                    tree.generated_child(box_id, crate::style::PseudoElement::Before)
+                {
                     out.extend(super::pseudo_inline::pseudo_run_of_box(
                         dom,
                         id,
@@ -373,11 +393,13 @@ pub(in crate::layout) fn collect_runs(
                 }
                 for (c, cb) in walk_children(tree, box_id) {
                     walk(
-                        dom, tree, ctx, avail_w, cb_h, c, cb, color, deco, tt, bold, italic, &owners,
-                        out,
+                        dom, tree, ctx, avail_w, cb_h, c, cb, color, deco, tt, bold, italic,
+                        &owners, out,
                     );
                 }
-                if let Some(generated) = tree.generated_child(box_id, crate::style::PseudoElement::After) {
+                if let Some(generated) =
+                    tree.generated_child(box_id, crate::style::PseudoElement::After)
+                {
                     out.extend(super::pseudo_inline::pseudo_run_of_box(
                         dom,
                         id,
@@ -416,4 +438,3 @@ pub(in crate::layout) fn collect_runs(
         }
     }
 }
-

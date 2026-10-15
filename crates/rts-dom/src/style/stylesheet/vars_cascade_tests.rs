@@ -36,7 +36,11 @@ fn nome_de_custom_property_distingue_maiusculas() {
         "<html><head><style>:root{--Mhs7de:14px} body{font-size:var(--Mhs7de)}</style></head>\
          <body><div id=\"d\">x</div></body></html>",
     );
-    assert_eq!(font_size(&dom, "body"), "14px", "o nome chega inteiro à cascade");
+    assert_eq!(
+        font_size(&dom, "body"),
+        "14px",
+        "o nome chega inteiro à cascade"
+    );
     assert_eq!(font_size(&dom, "#d"), "14px");
 }
 
@@ -85,9 +89,6 @@ fn var_que_nao_resolve_usa_o_fallback() {
     assert_eq!(font_size(&dom, "#d"), "14px");
 }
 
-
-
-
 #[test]
 fn root_casa_o_html_mesmo_com_uma_folha_antes_dele() {
     // Um `<style>` antes do `<html>` fica IRMÃO dele (o parser recusa-lhe
@@ -99,7 +100,11 @@ fn root_casa_o_html_mesmo_com_uma_folha_antes_dele() {
         "<style>:root{--a:14px} body{font-size:var(--a)}</style>\
          <html><body><div id=\"d\">x</div></body></html>",
     );
-    assert_eq!(dom.query_all(":root").len(), 1, ":root casa o <html>, não zero");
+    assert_eq!(
+        dom.query_all(":root").len(),
+        1,
+        ":root casa o <html>, não zero"
+    );
     assert_eq!(font_size(&dom, "body"), "14px");
     assert_eq!(font_size(&dom, "#d"), "14px");
 }
@@ -138,12 +143,14 @@ fn fragmento_sem_html_continua_a_ter_um_unico_root() {
     // sem `<html>`, dois elementos de topo não têm raiz (o browser tem sempre uma
     // só), e um tem.
     let um = parse_html_to_dom("<div id=\"a\">x</div>");
-    assert_eq!(um.query_all(":root").len(), 1, "o <html> inventado é a raiz");
+    assert_eq!(
+        um.query_all(":root").len(),
+        1,
+        "o <html> inventado é a raiz"
+    );
     let frag = crate::dom::parse_fragmento("<div>a</div><div>b</div>");
     assert_eq!(frag.query_all(":root").len(), 0, "dois topos, nenhuma raiz");
 }
-
-
 
 #[test]
 fn custom_property_important_vence_antes_do_var() {

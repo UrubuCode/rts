@@ -35,7 +35,11 @@ fn sem_inset_cai_onde_o_proximo_irmao_em_fluxo_esta() {
     let next = cor(&list, 0x00FF00FF);
     assert_eq!(next.y, 20.0, "controlo: #next fluiu para o lugar do #abs");
     let abs = cor(&list, 0x0000FFFF);
-    assert_eq!((abs.x, abs.y), (0.0, next.y), "{abs:?} devia coincidir com #next");
+    assert_eq!(
+        (abs.x, abs.y),
+        (0.0, next.y),
+        "{abs:?} devia coincidir com #next"
+    );
 }
 
 /// A MESMA prova, mas com o texto de espaço em branco entre as tags que
@@ -55,7 +59,11 @@ fn sem_inset_atravessa_um_no_de_texto_entre_os_irmaos() {
     let next = cor(&list, 0x00FF00FF);
     assert_eq!(next.y, 20.0, "controlo: #next fluiu para o lugar do #abs");
     let abs = cor(&list, 0x0000FFFF);
-    assert_eq!((abs.x, abs.y), (0.0, next.y), "{abs:?} devia coincidir com #next");
+    assert_eq!(
+        (abs.x, abs.y),
+        (0.0, next.y),
+        "{abs:?} devia coincidir com #next"
+    );
 }
 
 /// Sem NENHUM irmão em fluxo depois de `#abs` (é o último filho): cai onde o

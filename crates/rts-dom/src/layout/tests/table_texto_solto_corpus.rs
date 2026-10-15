@@ -16,7 +16,18 @@ const HTML: &str = r#"<style>
 #[test]
 fn texto_solto_numa_table_e_uma_celula_anonima_com_a_fonte_do_pai() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#tbl"), (0.0, 0.0, 120.0, 20.0), "a linha de texto da tabela");
-    assert_eq!(r("#controlo"), (0.0, 20.0, 120.0, 20.0), "o bloco irmão fica por baixo");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#tbl"),
+        (0.0, 0.0, 120.0, 20.0),
+        "a linha de texto da tabela"
+    );
+    assert_eq!(
+        r("#controlo"),
+        (0.0, 20.0, 120.0, 20.0),
+        "o bloco irmão fica por baixo"
+    );
 }

@@ -119,7 +119,11 @@ fn limpar_o_medidor_ativo_volta_a_responder_como_o_approxmeasurer() {
     let (dom, id) = documento_com_paragrafo();
     let original = dom.bounding_component(id, 3);
     set_active(Rc::new(MedidorFalso));
-    assert_ne!(dom.bounding_component(id, 3), original, "pré-condição: o registo mudou a resposta");
+    assert_ne!(
+        dom.bounding_component(id, 3),
+        original,
+        "pré-condição: o registo mudou a resposta"
+    );
     clear_active();
     assert_eq!(
         dom.bounding_component(id, 3),
