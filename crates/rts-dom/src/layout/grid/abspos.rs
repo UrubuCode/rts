@@ -332,17 +332,50 @@ pub(in crate::layout) fn record_out_of_flow(
             };
             let cb_y = edge_start_y.min(edge_end_y);
             let cb_h = (edge_end_y - edge_start_y).abs();
-            let rel_x = cb_x - pad_left;
-            let rel_y = cb_y - pad_top;
+            let mut rel_x = cb_x - pad_left;
+            let mut rel_y = cb_y - pad_top;
+            let mut w = cb_w;
+            let mut h = cb_h;
             let has_col_lines = col_s_line.is_some() || col_e_line.is_some();
             let has_row_lines = row_s_line.is_some() || row_e_line.is_some();
+            let mut col_auto = !has_col_lines;
+            let mut row_auto = !has_row_lines;
+            if let Some(wm) = crate::layout::rotated_frame_mode() {
+                match wm {
+                    crate::style::WritingMode::VerticalLr => {
+                        rel_x = cb_y - pad_top;
+                        rel_y = cb_x - pad_left;
+                        w = cb_h;
+                        h = cb_w;
+                        col_auto = !has_row_lines;
+                        row_auto = !has_col_lines;
+                    }
+                    crate::style::WritingMode::VerticalRl => {
+                        let total_pad_h = pad_bottom - pad_top;
+                        rel_x = total_pad_h - (cb_y - pad_top + cb_h);
+                        rel_y = cb_x - pad_left;
+                        w = cb_h;
+                        h = cb_w;
+                        col_auto = !has_row_lines;
+                        row_auto = !has_col_lines;
+                    }
+                    crate::style::WritingMode::SidewaysLr => {
+                        let total_pad_w = pad_right - pad_left;
+                        rel_x = cb_y - pad_top;
+                        rel_y = total_pad_w - (cb_x - pad_left + cb_w);
+                        w = cb_h;
+                        h = cb_w;
+                        col_auto = !has_row_lines;
+                        row_auto = !has_col_lines;
+                    }
+                    _ => {}
+                }
+            }
             if has_col_lines || has_row_lines {
-                let col_auto = !has_col_lines;
-                let row_auto = !has_row_lines;
                 GRID_CB_RECTS.with(|cell| {
                     cell.borrow_mut().insert(
                         child_box,
-                        GridCbRel { rel_x, rel_y, w: cb_w, h: cb_h, col_auto, row_auto },
+                        GridCbRel { rel_x, rel_y, w, h, col_auto, row_auto },
                     );
                 });
             }

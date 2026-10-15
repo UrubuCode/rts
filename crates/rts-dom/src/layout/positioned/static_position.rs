@@ -102,14 +102,7 @@ pub(in crate::layout) fn static_position_of(
             containing_block,
         );
     }
-    // Cuts, stated: a vertical grid (the axes would have to be swapped) and an
-    // item placed on explicit lines (its area, not the content box, is the
-    // alignment rect — Grid §11) still follow the block rule below; each moved
-    // a WPT test from pass to fail when routed here.
-    let horizontal = matches!(
-        parent_css.writing_mode,
-        None | Some(crate::style::WritingMode::HorizontalTb)
-    );
+
     let auto_lines = [
         &css.grid_row_start,
         &css.grid_row_end,
@@ -127,10 +120,9 @@ pub(in crate::layout) fn static_position_of(
         .position
         .is_some_and(|p| p != crate::style::Position::Static)
         || parent_css.transform.is_some();
-    if horizontal
-        && parent_css
-            .effective_display()
-            .is_some_and(|d| d.is_grid_container())
+    if parent_css
+        .effective_display()
+        .is_some_and(|d| d.is_grid_container())
     {
         let area = if auto_lines || !container_is_cb {
             content
@@ -358,14 +350,32 @@ fn static_position_grid(
     };
     let align = start_if_stretch(css.align_self.or(parent_css.align_items));
     let justify = start_if_stretch(css.justify_self.or(parent_css.grid_justify_items));
-    let y = content.y + align_offset(align, content.h, outer_h);
-    let dx = align_offset(justify, content.w, outer_w);
-    let x = if parent_css.direction == Some(crate::style::Direction::Rtl) {
-        content.x + content.w - outer_w - dx
+    let wm = parent_css.writing_mode.unwrap_or_default();
+    if wm.is_vertical() {
+        let dy = align_offset(justify, content.h, outer_h);
+        let y = if parent_css.direction == Some(crate::style::Direction::Rtl) {
+            content.y + content.h - outer_h - dy
+        } else {
+            content.y + dy
+        };
+        let dx = align_offset(align, content.w, outer_w);
+        let x = match wm {
+            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl => {
+                content.x + content.w - outer_w - dx
+            }
+            _ => content.x + dx,
+        };
+        (x, y)
     } else {
-        content.x + dx
-    };
-    (x, y)
+        let y = content.y + align_offset(align, content.h, outer_h);
+        let dx = align_offset(justify, content.w, outer_w);
+        let x = if parent_css.direction == Some(crate::style::Direction::Rtl) {
+            content.x + content.w - outer_w - dx
+        } else {
+            content.x + dx
+        };
+        (x, y)
+    }
 }
 
 // Testes de comportamento (Dom real, via `layout()`) ficam em

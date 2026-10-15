@@ -252,3 +252,46 @@ fn test_orthogonal_001() {
         assert_eq!(r_t, r_r, "mismatch in {id}");
     }
 }
+
+#[test]
+fn test_sizing_001() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-sizing-001.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-sizing-001-ref.html",
+    ).unwrap();
+    let grid_css = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css",
+    ).unwrap();
+    let mut d_t = crate::parse_html_to_dom(&test_html);
+    d_t.add_stylesheet(&grid_css);
+    let mut d_r = crate::parse_html_to_dom(&ref_html);
+    d_r.add_stylesheet(&grid_css);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::measure::text_measurer::ApproxMeasurer,
+    };
+    let l_t = crate::layout::layout_document(&d_t, &ctx);
+    let l_r = crate::layout::layout_document(&d_r, &ctx);
+    let g_t = d_t.query_all(".grid");
+    let g_r = d_r.query_all(".grid");
+    println!("Grid counts: test={}, ref={}", g_t.len(), g_r.len());
+    for (gi, (&nt, &nr)) in g_t.iter().zip(g_r.iter()).enumerate() {
+        let it = d_t.resolve(nt).unwrap();
+        let ir = d_r.resolve(nr).unwrap();
+        let rt = l_t.rect_of(it);
+        let rr = l_r.rect_of(ir);
+        println!("grid {gi}: test={rt:?}, ref={rr:?}");
+        for (ci, &child_t) in d_t.node(it).children.iter().enumerate() {
+            if !matches!(d_t.node(child_t).kind, crate::dom::NodeKind::Element { .. }) { continue; }
+            let child_r = d_r.node(ir).children[ci];
+            let crt = l_t.rect_of(child_t);
+            let crr = l_r.rect_of(child_r);
+            if crt != crr {
+                println!("  child {ci}: test={crt:?}, ref={crr:?}");
+            }
+        }
+    }
+}
