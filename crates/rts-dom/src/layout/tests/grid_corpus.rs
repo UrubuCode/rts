@@ -115,11 +115,21 @@ fn grid_item_overflow_auto_max_height_percentage() {
     </div>
   </div>
 </div>"#;
-    let (dom, list) = geometria(html, 1280.0);
-    let r_sb = rect(&dom, &list, "#sb", 0);
-    let r_cont = rect(&dom, &list, "#cont", 0);
-    assert_eq!(r_sb.h, 450.0);
-    assert_eq!(r_cont.h, 400.0);
+    let p_test = "C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage.html";
+    let p_ref = "C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage-ref.html";
+    if let (Ok(ht), Ok(hr)) = (std::fs::read_to_string(p_test), std::fs::read_to_string(p_ref)) {
+        let (dt, lt) = geometria(&ht, 1280.0);
+        let (dr, lr) = geometria(&hr, 1280.0);
+        let r_app_t = rect(&dt, &lt, ".webconsole-app", 0);
+        let r_app_r = rect(&dr, &lr, ".webconsole-app", 0);
+        assert_eq!(r_app_t.h, 200.0);
+        assert_eq!(r_app_r.h, 450.0);
+        for sel in [".sidebar", ".controlled", ".sidebar-wrapper", ".sidebar-contents"] {
+            let rt = rect(&dt, &lt, sel, 0);
+            let rr = rect(&dr, &lr, sel, 0);
+            assert_eq!(rt, rr, "{sel}");
+        }
+    }
 }
 
 #[test]
