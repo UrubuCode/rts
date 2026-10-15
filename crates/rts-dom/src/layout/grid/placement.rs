@@ -91,10 +91,22 @@ fn find_free_col_major(
     }
 }
 
-fn span_of(start: &GridLine, end: &GridLine) -> usize {
+fn line_name_exists(lines: &[LineNames], name: &str) -> bool {
+    let suffixed_s = format!("{}-start", name);
+    let suffixed_e = format!("{}-end", name);
+    lines.iter().any(|ln| ln.iter().any(|l| l == name || l == &suffixed_s || l == &suffixed_e))
+}
+
+fn span_of(start: &GridLine, end: &GridLine, lines: &[LineNames]) -> usize {
     match (start, end) {
         (GridLine::Span(n), _) | (_, GridLine::Span(n)) => (*n as usize).max(1),
-        (GridLine::SpanNamed(_, n), _) | (_, GridLine::SpanNamed(_, n)) => (*n as usize).max(1),
+        (GridLine::SpanNamed(id, n), _) | (_, GridLine::SpanNamed(id, n)) => {
+            if line_name_exists(lines, id) {
+                (*n as usize).max(1)
+            } else {
+                1
+            }
+        }
         _ => 1,
     }
 }
@@ -143,10 +155,10 @@ pub(in crate::layout) fn place_grid_items(
         let rowp = axis_placement(rs, re, explicit_rows, &eff_row_lines, is_row_sub);
         let c_span = colp
             .map(|(c0, c1)| c1 - c0)
-            .unwrap_or_else(|| span_of(cs, ce));
+            .unwrap_or_else(|| span_of(cs, ce, &eff_col_lines));
         let r_span = rowp
             .map(|(r0, r1)| r1 - r0)
-            .unwrap_or_else(|| span_of(rs, re));
+            .unwrap_or_else(|| span_of(rs, re, &eff_row_lines));
 
         let info = ItemPlacementInfo {
             item: child,

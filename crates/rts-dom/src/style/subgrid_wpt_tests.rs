@@ -423,4 +423,28 @@ fn test_line_names_008() {
     }
 }
 
+#[test]
+fn test_line_names_009() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let Ok(t_src) = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-009.html") else { return; };
+    let Ok(r_src) = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-009-ref.html") else { return; };
+    let dom_t = crate::parse_html_to_dom(&t_src);
+    let dom_r = crate::parse_html_to_dom(&r_src);
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (xt, xr) = (dom_t.query_all("x"), dom_r.query_all("x"));
+    assert_eq!(xt.len(), xr.len());
+    for (&a, &b) in xt.iter().zip(&xr) {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb);
+    }
+}
+
 
