@@ -571,6 +571,12 @@ impl<'a> FuncBuilder<'a> {
         super::fold::is_constant_singleton(self.func, value, singleton)
     }
 
+    /// The divisor, when a value is a constant positive integer that fits an
+    /// `i32` (so an integer `srem` by it cannot trap). Looks through `ToF64`.
+    pub fn positive_i32_divisor(&self, value: ValueId) -> Option<i32> {
+        super::fold::positive_i32_divisor(self.func, value)
+    }
+
     /// What a value was widened from, if it was widened here.
     ///
     /// The counterpart to [`FuncBuilder::widen`], and the only way a client can

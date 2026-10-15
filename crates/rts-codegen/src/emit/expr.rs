@@ -1166,7 +1166,7 @@ fn emit_binary_inner(
                     let Some(Proven::NumberCall(entry)) = proven_binary(op) else {
                         unreachable!("only a remainder can be refused by the machine")
                     };
-                    Ok(call(builder, ctx, entry, &[a, b])?[0])
+                    remainder_fallback(builder, ctx, entry, a, b)
                 }
             };
         }
@@ -2027,6 +2027,70 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
     })
 }
 
+/// `a % b` over two proven doubles the machine declined: the unboxed call, except
+/// where `b` is a constant positive i32, when an integer `srem` is taken under
+/// a run-time guard.
+///
+/// JS `%` is the float remainder; `srem` agrees with it ONLY for integer-valued
+/// operands. The guard: `ToInt32(a)` converted back equals `a` (so `a` is an
+/// integer in i32 range; NaN, infinities, fractions and wider values miss) and
+/// `ToInt32(a) > 0` (so negatives and -0 miss and the sign of a zero result
+/// never arises). The divisor is a positive constant, so `srem` cannot trap.
+/// Every miss is the original call, unchanged.
+fn remainder_fallback(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    entry: RuntimeOp,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<ValueId> {
+    // ONLY the remainder: `**` reaches here too (the machine declines it), and
+    // taking `srem` for it would answer `3 ** 2` as `3 % 2`.
+    let divisor = match entry {
+        RuntimeOp::NumberRemainder => builder.positive_i32_divisor(b),
+        _ => None,
+    };
+    let Some(divisor) = divisor else {
+        return Ok(call(builder, ctx, entry, &[a, b])?[0]);
+    };
+    let check = builder.create_block();
+    let fast = builder.create_block();
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, Repr::F64);
+
+    let int = builder.to_int32(a)?;
+    let back = builder.to_f64(int)?;
+    let same = builder.compare(CmpOp::Eq, back, a)?;
+    builder.branch(same, (check, &[]), (slow, &[]))?;
+
+    builder.switch_to(check);
+    let zero = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I32,
+        bits: ScalarBits(0),
+    });
+    let zero = builder.use_const(zero);
+    let positive = builder.compare(CmpOp::Gt, int, zero)?;
+    builder.branch(positive, (fast, &[]), (slow, &[]))?;
+
+    builder.switch_to(fast);
+    let divisor = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I32,
+        bits: ScalarBits(divisor as u32 as u64),
+    });
+    let divisor = builder.use_const(divisor);
+    let rest = builder.arith(NumOp::Rem, int, divisor)?;
+    let rest = builder.to_f64(rest)?;
+    builder.jump(join, &[rest])?;
+
+    builder.switch_to(slow);
+    let answered = call(builder, ctx, entry, &[a, b])?[0];
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}
+
 /// What a [`Proven`] operator becomes over two operands already in `Repr::F64`.
 ///
 /// # Why this is a function and not written at each of its two call sites
@@ -2272,7 +2336,7 @@ fn emit_guarded(
             let Proven::NumberCall(op) = instruction else {
                 unreachable!("only a remainder can be refused by the machine")
             };
-            Ok(call(builder, ctx, op, &[left, right])?[0])
+            remainder_fallback(builder, ctx, op, left, right)
         },
     )?;
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a

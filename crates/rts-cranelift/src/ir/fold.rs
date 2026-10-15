@@ -139,6 +139,37 @@ fn is_f64_one(func: &Function, value: ValueId) -> bool {
     )
 }
 
+/// The value of a divisor that is a constant positive integer in `i32` range,
+/// whether held as an `F64` constant or as an `I32`/`I64` constant widened by
+/// `ToF64`. `None` for anything else.
+///
+/// What a client needs to build an inline integer remainder guarded at run time:
+/// a positive divisor is neither 0 nor -1, so `srem` over it cannot trap.
+pub(crate) fn positive_i32_divisor(func: &Function, divisor: ValueId) -> Option<i32> {
+    let id = match defining_inst(func, divisor)? {
+        Inst::Const(id) => *id,
+        Inst::ToF64(inner) => match defining_inst(func, *inner)? {
+            Inst::Const(id) => *id,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let ConstDecl::Scalar { repr, bits } = func.constant(id)? else {
+        return None;
+    };
+    let value: f64 = match repr {
+        Repr::F64 => f64::from_bits(bits.0),
+        Repr::I32 => bits.0 as u32 as i32 as f64,
+        Repr::I64 => bits.0 as i64 as f64,
+        _ => return None,
+    };
+    if value >= 1.0 && value <= i32::MAX as f64 && value.fract() == 0.0 {
+        Some(value as i32)
+    } else {
+        None
+    }
+}
+
 /// Whether an integer remainder's divisor cannot make the instruction trap.
 ///
 /// # Why the builder has to ask
