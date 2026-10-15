@@ -182,7 +182,12 @@ impl<T> Aside<T> {
         if self.held == 0 {
             return None;
         }
-        self.remove_held(reference)
+        // Past the reach, or an empty entry: nothing to take, answered inline
+        // (read-only) so the out-of-line call is paid only by a cell that HAS one.
+        match self.entries.get(self.cell_of(reference)) {
+            Some(Some(_)) => self.remove_held(reference),
+            _ => None,
+        }
     }
 
     /// [`Self::remove`], once something is known to be in the table.

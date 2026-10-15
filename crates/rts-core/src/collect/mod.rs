@@ -58,7 +58,8 @@ pub trait Trace {
 /// that survived.
 #[derive(Default)]
 pub struct Marks {
-    reached: Vec<bool>,
+    /// One bit per slot, 64 to a word.
+    reached: Vec<u64>,
 }
 
 impl Marks {
@@ -68,23 +69,32 @@ impl Marks {
     }
 
     /// Whether a slot has been reached this cycle.
+    #[inline]
     pub fn is_marked(&self, slot: Slot) -> bool {
-        self.reached.get(slot.0 as usize).copied().unwrap_or(false)
+        let index = slot.0 as usize;
+        match self.reached.get(index >> 6) {
+            Some(word) => (word >> (index & 63)) & 1 != 0,
+            None => false,
+        }
     }
 
     /// Mark a slot, and say whether this was the first time.
     ///
     /// The answer is what makes a cycle terminate: a slot already marked is not
     /// walked again.
+    #[inline]
     pub fn mark(&mut self, slot: Slot) -> bool {
         let index = slot.0 as usize;
-        if self.reached.len() <= index {
-            self.reached.resize(index + 1, false);
+        let word = index >> 6;
+        if self.reached.len() <= word {
+            self.reached.resize(word + 1, 0);
         }
-        if self.reached[index] {
+        let bit = 1u64 << (index & 63);
+        let was = self.reached[word];
+        if was & bit != 0 {
             return false;
         }
-        self.reached[index] = true;
+        self.reached[word] = was | bit;
         true
     }
 
@@ -94,7 +104,7 @@ impl Marks {
     /// collection does not allocate, which matters because the moment memory is
     /// scarce is exactly when collection runs.
     pub fn clear(&mut self) {
-        self.reached.iter_mut().for_each(|bit| *bit = false);
+        self.reached.fill(0);
     }
 }
 
