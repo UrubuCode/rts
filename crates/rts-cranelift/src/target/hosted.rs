@@ -181,12 +181,23 @@ pub unsafe fn place_in_memory(
     // `super::arena` for both halves of why. A module that ran out is freed
     // before the next is built: its memory IS the arena, and `JITModule`
     // leaks it on drop by design so that finalized code outlives the module.
+    // The compiled-code cache is on only when somebody enabled it AND there is a
+    // heap whose addresses can be named. In that mode the three addresses
+    // lowering would bake are relocations against `rts.imm.*`, and this run's
+    // values are supplied here, exactly as `outside` supplies the runtime's.
+    let cache = super::codecache::directory().is_some() && heap.is_some();
+    let mut symbols: Vec<(&str, *const u8)> = outside.to_vec();
+    if cache && let Some(bases) = &heap {
+        for (name, address) in bases.immediate_values() {
+            symbols.push((name, address as usize as *const u8));
+        }
+    }
     let estimate = super::arena::estimated_bytes(program);
     let mut attempt = 0;
     let (jit, machine_ids, placements) = loop {
         let bytes = estimate.saturating_mul(super::arena::GROWTH[attempt]);
-        let mut jit = executable_memory_in_arena(outside, bytes)?;
-        let compiled = compile_batch(&mut jit, program, &[], funcs, types, heap.clone()).and_then(
+        let mut jit = executable_memory_in_arena(&symbols, bytes)?;
+        let compiled = compile_batch(&mut jit, program, &[], funcs, types, heap.clone(), cache).and_then(
             |(machine_ids, placements)| {
                 jit.finalize_definitions().map_err(TargetError::Module)?;
                 Ok((machine_ids, placements))
@@ -265,7 +276,7 @@ pub fn place_in_object(
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
 ) -> Result<Vec<u8>, TargetError> {
-    compile_batch(&mut object, program, tables, funcs, types, heap)?;
+    compile_batch(&mut object, program, tables, funcs, types, heap, false)?;
     for blob in blobs {
         define_data_blob(&mut object, blob)?;
     }
@@ -294,6 +305,7 @@ fn compile_batch(
     funcs: &FuncRegistry,
     types: &TypeRegistry,
     heap: Option<crate::mem::RegionBases>,
+    cache: bool,
 ) -> Result<(Vec<(FuncId, cranelift_module::FuncId)>, super::Placements), TargetError> {
     // How a reference becomes an address is a property of the heap rather
     // than of any function compiled against it, which is why it is given to
@@ -301,6 +313,9 @@ fn compile_batch(
     let mut module = MachineModule::new(module);
     if let Some(bases) = heap {
         module = module.with_heap(bases);
+        if cache {
+            module = module.with_code_cache();
+        }
     }
 
     // Every name first, then every body. A program whose functions call

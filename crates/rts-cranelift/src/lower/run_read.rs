@@ -67,7 +67,8 @@ impl Body<'_> {
         let cell = self.value(owner);
         let position = self.value(index);
 
-        let header = builder.ins().iconst(types::I64, table as i64);
+        let heap = self.heap.as_ref().expect("a run table implies a heap");
+        let header = super::memory::baked(builder, heap, super::memory::Baked::Runs, table);
         let count = builder
             .ins()
             .load(types::I64, flags, header, RunTable::COUNT_OFFSET);

@@ -4948,6 +4948,7 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "rustc-hash 2.1.2",
+ "sha2 0.10.9",
 ]
 
 [[package]]

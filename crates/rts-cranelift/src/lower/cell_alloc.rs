@@ -64,7 +64,7 @@ impl Body<'_> {
         };
 
         let flags = MemFlags::trusted();
-        let header = builder.ins().iconst(types::I64, cursor as i64);
+        let header = super::memory::baked(builder, heap, super::memory::Baked::Cursor, cursor);
         let plain = builder
             .ins()
             .load(types::I64, flags, header, CellCursor::PLAIN_OFFSET);

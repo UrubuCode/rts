@@ -66,6 +66,7 @@ fn compile_with_heap(
                 bases,
                 types,
                 base: None,
+                imm: None,
             }),
         },
     )
@@ -268,6 +269,7 @@ fn allocation_is_still_refused_because_it_is_not_arithmetic() {
                         bases: &bases,
                         types: &types,
                         base: None,
+                        imm: None,
                     }),
                 },
             ),

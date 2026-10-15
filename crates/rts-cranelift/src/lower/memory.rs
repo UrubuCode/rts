@@ -40,6 +40,55 @@ pub struct Heap<'a> {
     /// declaration produced ([`crate::mem::HeapImports`]); the heap and the
     /// module are configured together for this reason.
     pub base: Option<(&'a ModuleDeclarations, DataId)>,
+    /// Present in relocatable-immediate mode: where each address that would
+    /// otherwise be baked into the code as a 64-bit constant is named instead.
+    ///
+    /// A baked address is a number that is only true in the process that chose
+    /// it. Naming it makes it a relocation, which the destination fills in per
+    /// process -- and which is what lets compiled bytes be stored and replayed
+    /// by the compiled-code cache. Absent for every other destination, whose
+    /// code is bit-for-bit what it was before this field existed.
+    pub imm: Option<(&'a ModuleDeclarations, crate::mem::ImmediateIds)>,
+}
+
+/// Which baked address is being asked for.
+#[derive(Clone, Copy)]
+pub(super) enum Baked {
+    Base,
+    Cursor,
+    Runs,
+}
+
+/// An address the heap would bake into the code, as a value.
+///
+/// An `iconst` unless the heap is in relocatable-immediate mode, in which case
+/// it is the address of a declared import: one `movabs` carrying an absolute
+/// relocation, the same instruction an `iconst` of that width costs. In that
+/// mode a missing symbol is a wiring mistake and PANICS rather than falling
+/// back to the constant, because a silent fallback is a stale address in a
+/// cache.
+pub(super) fn baked(
+    builder: &mut FunctionBuilder,
+    heap: &Heap,
+    which: Baked,
+    value: u64,
+) -> Value {
+    let Some((machine, ids)) = heap.imm else {
+        return builder.ins().iconst(types::I64, value as i64);
+    };
+    let id = match which {
+        Baked::Base => ids.base,
+        Baked::Cursor => ids.cursor,
+        Baked::Runs => ids.runs,
+    }
+    .unwrap_or_else(|| panic!("a baked heap address has no relocation symbol in relocatable mode"));
+    let symbol = crate::target::data_ref(machine, builder.func, id);
+    // The symbol's ADDRESS is the value: one `movabs` with an absolute
+    // relocation. Measured against reading it from a cell (the AOT form, one
+    // extra load per use): arith 1311 vs 1309 ms, array index read 461 vs 445 ms
+    // (+3.6%), alloc 73 vs 74 ms; the relocation form equals the baked constant
+    // on all three (min of 7, release, own process, interleaved).
+    builder.ins().global_value(types::I64, symbol)
 }
 
 /// Computes an object's address from a reference.
@@ -121,7 +170,7 @@ fn field_flags() -> MemFlags {
 /// than inventing a second way to read a runtime-provided address.
 fn materialize(builder: &mut FunctionBuilder, base: &RegionBase, heap: &Heap) -> Value {
     match base {
-        RegionBase::Immediate(address) => builder.ins().iconst(types::I64, *address as i64),
+        RegionBase::Immediate(address) => baked(builder, heap, Baked::Base, *address),
         // A symbol has to be declared in the module before it can be read,
         // which is why a heap whose bases live in one is only usable through
         // a module — `heap.base` is exactly that: absent only when `bases`

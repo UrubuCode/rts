@@ -60,6 +60,9 @@ pub fn command(input: Option<String>, _options: CompileOptions) -> Result<()> {
     // exception inside the program is reported and ends the process from
     // inside `Compiled::run` itself (see `rts-host::run`), the same way a
     // real runtime ends on one — it is not swallowed here.
+    // Compiled functions are kept between runs: a second `rts run` of an
+    // unchanged script replays them instead of compiling them again.
+    rts_host::enable_code_cache();
     crate::cli::new_engine::run_path(&input_path)
         .map_err(|e| anyhow!("{e}"))
         .with_context(|| format!("run of {} failed", input_path.display()))?;

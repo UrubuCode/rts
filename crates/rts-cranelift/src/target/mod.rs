@@ -23,12 +23,14 @@
 
 mod arena;
 mod blob;
+mod codecache;
 mod declare;
 mod destination;
 mod hosted;
 mod tables;
 
 pub use blob::DataBlob;
+pub use codecache::enable_code_cache;
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, executable_memory_in_arena, object_file};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
@@ -109,6 +111,11 @@ pub struct MachineModule<'a> {
     /// rather than at construction — and only at all when [`Self::heap`] is
     /// `Some`, mirroring `imports`'s own guard.
     heap_imports: Option<crate::mem::HeapImports>,
+    /// Whether baked heap addresses are lowered as relocations, which is what
+    /// the compiled-code cache needs and what [`Self::with_code_cache`] turns on.
+    relocatable: bool,
+    /// The symbols standing in for those addresses, once declared.
+    immediates: Option<crate::mem::ImmediateIds>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
     positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
     /// What each function is called and how much code it became.
@@ -139,6 +146,8 @@ impl<'a> MachineModule<'a> {
             entries: crate::symbols::EntryTable::new(),
             heap: None,
             heap_imports: None,
+            relocatable: false,
+            immediates: None,
             faults: std::collections::HashMap::new(),
             positions: std::collections::HashMap::new(),
             emitted: std::collections::HashMap::new(),
@@ -229,6 +238,16 @@ impl<'a> MachineModule<'a> {
         self
     }
 
+    /// Lowers every baked heap address as a named relocation and consults the
+    /// compiled-code cache ([`enable_code_cache`]) in [`compile_all`](Self::compile_all).
+    ///
+    /// The caller must resolve the symbols [`crate::mem::RegionBases::immediate_values`]
+    /// names to this run's addresses before the module is finalized.
+    pub fn with_code_cache(mut self) -> Self {
+        self.relocatable = true;
+        self
+    }
+
     /// Compiles a single function body into the module.
     ///
     /// Convenience over [`prepare`](Self::prepare) +
@@ -295,6 +314,25 @@ impl<'a> MachineModule<'a> {
         }
         let count = planned.len();
 
+        // After the pre-pass, because the key covers every declaration the
+        // module holds and the pre-pass is what makes the last of them.
+        let cache = match self.relocatable {
+            true => {
+                let timing = crate::probe::Phase::start("cache key");
+                let cache = codecache::Run::new(
+                    self.module.isa(),
+                    self.call_conv,
+                    self.heap.as_ref(),
+                    types,
+                    funcs,
+                    self.module.declarations(),
+                );
+                timing.over(count);
+                cache
+            }
+            false => None,
+        };
+
         let results = {
             let _timing = crate::probe::Phase::start("lower+compile");
             let shared = self.shared(types);
@@ -310,11 +348,32 @@ impl<'a> MachineModule<'a> {
             // generator is the majority of the CPU spent here.
             let lowering = std::sync::atomic::AtomicU64::new(0);
             let compiling = std::sync::atomic::AtomicU64::new(0);
-            let work = |one| -> Result<Emitted, TargetError> {
+            let hits = std::sync::atomic::AtomicU64::new(0);
+            let work = |one: Planned<'_>| -> Result<(Emitted, Option<(codecache::Key, Vec<u8>)>), TargetError> {
                 let at = std::time::Instant::now();
+                // A hit replaces lowering and machine-compiling outright. The
+                // function it yields is the same `Emitted` a compile would, so
+                // everything after this point -- `define_all`, the fault table,
+                // the position map -- cannot tell the difference.
+                let key = match &cache {
+                    Some(cache) => match cache.lookup(one.id, one.declared, &one.name, one.body) {
+                        codecache::Lookup::Hit(emitted) => {
+                            hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            return Ok((*emitted, None));
+                        }
+                        codecache::Lookup::Miss(key) => Some(key),
+                    },
+                    None => None,
+                };
                 let prepared = lower_one(&shared, one)?;
                 let lowered_at = std::time::Instant::now();
                 let emitted = compile_one(isa, prepared)?;
+                let stored = match (&cache, key) {
+                    (Some(cache), Some(key)) => cache
+                        .encode(shared.machine, &emitted)
+                        .map(|payload| (key, payload)),
+                    _ => None,
+                };
                 lowering.fetch_add(
                     (lowered_at - at).as_nanos() as u64,
                     std::sync::atomic::Ordering::Relaxed,
@@ -323,7 +382,7 @@ impl<'a> MachineModule<'a> {
                     lowered_at.elapsed().as_nanos() as u64,
                     std::sync::atomic::Ordering::Relaxed,
                 );
-                Ok(emitted)
+                Ok((emitted, stored))
             };
 
             let results = if planned.len() < PARALLEL_THRESHOLD {
@@ -355,9 +414,28 @@ impl<'a> MachineModule<'a> {
                     nanos(&compiling),
                     CODEGEN_NANOS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6,
                 );
+                if cache.is_some() {
+                    eprintln!(
+                        "rts-timing   code cache: {} hits, {} compiled, over {count}",
+                        hits.load(std::sync::atomic::Ordering::Relaxed),
+                        results.iter().filter(|(_, stored)| stored.is_some()).count(),
+                    );
+                }
             }
             results
         };
+        let mut fresh = Vec::new();
+        let mut emitted = Vec::with_capacity(results.len());
+        for (one, stored) in results {
+            emitted.push(one);
+            fresh.extend(stored);
+        }
+        let results = emitted;
+        if let Some(cache) = &cache {
+            let timing = crate::probe::Phase::start("cache write");
+            cache.finish(fresh);
+            timing.over(count);
+        }
 
         let timing = crate::probe::Phase::start("define");
         let defined = self.define_all(results);
@@ -447,6 +525,13 @@ impl<'a> MachineModule<'a> {
             self.heap_imports = Some(crate::mem::HeapImports::declare(self.module, bases)?);
         }
 
+        if self.relocatable
+            && self.immediates.is_none()
+            && let Some(bases) = &self.heap
+        {
+            self.immediates = Some(crate::mem::ImmediateIds::declare(self.module, bases)?);
+        }
+
         let mut planned = Vec::with_capacity(bodies.len());
         for &(id, body) in bodies {
             let declared = self
@@ -488,6 +573,7 @@ impl<'a> MachineModule<'a> {
                 .expect("the pre-pass declared the entry points"),
             heap: self.heap.as_ref(),
             heap_imports: self.heap_imports.as_ref(),
+            immediates: self.immediates,
             types,
             call_conv: self.call_conv,
         }
@@ -532,6 +618,7 @@ struct Shared<'a> {
     imports: &'a crate::symbols::EntryImports,
     heap: Option<&'a crate::mem::RegionBases>,
     heap_imports: Option<&'a crate::mem::HeapImports>,
+    immediates: Option<crate::mem::ImmediateIds>,
     types: &'a crate::types::TypeRegistry,
     call_conv: CallConv,
 }
@@ -558,6 +645,7 @@ fn lower_one(shared: &Shared<'_>, planned: Planned<'_>) -> Result<Prepared, Targ
                 .heap_imports
                 .and_then(|imports| imports.base())
                 .map(|data| (shared.machine, data)),
+            imm: shared.immediates.map(|ids| (shared.machine, ids)),
         }),
     )?;
 
