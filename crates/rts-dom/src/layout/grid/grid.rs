@@ -273,8 +273,8 @@ pub(in crate::layout) fn layout_children_grid(
     // ── POSICIONA cada item na sua célula ────────────────────────────────────────
     let justify = css
         .grid_justify_items
-        .unwrap_or(crate::style::AlignItems::Stretch);
-    let align = css.align_items.unwrap_or(crate::style::AlignItems::Stretch);
+        .unwrap_or(crate::style::AlignItems::Normal);
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Normal);
     // O início de cada coluna e de cada linha, com `justify-content` /
     // `align-content` já embutidos — o mesmo `justify_offsets` do flex (a spec
     // §8.4 partilha o vocabulário). `justify-content` ausente é `start`.
@@ -343,33 +343,20 @@ pub(in crate::layout) fn layout_children_grid(
         let item_css = dom.computed_style_idx(child).unwrap_or_default();
         let (is_col_sub, is_row_sub) =
             subgrid::is_subgrid_item(&item_css, css.writing_mode.unwrap_or_default());
-        let justify = if is_col_sub {
-            crate::style::AlignItems::Stretch
-        } else {
-            item_css.justify_self.unwrap_or(justify)
-        };
-        let align = if is_row_sub {
-            crate::style::AlignItems::Stretch
-        } else {
-            item_css.align_self.unwrap_or(align)
-        };
-        // mede o tamanho natural do item (shrink) p/ o alinhamento não-stretch.
         let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (cell.r0, cell.r1), row_gap, container_content_h, &resolve);
         let ratio_w = aspect::ratio_outer_width(dom, child, area_h, cell_w, font_size, ctx);
-        let is_stretch =
-            |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
-        let has_ratio = ratio_w.is_some() || dom.image_dims(child).is_some();
-        let declared_x = item_css.justify_self.is_some() || css.grid_justify_items.is_some();
-        let declared_y = item_css.align_self.is_some() || css.align_items.is_some();
-        let stretch_x = is_col_sub
-            || (is_stretch(justify)
-                && item_css.width.is_none()
-                && (!has_ratio || declared_x));
+        let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+        let has_ratio = ratio_w.is_some() || dom.image_dims(child).is_some() || is_rep;
+        let resolve_align = |val: crate::style::AlignItems| match val {
+            crate::style::AlignItems::Normal => if has_ratio { crate::style::AlignItems::FlexStart } else { crate::style::AlignItems::Stretch },
+            other => other,
+        };
+        let justify = if is_col_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.justify_self.unwrap_or(justify)) };
+        let align = if is_row_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.align_self.unwrap_or(align)) };
+        let is_stretch = |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
+        let stretch_x = is_col_sub || (is_stretch(justify) && item_css.width.is_none());
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = is_row_sub
-            || (is_stretch(align)
-                && item_css.height.is_none()
-                && (!has_ratio || declared_y));
+        let stretch_y = is_row_sub || (is_stretch(align) && item_css.height.is_none());
         let use_area_h = area_h.or(Some(cell_h));
         let (nat_w, nat_h) = measure_block(
             dom, child, cell.box_id, cell_w, use_area_h, ratio_w, None, true, ctx,

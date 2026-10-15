@@ -89,20 +89,26 @@ pub(in crate::layout) fn emit_atom(
             // tamanho já medido. Só se pinta quando há pixels — e aí é
             // `layout_image` que o faz, o mesmo caminho do fluxo de bloco,
             // em vez de um segundo emissor de imagem só para o inline.
-            // Replaced inline senta na BASELINE (§10.8; `claude-img-ficheiro`: y=15).
-            let top = text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh;
+            // Replaced inline senta na BASELINE (§10.8; `claude-img-ficheiro`: y=15),
+            // ou obedece a vertical-align (top/bottom/etc).
+            let rcss = dom.computed_style_idx(a_idx).unwrap_or_default();
+            let valign = rcss.vertical_align.unwrap_or(crate::style::VerticalAlign::Baseline);
+            let top = match valign {
+                crate::style::VerticalAlign::Top => cy,
+                crate::style::VerticalAlign::Bottom => cy + line_advance - seg.wh,
+                _ => text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh,
+            };
             if super::line::is_canvas(dom, a_idx) {
                 // O `<canvas>` pinta-se SEMPRE que está na linha, e
                 // não só quando tem desenho: a superfície pode
                 // chegar depois, e é `layout_canvas` que reserva a
                 // caixa entretanto — a mesma doutrina que o
                 // `<img>` segue no caminho de bloco.
-                let ccss = dom.computed_style_idx(a_idx).unwrap_or_default();
                 layout_canvas(
                     dom,
                     a_idx,
                     box_id,
-                    &ccss,
+                    &rcss,
                     *seg_x,
                     top,
                     seg.ww.max(1.0),
@@ -111,12 +117,11 @@ pub(in crate::layout) fn emit_atom(
                     list,
                 );
             } else if dom.image_dims(a_idx).is_some() {
-                let icss = dom.computed_style_idx(a_idx).unwrap_or_default();
                 layout_image(
                     dom,
                     a_idx,
                     box_id,
-                    &icss,
+                    &rcss,
                     *seg_x,
                     top,
                     seg.ww.max(1.0),
@@ -227,12 +232,34 @@ pub(in crate::layout) fn emit_atom(
             // só emite `Marker` quando não gerou run nenhum.
             AtomicKind::Marker => Rect::new(*seg_x, text_top, 0.0, 0.0),
             AtomicKind::Break => Rect::new(*seg_x, text_top, 0.0, content),
-            AtomicKind::Replaced => Rect::new(
-                *seg_x,
-                text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh,
-                seg.ww,
-                seg.wh,
-            ),
+            AtomicKind::Replaced => {
+                let rcss = dom.computed_style_idx(a_idx).unwrap_or_default();
+                let font = font_px(&rcss, DEFAULT_FONT_SIZE);
+                let resolve = ResolveCtx {
+                    parent_content_w: content_w,
+                    node_font_size: font,
+                    root_font_size: crate::style::root_font_size(),
+                    viewport_w: ctx.viewport_w,
+                    viewport_h: ctx.viewport_h,
+                };
+                let m = &rcss.margin;
+                let ml = m.left.resolve(&resolve).unwrap_or(0.0);
+                let mr = m.right.resolve(&resolve).unwrap_or(0.0);
+                let mt = m.top.resolve(&resolve).unwrap_or(0.0);
+                let mb = m.bottom.resolve(&resolve).unwrap_or(0.0);
+                let valign = rcss.vertical_align.unwrap_or(crate::style::VerticalAlign::Baseline);
+                let top = match valign {
+                    crate::style::VerticalAlign::Top => cy,
+                    crate::style::VerticalAlign::Bottom => cy + line_advance - seg.wh,
+                    _ => text_top + ctx.measurer.font_ascent_family(font_size, family) - seg.wh,
+                };
+                Rect::new(
+                    *seg_x + ml,
+                    top + mt,
+                    (seg.ww - ml - mr).max(0.0),
+                    (seg.wh - mt - mb).max(0.0),
+                )
+            }
             _ => Rect::new(*seg_x, cy, seg.ww, seg.wh),
         };
         crate::inline_box::union_rect(
