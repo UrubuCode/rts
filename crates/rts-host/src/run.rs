@@ -561,6 +561,10 @@ fn run_region(
 /// The environment variable that raises how far a region may grow, in cells.
 pub const MAX_CELLS_VAR: &str = "RTS_MAX_CELLS";
 
+/// Cells a single-region program may grow to by default: 4 194 304 cells x 128 B
+/// = 512 MiB of address space (committed only as `grow` touches it).
+pub const DEFAULT_RESERVED_CELLS: u32 = 4 << 20;
+
 /// How many cells each region reserves, starting from `cells`.
 ///
 /// [`rts_core::heap::GROWTH_CEILING`] times `cells` unless [`MAX_CELLS_VAR`]
@@ -576,8 +580,19 @@ pub const MAX_CELLS_VAR: &str = "RTS_MAX_CELLS";
 /// against. A value that is not a number is reported and ignored rather than
 /// failing the program, since it is the caller's setting and not the source's
 /// fault.
-fn heap_reservation(cells: u32) -> u32 {
-    let default = cells.saturating_mul(rts_core::heap::GROWTH_CEILING);
+fn heap_reservation(cells: u32, regions: u32) -> u32 {
+    // A single-region program (what `rts run` is) reserves DEFAULT_RESERVED_CELLS;
+    // a sharded one multiplies the reservation by its region count, so it keeps
+    // the small multiplier.
+    if regions > 1 {
+        return heap_reservation_with(cells.saturating_mul(rts_core::heap::GROWTH_CEILING));
+    }
+    heap_reservation_with(
+        DEFAULT_RESERVED_CELLS.max(cells.saturating_mul(rts_core::heap::GROWTH_CEILING)),
+    )
+}
+
+fn heap_reservation_with(default: u32) -> u32 {
     let Some(raw) = std::env::var_os(MAX_CELLS_VAR) else {
         return default;
     };
@@ -1256,7 +1271,7 @@ pub(crate) fn assemble(
     // change: the sharded form costs a mask, a load and an add on every access,
     // and a program that never asked for a second thread must not pay them.
     const CELLS: u32 = 1 << 16;
-    let reserved = heap_reservation(CELLS);
+    let reserved = heap_reservation(CELLS, regions);
     let (table, mut owned) = if regions <= 1 {
         (None, vec![rts_core::heap::Region::with_reservation(CELLS, reserved)])
     } else {

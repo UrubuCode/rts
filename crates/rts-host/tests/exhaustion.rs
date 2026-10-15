@@ -55,7 +55,7 @@ const TOO_MANY: &str = "let keep = []; \
 /// Computed rather than written, so that a change to either half moves this
 /// test with it instead of leaving it asserting a number nothing produces.
 fn reserved_cells() -> u32 {
-    (1u32 << 16) * rts_core::heap::GROWTH_CEILING
+    rts_host::DEFAULT_RESERVED_CELLS
 }
 
 #[test]
@@ -105,9 +105,9 @@ fn a_full_heap_ends_the_program_and_says_so() {
 const RAISED_ROLE: &str = "raised";
 
 /// A program that holds more objects than the default reservation but fewer
-/// than a raised one: 600 000 kept against 524 288 cells.
+/// than a raised one: 4 500 000 kept against 4 194 304 cells.
 const JUST_TOO_MANY: &str = "let keep = []; \
-     for (let i = 0; i < 600000; i = i + 1) { keep.push({a: i}); } \
+     for (let i = 0; i < 4500000; i = i + 1) { keep.push({a: i}); } \
      return keep.length;";
 
 #[test]
@@ -145,13 +145,13 @@ stderr: {err}"
     let raised = Command::new(&exe)
         .args([name, "--exact", "--nocapture"])
         .env(ROLE, RAISED_ROLE)
-        .env(rts_host::MAX_CELLS_VAR, "2000000")
+        .env(rts_host::MAX_CELLS_VAR, "8000000")
         .output()
         .expect("re-executing this test binary");
     let out = String::from_utf8_lossy(&raised.stdout);
     let err = String::from_utf8_lossy(&raised.stderr);
     assert!(
-        out.contains("returned 600000"),
+        out.contains("returned 4500000"),
         "with the ceiling raised the same program must finish.
 stdout: {out}
 stderr: {err}"
