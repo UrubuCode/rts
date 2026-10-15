@@ -233,3 +233,22 @@ fn test_018_abspos_clamped_container() {
         l_r.rect_of(d_r.resolve(ref_div).unwrap()),
     );
 }
+
+#[test]
+fn test_orthogonal_001() {
+    let test_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\orthogonal-positioned-grid-items-001.html",
+    ).unwrap();
+    let ref_html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\orthogonal-positioned-grid-items-001-ref.html",
+    ).unwrap();
+    let (d_t, l_t) = geometria(&test_html, 800.0);
+    let (d_r, l_r) = geometria(&ref_html, 800.0);
+    for id in ["#firstItem", "#secondItem", "#thirdItem", "#fourthItem"] {
+        let n_t = d_t.query(id).unwrap();
+        let n_r = d_r.query(id).unwrap();
+        let r_t = l_t.rect_of(d_t.resolve(n_t).unwrap());
+        let r_r = l_r.rect_of(d_r.resolve(n_r).unwrap());
+        assert_eq!(r_t, r_r, "mismatch in {id}");
+    }
+}

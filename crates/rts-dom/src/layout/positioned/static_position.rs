@@ -128,12 +128,16 @@ pub(in crate::layout) fn static_position_of(
         .is_some_and(|p| p != crate::style::Position::Static)
         || parent_css.transform.is_some();
     if horizontal
-        && (auto_lines || !container_is_cb)
         && parent_css
             .effective_display()
             .is_some_and(|d| d.is_grid_container())
     {
-        return static_position_grid(css, &parent_css, content, outer_w, outer_h);
+        let area = if auto_lines || !container_is_cb {
+            content
+        } else {
+            containing_block
+        };
+        return static_position_grid(css, &parent_css, area, outer_w, outer_h);
     }
     let (x, y) = static_position_block(dom, id, parent, content, flow_rects);
     // A block-level box starts at the START edge of its flow: the right one

@@ -329,7 +329,16 @@ pub(super) fn min_content_na_arvore(
         // width (133); measured with the parent's `nowrap`/`pre` flag alone, a
         // `pre` text's newline joined its lines into one.
         NodeKind::Text(_) => {
-            crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx)
+            let parent_is_vertical = dom
+                .node(id)
+                .parent
+                .and_then(|p| dom.computed_style_idx(p))
+                .map_or(false, |c| c.writing_mode.unwrap_or_default().is_vertical());
+            if parent_is_vertical {
+                font * 1.125
+            } else {
+                crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx)
+            }
         }
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
