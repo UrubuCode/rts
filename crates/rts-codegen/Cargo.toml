@@ -13,6 +13,7 @@ crate-type = ["rlib"]
 # failure this pair of crates exists to prevent, and a dependency edge is where
 # that failure would start.
 rts-cranelift = { path = "../rts-cranelift" }
+rts-corelib = { path = "../rts-corelib" }
 
 # The shared mid-level IR. This crate supplies the half of it that is not
 # neutral — the type domain, the primitive table and what a guard asserts — and

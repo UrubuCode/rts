@@ -39,6 +39,9 @@ pub struct Callees {
     /// Whether the whole program leaves `Math` as the language defines it --
     /// `intrinsic.rs`.
     math_primordial: bool,
+    /// Names imported from `rts:core` that this function sees unshadowed, with the
+    /// primitive each means -- `runtime::core_names`.
+    core_imports: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
     statics_primordial: crate::emit::statics::Primordials,
     /// Which names the program expects to be collections -- `emit/evidence`, handed
     /// over whole so both emitters choose a direct entry for the same receivers.
@@ -61,6 +64,7 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: held,
@@ -80,6 +84,7 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: std::collections::BTreeMap::new(),
@@ -153,6 +158,20 @@ impl Callees {
     pub fn with_math_primordial(mut self, untouched: bool) -> Self {
         self.math_primordial = untouched;
         self
+    }
+
+    /// The `rts:core` imports in force for this function.
+    pub fn with_core_imports(
+        mut self,
+        imports: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
+    ) -> Self {
+        self.core_imports = imports;
+        self
+    }
+
+    /// The primitive `name` is bound to by an `rts:core` import, if it is.
+    pub fn core_import(&self, name: crate::names::Name) -> Option<rts_corelib::CorePrimitive> {
+        self.core_imports.get(&name).copied()
     }
 
     /// Whether the program leaves `Math` alone.

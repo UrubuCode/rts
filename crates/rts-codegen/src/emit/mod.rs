@@ -60,6 +60,7 @@ pub(crate) use object::INLINE_FIELDS;
 mod body_state;
 pub(crate) mod call;
 pub(crate) mod math;
+pub(crate) mod core_call;
 pub(crate) mod methods;
 pub(crate) mod light_arguments;
 mod chunk;
@@ -688,6 +689,10 @@ pub struct Ctx<'a> {
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Names bound by `import { … } from "rts:core"` in the module being emitted,
+    /// to the primitive each means. Compile-time only: the import emits nothing.
+    /// Reset per module beside `live_imports`.
+    pub(crate) core_imports: std::collections::BTreeMap<Name, rts_corelib::CorePrimitive>,
     /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
     /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
     statics_primordial: statics::Primordials,
@@ -823,6 +828,7 @@ impl<'a> Ctx<'a> {
             module_key: None,
             names_top_level: false,
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
@@ -1247,6 +1253,7 @@ pub(super) fn emit_program_into(
     // and one module mentioning `eval` must not take the next module's imports
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
+    ctx.core_imports.clear();
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1683,6 +1690,7 @@ fn emit_unit(
     // and one module mentioning `eval` must not take the next module's imports
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
+    ctx.core_imports.clear();
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask

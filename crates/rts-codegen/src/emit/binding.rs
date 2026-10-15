@@ -71,6 +71,10 @@ pub(super) fn lexical_read(
     ctx: &mut Ctx,
     name: Name,
 ) -> EmitResult<ValueId> {
+    // A name imported from `rts:core` is compile-time only: it has no value.
+    if ctx.core_imports.contains_key(&name) && scope.lookup(name).is_none() {
+        return Err(super::module::refuse("a use of a name imported from rts:core other than calling it"));
+    }
     if scope.in_dead_zone(name) && !ctx.in_cleanup {
         return dead_zone(builder, ctx, name);
     }

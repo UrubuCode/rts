@@ -599,6 +599,11 @@ impl Lowering<'_> {
             ExprKind::Ident(name) if self.substituted_name(*name).is_some() => {
                 Ok(self.substituted_name(*name).expect("just asked"))
             }
+            // A NAME IMPORTED FROM `rts:core` has no value: refused here, so the running
+            // emitter refuses it by name (`binding::lexical_read`).
+            ExprKind::Ident(name) if self.is_core_import(*name) => Err(Unsupported::Expression(
+                "a name imported from rts:core used other than as a call",
+            )),
             ExprKind::Ident(name) => {
                 match self.resolution.binding_in(self.scope, *name) {
                     Some(binding) => self.read_binding(binding, *name, expr),

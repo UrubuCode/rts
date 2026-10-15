@@ -728,6 +728,10 @@ pub(super) fn emit_body(
         candidates.push(name);
     }
     for import in imports {
+        // `rts:core` binds nothing at run time, so there is nothing to capture.
+        if import.source == crate::runtime::core_names::SPECIFIER {
+            continue;
+        }
         for binding in &import.bindings {
             candidates.push(match binding {
                 crate::syntax::ImportBinding::Named { local, .. } => *local,

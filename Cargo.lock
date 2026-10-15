@@ -4909,6 +4909,7 @@ dependencies = [
 name = "rts-codegen"
 version = "0.1.0"
 dependencies = [
+ "rts-corelib",
  "rts-cranelift",
  "rts-mir",
  "swc_common",

@@ -105,6 +105,21 @@ pub fn emit_import(
     ctx: &mut Ctx,
     import: &Import,
 ) -> EmitResult<()> {
+    // `rts:core` is compile-time sugar, not a module: bind each name to its
+    // primitive and emit nothing.
+    if import.source == crate::runtime::core_names::SPECIFIER {
+        for binding in &import.bindings {
+            let ImportBinding::Named { exported, local } = binding else {
+                return Err(refuse("a default or namespace import of rts:core"));
+            };
+            let Some(found) = crate::runtime::core_names::lookup(exported) else {
+                return Err(refuse("an unknown name imported from rts:core"));
+            };
+            ctx.core_imports.insert(*local, found.primitive);
+        }
+        return Ok(());
+    }
+
     // The specifier is a string the program wrote, so it is already in the
     // literal table — the same table `string_const` reads, and the number is
     // what crosses rather than the text.

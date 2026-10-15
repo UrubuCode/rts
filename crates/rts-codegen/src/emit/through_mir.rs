@@ -302,6 +302,13 @@ fn attempt(
         .with_substitutes(substitutes(ctx, enclosing, function))
         .with_methods(methods(ctx, enclosing, function))
         .with_math_primordial(ctx.math_primordial)
+        .with_core_imports(
+            ctx.core_imports
+                .iter()
+                .filter(|(name, _)| enclosing.lookup(**name).is_none())
+                .map(|(name, primitive)| (*name, *primitive))
+                .collect(),
+        )
         .with_statics_primordial(ctx.statics_primordial)
         .with_collections(ctx.collection_evidence.clone());
     let mut domain = crate::domain::Js::new();

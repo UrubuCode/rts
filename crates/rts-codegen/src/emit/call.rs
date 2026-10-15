@@ -78,6 +78,13 @@ pub(super) fn emit_call_as(
         return Ok(value);
     }
 
+    // A call of a name imported from `rts:core`: the direct op, no call.
+    if scope_is_lexical
+        && let Some(value) = super::core_call::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
     if scope_is_lexical

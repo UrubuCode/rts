@@ -55,6 +55,12 @@ pub enum CorePrimitive {
     Length,
     /// 32-bit integer add with overflow side-exit. Safe.
     I32Add,
+    /// 32-bit wrapping integer multiply (`Math.imul` semantics). Safe.
+    ///
+    /// Scaffolding: this duplicates `Math.imul`. It exists so the `rts:core`
+    /// name -> primitive -> op mechanism has a first inline, safe entry; the
+    /// payoff is the later (unsafe) primitives that reuse that mechanism.
+    I32Mul,
     /// IEEE-754 bit pattern of a number. Safe.
     F64ToBits,
     /// A number from its IEEE-754 bit pattern. Safe.
@@ -68,7 +74,7 @@ impl CorePrimitive {
     pub fn is_public(self) -> bool {
         matches!(
             self,
-            Self::Length | Self::I32Add | Self::F64ToBits | Self::F64FromBits
+            Self::Length | Self::I32Add | Self::I32Mul | Self::F64ToBits | Self::F64FromBits
         )
     }
 }

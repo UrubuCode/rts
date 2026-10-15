@@ -102,6 +102,49 @@ impl Lowering<'_> {
         }))
     }
 
+    /// Whether `name` is an unshadowed `rts:core` import here.
+    pub(super) fn is_core_import(&self, name: crate::names::Name) -> bool {
+        // The resolution declares an import in the module scope, so "not shadowed" is
+        // that the name resolves here to the same binding it does at the top.
+        self.callees.core_import(name).is_some()
+            && self.resolution.binding_in(self.scope, name)
+                == self.resolution.binding_in(self.resolution.module(), name)
+            && !self.outer.is_some_and(|outer| outer(name).is_some())
+    }
+
+    /// `imul(a, b)` where `imul` is imported from `"rts:core"`, as the direct op
+    /// for its primitive; the twin of `emit/core_call.rs`. `None` for any other call.
+    pub(super) fn core_intrinsic(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        let ExprKind::Ident(name) = &callee.kind else {
+            return Ok(None);
+        };
+        if !self.is_core_import(*name) {
+            return Ok(None);
+        }
+        let primitive = self.callees.core_import(*name).expect("just asked");
+        let (op, arity) = match primitive {
+            rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
+            _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),
+        };
+        if arguments.len() != arity {
+            return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+        }
+        let mut numbers = Vec::with_capacity(arity);
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+            };
+            let value = self.expression(argument)?;
+            numbers.push(self.prim(JsPrim::ToNumber, vec![value], at));
+        }
+        Ok(Some(self.prim(op, numbers, at)))
+    }
+
     /// `Math.PI` and its siblings as the number, under the same proof, or `None`
     /// for a read this does not decide. The table of values is `emit/math`'s,
     /// asked here so the two emitters cannot disagree about a digit.

@@ -38,6 +38,7 @@
 //! reaching past the boundary to do work the machine already does.
 
 mod literals;
+pub mod core_names;
 pub mod math_direct;
 mod raising;
 

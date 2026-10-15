@@ -62,6 +62,9 @@ impl Lowering<'_> {
         expr: &Expr,
     ) -> Result<Option<ValueId>, Unsupported> {
         use crate::syntax::ExprKind;
+        if let Some(answered) = self.core_intrinsic(callee, arguments, expr)? {
+            return Ok(Some(answered));
+        }
         if let Some(answered) = self.intrinsic(callee, arguments, expr)? {
             return Ok(Some(answered));
         }
