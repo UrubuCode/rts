@@ -1,71 +1,74 @@
-//! `rts-corelib` — the native CoreLib layer, imported as `rts:core`.
+//! `rts-corelib` — the neutral core: the machine primitives every front end
+//! lowers to directly, below any language.
 //!
-//! # What this is, on the .NET model
+//! # Why this is NOT a module
 //!
-//! .NET has `System.Private.CoreLib`: the one assembly the runtime knows
-//! intrinsically, which reaches the native runtime through FCall/QCall and the
-//! JIT's `[Intrinsic]` recognition, and on which the rest of the BCL (`System.*`)
-//! is written in ordinary C#. Rust has the same split: `core` (the `#[lang]`
-//! items and `core::intrinsics`) with `std` written on top of it.
+//! The first cut installed an `rts:core` namespace through
+//! `declare_module`/`make_namespace`. That is the *library* door — a namespace
+//! object looked up by specifier at run time, which is a JavaScript construct
+//! (`import … from`). The core is not a library: it is the floor of the machine,
+//! reached by a DIRECT call the compiler emits, with no lookup. And rts targets
+//! more than one language (`rts-mir`'s `Domain` is "implemented once per front
+//! end"), so the core cannot be spelled in, or loaded by, any one of them.
 //!
-//! `rts:core` is that layer for this engine. It exposes the irreducible machine
-//! primitives — the ones a program cannot write in the language because they
-//! *are* the language's floor — so that everything above them can eventually be
-//! ordinary TypeScript compiled through the same pipeline as user code.
+//! So this crate holds no `install`. It is the **catalogue** of the neutral
+//! primitives — the ones a program cannot write because they *are* the floor —
+//! that each front end's `Domain` maps its own names onto and lowers directly
+//! (the way `Callee::Entry` already lowers to `ops.entry(...)`). A JavaScript
+//! `import { … } from "rts:core"`, if offered, is compile-time sugar the JS front
+//! end resolves to these primitives; Lua would bind them its own way.
 //!
-//! # Why the std still sits NATIVE on top of this, for now
+//! # What goes here, and what does not
 //!
-//! Moving a stdlib body from `.ts` to a native was measured at **124× at run
-//! time** (skill `add-builtin-class`): today a `.ts` body crosses the runtime
-//! door, is `Tagged`, and does not inline at the call-site. So `rts:core` is
-//! built first and the std keeps its native bodies on top of it; the std→TS
-//! migration is a later, measured step, gated on direct-call, int32 and the
-//! inliner+escape-analysis landing. See `.docs-pendentes/`.
+//! Here: the language-agnostic primitives — raw allocation, raw memory load and
+//! store, slot access, the integer and bit operations, bit reinterpretation.
+//! The implementations live in `rts-core`/`rts-cranelift` (availability decides
+//! membership — see the `add-builtin-class` skill); this catalogue names them and
+//! records the safe/`unsafe` boundary.
 //!
-//! # Mechanism
+//! Not here: anything semantic (JavaScript's `Math`, prototype chains, the module
+//! table). That is a front end's, declared through its `Domain`.
 //!
-//! An `rts:` module is a namespace object registered in the runtime's module
-//! table. `import { x } from "rts:core"` lowers to `module_binding`, which looks
-//! up `"rts:core"` and reads the property off it. So installing is exactly:
-//! build a namespace of natives, then declare it under the specifier — the same
-//! shape `rts-std` uses for `rts:test`, `rts:runtime`, `rts:json5`.
+//! # Status
+//!
+//! Catalogue only. The primitives are bound to the front ends through the
+//! `@intrinsic`/`@repr` surface (see `.docs-pendentes/`), which depends on the
+//! int32 arithmetic path landing first. Until a primitive has a binding it is
+//! listed here and wired nowhere.
 
-use rts_core::entry::{self, Context, Provided};
-
-/// Registers the `rts:core` module.
+/// A neutral core primitive — named here, lowered directly by each front end.
 ///
-/// Called from the boot sequence beside `rts_std::install`. Until it is wired
-/// there, the crate compiles and the namespace is ready, but no running program
-/// can resolve the specifier yet.
-pub fn install(context: &mut Context) {
-    let core = entry::make_namespace(context, CORE);
-    entry::declare_module(context, "rts:core", core);
+/// This is the catalogue, not the wiring: a variant names a primitive the core
+/// guarantees on every target. The machine op or entry it lowers to lives in
+/// `rts-cranelift`/`rts-core`; the mapping from a language's surface name to one
+/// of these is the front end's `Domain`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum CorePrimitive {
+    /// Raw allocation of a cell (the bump/`rts_alloc` floor). `unsafe`: internal.
+    Alloc,
+    /// Read a machine word from a slot. `unsafe`: internal.
+    SlotLoad,
+    /// Write a machine word to a slot. `unsafe`: internal.
+    SlotStore,
+    /// The element count of an array-like. Safe.
+    Length,
+    /// 32-bit integer add with overflow side-exit. Safe.
+    I32Add,
+    /// IEEE-754 bit pattern of a number. Safe.
+    F64ToBits,
+    /// A number from its IEEE-754 bit pattern. Safe.
+    F64FromBits,
 }
 
-/// The primitives `rts:core` exports.
-///
-/// Deliberately minimal for now: one proven, side-effect-free pair that
-/// establishes the import path end to end without committing an ABI the std is
-/// not yet ready to consume. The real taxonomy (raw memory, slot access, the
-/// int32 intrinsics, allocation hints) is populated once the first export set is
-/// confirmed.
-const CORE: &[(&str, Provided)] = &[
-    ("f64ToBits", f64_to_bits),
-    ("f64FromBits", f64_from_bits),
-];
-
-/// `f64ToBits(x)` — the IEEE-754 bit pattern of a number, as an integer.
-///
-/// A core primitive because the language has no way to spell it: it reinterprets
-/// the bits rather than converting the value. Same 2^53 boundary caveat as
-/// `rts`'s `num.f64_to_bits` — the tagged number crossing is a double.
-extern "C" fn f64_to_bits(_e: u64, _this: u64, a: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let value = entry::number_of(a).unwrap_or(0.0);
-    entry::make_number(value.to_bits() as f64)
-}
-
-/// `f64FromBits(bits)` — the inverse: a number from its IEEE-754 bit pattern.
-extern "C" fn f64_from_bits(_e: u64, _this: u64, a: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
-    let bits = entry::number_of(a).unwrap_or(0.0) as u64;
-    entry::make_number(f64::from_bits(bits))
+impl CorePrimitive {
+    /// Whether a front end may expose this to user code, or keep it internal to
+    /// the standard library. The `unsafe` primitives touch raw memory, which the
+    /// conservative-scan GC cannot be handed to arbitrary programs.
+    pub fn is_public(self) -> bool {
+        matches!(
+            self,
+            Self::Length | Self::I32Add | Self::F64ToBits | Self::F64FromBits
+        )
+    }
 }
