@@ -10,6 +10,14 @@ pub(in crate::layout) struct ItemSizes {
     pub max_content: f32,
 }
 
+pub(in crate::layout) fn has_pct(d: Option<crate::style::Dimension>) -> bool {
+    match d {
+        Some(crate::style::Dimension::Percent(_)) => true,
+        Some(crate::style::Dimension::Calc(c)) => c.pct != 0.0,
+        _ => false,
+    }
+}
+
 pub(in crate::layout) fn grid_item_min_content_width(
     dom: &Dom,
     child: NodeIdx,
@@ -23,6 +31,9 @@ pub(in crate::layout) fn grid_item_min_content_width(
     let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
     if let (Some(g_css), Some(bid)) = (grid_css, box_id) {
         if aspect::is_item_orthogonal(dom, child, g_css) {
+            if has_pct(css.min_width) || has_pct(css.width) || has_pct(css.max_width) {
+                return 0.0;
+            }
             return crate::layout::measure_block(dom, child, bid, f32::INFINITY, area_h, None, None, true, ctx).0;
         }
     }
@@ -30,16 +41,28 @@ pub(in crate::layout) fn grid_item_min_content_width(
     let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
     let frame_v = css.padding.resolve_v(resolve) + bt + bb;
     let f = font_px(&css, font_size);
-    let min_floor = crate::layout::measure::intrinsic_min_max::resolve(css.min_width, dom, child, f, ctx, resolve)
-        .map(|w| w + frame_h)
-        .unwrap_or(0.0);
+    let min_floor = match css.min_width {
+        Some(crate::style::Dimension::Auto) | None => 0.0,
+        Some(d) => crate::style::dimensao_absoluta(d, resolve).map(|p| p + frame_h).unwrap_or(0.0),
+    };
     use crate::scrollbar::Overflow::{Clip, Visible};
     let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
     if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
         return min_floor.max(frame_h);
     }
-    if let Some(w) = css.width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
+    let mx_w = css.max_width.and_then(|d| d.resolve(resolve));
+    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
+        return (min_w + frame_h).max(min_floor);
+    } else if css.min_width.is_some() {
+        return min_floor.max(frame_h);
+    }
+    if let Some(mut w) = css.width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
+        if let Some(mx) = mx_w {
+            w = w.min(mx);
+        }
         return (w + frame_h).max(min_floor);
+    } else if has_pct(css.width) {
+        return min_floor.max(frame_h);
     }
     let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
     let has_ratio = is_rep || aspect_ratio::declared_ratio(&css).is_some();
@@ -47,7 +70,7 @@ pub(in crate::layout) fn grid_item_min_content_width(
         if let Some(h) = css.height.and_then(|d| resolve_height(Some(d), area_h, resolve)).or(area_h) {
             let content_h = (h - frame_v).max(0.0);
             if let Some((w, _)) = crate::inline_box::replaced_inline_size(
-                dom, child, &css, ctx.viewport_w, Some(content_h), (None, Some(content_h)), ctx,
+                dom, child, &css, resolve.parent_content_w, Some(content_h), (None, Some(content_h)), ctx,
             ) {
                 return (w + css.margin.resolve_h(resolve)).max(min_floor);
             }
@@ -58,10 +81,10 @@ pub(in crate::layout) fn grid_item_min_content_width(
         return min_floor.max(frame_h);
     }
     let mut content = crate::table::min_content(dom, child, f, ctx);
-    if css.min_width.is_none() {
-        if let Some(mx) = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, child, f, ctx, resolve) {
-            content = content.min(mx + frame_h);
-        }
+    if has_pct(css.max_width) {
+        content = 0.0;
+    } else if let Some(mx) = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, child, f, ctx, resolve) {
+        content = content.min(mx + frame_h);
     }
     content.max(min_floor)
 }
@@ -79,9 +102,10 @@ pub(in crate::layout) fn grid_item_min_size_width(
     let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
     let [_, br, _, bl] = crate::style::borders::used_widths(&css);
     let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
-    let f = font_px(&css, font_size);
-    if let Some(w) = crate::layout::measure::intrinsic_min_max::resolve(css.min_width, dom, child, f, ctx, resolve) {
-        w + frame_h
+    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
+        min_w + frame_h
+    } else if css.min_width.is_some() {
+        frame_h
     } else {
         grid_item_min_content_width(dom, child, box_id, area_h, grid_css, font_size, resolve, ctx)
     }

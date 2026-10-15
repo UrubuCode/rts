@@ -393,7 +393,7 @@ pub(in crate::layout) fn resolve_row_tracks(
                         B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
                     };
                     let base = if matches!(min, B::Auto) {
-                        mn.min(mx).max(min_h)
+                        mn.min(mx)
                     } else {
                         mn
                     };

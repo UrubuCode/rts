@@ -65,7 +65,7 @@ pub(in crate::layout) fn ratio_outer_width(
         dom,
         child,
         &css,
-        ctx.viewport_w,
+        cb_w,
         area_h,
         (None, None),
         ctx,
