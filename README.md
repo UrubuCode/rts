@@ -107,7 +107,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.9%   4525/4528 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   168/170 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 68.6%   597/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 69.2%   602/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -120,8 +120,8 @@ The total alone says nothing about where the work is — it does not tell a bran
 
 ```
 subfolders of css-flexbox
-  [▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱]  35.9%   14/39     balance
-  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  45.8%   11/24     intrinsic-size
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  38.5%   15/39     balance
+  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   12/24     intrinsic-size
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  63.2%   12/19     abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
   [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       order
@@ -129,21 +129,21 @@ subfolders of css-flexbox
 
 the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  83.1%   133/160   outros
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.2%   51/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  67.5%   52/77     item
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.8%   48/58     align
-  [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
+  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  41.5%   22/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  84.8%   39/46     gap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.3%   20/39     percentage
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  59.5%   22/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  64.7%   22/34     min-
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  70.6%   24/34     min-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   24/30     basis
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.7%   15/29     table
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.6%   22/28     wrap
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   12/24     writing-mode
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  90.5%   19/21     justify
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  73.3%   11/15     order
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   12/15     order
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  72.7%   8/11      column
   [▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]   0.0%   0/9       anonymous
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   9/9       grow
@@ -161,9 +161,9 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 - `claude-absoluto-posicao-estatica-linha-vazia.html` — `claude-absoluto-posicao-estatica-linha-vazia` (2026-09-21): its six static positions pass; the two deviations are the WIDTH of a span with a border (`#s2`, `#s3`: 51.39 for Blink's 33.8, two spaces too many), the same on main. The span's border edge enters `quebra.rs` as a piece with width (`juntar!`), so the whitespace after the START edge and before the END edge counts as content and survives the line-edge trim (CSS Text 3 §4.1.2). A lot of its own.
 - `claude-margem-atraves-de-inline-vazio.html` — rect de um inline VAZIO (so um espaco colapsavel): o Blink da 0x0 na posicao da linha (y=140); este motor nao regista rect nenhum (y=0). As margens a volta (a2/b2) batem — e a geometria do inline sem conteudo, lote da geometria de caixas vazias (BT-2c deixou `rects_of_box` pronto para isso). 2026-09-25.
 
-**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **100/122 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
+**DOM engine state** (`crates/rts-dom/PLAN.md` §0): **102/124 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-10-08 by CI (`dom-rulers`).*
+*Updated 2026-10-15 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
