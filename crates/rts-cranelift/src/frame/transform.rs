@@ -672,6 +672,10 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, hit);
                 self.rewrite_block_call(block, miss);
             }
+            Terminator::CellAlloc { hit, miss } => {
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
             Terminator::CachedSet {
                 object,
                 value,

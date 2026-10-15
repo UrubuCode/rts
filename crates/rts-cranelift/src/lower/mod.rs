@@ -40,6 +40,7 @@
 
 mod body;
 mod cached_keyed;
+mod cell_alloc;
 mod cleanup;
 mod error;
 mod memory;

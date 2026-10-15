@@ -732,12 +732,7 @@ impl JsMachine<'_> {
         keys: &[MachineValue],
     ) -> Result<MachineValue, String> {
         // THE WIDTH `emit/binding.rs` gives one: a slot per name plus the link.
-        let width = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(keys.len() as u64 + 1),
-        });
-        let width = into.use_const(width);
-        let built = self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[width])?;
+        let built = self.object_new(into, keys.len() as u64 + 1)?;
         let (link, link_operand) = self.fixed_key(into, crate::emit::OUTER)?;
         self.define_through_cache(into, built, link, link_operand, enclosing)?;
 
@@ -750,6 +745,29 @@ impl JsMachine<'_> {
     }
 
     /// An `I64` the compiler fixed: a count, a mode, an index.
+    /// A fresh plain object with room for `slots` properties.
+    ///
+    /// A cell that fits the inline slots is taken in place by
+    /// `Terminator::CellAlloc`; only the case it cannot answer calls the runtime,
+    /// which collects or grows. A wider object needs several cells and always
+    /// calls. The answer is the same reference either way.
+    fn object_new(&mut self, into: &mut FuncBuilder, slots: u64) -> Result<MachineValue, String> {
+        if slots > u64::from(crate::emit::INLINE_FIELDS) {
+            let size = self.word(into, slots);
+            return self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[size]);
+        }
+        let slow = into.create_block();
+        let join = into.create_block();
+        let result = into.add_block_param(join, Repr::Tagged);
+        into.cell_alloc((join, &[]), (slow, &[])).map_err(machine)?;
+        into.switch_to(slow);
+        let size = self.word(into, slots);
+        let answered = self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[size])?;
+        into.jump(join, &[answered]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(result)
+    }
+
     fn word(&mut self, into: &mut FuncBuilder, bits: u64) -> MachineValue {
         let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
             repr: Repr::I64,

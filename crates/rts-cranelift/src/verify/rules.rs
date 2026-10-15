@@ -183,6 +183,29 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, miss, 0, errors);
             }
 
+            // No operand. The hit block takes the new cell's reference, in the
+            // generic form, ahead of whatever else it carries.
+            Terminator::CellAlloc { hit, miss } => {
+                match func.block(hit.block) {
+                    None => errors.push(VerifyError::UnknownBlock {
+                        from,
+                        target: hit.block,
+                    }),
+                    Some(target) => {
+                        if target.params.first().map(|&p| func.repr_of(p)) != Some(Repr::Tagged) {
+                            errors.push(VerifyError::GuardTargetMissingValue {
+                                from,
+                                target: hit.block,
+                                expect: Repr::Tagged,
+                            });
+                        } else {
+                            check_block_call(func, from, hit, 1, errors);
+                        }
+                    }
+                }
+                check_block_call(func, from, miss, 0, errors);
+            }
+
             Terminator::Throw { payload, .. } => {
                 let repr = func.repr_of(*payload);
                 if repr != Repr::Tagged {

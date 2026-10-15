@@ -56,6 +56,7 @@
 
 mod binding;
 pub(crate) use binding::OUTER;
+pub(crate) use object::INLINE_FIELDS;
 mod body_state;
 pub(crate) mod call;
 pub(crate) mod math;

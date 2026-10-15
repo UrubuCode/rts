@@ -54,16 +54,16 @@ impl Region {
     /// is a field and not a header — it could equal [`FREE_MARKER`] by
     /// coincidence.
     pub(super) fn coalesce_free_space(&mut self) {
-        self.free_head = None;
+        self.set_free_head(None);
         self.free_runs.clear();
         let mut index = 0u32;
-        while index < self.next {
+        while index < self.next() {
             if !self.is_free_cell(index) {
                 index += 1;
                 continue;
             }
             let start = index;
-            while index < self.next && self.is_free_cell(index) {
+            while index < self.next() && self.is_free_cell(index) {
                 index += 1;
             }
             let length = index - start;
@@ -95,13 +95,13 @@ impl Region {
 
     fn thread_single(&mut self, index: u32) {
         let word = self.word_of(index);
-        let link = match self.free_head {
+        let link = match self.free_head() {
             Some(next) => u64::from(next),
             None => NO_NEXT,
         };
         self.set_word(word, FREE_MARKER);
         self.set_word(word + 1, link);
-        self.free_head = Some(index);
+        self.set_free_head(Some(index));
     }
 }
 

@@ -1292,6 +1292,7 @@ pub(crate) fn assemble(
             // context that runs it must be the one holding this region.
             RegionBases::single(RegionBase::Immediate(region.base()), region.stride())
                 .with_runs(region.runs_address())
+                .with_cursor(region.cursor_address())
         }
         Some(table) => {
             let at = RegionBase::Immediate(table.address());

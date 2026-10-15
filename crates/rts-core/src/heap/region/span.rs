@@ -56,9 +56,9 @@ impl Region {
         if cells == 0 {
             return None;
         }
-        let index = if cells <= self.capacity - self.next {
-            let taken = self.next;
-            self.next += cells;
+        let index = if cells <= self.capacity() - self.next() {
+            let taken = self.next();
+            self.set_next(taken + cells);
             taken
         } else if cells == 1 {
             // UMA célula não é um run, e é por aqui que ela volta.

@@ -236,8 +236,7 @@ impl JsMachine<'_> {
                 self.call_runtime(into, RuntimeOp::ObjectNewUnder, &[prototype])?
             }
             None => {
-                let width = self.word(into, (args.len() / 2) as u64);
-                self.call_runtime(into, RuntimeOp::ObjectNew, &[width])?
+                self.object_new(into, (args.len() / 2) as u64)?
             }
         };
         for pair in args.chunks(2) {

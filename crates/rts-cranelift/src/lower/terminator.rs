@@ -146,6 +146,10 @@ impl Body<'_> {
                 self.lower_run_read(builder, block, *owner, *index, hit, miss)?;
             }
 
+            Terminator::CellAlloc { hit, miss } => {
+                self.lower_cell_alloc(builder, hit, miss)?;
+            }
+
             Terminator::CachedSet {
                 object,
                 key,

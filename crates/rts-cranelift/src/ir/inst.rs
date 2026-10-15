@@ -1034,6 +1034,39 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Takes one cell of the client's plain kind from the heap, or enters `miss`.
+    ///
+    /// # What it does, and that every other case is the miss edge
+    ///
+    /// Reads the heap's [`crate::mem::CellCursor`] and takes a cell the way the
+    /// client's own allocation would: the head of the free list if there is one,
+    /// otherwise the next never-used cell if the bound allows. The cell is
+    /// written in full -- the client's published header word, every payload word
+    /// zero -- and `hit` receives a reference to it in the generic form. No
+    /// cursor, no published header, a free list and a bump space both empty:
+    /// `miss`, where the client's entry collects, grows or reports the heap full.
+    ///
+    /// # Why it takes no operand and holds no address
+    ///
+    /// There is nothing to keep live: the cell does not exist before this
+    /// terminator, and no address survives it. What comes out is a reference to a
+    /// cell INSIDE the region, so the collector sweeps it like any other, and the
+    /// conservative stack scan finds it in whatever holds the reference. Nothing
+    /// in here can collect -- the call that can is on the `miss` edge, a block of
+    /// its own with its own safepoint.
+    ///
+    /// # Why the kind is the client's and not an argument
+    ///
+    /// Taking a cell inline means writing its header, and the header is the
+    /// client's number. A different kind of cell would be a different word in the
+    /// cursor, not a different instruction; one is enough to prove the form.
+    CellAlloc {
+        /// Entered with a reference to the new cell, in the generic form.
+        hit: BlockCall,
+        /// Entered when the cell could not be taken here.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,

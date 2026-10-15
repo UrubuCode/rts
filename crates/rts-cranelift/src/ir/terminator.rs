@@ -32,6 +32,7 @@ impl Terminator {
             | Terminator::CachedGetIndirect { hit, miss, .. }
             | Terminator::CachedGetKeyed { hit, miss, .. }
             | Terminator::RunRead { hit, miss, .. }
+            | Terminator::CellAlloc { hit, miss }
             | Terminator::CachedSet { hit, miss, .. } => {
                 vec![hit.block, miss.block]
             }
@@ -123,6 +124,11 @@ impl Terminator {
             } => {
                 operands.push(*owner);
                 operands.push(*index);
+                operands.extend_from_slice(&hit.args);
+                operands.extend_from_slice(&miss.args);
+            }
+            // No operand of its own: the cell does not exist before it.
+            Terminator::CellAlloc { hit, miss } => {
                 operands.extend_from_slice(&hit.args);
                 operands.extend_from_slice(&miss.args);
             }

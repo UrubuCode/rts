@@ -52,11 +52,13 @@
 //! aesthetic one.
 
 mod address;
+mod cursor;
 mod imports;
 mod layout;
 mod runs;
 
 pub use address::{Addressing, RegionBase, RegionBases};
+pub use cursor::CellCursor;
 pub use runs::RunTable;
 pub use imports::HeapImports;
 pub use layout::{HeaderLayout, ObjectLayout, SLOT_BYTES};

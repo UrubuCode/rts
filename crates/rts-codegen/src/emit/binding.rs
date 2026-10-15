@@ -474,12 +474,7 @@ pub fn push_environment(
         .expect("a captured name means the function built an environment");
     // One slot per name plus the link — the same width rule `function::emit`
     // uses when it builds the activation's own environment.
-    let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(names.len() as u64 + 1),
-    });
-    let width = builder.use_const(width);
-    let fresh = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ObjectNew, &[width])?[0];
+    let fresh = super::expr::object_new(builder, ctx, names.len() as u64 + 1)?;
     let outer = outer_link(ctx);
     super::property::emit_write(builder, ctx, fresh, outer, enclosing)?;
     Ok(Some(scope.enter_environment(fresh, names)))

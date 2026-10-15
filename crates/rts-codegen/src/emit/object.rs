@@ -84,7 +84,7 @@ pub(super) fn define_accessor(
 
 /// How many fields an object born under its prototype holds in its own cell.
 /// A literal with more takes the ordinary road, which sizes the cell for them.
-const INLINE_FIELDS: u32 = 15;
+pub(crate) const INLINE_FIELDS: u32 = 15;
 
 /// Emits an object literal.
 ///
@@ -100,14 +100,6 @@ pub(super) fn emit_object(
     ctx: &mut Ctx,
     properties: &[Property],
 ) -> EmitResult<ValueId> {
-    // How many slots this literal will need, so the runtime can take a cell
-    // wide enough in one go. A hint and not a shape: the writes below still
-    // decide the layout, and a wrong count costs a slot rather than an answer.
-    let expected = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(properties.len() as u64),
-    });
-    let expected = builder.use_const(expected);
     // A literal that OPENS with its prototype is born under it. Only where it
     // is written first: the prototype's expression is then the first thing the
     // literal evaluates either way, and nothing has been written to the object
@@ -118,7 +110,7 @@ pub(super) fn emit_object(
             let value = super::expr::as_value(builder, value);
             (call(builder, ctx, RuntimeOp::ObjectNewUnder, &[value])?[0], rest)
         }
-        _ => (call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0], properties),
+        _ => (super::expr::object_new(builder, ctx, properties.len() as u64)?, properties),
     };
     // A method of this literal may write `super`, and the object it resolves
     // against is THIS one — a literal has a `[[HomeObject]]` exactly as a class

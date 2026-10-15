@@ -5940,6 +5940,42 @@ fn an_indexed_read_the_table_cannot_answer_takes_the_runtime_path() {
         "every case the table cannot answer must still answer as the runtime does"
     );
 }
+/// A cell the compiled code takes itself is an ordinary cell: it survives a
+/// collection when it is live, is reclaimed when it is not, and its fields are
+/// what was written.
+///
+/// # What this pins
+///
+/// `Terminator::CellAlloc` pops the free list and bumps the cursor without a
+/// call. The loop below allocates tens of thousands of literals per round -- far
+/// past the region's starting bound, so the collector runs many times and the
+/// allocation alternates between the free list, fresh space and the runtime's
+/// own entry -- while every seventh object is kept. A cell handed out twice, a
+/// header not written, or a recycled cell not zeroed would change a kept value
+/// or the unset field of a fresh literal.
+#[test]
+fn an_object_taken_inline_survives_collections_and_is_born_empty() {
+    let produced = run(
+        "const kept: { a: number; b: number }[] = [];
+         let wrong: i32 = 0;
+         for (let i = 0; i < 300000; i++) {
+           const o: { a: number; b: number; c?: number } = { a: i, b: i * 2 };
+           if (o.c !== undefined) { wrong += 1; }
+           o.c = i;
+           if (i % 7 === 0) kept.push(o);
+         }
+         for (let k = 0; k < kept.length; k++) {
+           if (kept[k].a !== k * 7 || kept[k].b !== k * 14) { wrong += 1; }
+         }
+         return wrong * 1000000 + (kept.length === 42858 ? 7 : 0);",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        7.0,
+        "every kept object must hold what was written, and every fresh one must start empty"
+    );
+}
+
 #[test]
 fn a_call_in_tail_position_of_strict_code_costs_no_stack() {
     // A million levels on a test thread's 16 MiB would need under twenty bytes

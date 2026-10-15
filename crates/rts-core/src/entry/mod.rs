@@ -1469,6 +1469,7 @@ impl Context {
         kinds: crate::value::Kinds,
         mut region: crate::heap::Region,
     ) -> Self {
+        region.publish_plain(None);
         // The region may come from an earlier context, and its table of element
         // runs still names that context's freed buffers. Emptied before anything
         // can publish, and given THIS context's marker for an absent element:
@@ -1530,7 +1531,7 @@ impl Context {
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first
         // is a number two contexts disagree about.
-        Context {
+        let mut context = Context {
             cells: Slab::new(),
             arrays: Slab::new(),
             bigints: Slab::new(),
@@ -1650,7 +1651,14 @@ impl Context {
             singletons,
             kinds,
             stack_high: None,
-        }
+        };
+        // Published last: the type number is THIS context's, and compiled code
+        // writes it into every cell it takes. The region may have come from an
+        // earlier context whose number meant something else, so it was switched
+        // off at the top and is switched on only now that this one exists.
+        let plain = context.empty_layout();
+        context.region.publish_plain(Some(plain));
+        context
     }
 
     /// A context with a heap of its own.

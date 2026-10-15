@@ -1108,12 +1108,7 @@ fn emit_body_into(
         // scope carries every binding at its top level, and analytic.ts has
         // thirty-two of them against a cell's fifteen — so every read past the
         // fifteenth missed its cache, forever.
-        let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: rts_cranelift::repr::Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(captured.len() as u64 + 1),
-        });
-        let width = builder.use_const(width);
-        let fresh = expr::call(&mut builder, ctx, RuntimeOp::ObjectNew, &[width])?[0];
+        let fresh = expr::object_new(&mut builder, ctx, captured.len() as u64 + 1)?;
         let outer = binding::outer_link(ctx);
         super::property::emit_write(&mut builder, ctx, fresh, outer, handed)?;
         fresh

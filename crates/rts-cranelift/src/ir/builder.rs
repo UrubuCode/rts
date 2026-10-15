@@ -891,6 +891,33 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Takes one cell of the client's plain kind inline, or enters `miss`.
+    ///
+    /// The first parameter of `hit` receives the new cell's reference in the
+    /// generic form; `miss` is where the client's own allocation is called, with
+    /// the safepoint that implies. [`Terminator::CellAlloc`] says what is checked
+    /// and why nothing here can collect.
+    pub fn cell_alloc(
+        &mut self,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CellAlloc {
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Reads a property that the site may have last found in a different cell.
     ///
     /// The same domain and the same block shape as [`Self::cached_get`], and a

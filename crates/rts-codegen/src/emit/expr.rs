@@ -562,6 +562,42 @@ pub(super) fn call(
     Ok(produced)
 }
 
+/// A fresh plain object with room for `slots` properties.
+///
+/// A cell that fits the inline slots is taken in place by
+/// `Terminator::CellAlloc`, and only the case it cannot answer -- no cell free
+/// and no fresh space left -- calls the runtime, which collects or grows. A wider
+/// object needs several cells and always calls. The answer is the same
+/// reference either way, and the call keeps its throw check on the path that
+/// makes it.
+pub(super) fn object_new(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    slots: u64,
+) -> EmitResult<ValueId> {
+    let width = |builder: &mut FuncBuilder| {
+        let decl = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(slots),
+        });
+        builder.use_const(decl)
+    };
+    if slots > u64::from(super::object::INLINE_FIELDS) {
+        let size = width(builder);
+        return Ok(call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0]);
+    }
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+    builder.cell_alloc((join, &[]), (slow, &[]))?;
+    builder.switch_to(slow);
+    let size = width(builder);
+    let answered = call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
+    builder.jump(join, &[answered])?;
+    builder.switch_to(join);
+    Ok(result)
+}
+
 /// Emits, after a call, the branch a throw in the callee takes.
 ///
 /// # Why every call site pays this
