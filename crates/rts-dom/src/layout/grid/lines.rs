@@ -12,7 +12,7 @@
 
 
 use crate::boxes::BoxId;
-use crate::style::grid_lines::{GridAutoFlow, GridLine};
+use crate::style::grid_lines::GridLine;
 use crate::style::{GridAreas, LineNames};
 use crate::{Dom, NodeIdx};
 

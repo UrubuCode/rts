@@ -142,11 +142,14 @@ pub(in crate::layout) fn resolve_tracks(
             T::Bounded { min, .. } => dim(min),
             T::Auto => max_of(i),
             T::Intrinsic { min, max } => {
-                let base = eval_bound(min, i);
+                let base = match min {
+                    B::Auto => min_of(i),
+                    other => eval_bound(other, i),
+                };
                 if matches!(min, B::Auto) {
                     match max {
-                        B::Fixed(d) => base.min(dim(d)).max(min_of(i)),
-                        B::FitContent(d) => base.min(dim(d)).max(min_of(i)),
+                        B::Fixed(d) => base.min(dim(d)),
+                        B::FitContent(d) => base.min(dim(d)),
                         _ => base,
                     }
                 } else {
@@ -212,35 +215,43 @@ pub(in crate::layout) fn resolve_tracks(
         .map(|(i, _)| i)
         .collect();
     if !bounded.is_empty() && remaining > 0.0 {
-        // Reparte por igual e não em proporção: a proporção seria contra as
-        // bases, que num `minmax(0, x)` são todas zero.
-        let quota = remaining / bounded.len() as f32;
-        for i in bounded {
-            let ceiling = match &tracks[i] {
+        let ceilings: Vec<f32> = bounded
+            .iter()
+            .map(|&i| match &tracks[i] {
                 T::Bounded { max, .. } => dim(max),
-                // O mínimo pode exceder o máximo declarado (uma palavra mais
-                // larga do que o `minmax(min-content, 200px)` permite) — a
-                // spec (§11.1) manda o TECTO subir para acompanhar a base
-                // nesse caso, nunca encolher a base para caber nele.
                 T::Intrinsic { max, min } => {
                     let c = eval_bound(max, i);
-                    if matches!(min, B::Auto) {
-                        c
-                    } else {
-                        c.max(sizes[i])
-                    }
+                    if matches!(min, B::Auto) { c } else { c.max(sizes[i]) }
                 }
                 _ => unreachable!("filtrado acima"),
-            };
-            let new_size = (sizes[i] + quota).min(ceiling);
-            remaining -= new_size - sizes[i];
-            sizes[i] = new_size;
+            })
+            .collect();
+        let mut active: Vec<usize> = (0..bounded.len())
+            .filter(|&idx| sizes[bounded[idx]] < ceilings[idx])
+            .collect();
+        while !active.is_empty() && remaining > 1e-4 {
+            let quota = remaining / active.len() as f32;
+            let mut next_active = Vec::new();
+            for &idx in &active {
+                let i = bounded[idx];
+                let ceiling = ceilings[idx];
+                let grow = (ceiling - sizes[i]).min(quota);
+                sizes[i] += grow;
+                remaining -= grow;
+                if sizes[i] < ceiling - 1e-4 {
+                    next_active.push(idx);
+                }
+            }
+            if next_active.len() == active.len() {
+                break;
+            }
+            active = next_active;
         }
     }
     let auto_tracks: Vec<usize> = tracks
         .iter()
         .enumerate()
-        .filter(|(_, t)| matches!(t, T::Auto))
+        .filter(|(_, t)| matches!(t, T::Auto | T::Intrinsic { max: B::Auto, .. }))
         .map(|(i, _)| i)
         .collect();
     if stretch && !auto_tracks.is_empty() && remaining > 0.0 {
@@ -250,44 +261,6 @@ pub(in crate::layout) fn resolve_tracks(
         }
     }
     sizes
-}
-
-pub(in crate::layout) fn distribute_spanning_columns<F, S>(
-    col_tracks: &[crate::style::GridTrack],
-    cells: &[super::lines::GridCell],
-    ncols: usize,
-    col_gap: f32,
-    resolve: &ResolveCtx,
-    is_sub: S,
-    mut get_width: F,
-    wmax: &mut [f32],
-) where
-    F: FnMut(&super::lines::GridCell) -> f32,
-    S: Fn(&super::lines::GridCell) -> bool,
-{
-    for c in cells {
-        if c.c1 <= c.c0 || c.c0 >= ncols || is_sub(c) {
-            continue;
-        }
-        let span = c.c1 - c.c0;
-        if span > 1 {
-            let end = c.c1.min(ncols);
-            let mut current_span_w = (end.saturating_sub(c.c0 + 1)) as f32 * col_gap;
-            let mut content_cols = Vec::new();
-            for col in c.c0..end {
-                match col_tracks.get(col) {
-                    Some(crate::style::GridTrack::Fixed(d)) => current_span_w += d.resolve(resolve).unwrap_or(0.0),
-                    _ => { current_span_w += wmax[col]; content_cols.push(col); }
-                }
-            }
-            let item_w = get_width(c);
-            if item_w > current_span_w {
-                let targets = if !content_cols.is_empty() { content_cols } else { (c.c0..end).collect() };
-                let extra = (item_w - current_span_w) / targets.len() as f32;
-                for col in targets { wmax[col] += extra; }
-            }
-        }
-    }
 }
 
 pub(in crate::layout) fn measure_content_rows(

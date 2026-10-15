@@ -175,7 +175,7 @@ impl GridTrack {
         {
             let d = super::lengths::parse_dimension_pub(inner.trim())?;
             return Some(GridTrack::Intrinsic {
-                min: TrackBound::MinContent,
+                min: TrackBound::Auto,
                 max: TrackBound::FitContent(d),
             });
         }

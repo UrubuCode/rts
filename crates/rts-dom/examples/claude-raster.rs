@@ -145,6 +145,33 @@ fn meta_fixar_hash(fonte: &str) -> Option<String> {
     }
 }
 
+fn carregar_stylesheets(dom: &mut Dom, base_dir: &Path) {
+    let mut wpt_root = base_dir;
+    let mut cur = base_dir;
+    while let Some(parent) = cur.parent() {
+        if cur.join("fonts").join("Ahem.ttf").exists() || cur.join("resources").exists() {
+            wpt_root = cur;
+            break;
+        }
+        cur = parent;
+    }
+    for id in dom.query_all("link") {
+        let Some(idx) = dom.resolve(id) else { continue };
+        let node = dom.node(idx);
+        let is_stylesheet = node.attr("rel").map_or(false, |r| r.eq_ignore_ascii_case("stylesheet"));
+        if !is_stylesheet { continue; }
+        let Some(href) = node.attr("href") else { continue };
+        let path = if href.starts_with('/') {
+            wpt_root.join(href.trim_start_matches('/'))
+        } else {
+            base_dir.join(href)
+        };
+        if let Ok(css) = std::fs::read_to_string(&path) {
+            dom.add_stylesheet(&css);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let (Some(entrada), Some(saida)) = (args.get(1), args.get(2)) else {
@@ -169,6 +196,7 @@ fn main() {
         .parent()
         .unwrap_or_else(|| Path::new("."));
     carregar_imagens(&mut dom, base_dir);
+    carregar_stylesheets(&mut dom, base_dir);
     let measurer = rts_text::adapter::RealMeasurer::new(text::font_store());
     let ctx = layout::LayoutCtx {
         viewport_w: W as f32,

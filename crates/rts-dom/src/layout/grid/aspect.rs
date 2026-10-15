@@ -129,54 +129,7 @@ pub(in crate::layout) fn grid_item_outer_width(
     }
 }
 
-pub(in crate::layout) fn grid_item_min_content_width(
-    dom: &Dom,
-    child: NodeIdx,
-    box_id: Option<crate::boxes::BoxId>,
-    area_h: Option<f32>,
-    grid_css: Option<&ComputedStyle>,
-    font_size: f32,
-    resolve: &ResolveCtx,
-    ctx: &LayoutCtx,
-) -> f32 {
-    let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
-    if let (Some(g_css), Some(bid)) = (grid_css, box_id) {
-        if is_item_orthogonal(dom, child, g_css) {
-            return crate::layout::measure_block(dom, child, bid, f32::INFINITY, area_h, None, None, true, ctx).0;
-        }
-    }
-    let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
-    let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
-    let frame_v = css.padding.resolve_v(resolve) + bt + bb;
-    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
-        return min_w + frame_h;
-    }
-    use crate::scrollbar::Overflow::{Clip, Visible};
-    let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
-    if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
-        return frame_h;
-    }
-    if let Some(w) = css.width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
-        return w + frame_h;
-    }
-    let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
-    let has_ratio = is_rep || aspect_ratio::declared_ratio(&css).is_some();
-    if has_ratio {
-        if let Some(h) = css.height.and_then(|d| resolve_height(Some(d), area_h, resolve)).or(area_h) {
-            let content_h = (h - frame_v).max(0.0);
-            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
-                dom, child, &css, ctx.viewport_w, Some(content_h), (None, Some(content_h)), ctx,
-            ) {
-                return w + css.margin.resolve_h(resolve);
-            }
-            if let Some(w) = aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v) {
-                return w + frame_h;
-            }
-        }
-        return frame_h;
-    }
-    crate::table::min_content(dom, child, font_size, ctx)
-}
+pub(in crate::layout) use super::distribute::grid_item_min_content_width;
 
 pub(in crate::layout) fn grid_item_min_content_height(
     dom: &Dom,

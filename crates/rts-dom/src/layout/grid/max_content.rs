@@ -7,7 +7,7 @@ use super::lines::{collect_items, place_grid_items};
 use crate::Dom;
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
-use crate::layout::{LayoutCtx, ResolveCtx, font_px, intrinsic_outer_width};
+use crate::layout::{LayoutCtx, ResolveCtx, font_px};
 use crate::style::{GridTemplate, GridTrack};
 
 pub(crate) fn grid_min_content_width(
@@ -190,7 +190,7 @@ fn grid_content_width(
     );
 
     if is_min {
-        super::tracks::distribute_spanning_columns(
+        super::distribute::distribute_spanning_slice(
             &col_tracks,
             &cells,
             ncols,
@@ -211,7 +211,7 @@ fn grid_content_width(
             &mut wmin,
         );
     } else {
-        super::tracks::distribute_spanning_columns(
+        super::distribute::distribute_spanning_slice(
             &col_tracks,
             &cells,
             ncols,

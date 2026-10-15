@@ -132,7 +132,7 @@ pub(in crate::layout) fn layout_children_grid(
                 }
             }
         }
-        tracks::distribute_spanning_columns(
+        distribute::distribute_spanning_columns(
             &col_tracks,
             &cells,
             ncols,
@@ -143,25 +143,21 @@ pub(in crate::layout) fn layout_children_grid(
                     subgrid::is_subgrid_item(&c, css.writing_mode.unwrap_or_default()).0
                 })
             },
-            item_w,
-            &mut wmax,
-        );
-        subgrid::collect_column_contributions(
-            dom,
-            &tree,
-            &cells,
-            ncols,
-            needs_min,
-            font_size,
-            col_gap,
-            css.writing_mode.unwrap_or_default(),
-            ctx,
-            &col_lines,
-            areas.as_deref(),
-            &col_tracks,
-            &resolve,
+            |c| {
+                let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve);
+                let max = aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx);
+                let (min, min_sz) = if aspect::is_item_orthogonal(dom, c.child, css) { (max, max) } else {
+                    (distribute::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx),
+                     distribute::grid_item_min_size_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx))
+                };
+                distribute::ItemSizes { min_size: min_sz, min_content: min, max_content: max }
+            },
             &mut wmax,
             &mut wmin,
+        );
+        subgrid::collect_column_contributions(
+            dom, &tree, &cells, ncols, needs_min, font_size, col_gap, css.writing_mode.unwrap_or_default(),
+            ctx, &col_lines, areas.as_deref(), &col_tracks, &resolve, &mut wmax, &mut wmin,
         );
         (Some(wmax), needs_min.then_some(wmin))
     } else {
