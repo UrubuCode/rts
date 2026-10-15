@@ -188,6 +188,7 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
 
 pub(crate) fn fmt_align(a: AlignItems) -> String {
     match a {
+        AlignItems::Normal => "normal",
         AlignItems::Stretch => "stretch",
         AlignItems::FlexStart => "flex-start",
         AlignItems::FlexEnd => "flex-end",

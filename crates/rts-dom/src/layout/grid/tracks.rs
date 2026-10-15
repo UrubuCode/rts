@@ -318,8 +318,15 @@ pub(in crate::layout) fn measure_content_rows(
         let cw = col_sub
             .map(|s| s.cell_span(cell.c0, cell.c1))
             .unwrap_or_else(|| super::grid::span_size(col_sizes, cell.c0, cell.c1, col_gap));
+        let is_rep = matches!(&dom.node(cell.child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
         let stretch_x = dom.computed_style_idx(cell.child).is_some_and(|c| {
-            matches!(c.justify_self.unwrap_or(crate::style::AlignItems::Stretch), crate::style::AlignItems::Stretch) && c.width.is_none()
+            let j = c.justify_self.unwrap_or(crate::style::AlignItems::Normal);
+            let s = match j {
+                crate::style::AlignItems::Stretch => true,
+                crate::style::AlignItems::Normal => !is_rep,
+                _ => false,
+            };
+            s && c.width.is_none()
         });
         let forced_w = if stretch_x { Some(cw) } else { None };
         let area_h = super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve);

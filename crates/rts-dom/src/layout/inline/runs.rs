@@ -247,6 +247,21 @@ pub(in crate::layout) fn collect_runs(
                     (None, None),
                     ctx,
                 ) {
+                    let font = font_px(&rcss, DEFAULT_FONT_SIZE);
+                    let resolve = ResolveCtx {
+                        parent_content_w: avail_w,
+                        node_font_size: font,
+                        root_font_size: crate::style::root_font_size(),
+                        viewport_w: ctx.viewport_w,
+                        viewport_h: ctx.viewport_h,
+                    };
+                    let m = &rcss.margin;
+                    let ml = m.left.resolve(&resolve).unwrap_or(0.0);
+                    let mr = m.right.resolve(&resolve).unwrap_or(0.0);
+                    let mt = m.top.resolve(&resolve).unwrap_or(0.0);
+                    let mb = m.bottom.resolve(&resolve).unwrap_or(0.0);
+                    let ww = ww + ml + mr;
+                    let wh = wh + mt + mb;
                     // Como no widget: a caixa do replaced é dele; os ancestrais
                     // inline recebem só a linha que ele ocupa.
                     let owners = inherited_owners.to_vec();

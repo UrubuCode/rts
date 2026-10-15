@@ -301,6 +301,9 @@ impl JustifyContent {
 /// `align-items` — alinhamento dos itens no EIXO CRUZADO. Default `Stretch`. Egui-free.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AlignItems {
+    /// O alinhamento default do CSS Box Alignment: `stretch` em não-substituídos,
+    /// `start` em substituídos/com aspecto (Grid §10.1).
+    Normal,
     /// O flex ESTICA de fato (`layout/flex.rs::stretches`); numa coluna
     /// (`coluna.rs`) o item ocupa a largura do contentor.
     Stretch,
@@ -334,7 +337,8 @@ pub enum AlignItems {
 impl AlignItems {
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "stretch" | "normal" => AlignItems::Stretch,
+            "normal" => AlignItems::Normal,
+            "stretch" => AlignItems::Stretch,
             // `flow-start`/`flow-end`: see the sibling aliases on
             // `JustifyContent::parse` — same collapse, same reason.
             "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,

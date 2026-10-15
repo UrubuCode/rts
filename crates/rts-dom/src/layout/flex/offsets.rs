@@ -78,7 +78,7 @@ pub(in crate::layout) fn align_offset(
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
-        A::Stretch | A::FlexStart | A::Baseline => 0.0,
+        A::Normal | A::Stretch | A::FlexStart | A::Baseline => 0.0,
         A::FlexEnd | A::LastBaseline => free,
         A::SafeEnd | A::SafeCenter => (if a == A::SafeEnd { free } else { free / 2.0 }).max(0.0),
         A::Center => free / 2.0,
