@@ -121,3 +121,31 @@ fn grid_item_overflow_auto_max_height_percentage() {
     assert_eq!(r_sb.h, 450.0);
     assert_eq!(r_cont.h, 400.0);
 }
+
+#[test]
+fn grid_size_with_orthogonal_child_001() {
+    let html = r#"<style>
+.grid { display: inline-grid; grid-template-rows: 100px; background-color: green; }
+.item { writing-mode: vertical-rl; inline-size: 100%; block-size: 50%; }
+.item > span { display: inline-block; inline-size: 40px; block-size: 100px; }
+</style>
+<div class="grid"><div class="item"><span></span><span></span></div></div>"#;
+    let (dom, list) = geometria(html, 1280.0);
+    let r_grid = rect(&dom, &list, ".grid", 0);
+    assert_eq!(r_grid.w, 100.0);
+    assert_eq!(r_grid.h, 100.0);
+}
+
+#[test]
+fn grid_size_with_orthogonal_child_002() {
+    let html = r#"<style>
+.grid { display: inline-grid; grid-template-rows: 100px; background-color: green; }
+.item { writing-mode: vertical-lr; }
+.item > span { display: inline-block; inline-size: 100px; block-size: 50px; }
+</style>
+<div class="grid"><div class="item"><span></span><span></span></div></div>"#;
+    let (dom, list) = geometria(html, 1280.0);
+    let r_grid = rect(&dom, &list, ".grid", 0);
+    assert_eq!(r_grid.w, 100.0);
+    assert_eq!(r_grid.h, 100.0);
+}

@@ -98,15 +98,53 @@ pub(in crate::layout) fn ratio_outer_width(
     Some(w + frame_h + css.margin.resolve_h(&resolve))
 }
 
+pub(in crate::layout) fn is_item_orthogonal(
+    dom: &Dom,
+    child: NodeIdx,
+    grid_css: &ComputedStyle,
+) -> bool {
+    let Some(child_css) = dom.computed_style_idx(child) else { return false };
+    let g_wm = grid_css.writing_mode.unwrap_or_default();
+    let c_wm = child_css.writing_mode.unwrap_or_default();
+    g_wm.is_horizontal() != c_wm.is_horizontal()
+}
+
+pub(in crate::layout) fn grid_item_outer_width(
+    dom: &Dom,
+    child: NodeIdx,
+    box_id: crate::boxes::BoxId,
+    area_h: Option<f32>,
+    cb_w: f32,
+    grid_css: &ComputedStyle,
+    parent_font: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
+    if let Some(w) = ratio_outer_width(dom, child, area_h, cb_w, parent_font, ctx) {
+        return w;
+    }
+    if is_item_orthogonal(dom, child, grid_css) {
+        crate::layout::measure_block(dom, child, box_id, f32::INFINITY, area_h, None, None, true, ctx).0
+    } else {
+        intrinsic_outer_width(dom, child, parent_font, ctx)
+    }
+}
+
 pub(in crate::layout) fn grid_item_min_content_width(
     dom: &Dom,
     child: NodeIdx,
+    box_id: Option<crate::boxes::BoxId>,
     area_h: Option<f32>,
+    grid_css: Option<&ComputedStyle>,
     font_size: f32,
     resolve: &ResolveCtx,
     ctx: &LayoutCtx,
 ) -> f32 {
     let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
+    if let (Some(g_css), Some(bid)) = (grid_css, box_id) {
+        if is_item_orthogonal(dom, child, g_css) {
+            return crate::layout::measure_block(dom, child, bid, f32::INFINITY, area_h, None, None, true, ctx).0;
+        }
+    }
     let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
     let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
     let frame_v = css.padding.resolve_v(resolve) + bt + bb;

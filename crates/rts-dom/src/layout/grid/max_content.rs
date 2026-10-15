@@ -137,10 +137,7 @@ fn grid_content_width(
 
     let mut wmax = vec![0.0f32; ncols];
     let mut wmin = vec![0.0f32; ncols];
-    for c in &cells {
-        if c.c1 - c.c0 != 1 || c.c0 >= ncols {
-            continue;
-        }
+    let item_w = |c: &super::lines::GridCell| {
         let area_h = super::aspect::definite_area_height(
             &rows,
             css.grid_auto_rows.as_ref(),
@@ -149,10 +146,27 @@ fn grid_content_width(
             None,
             &resolve,
         );
-        let ratio_w = super::aspect::ratio_outer_width(dom, c.child, area_h, 0.0, font, ctx);
-        let max = ratio_w.unwrap_or_else(|| intrinsic_outer_width(dom, c.child, font, ctx));
-        let min = ratio_w
-            .unwrap_or_else(|| crate::table::min_content_with_floor(dom, c.child, font, ctx));
+        super::aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, 0.0, &css, font, ctx)
+    };
+    for c in &cells {
+        if c.c1 - c.c0 != 1 || c.c0 >= ncols {
+            continue;
+        }
+        let max = item_w(c);
+        let min = if super::aspect::is_item_orthogonal(dom, c.child, &css) {
+            max
+        } else {
+            let area_h = super::aspect::definite_area_height(
+                &rows,
+                css.grid_auto_rows.as_ref(),
+                (c.r0, c.r1),
+                row_gap,
+                None,
+                &resolve,
+            );
+            super::aspect::ratio_outer_width(dom, c.child, area_h, 0.0, font, ctx)
+                .unwrap_or_else(|| crate::table::min_content_with_floor(dom, c.child, font, ctx))
+        };
         wmax[c.c0] = wmax[c.c0].max(max);
         wmin[c.c0] = wmin[c.c0].max(min);
     }
@@ -187,7 +201,13 @@ fn grid_content_width(
                     super::subgrid::is_subgrid_item(&css, css.writing_mode.unwrap_or_default()).0
                 })
             },
-            |c| crate::table::min_content_with_floor(dom, c.child, font, ctx),
+            |c| {
+                if super::aspect::is_item_orthogonal(dom, c.child, &css) {
+                    item_w(c)
+                } else {
+                    crate::table::min_content_with_floor(dom, c.child, font, ctx)
+                }
+            },
             &mut wmin,
         );
     } else {
@@ -202,7 +222,7 @@ fn grid_content_width(
                     super::subgrid::is_subgrid_item(&css, css.writing_mode.unwrap_or_default()).0
                 })
             },
-            |c| intrinsic_outer_width(dom, c.child, font, ctx),
+            |c| item_w(c),
             &mut wmax,
         );
     }

@@ -117,21 +117,20 @@ pub(in crate::layout) fn layout_children_grid(
         let mut wmin = vec![0.0f32; ncols];
         let item_w = |c: &lines::GridCell| {
             let area_h = aspect::definite_area_height(
-                &explicit_rows,
-                css.grid_auto_rows.as_ref(),
-                (c.r0, c.r1),
-                row_gap,
-                container_content_h,
-                &resolve,
+                &explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve,
             );
-            aspect::ratio_outer_width(dom, c.child, area_h, content_w, font_size, ctx)
-                .unwrap_or_else(|| intrinsic_outer_width(dom, c.child, font_size, ctx))
+            aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx)
         };
         for c in &cells {
             if c.c1 - c.c0 == 1 && c.c0 < ncols {
-                wmax[c.c0] = wmax[c.c0].max(item_w(c));
+                let w = item_w(c);
+                wmax[c.c0] = wmax[c.c0].max(w);
                 if needs_min {
-                    let min = aspect::grid_item_min_content_width(dom, c.child, None, font_size, &resolve, ctx);
+                    let min = if aspect::is_item_orthogonal(dom, c.child, css) {
+                        w
+                    } else {
+                        aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx)
+                    };
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
             }

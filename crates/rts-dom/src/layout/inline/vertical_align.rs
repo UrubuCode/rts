@@ -136,8 +136,13 @@ pub(in crate::layout) fn envelope_with_baseline(
 ) -> Envelope {
     let content = crate::inline_box::altura_do_conteudo(font_size, family, m);
     let half_leading = crate::inline_box::meia_entrelinha(line_height, content);
-    let mut above = half_leading + m.font_ascent_family(font_size, family);
-    let mut below = (line_height - above).max(0.0);
+    let (mut above, mut below) = if crate::layout::block::rotated::in_rotated_frame() {
+        (0.0, 0.0)
+    } else {
+        let a = half_leading + m.font_ascent_family(font_size, family);
+        let b = (line_height - a).max(0.0);
+        (a, b)
+    };
     for &(height, ascent, valign) in items {
         if matches!(valign, VerticalAlign::Top | VerticalAlign::Bottom) {
             continue;
