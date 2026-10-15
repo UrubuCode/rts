@@ -440,6 +440,19 @@ pub(in crate::layout) fn resolve_row_tracks(
                 if !auto_rows.is_empty() && ch > current_used {
                     let each = (ch - current_used) / auto_rows.len() as f32;
                     for r in auto_rows { row_sizes[r] += each; }
+                } else if !auto_rows.is_empty() && current_used > ch {
+                    let overflow = current_used - ch;
+                    let reducible: f32 = auto_rows
+                        .iter()
+                        .map(|&r| (row_sizes[r] - min_row_h.get(r).copied().unwrap_or(0.0)).max(0.0))
+                        .sum();
+                    if reducible > 0.0 {
+                        let factor = (overflow / reducible).min(1.0);
+                        for &r in &auto_rows {
+                            let can_reduce = (row_sizes[r] - min_row_h.get(r).copied().unwrap_or(0.0)).max(0.0);
+                            row_sizes[r] -= can_reduce * factor;
+                        }
+                    }
                 }
             }
         } else {

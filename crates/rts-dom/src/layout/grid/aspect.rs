@@ -148,7 +148,7 @@ pub(in crate::layout) fn grid_item_min_content_width(
     let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
     let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
     let frame_v = css.padding.resolve_v(resolve) + bt + bb;
-    if let Some(min_w) = css.min_width.and_then(|d| d.resolve(resolve)) {
+    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return min_w + frame_h;
     }
     use crate::scrollbar::Overflow::{Clip, Visible};
@@ -156,7 +156,7 @@ pub(in crate::layout) fn grid_item_min_content_width(
     if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
         return frame_h;
     }
-    if let Some(w) = css.width.and_then(|d| d.resolve(resolve)) {
+    if let Some(w) = css.width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return w + frame_h;
     }
     let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
@@ -190,7 +190,7 @@ pub(in crate::layout) fn grid_item_min_content_height(
     let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
     let frame_v = css.padding.resolve_v(resolve) + bt + bb + css.margin.resolve_v(resolve);
     let frame_h = css.padding.resolve_h(resolve) + bl + br;
-    if let Some(min_h) = css.min_height.and_then(|d| d.resolve(resolve)) {
+    if let Some(min_h) = css.min_height.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return min_h + frame_v;
     }
     use crate::scrollbar::Overflow::{Clip, Visible};
@@ -198,7 +198,7 @@ pub(in crate::layout) fn grid_item_min_content_height(
     if !axis_visible(css.overflow_x) || !axis_visible(css.overflow_y) {
         return frame_v;
     }
-    if let Some(h) = css.height.and_then(|d| d.resolve(resolve)) {
+    if let Some(h) = css.height.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         return h + frame_v;
     }
     let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
@@ -218,6 +218,18 @@ pub(in crate::layout) fn grid_item_min_content_height(
         return frame_v;
     }
     frame_v
+}
+
+pub(in crate::layout) fn resolve_specified_suggestion(
+    d: Option<crate::style::Dimension>,
+    content: f32,
+) -> Option<f32> {
+    match d? {
+        crate::style::Dimension::Percent(p) => Some(content * p / 100.0),
+        crate::style::Dimension::Calc(c) if c.pct != 0.0 => Some(c.px + content * c.pct / 100.0),
+        crate::style::Dimension::Px(p) => Some(p),
+        _ => None,
+    }
 }
 
 /// A LOWER bound on the max-content width of grid container `id` from the

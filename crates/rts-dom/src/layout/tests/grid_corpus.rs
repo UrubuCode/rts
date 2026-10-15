@@ -149,3 +149,25 @@ fn grid_size_with_orthogonal_child_002() {
     assert_eq!(r_grid.w, 100.0);
     assert_eq!(r_grid.h, 100.0);
 }
+
+#[test]
+fn debug_percentage_sizes_001_to_003() {
+    for num in ["001", "002", "003"] {
+        let test_path = format!("C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-percentage-sizes-{num}.html");
+        let ref_path = format!("C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-percentage-sizes-{num}-ref.html");
+        let (html_test, html_ref) = match (std::fs::read_to_string(&test_path), std::fs::read_to_string(&ref_path)) {
+            (Ok(t), Ok(r)) => (t, r),
+            _ => continue,
+        };
+        let (dom_t, list_t) = geometria(&html_test, 1280.0);
+        let (dom_r, list_r) = geometria(&html_ref, 1280.0);
+        let items_t = dom_t.query_all(".item");
+        let items_r = dom_r.query_all(".item");
+        assert_eq!(items_t.len(), items_r.len());
+        for i in 0..items_t.len() {
+            let rt = rect(&dom_t, &list_t, ".item", i);
+            let rr = rect(&dom_r, &list_r, ".item", i);
+            assert_eq!(rt, rr, "mismatch in test {num} item {i}");
+        }
+    }
+}
