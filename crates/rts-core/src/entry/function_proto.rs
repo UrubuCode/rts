@@ -427,7 +427,7 @@ extern "C" fn forward(_e: u64, _this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -
     let vector = super::array::array_new(arguments.len() as i64);
     with_current(|context| {
         if let Some(cell) = Value(vector).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
+            && let Some(mut elements) = context.elements_at_mut(cell)
         {
             *elements = arguments;
         }

@@ -835,6 +835,56 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Reads one element of a run the owner keeps, at a position proved to be a
+    /// double.
+    ///
+    /// Proven and generic are separate entry points (rule 10): this one takes a
+    /// proven reference and a proven double and has no form that accepts
+    /// anything else. A caller holding a generic position uses
+    /// [`Self::cached_get_keyed`] or its own door. Every case the machine cannot
+    /// answer enters `miss`; [`Terminator::RunRead`] says which and why the
+    /// owner, not an address, is the operand.
+    pub fn run_read(
+        &mut self,
+        owner: ValueId,
+        index: ValueId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(owner);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "run_read",
+                found,
+            });
+        }
+        let position = self.func.repr_of(index);
+        if position != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "run_read index",
+                found: position,
+            });
+        }
+
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::RunRead {
+                owner,
+                index,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Reads a property that the site may have last found in a different cell.
     ///
     /// The same domain and the same block shape as [`Self::cached_get`], and a

@@ -293,7 +293,7 @@ impl MachineOps for JsMachine<'_> {
             && let ([_, _], [_, of_key]) = (args, of.as_slice())
             && !self.reads_keyed(*of_key)
         {
-            return self.call_runtime(into, crate::runtime::RuntimeOp::IndexNumberDirect, args);
+            return self.indexed_read(into, args[0], args[1]);
         }
 
         // `o[k]` WITH A COMPUTED KEY reads through a keyed site -- `keyed.rs`.

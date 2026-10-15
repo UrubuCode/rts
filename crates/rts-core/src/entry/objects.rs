@@ -1548,7 +1548,7 @@ fn reconcile_length(context: &mut Context, slot: u32, key: Key, value: u64) {
     // `Object.keys(a)` is `["0"]` — where filling with `undefined` makes both
     // answer as though the program had written the value there.
     let absent = super::array::hole_of(context);
-    let Some(elements) = context.elements_at_mut(slot) else {
+    let Some(mut elements) = context.elements_at_mut(slot) else {
         return;
     };
     if elements.len() != wanted {

@@ -299,7 +299,7 @@ pub(super) fn borrowed(context: &Context, this: u64) -> Option<&[u64]> {
 /// it.
 pub(super) fn store(context: &mut Context, cell: u32, values: Vec<u64>) {
     let count = values.len();
-    if let Some(elements) = context.elements_at_mut(cell) {
+    if let Some(mut elements) = context.elements_at_mut(cell) {
         *elements = values;
     }
     super::array::set_length(context, cell, count);

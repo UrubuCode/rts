@@ -302,6 +302,9 @@ pub struct Region {
     /// much of a program is wide objects, and paid only after the bump space is
     /// gone.
     pub(super) free_runs: Vec<(u32, u32)>,
+    /// The element runs compiled code reads without calling in. See
+    /// [`super::Runs`] for why this is the region's and not the context's.
+    runs: Box<super::Runs>,
 }
 
 /// The header value a freed cell carries.
@@ -494,7 +497,26 @@ impl Region {
             free_head: None,
             spanned_interior: vec![false; cells as usize],
             free_runs: Vec::new(),
+            runs: super::Runs::new(),
         }
+    }
+
+    /// The table of element runs, for the machine's addressing to be told of.
+    ///
+    /// Stable for as long as this region lives, like [`Self::base`].
+    pub fn runs_address(&self) -> u64 {
+        self.runs.address()
+    }
+
+    /// The table, to publish into. The cell a reference names is taken from the
+    /// reference here, so no caller decomposes one.
+    pub(crate) fn runs_mut(&mut self) -> &mut super::Runs {
+        &mut self.runs
+    }
+
+    /// The cell number a reference names, without checking the region.
+    pub(crate) fn cell_of_reference(&self, reference: u32) -> u32 {
+        reference >> self.selector_bits
     }
 
     /// Which region this is.

@@ -31,6 +31,7 @@ impl Terminator {
             Terminator::CachedGet { hit, miss, .. }
             | Terminator::CachedGetIndirect { hit, miss, .. }
             | Terminator::CachedGetKeyed { hit, miss, .. }
+            | Terminator::RunRead { hit, miss, .. }
             | Terminator::CachedSet { hit, miss, .. } => {
                 vec![hit.block, miss.block]
             }
@@ -109,6 +110,19 @@ impl Terminator {
             } => {
                 operands.push(*object);
                 operands.push(*key);
+                operands.extend_from_slice(&hit.args);
+                operands.extend_from_slice(&miss.args);
+            }
+            // The owner is an operand, and that is the point of the
+            // instruction: it is what keeps the owner live up to the load.
+            Terminator::RunRead {
+                owner,
+                index,
+                hit,
+                miss,
+            } => {
+                operands.push(*owner);
+                operands.push(*index);
                 operands.extend_from_slice(&hit.args);
                 operands.extend_from_slice(&miss.args);
             }

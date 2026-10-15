@@ -293,7 +293,7 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
                 // is not the empty string and does not compare like one.
                 None => absent,
             };
-            if let Some(elements) = context.elements_at_mut(cell) {
+            if let Some(mut elements) = context.elements_at_mut(cell) {
                 elements[position] = value;
             }
         }

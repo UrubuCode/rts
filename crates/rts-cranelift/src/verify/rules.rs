@@ -143,6 +143,46 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 }
             }
 
+            // The owner is a proven reference (the lowering computes a table row
+            // from it), the position a proven double, and the hit block takes the
+            // element. No cache: nothing here remembers anything.
+            Terminator::RunRead {
+                owner,
+                index,
+                hit,
+                miss,
+            } => {
+                let found = func.repr_of(*owner);
+                if !matches!(found, Repr::Ref(_)) {
+                    errors.push(VerifyError::GuardTypeOnNonReference { from, found });
+                }
+                let position = func.repr_of(*index);
+                if position != Repr::F64 {
+                    errors.push(VerifyError::RunIndexNotDouble {
+                        from,
+                        found: position,
+                    });
+                }
+                match func.block(hit.block) {
+                    None => errors.push(VerifyError::UnknownBlock {
+                        from,
+                        target: hit.block,
+                    }),
+                    Some(target) => {
+                        if target.params.first().map(|&p| func.repr_of(p)) != Some(Repr::Tagged) {
+                            errors.push(VerifyError::GuardTargetMissingValue {
+                                from,
+                                target: hit.block,
+                                expect: Repr::Tagged,
+                            });
+                        } else {
+                            check_block_call(func, from, hit, 1, errors);
+                        }
+                    }
+                }
+                check_block_call(func, from, miss, 0, errors);
+            }
+
             Terminator::Throw { payload, .. } => {
                 let repr = func.repr_of(*payload);
                 if repr != Repr::Tagged {

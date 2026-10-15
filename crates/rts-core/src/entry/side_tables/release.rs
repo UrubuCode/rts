@@ -80,10 +80,16 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
                 }
             }
             SideTable::ArrayElements => {
-                if let Some(elements) = context.array_elements.remove(cell)
-                    && let Some(buffer) = context.arrays.free(elements)
-                {
-                    crate::entry::array_spare::keep(context, buffer);
+                if let Some(elements) = context.array_elements.remove(cell) {
+                    // The row first, and unconditionally: it names the buffer
+                    // freed below, and the cell number is about to belong to a
+                    // stranger. Compiled code reads the row with no check that
+                    // the cell is still an array.
+                    let number = context.region.cell_of_reference(cell);
+                    context.region.runs_mut().retract(number);
+                    if let Some(buffer) = context.arrays.free(elements) {
+                        crate::entry::array_spare::keep(context, buffer);
+                    }
                 }
             }
             SideTable::BufferOf => {

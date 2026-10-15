@@ -80,7 +80,7 @@ fn of_match(context: &mut Context, subject: &str, spans: &Spans, names: &[Option
                 Value::from_f64(units_before(subject, to) as f64).bits(),
             ],
         );
-        if let Some(elements) = context.elements_at_mut(cell) {
+        if let Some(mut elements) = context.elements_at_mut(cell) {
             elements[at] = pair;
         }
     }

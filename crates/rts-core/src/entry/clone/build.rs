@@ -205,7 +205,7 @@ fn fill(context: &mut Context, node: &Node, value: u64, made: &Made) {
             // from the element vector — so writing the elements alone would
             // leave it at the `0` the empty array was made with.
             let count = elements.len();
-            if let Some(held) = context.elements_at_mut(cell) {
+            if let Some(mut held) = context.elements_at_mut(cell) {
                 *held = elements;
             }
             super::super::array::set_length(context, cell, count);

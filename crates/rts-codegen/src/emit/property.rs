@@ -204,9 +204,37 @@ pub(super) fn emit_read_keyed(
     // element or a typed array's value in one borrow and hands anything else to
     // the very read below: 14.7 ns a read became the entry's own cost, with no
     // key to convert and nothing to resolve.
+    //
+    // The element is read INLINE first, from the run table the runtime keeps for
+    // an array whose elements are in their own store, and only a case the table
+    // cannot answer reaches that entry: a receiver that is not a reference, no
+    // row, a position that is not a whole number inside the run, an absent
+    // element. `Terminator::RunRead` states why its operand is the receiver and
+    // not an address -- the withdrawn `ElementsBase` hoisted an address and the
+    // collector freed the run under a loop that no longer held the array.
     if builder.repr_of(key) == Repr::F64 {
         let receiver = tagged(builder, receiver);
-        return Ok(call(builder, ctx, RuntimeOp::IndexNumberDirect, &[receiver, key])?[0]);
+        let as_reference = builder.create_block();
+        let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+        let slow = builder.create_block();
+        let join = builder.create_block();
+        let result = builder.add_block_param(join, UNPROVEN);
+
+        builder.guard(
+            receiver,
+            Repr::Ref(RefKind::Opaque),
+            (as_reference, &[]),
+            (slow, &[]),
+        )?;
+        builder.switch_to(as_reference);
+        builder.run_read(narrowed, key, (join, &[]), (slow, &[]))?;
+
+        builder.switch_to(slow);
+        let answered = call(builder, ctx, RuntimeOp::IndexNumberDirect, &[receiver, key])?[0];
+        builder.jump(join, &[answered])?;
+
+        builder.switch_to(join);
+        return Ok(result);
     }
     if matches!(builder.repr_of(key), Repr::F64 | Repr::I32 | Repr::I64) {
         let receiver = tagged(builder, receiver);

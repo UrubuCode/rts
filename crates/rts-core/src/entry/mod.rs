@@ -1467,8 +1467,16 @@ impl Context {
     pub fn over(
         singletons: Singletons,
         kinds: crate::value::Kinds,
-        region: crate::heap::Region,
+        mut region: crate::heap::Region,
     ) -> Self {
+        // The region may come from an earlier context, and its table of element
+        // runs still names that context's freed buffers. Emptied before anything
+        // can publish, and given THIS context's marker for an absent element:
+        // the word compiled code must never hand to a program as a value.
+        region.runs_mut().reset(rts_cranelift::tags::encode(
+            rts_cranelift::tags::TAG_SINGLETON,
+            u64::from(singletons.hole),
+        ));
         // Read before the region moves into the struct below.
         //
         // Every `Aside` is built at the region's width, and every one of them

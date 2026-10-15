@@ -137,6 +137,15 @@ impl Body<'_> {
                 self.lower_cached_get_keyed(builder, block, *object, *key, *cache, hit, miss)?;
             }
 
+            Terminator::RunRead {
+                owner,
+                index,
+                hit,
+                miss,
+            } => {
+                self.lower_run_read(builder, block, *owner, *index, hit, miss)?;
+            }
+
             Terminator::CachedSet {
                 object,
                 key,

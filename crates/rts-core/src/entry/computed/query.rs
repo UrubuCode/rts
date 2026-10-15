@@ -320,7 +320,7 @@ pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
         // existe; os outros dois (o literal e o crescimento) o criam ao nascer.
         if let Some(at) = super::super::array::as_index(context, Value(key)) {
             let vazio = super::super::array::hole_of(context);
-            if let Some(elements) = context.elements_at_mut(slot) {
+            if let Some(mut elements) = context.elements_at_mut(slot) {
                 // Além do fim não há o que remover, e `delete` responde `true`
                 // por não existir — a mesma leitura que o caminho de shape faz.
                 if at < elements.len() {

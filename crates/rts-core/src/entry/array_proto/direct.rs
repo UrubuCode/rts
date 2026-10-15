@@ -25,9 +25,11 @@ pub fn array_push_direct(this: u64, value: u64, name: i64) -> u64 {
         if super::stack::refuses_append(context, cell) {
             return None;
         }
-        let elements = context.elements_at_mut(cell)?;
+        let mut elements = context.elements_at_mut(cell)?;
         elements.push(value);
         let count = elements.len();
+        // Ends the borrow, and the guard republishes the element row on the way.
+        drop(elements);
         super::super::array::set_length(context, cell, count);
         Some(Value::from_f64(count as f64).bits())
     });

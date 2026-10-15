@@ -67,11 +67,12 @@ pub(super) extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3:
         //
         // The borrow ends before `set_length`, which is why this is two
         // statements and not one.
-        let Some(elements) = context.elements_at_mut(cell) else {
+        let Some(mut elements) = context.elements_at_mut(cell) else {
             return (Some(undefined_of(context)), None);
         };
         elements.extend_from_slice(&more);
         let count = elements.len();
+        drop(elements);
         super::super::array::set_length(context, cell, count);
         (Some(Value::from_f64(count as f64).bits()), None)
     });
@@ -153,10 +154,11 @@ pub(super) extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _
         // programa sem passar por `get_indexed`.
         // Removed in place, for the reason `push` appends in place: nothing
         // here calls user code, so nothing needs the copy.
-        let taken = match context.elements_at_mut(cell) {
-            Some(elements) => elements.pop(),
-            None => return (Some(undefined_of(context)), None),
+        let Some(mut elements) = context.elements_at_mut(cell) else {
+            return (Some(undefined_of(context)), None);
         };
+        let taken = elements.pop();
+        drop(elements);
         let count = context.elements_at(cell).map_or(0, <[u64]>::len);
         super::super::array::set_length(context, cell, count);
         let taken = taken.unwrap_or_else(|| undefined_of(context));

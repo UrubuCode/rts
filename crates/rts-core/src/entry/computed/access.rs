@@ -248,12 +248,12 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
                 // As posições que o salto pula são BURACOS, não `undefined`
                 // armazenados: `const a = []; a[2] = 1` deixa `0 in a` falso.
                 let absent = super::super::array::hole_of(context);
-                let elements = context
+                let mut elements = context
                     .elements_at_mut(slot)
                     .expect("the array was just found");
                 elements.resize(wanted, absent);
             }
-            let elements = context
+            let mut elements = context
                 .elements_at_mut(slot)
                 .expect("the array was just found");
             elements[at] = value;
@@ -265,8 +265,9 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
             // laço mais comum que existe (`a[i] = v` dentro de um `for`): o
             // comprimento não mudou, e a escrita ainda assim resolvia a chave e
             // percorria a shape.
+            let count = elements.len();
+            drop(elements);
             if cresceu {
-                let count = elements.len();
                 super::super::array::set_length(context, slot, count);
             }
             return None;

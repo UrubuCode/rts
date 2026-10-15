@@ -53,10 +53,12 @@
 
 mod aside;
 mod region;
+mod runs;
 mod slab;
 
 pub use aside::Aside;
 pub use region::{GROWTH_CEILING, INLINE_SLOTS, Region, STRIDE};
+pub use runs::Runs;
 pub(crate) use region::Opened;
 pub use slab::{Handle, Slab, Slot, Stale};
 

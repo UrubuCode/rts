@@ -220,7 +220,7 @@ fn array_of(values: Vec<u64>) -> u64 {
     let array = super::array::array_new(values.len() as i64);
     with_current(|context| {
         if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
+            && let Some(mut elements) = context.elements_at_mut(cell)
         {
             *elements = values;
         }

@@ -333,7 +333,8 @@ fn place_and_enter(
     let bases = RegionBases::single(
         RegionBase::Immediate(agreement.region_base),
         agreement.region_stride,
-    );
+    )
+    .with_runs(agreement.region_runs);
     let placed = place(&prepared, bases).map_err(refusal)?;
     let (function_names, frames) = addressed(&prepared, &placed);
     let address = placed

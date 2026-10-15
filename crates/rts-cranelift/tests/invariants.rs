@@ -485,3 +485,80 @@ fn a_payload_word_is_not_a_value_and_the_collector_is_told_separately() {
     assert!(!Repr::Payload.is_gc_relevant());
     assert_eq!(Repr::Payload.bit_width(), 64, "it occupies a slot");
 }
+
+/// A run read takes the OWNER and a proven position, and nothing else.
+///
+/// The withdrawn raw-address load took a base, and that is what let its address
+/// outlive the last live reference to the thing the address was inside. Here the
+/// operand is a reference value, so liveness keeps it up to the read.
+#[test]
+fn a_run_read_is_built_from_a_proven_owner_and_a_proven_position() {
+    let types = TypeRegistry::new();
+    let mut func = function(
+        &[Repr::Ref(RefKind::Opaque), Repr::F64, Repr::Tagged],
+        &[Repr::Tagged],
+    );
+    let owner = param(&func, 0);
+    let position = param(&func, 1);
+    let generic = param(&func, 2);
+
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let hit = b.create_block();
+    b.add_block_param(hit, Repr::Tagged);
+    let miss = b.create_block();
+
+    assert_eq!(
+        b.run_read(generic, position, (hit, &[]), (miss, &[])),
+        Err(BuildError::WrongDomain {
+            operation: "run_read",
+            found: Repr::Tagged,
+        }),
+        "a generic value is not a reference, so no row can be computed from it"
+    );
+    assert_eq!(
+        b.run_read(owner, generic, (hit, &[]), (miss, &[])),
+        Err(BuildError::WrongDomain {
+            operation: "run_read index",
+            found: Repr::Tagged,
+        }),
+        "a generic position may be a name, and the conversion reads it as a number"
+    );
+    b.run_read(owner, position, (hit, &[]), (miss, &[]))
+        .expect("a reference and a double");
+
+    let element = func.block(hit).expect("hit exists").params[0];
+    let mut b = FuncBuilder::new(&mut func, &types, hit);
+    b.ret(&[element]);
+    let mut b = FuncBuilder::new(&mut func, &types, miss);
+    b.ret(&[generic]);
+
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
+}
+
+/// A run read keeps its owner live: the owner is an operand of the terminator.
+#[test]
+fn a_run_read_names_its_owner_among_its_operands() {
+    let types = TypeRegistry::new();
+    let mut func = function(&[Repr::Ref(RefKind::Opaque), Repr::F64], &[Repr::Tagged]);
+    let owner = param(&func, 0);
+    let position = param(&func, 1);
+
+    let entry = func.entry;
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let hit = b.create_block();
+    b.add_block_param(hit, Repr::Tagged);
+    let miss = b.create_block();
+    b.run_read(owner, position, (hit, &[]), (miss, &[]))
+        .expect("well formed");
+
+    let terminator = func
+        .block(entry)
+        .and_then(|block| block.terminator.clone())
+        .expect("the entry is terminated");
+    assert!(
+        terminator.operands().contains(&owner),
+        "an owner that is not an operand is not live at the load, which is the bug this replaces"
+    );
+    assert_eq!(terminator.successors(), vec![hit, miss]);
+}

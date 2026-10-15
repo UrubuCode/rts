@@ -303,6 +303,13 @@ impl Context {
 
     /// Records what a proxy stands for.
     pub(super) fn set_proxy(&mut self, cell: u32, target: u64, handler: u64) {
+        // The first proxy turns the element table off for good. The runtime's own
+        // element read (`computed::direct`) already refuses to answer once
+        // [`Self::any_proxy`] is true, handing everything to the generic read
+        // that asks the proxy first; compiled code that read the table would
+        // answer without asking. Permanent for the reason `any_proxy` is: the
+        // table of proxies never shrinks.
+        self.region.runs_mut().disarm();
         self.proxies.set(cell, (target, handler));
     }
 

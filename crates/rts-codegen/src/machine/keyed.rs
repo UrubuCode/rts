@@ -39,6 +39,53 @@ impl JsMachine<'_> {
         !matches!(self.types.of(key), Type::Int32 | Type::Double)
     }
 
+    /// `a[i]` with a key the inference typed a number: the element read inline from the
+    /// run table, and the runtime's direct entry for every case the table cannot answer.
+    ///
+    /// ```text
+    ///   guard a is a reference ── not one ──┐
+    ///          │                            │
+    ///   run_read(a, i) ──── missed ─────────┤
+    ///          │                            │
+    ///        hit(value)           slow: IndexNumberDirect(a, i)
+    ///          │                            │
+    ///          └──────► join(value) ◄───────┘
+    /// ```
+    ///
+    /// The owner is the operand and no address is held across anything: see
+    /// `rts_cranelift::ir::inst::Terminator::RunRead`. A key whose machine form is not a
+    /// double or an integer keeps the plain call, which coerces it as it always did.
+    pub(super) fn indexed_read(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: MachineValue,
+    ) -> Result<MachineValue, String> {
+        if !matches!(into.repr_of(key), Repr::F64 | Repr::I32) {
+            return self.call_runtime(into, RuntimeOp::IndexNumberDirect, &[object, key]);
+        }
+        let receiver = match into.repr_of(object) {
+            Repr::Tagged => object,
+            _ => into.widen(object),
+        };
+        let position = super::coerced(into, key, Repr::F64)?;
+        let reference = into.create_block();
+        let narrowed = into.add_block_param(reference, Repr::Ref(RefKind::Opaque));
+        let slow = into.create_block();
+        let join = into.create_block();
+        let result = into.add_block_param(join, Repr::Tagged);
+        into.guard(receiver, Repr::Ref(RefKind::Opaque), (reference, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(reference);
+        into.run_read(narrowed, position, (join, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(slow);
+        let answered = self.call_runtime(into, RuntimeOp::IndexNumberDirect, &[receiver, position])?;
+        into.jump(join, &[answered]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(result)
+    }
+
     /// `o[k]` through the keyed site, with `GetIndexed` on every path the site does not
     /// take.
     pub(super) fn keyed_read(

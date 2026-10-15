@@ -90,6 +90,8 @@ pub enum RegionBase {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RegionBases {
     addressing: Addressing,
+    /// Where the client's table of element runs is, when it keeps one.
+    runs: Option<u64>,
 }
 
 impl RegionBases {
@@ -97,6 +99,28 @@ impl RegionBases {
     pub fn single(base: RegionBase, stride: u32) -> Self {
         Self {
             addressing: Addressing::Single { base, stride },
+            runs: None,
+        }
+    }
+
+    /// Says where the client's [`super::RunTable`] is.
+    ///
+    /// An address and not a [`RegionBase`], and only for a single region: the
+    /// table is indexed by the cell a reference names, and a sharded heap's
+    /// references carry a region the table has no row for. An object file would
+    /// need a symbol the linker resolves; nothing provides one yet, so that
+    /// destination simply has no table and every run read takes its miss edge.
+    pub fn with_runs(mut self, address: u64) -> Self {
+        self.runs = Some(address);
+        self
+    }
+
+    /// Where the table of element runs is, if this heap has one this machine
+    /// may read.
+    pub fn runs(&self) -> Option<u64> {
+        match self.addressing {
+            Addressing::Single { .. } => self.runs,
+            Addressing::Sharded { .. } => None,
         }
     }
 
@@ -115,6 +139,7 @@ impl RegionBases {
                 selector_bits: region_count.trailing_zeros(),
                 stride,
             },
+            runs: None,
         })
     }
 

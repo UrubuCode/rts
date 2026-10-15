@@ -1272,7 +1272,11 @@ pub(crate) fn assemble(
     let bases = match &table {
         None => {
             let region = &owned[0];
+            // The table of element runs travels with the region for the same
+            // reason the base does: its address is a number in the code, and the
+            // context that runs it must be the one holding this region.
             RegionBases::single(RegionBase::Immediate(region.base()), region.stride())
+                .with_runs(region.runs_address())
         }
         Some(table) => {
             let at = RegionBase::Immediate(table.address());

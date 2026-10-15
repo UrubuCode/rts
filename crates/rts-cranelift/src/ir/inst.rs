@@ -987,6 +987,53 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Reads one element of a run the owner keeps outside its cell, by position.
+    ///
+    /// # What it checks, and that every other case is the miss edge
+    ///
+    /// The owner has a row in the heap's [`crate::mem::RunTable`], the position
+    /// is a whole number inside the row's length, and the element is not the
+    /// table's absent marker. ANY failure — no table, no row, a position that
+    /// is negative, fractional, not a number or past the end, an absent
+    /// element — enters `miss`. That is the whole of the contract with the
+    /// client: this instruction answers the common case and never decides an
+    /// uncommon one, so whatever the client does for the rest stays correct
+    /// without this layer knowing what it is.
+    ///
+    /// # Why the operand is the OWNER and not an address
+    ///
+    /// A raw-address element load existed here and was withdrawn on 2026-08-29.
+    /// Its address was computed once, ahead of a loop, from a reference the loop
+    /// then no longer used; liveness saw no live reference, the collector freed
+    /// the owner mid-loop, and the loop read storage that belonged to something
+    /// else. An address is not a reference and liveness cannot see one.
+    ///
+    /// Here the row is looked up from `owner` inside this terminator, every
+    /// time, and no address survives it. `owner` is an ordinary operand, so it is
+    /// live up to the load — and the miss edge, which usually needs the owner
+    /// again, keeps it live across everything before. Nothing between reading
+    /// the row and reading the element can allocate, so the run cannot be freed
+    /// or moved in between.
+    ///
+    /// # Why the position is a proven double
+    ///
+    /// Rule 10: the position of this instruction is a number the caller has
+    /// already proved. A generic position is a different question — it may be a
+    /// name — and belongs to [`Self::CachedGetKeyed`]. The conversion to a
+    /// machine integer is exact or it fails: the integer is converted back and
+    /// compared, so a fraction, an infinity and a NaN all miss, and the compare
+    /// against the length is unsigned so a negative position misses too.
+    RunRead {
+        /// The object whose run is read. A proven reference.
+        owner: ValueId,
+        /// The position, a proven double.
+        index: ValueId,
+        /// Entered with the element, when it was there.
+        hit: BlockCall,
+        /// Entered for every other case.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,

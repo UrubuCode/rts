@@ -356,6 +356,34 @@ impl Context {
     /// Records that a cell is an array, and where its elements are.
     fn mark_array(&mut self, cell: u32, store: Slot) {
         self.array_elements.set(cell, store);
+        self.publish_run(cell);
+    }
+
+    /// Makes the table compiled code reads say what `array_elements` says.
+    ///
+    /// Called by every path that CHANGES which store a cell has —
+    /// [`Self::mark_array`] and `array_cell::spill` — while the guard below
+    /// covers every path that changes what is IN the store, and `release`
+    /// retracts when the cell dies. Those three are all the ways a row can stop
+    /// being true; a fourth would be a new way to write `array_elements` or
+    /// `arrays`, which only this file and `array_cell` do.
+    ///
+    /// A cell whose elements are inline, or whose store is stale, gets an EMPTY
+    /// row, so compiled code takes the runtime for it.
+    pub(super) fn publish_run(&mut self, reference: u32) {
+        let cell = self.region.cell_of_reference(reference);
+        let run = match self.array_elements.copied(reference) {
+            Some(store) if store != super::array_cell::IN_CELL => self
+                .arrays
+                .at(store)
+                .ok()
+                .map(|elements| (elements.as_ptr(), elements.len().min(DENSE_LIMIT))),
+            _ => None,
+        };
+        match run {
+            Some((start, length)) => self.region.runs_mut().publish(cell, start, length),
+            None => self.region.runs_mut().retract(cell),
+        }
     }
 
     /// Where a cell's elements are, if it is an array.
@@ -406,10 +434,57 @@ impl Context {
     /// So an array that is built and read pays nothing and keeps the win, and
     /// an array that is WRITTEN pays one copy on its first write and is then
     /// exactly as it was before this existed.
-    pub(super) fn elements_at_mut(&mut self, reference: u32) -> Option<&mut Vec<u64>> {
+    ///
+    /// # Why it answers a guard and not the `Vec`
+    ///
+    /// Compiled code reads a row of the region's run table, and the row holds the
+    /// address of this `Vec`'s buffer. Whatever the caller does through the
+    /// borrow can move that buffer, so the row has to be rewritten once the
+    /// borrow ends — and with twenty-two callers, a rule that each of them does
+    /// so is a rule that will be broken. The guard rewrites it in `drop`, which
+    /// runs on every exit including `?` and a panic, and which nobody can leave
+    /// out.
+    pub(super) fn elements_at_mut(&mut self, reference: u32) -> Option<ElementsMut<'_>> {
         super::array_cell::spill(self, reference);
         let store = self.store_of(reference)?;
-        self.arrays.at_mut(store).ok()
+        let cell = self.region.cell_of_reference(reference);
+        let elements = self.arrays.at_mut(store).ok()?;
+        Some(ElementsMut {
+            elements,
+            runs: self.region.runs_mut(),
+            cell,
+        })
+    }
+}
+
+/// A mutable borrow of an array's element store that republishes the store's row
+/// when it ends. See [`Context::elements_at_mut`].
+pub(super) struct ElementsMut<'a> {
+    elements: &'a mut Vec<u64>,
+    runs: &'a mut crate::heap::Runs,
+    cell: u32,
+}
+
+impl std::ops::Deref for ElementsMut<'_> {
+    type Target = Vec<u64>;
+
+    fn deref(&self) -> &Vec<u64> {
+        self.elements
+    }
+}
+
+impl std::ops::DerefMut for ElementsMut<'_> {
+    fn deref_mut(&mut self) -> &mut Vec<u64> {
+        self.elements
+    }
+}
+
+impl Drop for ElementsMut<'_> {
+    fn drop(&mut self) {
+        // Capped for the reason `DENSE_LIMIT` is: an index at or past it is never
+        // answered from the dense store, whatever the `Vec` holds.
+        let length = self.elements.len().min(DENSE_LIMIT);
+        self.runs.publish(self.cell, self.elements.as_ptr(), length);
     }
 }
 
@@ -891,7 +966,7 @@ fn interned(keys: Vec<crate::object::Key>) -> u64 {
                     context.key_text_value(&crate::coerce::number_to_string(f64::from(number)))
                 }
             };
-            if let Some(elements) = context.elements_at_mut(slot) {
+            if let Some(mut elements) = context.elements_at_mut(slot) {
                 elements[at] = value;
             }
         }

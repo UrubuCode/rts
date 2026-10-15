@@ -454,12 +454,19 @@ pub fn iterator_result(step: u64) -> u64 {
 #[rtse::entry]
 pub fn array_append(array: u64, value: u64) -> u64 {
     with_current(|context| {
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            elements.push(value);
-            let count = elements.len();
-            super::array::set_length(context, cell, count);
+        if let Some(cell) = Value(array).as_slot() {
+            // The guard ends with the `match`, so the borrow of the context is
+            // over before `set_length` takes it again.
+            let grown = match context.elements_at_mut(cell) {
+                Some(mut elements) => {
+                    elements.push(value);
+                    Some(elements.len())
+                }
+                None => None,
+            };
+            if let Some(count) = grown {
+                super::array::set_length(context, cell, count);
+            }
         }
         array
     })
@@ -488,9 +495,14 @@ pub fn array_append_all(array: u64, iterable: u64) -> u64 {
         let Some(target) = Value(array).as_slot() else {
             return array;
         };
-        if let Some(elements) = context.elements_at_mut(target) {
-            elements.extend(more);
-            let count = elements.len();
+        let grown = match context.elements_at_mut(target) {
+            Some(mut elements) => {
+                elements.extend(more);
+                Some(elements.len())
+            }
+            None => None,
+        };
+        if let Some(count) = grown {
             super::array::set_length(context, target, count);
         }
         array

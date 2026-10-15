@@ -619,7 +619,7 @@ pub(super) fn fill(context: &mut super::Context, array: u64, parts: Vec<Option<S
                 Some(text) => context.intern_value(text).bits(),
                 None => missing,
             };
-            if let Some(elements) = context.elements_at_mut(cell) {
+            if let Some(mut elements) = context.elements_at_mut(cell) {
                 elements[at] = value;
             }
         }

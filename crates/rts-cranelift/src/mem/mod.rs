@@ -54,7 +54,9 @@
 mod address;
 mod imports;
 mod layout;
+mod runs;
 
 pub use address::{Addressing, RegionBase, RegionBases};
+pub use runs::RunTable;
 pub use imports::HeapImports;
 pub use layout::{HeaderLayout, ObjectLayout, SLOT_BYTES};

@@ -95,7 +95,7 @@ pub(super) extern "C" fn sort(
         let Some(cell) = Value(this).as_slot() else {
             return this;
         };
-        let Some(elements) = context.elements_at_mut(cell) else {
+        let Some(mut elements) = context.elements_at_mut(cell) else {
             return this;
         };
         // Bounded by what is there NOW as well as by the length the sort was
