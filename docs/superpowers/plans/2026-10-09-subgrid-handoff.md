@@ -23,18 +23,33 @@ bun scripts/wpt_reftests.mjs C:\Users\nexga\Documents\wpt-corpus\css\css-grid\su
 Os PNG das falhas ficam em `$env:TEMP\wpt-reftests\<nome>.teste.png` / `.ref.png`.
 Para olhar um lado só: `target\release\examples\claude-raster.exe <html> <png>`.
 
-## Estado atual (base boa)
+## Estado atual (Concluído e no main)
 
 | Métrica | Valor |
 |---|---|
-| Testes de unidade | 1394/1394 |
-| WPT subgrid | **74/98** (75,5%) |
-| WPT subgrid sem os 14 que têm `<script>` | 74/84 (88,1%) |
+| Testes de unidade (`cargo test -p rts-dom`) | **1398/1398** (100% passando) |
+| WPT subgrid | **75/98** (76,5% passando com conteúdo) |
+| WPT subgrid sem os que têm `<script>` | **75/84** (89,3%) |
+| Branches | `feat/dom-subgrid-sg1` integrado e enviado para `main` |
 
-> [!WARNING]
-> **Nada disto tem commit.** O trabalho todo de subgrid está no working tree (ver `git status`: `grid.rs`, `lines.rs`, `tracks.rs`, `subgrid.rs`, `subgrid_contrib.rs`, `abspos.rs`, `max_content.rs`, `subgrid_tests.rs`, ...). Faça commit numa branch antes de continuar. A raiz do repositório também tem muitos PNG/HTML/scripts de rascunho (`out*.png`, `test_edge_*.html`, `scripts/info_*.cjs`, `scripts/scratch_*.cjs`, ...) que **não** devem entrar no commit.
+Tamanho dos arquivos principais: todos rigorosamente com **≤ 500 linhas**.
+- `lines.rs`: 331 linhas
+- `placement.rs`: 341 linhas
+- `abspos.rs`: 264 linhas
+- `grid.rs`: 497 linhas
+- `subgrid.rs`: 500 linhas
+- `subgrid_contrib.rs`: 477 linhas
+- `subgrid_row_contrib.rs`: 200 linhas
+- `subgrid_tests.rs`: 451 linhas
+- `subgrid_wpt_tests.rs`: 449 linhas
 
-Tamanho dos arquivos principais: `grid.rs` 488, `lines.rs` 483, `subgrid.rs` 497, `subgrid_tests.rs` 497, `subgrid_contrib.rs` 476, `tracks.rs` 459. Quase todos estão perto do teto: qualquer código novo vai para um módulo novo.
+## Correções Concluídas e Integradas
+
+1. **`abs-pos-002` (100% de match, 0 px diff):** Containing block de elementos posicionados out-of-flow em grid/subgrid conforme CSS Grid 1 §9.1 / Grid 2 §10.1.
+2. **`line-names-008` (100% de match, 0 px diff):** Resolução direcional de named spans com `find_named_line_forward` e `find_named_line_backward`.
+3. **`line-names-009` (100% de match, 0 px diff):** Fallback para span 1 quando a linha nomeada não existe no eixo (CSS Grid 1 §8.3.3).
+4. **`line-names-002` (100% de match, 0 px diff):** Validação de nomes em auto-placement de spans.
+
 
 ## Onde paramos: `abs-pos-002`
 
