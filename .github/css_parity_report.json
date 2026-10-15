@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 604,
+    "passing": 609,
     "total": 870,
-    "pct": 69.4,
+    "pct": 70,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -43,15 +43,15 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 133,
+        "passing": 132,
         "total": 160
       },
       "item": {
-        "passing": 54,
+        "passing": 56,
         "total": 77
       },
       "align": {
-        "passing": 48,
+        "passing": 53,
         "total": 58
       },
       "aspect-ratio": {
@@ -107,7 +107,7 @@
         "total": 15
       },
       "column": {
-        "passing": 8,
+        "passing": 7,
         "total": 11
       },
       "anonymous": {
