@@ -810,6 +810,49 @@ impl JsMachine<'_> {
         self.key_of(name)
     }
 
+    /// A MACHINE CALL to a function of the program, `fn(env, this, a0..a3) -> value`.
+    ///
+    /// Only reached for a declaration `emit/direct_call` proved safe -- captures nothing, light,
+    /// a leaf -- so the environment and the receiver are `undefined`, exactly what the door
+    /// would hand a callee that ignores both. The answer is checked for a throw like any call.
+    fn call_declared(
+        &mut self,
+        into: &mut FuncBuilder,
+        func: rts_mir::cfg::FuncId,
+        args: &[MachineValue],
+    ) -> Result<MachineValue, String> {
+        if args.len() > crate::runtime::ARGUMENT_SLOTS {
+            return Err("a call by number past the convention's argument slots".to_owned());
+        }
+        let Some(shared) = self.shared.as_mut() else {
+            return Err("a call by number needs the program's registry".to_owned());
+        };
+        let Some(target) = shared.module.get(func.0 as usize).copied() else {
+            return Err(format!("f{} has no machine id here", func.0));
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let padding = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
+        });
+        let padding = into.use_const(padding);
+        let mut passed = vec![padding, padding];
+        for held in args {
+            passed.push(coerced(into, *held, Repr::Tagged)?);
+        }
+        passed.resize(2 + crate::runtime::ARGUMENT_SLOTS, padding);
+        let Some(shared) = self.shared.as_mut() else {
+            return Err("a call by number needs the program's registry".to_owned());
+        };
+        let produced = into.call(&shared.funcs, target, &passed).map_err(machine)?;
+        let answered = produced
+            .first()
+            .copied()
+            .ok_or_else(|| "a function answered nothing".to_owned())?;
+        self.recheck_throw(into)?;
+        Ok(answered)
+    }
+
     fn call_runtime(
         &mut self,
         into: &mut FuncBuilder,

@@ -155,8 +155,12 @@ pub fn lower(
                         ops.entry(into, *entry, &of_args, held)
                             .map_err(Unlowerable::Language)?
                     }
-                    (Callee::Func(_), None) => {
-                        return Err(Unlowerable::NeedsCallee);
+                    (Callee::Func(func), None) => {
+                        let of_args = read(args, &values)?;
+                        match ops.call_func(into, *func, &of_args, held) {
+                            Some(done) => done.map_err(Unlowerable::Language)?,
+                            None => return Err(Unlowerable::NeedsCallee),
+                        }
                     }
                 },
                 Op::Guard {

@@ -272,7 +272,32 @@ fn attempt(
         }
         sites.insert(template.at, ctx.template(pieces));
     }
+    // THE DECLARATIONS A CALL MAY REACH BY MACHINE CALL, numbered after the functions
+    // written inside (`direct_call` has the proof). Only those already emitted have an id.
+    let mut directs: Vec<(crate::names::resolve::BindingId, rts_cranelift::ir::FuncId)> = Vec::new();
+    if let Some(body_scope) = resolution.function_scope(function.at) {
+        for (name, id) in &ctx.direct_targets {
+            let Some(candidate) = ctx.direct_candidates.get(name) else {
+                continue;
+            };
+            if enclosing.lookup(*name).is_none()
+                || candidate.globals.iter().any(|held| enclosing.lookup(*held).is_some())
+            {
+                continue;
+            }
+            if let Some(binding) = resolution.binding_in(body_scope, *name) {
+                directs.push((binding, *id));
+            }
+        }
+    }
+    let direct_base = positions.len();
     let callees = crate::lower::Callees::of_positions(&positions)
+        .with_functions(
+            directs
+                .iter()
+                .enumerate()
+                .map(|(at, (binding, _))| (*binding, rts_mir::cfg::FuncId((direct_base + at) as u32))),
+        )
         .with_templates(sites)
         .with_substitutes(substitutes(ctx, enclosing, function))
         .with_methods(methods(ctx, enclosing, function))
@@ -405,6 +430,10 @@ fn attempt(
         }
     }
     ctx.restore_lent_name(outer_name);
+    if module.len() != direct_base {
+        return Err("the module list disagrees with the positions it was numbered from".to_owned());
+    }
+    module.extend(directs.iter().map(|(_, id)| *id));
     let lowered = {
         let mut into = rts_cranelift::ir::FuncBuilder::new(&mut machine, ctx.types, entry);
         let parts = crate::machine::Parts {
@@ -464,7 +493,7 @@ fn agrees(
             rts_mir::Op::Call {
                 callee: rts_mir::cfg::Callee::Func(_),
                 ..
-            } => return Err("a call by number".to_owned()),
+            } => {}
             // A WRITE TO A GLOBAL is the running emitter's `globals::write` only for a
             // name its lists place; any other is a program it refuses to compile, or a
             // page script's window, and neither is this door's to decide.

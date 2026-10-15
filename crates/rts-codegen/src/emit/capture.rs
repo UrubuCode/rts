@@ -747,7 +747,7 @@ pub(crate) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'
 /// `let` in a block is not — it binds in that block, and a mention outside the
 /// block is the outer name — so it stays counted, which keeps the error in the
 /// safe direction exactly where block scope is what decides.
-fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
+pub(super) fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
     // ITS OWN NAME IS NOT MENTIONED BY BEING SPELLED IN THE HEADER, and the
     // unconditional insert that used to stand here said it was.
     //

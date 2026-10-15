@@ -135,6 +135,22 @@ pub trait MachineOps {
         inst: &crate::cfg::Inst,
     ) -> Result<MachineValue, String>;
 
+    /// A call to a function of the program, by the machine id the language numbered it with.
+    ///
+    /// `None` -- the default -- is a language that has not numbered its functions, whose
+    /// call is refused as [`Unlowerable::NeedsCallee`]. `Some(Err(..))` is a language that
+    /// has, and cannot make this particular call by number.
+    fn call_func(
+        &mut self,
+        into: &mut FuncBuilder,
+        func: crate::cfg::FuncId,
+        args: &[MachineValue],
+        inst: &crate::cfg::Inst,
+    ) -> Option<Result<MachineValue, String>> {
+        let _ = (into, func, args, inst);
+        None
+    }
+
     /// A call to a named entry point of the runtime.
     ///
     /// Takes the instruction for the same reason [`Self::prim`] does, although an

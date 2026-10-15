@@ -4933,9 +4933,6 @@ dependencies = [
 [[package]]
 name = "rts-corelib"
 version = "0.1.0"
-dependencies = [
- "rts-core",
-]
 
 [[package]]
 name = "rts-cranelift"

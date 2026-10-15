@@ -688,6 +688,16 @@ impl MachineOps for JsMachine<'_> {
         self.call_runtime(into, door, &of_args)
     }
 
+    fn call_func(
+        &mut self,
+        into: &mut FuncBuilder,
+        func: rts_mir::cfg::FuncId,
+        args: &[MachineValue],
+        _inst: &Inst,
+    ) -> Option<Result<MachineValue, String>> {
+        Some(self.call_declared(into, func, args))
+    }
+
     fn entry(
         &mut self,
         into: &mut FuncBuilder,

@@ -540,6 +540,13 @@ fn emit_function(
         .unwrap_or_default();
     if light {
         ctx.light_functions.insert(id);
+        // A declaration `direct_call` proved callable by machine call, now that its id exists.
+        if definition == Definition::Declaration
+            && let Some(name) = function.name
+            && ctx.direct_candidates.get(&name).is_some_and(|held| held.at == function.at)
+        {
+            ctx.direct_targets.insert(name, id);
+        }
     }
     ctx.function_names
         .push((id, text.clone(), arity, has_prototype, constructs));

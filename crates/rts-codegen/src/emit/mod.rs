@@ -65,6 +65,7 @@ mod chunk;
 pub(crate) mod evidence;
 mod class_layout;
 mod light_call;
+mod direct_call;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -699,6 +700,10 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// Declarations a call may reach by machine call -- `direct_call`.
+    direct_candidates: std::collections::BTreeMap<Name, direct_call::Direct>,
+    /// Those of them already emitted, by name: the id a call is made to.
+    direct_targets: std::collections::BTreeMap<Name, FuncId>,
     /// The classes whose instances are a list of fields, by name — see
     /// `class_layout`. Computed where `inlinable` is, from the same two facts.
     layouts: std::collections::BTreeMap<Name, std::rc::Rc<class_layout::Layout>>,
@@ -820,6 +825,8 @@ impl<'a> Ctx<'a> {
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
+            direct_candidates: std::collections::BTreeMap::new(),
+            direct_targets: std::collections::BTreeMap::new(),
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
             handed_over: std::collections::BTreeSet::new(),
@@ -1283,6 +1290,8 @@ pub(super) fn emit_program_into(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.direct_candidates = direct_call::candidates(body, eval_name, global_this);
+    ctx.direct_targets.clear();
     let object_name = ctx.names.intern("Object");
     ctx.layouts_allowed = primordial::untouched(body, object_name, eval_name, global_this)
         && !class_layout::setters_reachable(body, &ctx.names);
@@ -1690,6 +1699,8 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.direct_candidates = direct_call::candidates(body, eval_name, global_this);
+    ctx.direct_targets.clear();
     // `ctx.layouts` is the whole program's, set by `emit_modules` before the
     // first unit — a class is constructed across module boundaries.
     let nothing = Scope::new();

@@ -91,6 +91,16 @@ impl Callees {
         }
     }
 
+    /// The same map, also naming these bindings as the functions numbered after the ones
+    /// written inside -- the declarations `emit/direct_call` proved callable by machine call.
+    pub fn with_functions(
+        mut self,
+        bindings: impl IntoIterator<Item = (BindingId, rts_mir::cfg::FuncId)>,
+    ) -> Self {
+        self.by_binding.extend(bindings);
+        self
+    }
+
     /// The same map, with a site for each tagged template this function writes.
     pub fn with_templates(
         mut self,
