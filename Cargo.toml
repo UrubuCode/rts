@@ -13,6 +13,7 @@ members = [
     "crates/rts-mir",
     "crates/rts-codegen",
     "crates/rts-core",
+    "crates/rts-corelib",
     "crates/rts-ui",
     "crates/rts-std",
     "crates/rts-node",
