@@ -187,7 +187,11 @@ fn build_axis(
     let parent_reversed = parent_axis_dir.is_reversed();
     let subgrid_reversed = subgrid_axis_dir.is_reversed();
     let is_reversed = parent_axis_dir != subgrid_axis_dir;
-    let local_reversed = subgrid_reversed ^ is_frame_inverted(subgrid_wm, subgrid_is_col);
+    let local_reversed = if subgrid_wm.is_horizontal() {
+        subgrid_reversed
+    } else {
+        is_reversed
+    };
 
     let phys_slice: Vec<f32> = if parent_reversed {
         p_slice.iter().rev().copied().collect()

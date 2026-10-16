@@ -218,6 +218,43 @@ fn test_orthogonal_writing_mode_005() {
     }
 }
 
+#[test]
+fn test_orthogonal_writing_mode_003() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-003.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-003-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (items_t, items_r) = (dom_t.query_all("item"), dom_r.query_all("item"));
+    for (&it_t, &it_r) in items_t.iter().zip(&items_r) {
+        let rt = list_t.rect_of(dom_t.resolve(it_t).unwrap());
+        let rr = list_r.rect_of(dom_r.resolve(it_r).unwrap());
+        assert_rect_approx(rt, rr);
+    }
+    let (subgrids_t, subgrids_r) = (dom_t.query_all(".subgrid"), dom_r.query_all(".subgrid"));
+    for (&st, &sr) in subgrids_t.iter().zip(&subgrids_r) {
+        let rt = list_t.rect_of(dom_t.resolve(st).unwrap());
+        let rr = list_r.rect_of(dom_r.resolve(sr).unwrap());
+        assert_rect_approx(rt, rr);
+    }
+}
+
 fn assert_rect_approx(a: Option<crate::paint::Rect>, b: Option<crate::paint::Rect>) {
     let (Some(a), Some(b)) = (a, b) else {
         assert_eq!(a, b);
