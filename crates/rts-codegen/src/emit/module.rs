@@ -115,7 +115,25 @@ pub fn emit_import(
             let Some(found) = crate::runtime::core_names::lookup(exported) else {
                 return Err(refuse("an unknown name imported from rts:core"));
             };
-            ctx.core_imports.insert(*local, found.primitive);
+            ctx.core_imports
+                .insert(*local, crate::runtime::core_names::Bound::Core(found.primitive));
+        }
+        return Ok(());
+    }
+    // `rts:sys`: the same mechanism, host-only.
+    if import.source == crate::runtime::core_names::SYS_SPECIFIER {
+        if !crate::runtime::core_names::host_available() {
+            return Err(refuse("rts:sys on a target with no host"));
+        }
+        for binding in &import.bindings {
+            let ImportBinding::Named { exported, local } = binding else {
+                return Err(refuse("a default or namespace import of rts:sys"));
+            };
+            let Some(found) = crate::runtime::core_names::lookup_sys(exported) else {
+                return Err(refuse("an unknown name imported from rts:sys"));
+            };
+            ctx.core_imports
+                .insert(*local, crate::runtime::core_names::Bound::Sys(found));
         }
         return Ok(());
     }

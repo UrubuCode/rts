@@ -11,6 +11,8 @@ use rts_cranelift::ir::{FuncBuilder, ValueId};
 use rts_cranelift::repr::Repr;
 
 use super::expr::{emit_expr, tagged};
+use crate::runtime::RuntimeOp;
+use crate::runtime::core_names::Bound;
 use super::{Ctx, EmitResult, Scope};
 use crate::syntax::{Expr, ExprKind, Spreadable};
 
@@ -24,12 +26,27 @@ pub(super) fn emit(
     let ExprKind::Ident(name) = &callee.kind else {
         return Ok(None);
     };
-    let Some(&primitive) = ctx.core_imports.get(name) else {
+    let Some(&bound) = ctx.core_imports.get(name) else {
         return Ok(None);
     };
     if scope.lookup(*name).is_some() {
         return Ok(None);
     }
+    let primitive = match bound {
+        Bound::Core(primitive) => primitive,
+        Bound::Sys(sys) => {
+            if arguments.len() != sys.arity() {
+                return Err(super::module::refuse("an rts:sys call with the wrong number of arguments"));
+            }
+            let id = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: rts_cranelift::ir::ScalarBits(sys.selector() as u64),
+            });
+            let which = builder.use_const(id);
+            let answered = super::expr::call(builder, ctx, RuntimeOp::SysMemory, &[which])?[0];
+            return Ok(Some(tagged(builder, answered)));
+        }
+    };
     let arity = match primitive {
         CorePrimitive::I32Mul => 2,
         _ => return Err(super::module::refuse("an rts:core primitive with no lowering")),

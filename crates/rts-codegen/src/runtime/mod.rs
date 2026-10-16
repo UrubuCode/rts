@@ -1194,6 +1194,10 @@ pub enum RuntimeOp {
     MapNewDirect,
     /// `new Set()` on the same terms. See [`RuntimeOp::MapNewDirect`].
     SetNewDirect,
+    /// `totalmem()` / `freemem()` from `"rts:sys"`: physical memory in bytes,
+    /// unboxed, selected by an integer (0 total, 1 free). Reads the operating
+    /// system, so it is a call. Host-only; **appended**.
+    SysMemory,
 }
 
 impl RuntimeOp {
@@ -1337,6 +1341,7 @@ impl RuntimeOp {
         RuntimeOp::SpreadList,
         RuntimeOp::MapNewDirect,
         RuntimeOp::SetNewDirect,
+        RuntimeOp::SysMemory,
     ];
 
     /// The linker name the runtime must define.
@@ -1480,6 +1485,7 @@ impl RuntimeOp {
             RuntimeOp::SpreadList => "__rts_spread_list",
             RuntimeOp::MapNewDirect => "__rts_map_new_direct",
             RuntimeOp::SetNewDirect => "__rts_set_new_direct",
+            RuntimeOp::SysMemory => "__rts_sys_memory",
         }
     }
 
@@ -1519,6 +1525,7 @@ impl RuntimeOp {
             // compiling, so there is no operand for it to arrive as.
             RuntimeOp::MapNewDirect | RuntimeOp::SetNewDirect => (vec![], vec![UNPROVEN]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
+            RuntimeOp::SysMemory => (vec![Repr::I64], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
                 (vec![UNPROVEN], vec![UNPROVEN])

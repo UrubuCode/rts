@@ -729,7 +729,7 @@ pub(super) fn emit_body(
     }
     for import in imports {
         // `rts:core` binds nothing at run time, so there is nothing to capture.
-        if import.source == crate::runtime::core_names::SPECIFIER {
+        if crate::runtime::core_names::is_compile_time(&import.source) {
             continue;
         }
         for binding in &import.bindings {

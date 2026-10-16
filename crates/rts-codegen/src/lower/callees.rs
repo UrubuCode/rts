@@ -41,7 +41,7 @@ pub struct Callees {
     math_primordial: bool,
     /// Names imported from `rts:core` that this function sees unshadowed, with the
     /// primitive each means -- `runtime::core_names`.
-    core_imports: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
+    core_imports: std::collections::BTreeMap<crate::names::Name, crate::runtime::core_names::Bound>,
     statics_primordial: crate::emit::statics::Primordials,
     /// Which names the program expects to be collections -- `emit/evidence`, handed
     /// over whole so both emitters choose a direct entry for the same receivers.
@@ -163,14 +163,14 @@ impl Callees {
     /// The `rts:core` imports in force for this function.
     pub fn with_core_imports(
         mut self,
-        imports: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
+        imports: std::collections::BTreeMap<crate::names::Name, crate::runtime::core_names::Bound>,
     ) -> Self {
         self.core_imports = imports;
         self
     }
 
     /// The primitive `name` is bound to by an `rts:core` import, if it is.
-    pub fn core_import(&self, name: crate::names::Name) -> Option<rts_corelib::CorePrimitive> {
+    pub fn core_import(&self, name: crate::names::Name) -> Option<crate::runtime::core_names::Bound> {
         self.core_imports.get(&name).copied()
     }
 

@@ -92,6 +92,8 @@ pub const CANNOT_RAISE: &[RuntimeOp] = &[
     // A thread-local xorshift and no context borrow. `entry/math.rs`, `draw`.
     // Closed.
     RuntimeOp::MathRandom,
+    // An OS memory query and no heap. `entry/sys.rs`. Closed.
+    RuntimeOp::SysMemory,
     // `context.literals.get(which)`, or `undefined` when the table is short.
     // `entry/text.rs`. Closed — and this is the one that removes a check from a
     // string LITERAL in expression position, which is why the strings
@@ -243,9 +245,15 @@ mod tests {
         // `TypeOf` off this list does not apply to it: `TypeOf` allocates its
         // answer string and this builds no string at all, which is the whole
         // reason it exists.
+        // FOURTEEN since 2026-10-15: `SysMemory`. `entry/sys.rs::sys_memory` was
+        // read in full: one `GlobalMemoryStatusEx` call (Windows) or one
+        // `/proc/meminfo` read (Linux) into a local struct or string, then a
+        // `match` returning an `f64`. It takes no context borrow, allocates no
+        // heap cell, calls no user code, and has no throw path -- a failed
+        // query answers `0.0`.
         assert_eq!(
             CANNOT_RAISE.len(),
-            13,
+            14,
             "CANNOT_RAISE changed — each entry must name the rts-core body it \
              was read against, and rts-host asserts the symbol still exists"
         );

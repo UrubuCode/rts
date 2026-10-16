@@ -84,6 +84,7 @@ use super::collections::{
 use super::functions::ARGUMENT_AT_ENTRY;
 use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
+use super::sys::SYS_MEMORY_ENTRY;
 use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
 use super::template_join::TEMPLATE_JOIN_ENTRY;
 use super::text::STRING_OF_ENTRY;
@@ -846,6 +847,9 @@ pub enum CoreEntry {
     MapNewDirect = 131,
     /// [`super::set_new_direct`] — the same for `new Set()`.
     SetNewDirect = 132,
+    /// [`super::sys_memory`] -- `totalmem`/`freemem` from `"rts:sys"`, selected
+    /// by an integer. A host entry: it asks the operating system.
+    SysMemory = 133,
 }
 
 /// How many entry points exist.
@@ -853,7 +857,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 133;
+pub const CORE_ENTRY_COUNT: usize = 134;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -994,6 +998,7 @@ impl CoreEntry {
         CoreEntry::ModuleEvaluate,
         CoreEntry::MapNewDirect,
         CoreEntry::SetNewDirect,
+        CoreEntry::SysMemory,
     ];
 
     /// The number a call site holds.
@@ -1142,6 +1147,7 @@ impl CoreEntry {
             CoreEntry::FunctionApplyListedDirect => FUNCTION_APPLY_LISTED_DIRECT_ENTRY,
             CoreEntry::SpreadList => SPREAD_LIST_ENTRY,
             CoreEntry::ModuleEvaluate => MODULE_EVALUATE_ENTRY,
+            CoreEntry::SysMemory => SYS_MEMORY_ENTRY,
         }
     }
 

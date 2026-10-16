@@ -190,6 +190,8 @@ impl Js {
         RuntimeOp::MathRandom,
         RuntimeOp::MathDirect1,
         RuntimeOp::MathDirect2,
+        // `totalmem()`/`freemem()` from `rts:sys` -- `lower/intrinsic.rs`.
+        RuntimeOp::SysMemory,
         // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
         RuntimeOp::ElementAt,
         // Whether an array may be read by index where its iterator would step it --
@@ -803,7 +805,8 @@ impl Domain for Js {
                 RuntimeOp::ArrayLength
                 | RuntimeOp::MathRandom
                 | RuntimeOp::MathDirect1
-                | RuntimeOp::MathDirect2,
+                | RuntimeOp::MathDirect2
+                | RuntimeOp::SysMemory,
             ) => Type::Double,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering

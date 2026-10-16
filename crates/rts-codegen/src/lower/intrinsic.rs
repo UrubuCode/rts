@@ -126,7 +126,17 @@ impl Lowering<'_> {
         if !self.is_core_import(*name) {
             return Ok(None);
         }
-        let primitive = self.callees.core_import(*name).expect("just asked");
+        let primitive = match self.callees.core_import(*name).expect("just asked") {
+            crate::runtime::core_names::Bound::Core(primitive) => primitive,
+            crate::runtime::core_names::Bound::Sys(sys) => {
+                if arguments.len() != sys.arity() {
+                    return Err(Unsupported::Expression("an rts:sys call with the wrong number of arguments"));
+                }
+                let selector = self.domain.constant(JsConst::Count(sys.selector() as u32));
+                let selector = self.declared(selector, at);
+                return Ok(Some(self.entry(crate::runtime::RuntimeOp::SysMemory, vec![selector], at)));
+            }
+        };
         let (op, arity) = match primitive {
             rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
             _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),

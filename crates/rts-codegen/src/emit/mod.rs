@@ -692,7 +692,7 @@ pub struct Ctx<'a> {
     /// Names bound by `import { … } from "rts:core"` in the module being emitted,
     /// to the primitive each means. Compile-time only: the import emits nothing.
     /// Reset per module beside `live_imports`.
-    pub(crate) core_imports: std::collections::BTreeMap<Name, rts_corelib::CorePrimitive>,
+    pub(crate) core_imports: std::collections::BTreeMap<Name, crate::runtime::core_names::Bound>,
     /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
     /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
     statics_primordial: statics::Primordials,

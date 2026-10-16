@@ -318,8 +318,15 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // which is everything these two rows state by hand. The next mover inherits
     // an argument that has now failed to be made four times, and the first one
     // who needs a THIRD class should derive the row instead of writing it.
+    //
+    // Moved to 134 on 2026-10-15 for `SysMemory` (`"rts:sys"`'s `totalmem` and
+    // `freemem`), and the question was asked rather than inherited: it reads the
+    // operating system (`GlobalMemoryStatusEx`, `/proc/meminfo`), which is the
+    // second clause of the membership rule and is not arithmetic. One row serves
+    // both names through a selector, not two. It adds a capability rather than
+    // removing a crossing, which is the host layer's whole point.
     assert!(
-        CORE_ENTRY_COUNT <= 133,
+        CORE_ENTRY_COUNT <= 134,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
