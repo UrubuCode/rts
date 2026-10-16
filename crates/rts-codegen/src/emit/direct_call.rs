@@ -56,6 +56,57 @@ pub(super) struct Direct {
     pub globals: Vec<Name>,
 }
 
+/// `f(a, b)` written in code the RUNNING emitter emits (the program's entry, a module body, a
+/// function it declines to hand the MIR stage), as a machine call to `f`'s id.
+///
+/// The same proof as the MIR path, asked at the site: `candidates` proved the declaration,
+/// `Ctx::direct_targets` holds it only once its id exists (a call emitted above the
+/// declaration keeps the door), the name must be bound here -- a name resolving to a global
+/// is another thing -- and so must no global the callee reads. Plain `Call` only, no spread,
+/// at most [`ARGUMENT_SLOTS`] arguments.
+pub(super) fn emit(
+    builder: &mut rts_cranelift::ir::FuncBuilder,
+    scope: &mut super::Scope,
+    ctx: &mut super::Ctx,
+    callee: &Expr,
+    arguments: &[crate::syntax::Spreadable],
+) -> super::EmitResult<Option<rts_cranelift::ir::ValueId>> {
+    let ExprKind::Ident(name) = &callee.kind else {
+        return Ok(None);
+    };
+    let Some(target) = ctx.direct_targets.get(name).copied() else {
+        return Ok(None);
+    };
+    let Some(candidate) = ctx.direct_candidates.get(name) else {
+        return Ok(None);
+    };
+    if arguments.len() > ARGUMENT_SLOTS
+        || scope.lookup(*name).is_none()
+        || candidate.globals.iter().any(|held| scope.lookup(*held).is_some())
+    {
+        return Ok(None);
+    }
+    let mut values = Vec::with_capacity(ARGUMENT_SLOTS);
+    for argument in arguments {
+        let crate::syntax::Spreadable::Single(value) = argument else {
+            return Ok(None);
+        };
+        values.push(value);
+    }
+    let undefined = super::expr::undefined(builder, ctx);
+    let mut passed = vec![undefined, undefined];
+    for value in values {
+        let held = super::expr::emit_expr(builder, scope, ctx, value)?;
+        passed.push(super::expr::tagged(builder, held));
+    }
+    while passed.len() < 2 + ARGUMENT_SLOTS {
+        passed.push(undefined);
+    }
+    let produced = builder.call(ctx.funcs, target, &passed)?;
+    super::expr::raise_if_thrown(builder, ctx)?;
+    Ok(Some(produced[0]))
+}
+
 /// The declarations of `body` that pass every clause that can be decided from the tree.
 pub(super) fn candidates(
     body: &[Stmt],

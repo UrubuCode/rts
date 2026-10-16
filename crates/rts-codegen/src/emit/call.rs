@@ -131,6 +131,14 @@ pub(super) fn emit_call_as(
         return Ok(value);
     }
 
+    // A declaration `direct_call` proved safe, as a machine call and not the door.
+    if scope_is_lexical
+        && op == RuntimeOp::Call
+        && let Some(value) = super::direct_call::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+
     // The receiver and the callee, in the order the language evaluates them:
     // the member expression first, then the arguments.
     let (receiver, function) = callee_and_receiver(builder, scope, ctx, callee)?;
