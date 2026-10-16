@@ -35,8 +35,10 @@ pub(in crate::layout) fn init_col_tracks(
         } else {
             0.0
         };
+        let is_sub_disabled = css.disables_subgrid == Some(true)
+            || css.position.map_or(false, |p| p.out_of_flow());
         let (mut tracks, mut collapsible, mut line_names) = match css.grid_template_columns.as_deref() {
-            Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+            Some(GridTemplate::Subgrid(_)) if is_p_grid && !is_sub_disabled => {
                 let s = if is_ortho {
                     subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref())
                 } else {
@@ -90,8 +92,10 @@ pub(in crate::layout) fn init_row_tracks(
         )
     } else {
         let min_s = super::aspect::container_min_size_for_auto_repeat(css, false, container_content_h, resolve);
+        let is_sub_disabled = css.disables_subgrid == Some(true)
+            || css.position.map_or(false, |p| p.out_of_flow());
         let (mut tracks, mut collapsible, mut line_names) = match css.grid_template_rows.as_deref() {
-            Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+            Some(GridTemplate::Subgrid(_)) if is_p_grid && !is_sub_disabled => {
                 let s = if is_ortho {
                     subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref())
                 } else {

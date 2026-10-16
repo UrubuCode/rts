@@ -296,7 +296,9 @@ pub(in crate::layout) fn check_and_build(
     {
         return None;
     }
-    if child_css.disables_subgrid == Some(true) {
+    if child_css.disables_subgrid == Some(true)
+        || child_css.position.map_or(false, |p| p.out_of_flow())
+    {
         return None;
     }
     let is_col_subgrid = matches!(
@@ -402,7 +404,7 @@ pub(in crate::layout) fn is_subgrid_node(
     parent_wm: crate::style::WritingMode,
 ) -> (bool, bool) {
     let Some(css) = dom.computed_style_idx(child) else { return (false, false); };
-    if css.disables_subgrid == Some(true) { return (false, false); }
+    if css.disables_subgrid == Some(true) || css.position.map_or(false, |p| p.out_of_flow()) { return (false, false); }
     let child_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
     let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
     let col = matches!(css.grid_template_columns.as_deref(), Some(GridTemplate::Subgrid(_)));
@@ -414,7 +416,7 @@ pub(in crate::layout) fn is_subgrid_item(
     css: &ComputedStyle,
     parent_wm: crate::style::WritingMode,
 ) -> (bool, bool) {
-    if css.disables_subgrid == Some(true) { return (false, false); }
+    if css.disables_subgrid == Some(true) || css.position.map_or(false, |p| p.out_of_flow()) { return (false, false); }
     let child_wm = css.writing_mode.unwrap_or_default();
     let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
     let col = matches!(css.grid_template_columns.as_deref(), Some(GridTemplate::Subgrid(_)));

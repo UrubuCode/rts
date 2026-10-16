@@ -417,3 +417,35 @@ fn test_subgrid_baseline_002() {
     assert_rect_approx(xt, xr);
 }
 
+
+#[test]
+fn test_independent_formatting_context() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\independent-formatting-context.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\independent-formatting-context-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let subs_t = dom_t.query_all(".subgrid");
+    let subs_r = dom_r.query_all(".subgrid");
+    for (st, sr) in subs_t.into_iter().zip(subs_r.into_iter()) {
+        let rt = list_t.rect_of(dom_t.resolve(st).unwrap());
+        let rr = list_r.rect_of(dom_r.resolve(sr).unwrap());
+        assert_rect_approx(rt, rr);
+    }
+}

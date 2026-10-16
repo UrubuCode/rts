@@ -75,9 +75,11 @@ fn grid_content_width(
         .or_else(|| super::aspect::find_containing_block_height(dom, id))
         .unwrap_or(0.0);
     let is_p_grid = super::subgrid::is_parent_grid(dom, id);
+    let is_sub_disabled = css.disables_subgrid == Some(true)
+        || css.position.map_or(false, |p| p.out_of_flow());
     let min_col_s = super::aspect::container_min_size_for_auto_repeat(&css, true, Some(container_h), &resolve);
     let (col_tracks, col_lines) = match css.grid_template_columns.as_deref() {
-        Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+        Some(GridTemplate::Subgrid(_)) if is_p_grid && !is_sub_disabled => {
             let s = super::subgrid::subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref());
             (vec![GridTrack::Auto; s], vec![Vec::new(); s + 1])
         }
@@ -97,7 +99,7 @@ fn grid_content_width(
 
     let min_row_s = super::aspect::container_min_size_for_auto_repeat(&css, false, Some(container_h), &resolve);
     let (rows, row_lines) = match css.grid_template_rows.as_deref() {
-        Some(GridTemplate::Subgrid(_)) if is_p_grid => {
+        Some(GridTemplate::Subgrid(_)) if is_p_grid && !is_sub_disabled => {
             let s = super::subgrid::subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref());
             (vec![GridTrack::Auto; s], vec![Vec::new(); s + 1])
         }
