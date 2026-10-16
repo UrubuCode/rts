@@ -32,8 +32,12 @@ crate-type = ["rlib", "staticlib"]
 # rather than here so `rts-runtime-jit` can reuse the SAME sequence without
 # depending on THIS crate (and bundling this crate's `main` alongside its
 # own — the measured reason for the split is in that crate's `lib.rs`).
-rts-runtime-boot = { path = "../rts-runtime-boot" }
+rts-runtime-boot = { path = "../rts-runtime-boot", default-features = false }
 
 [features]
-default = ["ui"]
+# Each heavy namespace is a feature so a size-minimal archive can be built with
+# `--no-default-features`; the defaults keep the full capability set.
+default = ["ui", "physics", "audio"]
 ui = ["rts-runtime-boot/ui"]
+physics = ["rts-runtime-boot/physics"]
+audio = ["rts-runtime-boot/audio"]
