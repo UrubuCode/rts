@@ -31,6 +31,32 @@ pub(super) fn pop_ortho_stack() -> Vec<OrthoChild> {
     ORTHO_STACK.with(|s| s.borrow_mut().pop().unwrap_or_default())
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OrthoMark {
+    frame_depth: usize,
+    child_count: usize,
+}
+
+pub(crate) fn mark() -> OrthoMark {
+    ORTHO_STACK.with(|s| {
+        let s = s.borrow();
+        OrthoMark {
+            frame_depth: s.len(),
+            child_count: s.last().map(|v| v.len()).unwrap_or(0),
+        }
+    })
+}
+
+pub(crate) fn restore(mark: OrthoMark) {
+    ORTHO_STACK.with(|s| {
+        let mut s = s.borrow_mut();
+        s.truncate(mark.frame_depth);
+        if let Some(stack) = s.last_mut() {
+            stack.truncate(mark.child_count);
+        }
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn layout_orthogonal(
     dom: &Dom,

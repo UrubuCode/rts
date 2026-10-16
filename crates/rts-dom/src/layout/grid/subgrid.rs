@@ -16,8 +16,6 @@ pub(in crate::layout) struct SubgriddedAxis {
     pub line_pos: Vec<f32>,
     pub line_names: Vec<LineNames>,
     pub gap: f32,
-    pub start_mbp: f32,
-    pub end_mbp: f32,
     pub reversed: bool,
 }
 
@@ -89,6 +87,57 @@ pub(in crate::layout) fn subgrid_mbp(
 
 pub(in crate::layout) use super::subgrid_names::{clamp_area_lines, expand_subgrid_line_names, is_parent_grid, subgrid_span};
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub(in crate::layout) enum PhysicalAxisDirection {
+    LeftToRight,
+    RightToLeft,
+    TopToBottom,
+    BottomToTop,
+}
+
+impl PhysicalAxisDirection {
+    #[inline]
+    pub fn is_reversed(self) -> bool {
+        matches!(self, Self::RightToLeft | Self::BottomToTop)
+    }
+}
+
+pub(in crate::layout) fn axis_direction(
+    wm: crate::style::WritingMode,
+    dir: crate::style::Direction,
+    is_col: bool,
+) -> PhysicalAxisDirection {
+    use crate::style::{Direction::*, WritingMode::*};
+    use PhysicalAxisDirection::*;
+    if is_col {
+        match (wm, dir) {
+            (HorizontalTb, Ltr) => LeftToRight,
+            (HorizontalTb, Rtl) => RightToLeft,
+            (VerticalRl | VerticalLr | SidewaysRl, Ltr) => TopToBottom,
+            (VerticalRl | VerticalLr | SidewaysRl, Rtl) => BottomToTop,
+            (SidewaysLr, Ltr) => BottomToTop,
+            (SidewaysLr, Rtl) => TopToBottom,
+        }
+    } else {
+        match wm {
+            HorizontalTb => TopToBottom,
+            VerticalRl | SidewaysRl => RightToLeft,
+            VerticalLr | SidewaysLr => LeftToRight,
+        }
+    }
+}
+
+fn is_frame_inverted(wm: crate::style::WritingMode, is_col: bool) -> bool {
+    if is_col {
+        wm == crate::style::WritingMode::SidewaysLr
+    } else {
+        matches!(
+            wm,
+            crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl
+        )
+    }
+}
+
 fn build_axis(
     subgrid_template: Option<&GridTemplate>,
     subgrid_gap_prop: Option<crate::style::Dimension>,
@@ -101,8 +150,10 @@ fn build_axis(
     smbp: f32,
     embp: f32,
     resolve: &ResolveCtx,
-    reverse_parent: bool,
-    is_rtl: bool,
+    parent_axis_dir: PhysicalAxisDirection,
+    subgrid_axis_dir: PhysicalAxisDirection,
+    subgrid_wm: crate::style::WritingMode,
+    subgrid_is_col: bool,
 ) -> Option<SubgriddedAxis> {
     let subgrid_lines = match subgrid_template {
         Some(GridTemplate::Subgrid(l)) => l.as_slice(),
@@ -131,24 +182,25 @@ fn build_axis(
         .max(0.0);
     let half = (gap - p_gap) / 2.0;
 
-    let parent_rtl = reverse_parent ^ is_rtl;
-    let phys_slice: Vec<f32> = if parent_rtl {
+    let parent_reversed = parent_axis_dir.is_reversed();
+    let subgrid_reversed = subgrid_axis_dir.is_reversed();
+    let is_reversed = parent_axis_dir != subgrid_axis_dir;
+    let local_reversed = subgrid_reversed ^ is_frame_inverted(subgrid_wm, subgrid_is_col);
+
+    let phys_slice: Vec<f32> = if parent_reversed {
         p_slice.iter().rev().copied().collect()
     } else {
         p_slice.to_vec()
     };
+
     let mut phys_starts = Vec::with_capacity(n);
     let mut phys_ends = Vec::with_capacity(n);
     let mut cur = 0.0f32;
     for &pt in &phys_slice {
+        phys_starts.push(cur);
         cur += pt;
         phys_ends.push(cur);
         cur += p_gap;
-    }
-    let mut cur_s = 0.0f32;
-    for &pt in &phys_slice {
-        phys_starts.push(cur_s);
-        cur_s += pt + p_gap;
     }
 
     let mut track_starts = Vec::with_capacity(n);
@@ -156,7 +208,7 @@ fn build_axis(
     let mut track_sizes = Vec::with_capacity(n);
 
     for k in 0..n {
-        let p_idx = if is_rtl { n - 1 - k } else { k };
+        let p_idx = if local_reversed { n - 1 - k } else { k };
         let s = if p_idx == 0 {
             0.0
         } else {
@@ -175,7 +227,7 @@ fn build_axis(
     let span_size: f32 = phys_slice.iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * p_gap;
     let content_span = (span_size - smbp - embp).max(0.0);
     let mut line_pos = Vec::with_capacity(n + 1);
-    if is_rtl {
+    if local_reversed {
         line_pos.push(content_span);
         let mut cur_from_end = 0.0f32;
         for k in 1..n {
@@ -185,11 +237,8 @@ fn build_axis(
         line_pos.push(0.0);
     } else {
         line_pos.push(0.0);
-        let mut cur = 0.0f32;
         for k in 0..n.saturating_sub(1) {
-            cur += phys_slice[k];
-            line_pos.push(cur - smbp);
-            cur += p_gap;
+            line_pos.push(phys_ends[k] - smbp);
         }
         line_pos.push(content_span);
     }
@@ -200,7 +249,7 @@ fn build_axis(
     } else {
         &[]
     };
-    let mut line_names = expand_subgrid_line_names(subgrid_lines, n, parent_slice, reverse_parent);
+    let mut line_names = expand_subgrid_line_names(subgrid_lines, n, parent_slice, is_reversed);
     clamp_area_lines(
         p_areas,
         s0,
@@ -208,7 +257,7 @@ fn build_axis(
         n,
         p_is_col,
         &mut line_names,
-        reverse_parent,
+        is_reversed,
     );
     Some(SubgriddedAxis {
         track_sizes,
@@ -217,9 +266,7 @@ fn build_axis(
         line_pos,
         line_names,
         gap,
-        start_mbp: smbp,
-        end_mbp: embp,
-        reversed: is_rtl,
+        reversed: local_reversed,
     })
 }
 
@@ -264,85 +311,72 @@ pub(in crate::layout) fn check_and_build(
         .as_ref()
         .and_then(|c| c.writing_mode)
         .unwrap_or_default();
-    let parent_rtl = parent_css
+    let parent_dir = parent_css
         .as_ref()
-        .map(|c| c.direction == Some(crate::style::Direction::Rtl))
-        .unwrap_or(false);
+        .and_then(|c| c.direction)
+        .unwrap_or_default();
     let child_wm = child_css.writing_mode.unwrap_or_default();
-    let child_rtl = child_css.direction == Some(crate::style::Direction::Rtl);
+    let child_dir = child_css.direction.unwrap_or_default();
     let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
-    let col_reverse = !is_orthogonal && (parent_rtl != child_rtl);
-    let row_reverse = is_orthogonal && (parent_rtl != child_rtl);
+
+    let (parent_col_dir, parent_row_dir) = (
+        axis_direction(parent_wm, parent_dir, true),
+        axis_direction(parent_wm, parent_dir, false),
+    );
+    let (subgrid_col_dir, subgrid_row_dir) = (
+        axis_direction(child_wm, child_dir, true),
+        axis_direction(child_wm, child_dir, false),
+    );
 
     let (smbp_x, embp_x, smbp_y, embp_y) = subgrid_mbp(&child_css, resolve);
 
-    let cols = if !is_orthogonal {
-        build_axis(
-            child_css.grid_template_columns.as_deref(),
-            child_css.gap,
-            col_sizes,
-            (cell.c0, cell.c1),
-            col_gap,
-            col_lines,
-            areas,
-            true,
-            smbp_x,
-            embp_x,
-            resolve,
-            col_reverse,
-            child_rtl,
-        )
-    } else {
-        build_axis(
-            child_css.grid_template_columns.as_deref(),
-            child_css.gap,
-            row_sizes,
-            (cell.r0, cell.r1),
-            row_gap,
-            row_lines,
-            areas,
-            false,
-            smbp_y,
-            embp_y,
-            resolve,
-            col_reverse,
-            child_rtl,
-        )
-    };
+    let (p_tracks_c, p_range_c, p_gap_c, p_lines_c, p_is_col_c, smbp_c, embp_c, parent_dir_c) =
+        if !is_orthogonal {
+            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, smbp_x, embp_x, parent_col_dir)
+        } else {
+            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, smbp_y, embp_y, parent_row_dir)
+        };
+    let cols = build_axis(
+        child_css.grid_template_columns.as_deref(),
+        child_css.gap,
+        p_tracks_c,
+        p_range_c,
+        p_gap_c,
+        p_lines_c,
+        areas,
+        p_is_col_c,
+        smbp_c,
+        embp_c,
+        resolve,
+        parent_dir_c,
+        subgrid_col_dir,
+        child_wm,
+        true,
+    );
 
-    let rows = if !is_orthogonal {
-        build_axis(
-            child_css.grid_template_rows.as_deref(),
-            child_css.row_gap,
-            row_sizes,
-            (cell.r0, cell.r1),
-            row_gap,
-            row_lines,
-            areas,
-            false,
-            smbp_y,
-            embp_y,
-            resolve,
-            row_reverse,
-            false,
-        )
-    } else {
-        build_axis(
-            child_css.grid_template_rows.as_deref(),
-            child_css.row_gap,
-            col_sizes,
-            (cell.c0, cell.c1),
-            col_gap,
-            col_lines,
-            areas,
-            true,
-            smbp_x,
-            embp_x,
-            resolve,
-            row_reverse,
-            false,
-        )
-    };
+    let (p_tracks_r, p_range_r, p_gap_r, p_lines_r, p_is_col_r, smbp_r, embp_r, parent_dir_r) =
+        if !is_orthogonal {
+            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, smbp_y, embp_y, parent_row_dir)
+        } else {
+            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, smbp_x, embp_x, parent_col_dir)
+        };
+    let rows = build_axis(
+        child_css.grid_template_rows.as_deref(),
+        child_css.row_gap,
+        p_tracks_r,
+        p_range_r,
+        p_gap_r,
+        p_lines_r,
+        areas,
+        p_is_col_r,
+        smbp_r,
+        embp_r,
+        resolve,
+        parent_dir_r,
+        subgrid_row_dir,
+        child_wm,
+        false,
+    );
 
     Some(SubgridContext { cols, rows })
 }

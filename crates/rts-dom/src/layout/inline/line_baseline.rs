@@ -229,6 +229,7 @@ fn block_ascent(
         // A flex container's baseline is its first line's item's (Flexbox
         // §8.5), read where that item really sits once the container is laid out.
         let start = mark();
+        let ortho = crate::layout::block::rotated_ortho::mark();
         let mut scratch = DisplayList::for_dom(dom);
         layout_block(
             dom,
@@ -246,6 +247,7 @@ fn block_ascent(
             ctx,
             &mut scratch,
         );
+        crate::layout::block::rotated_ortho::restore(ortho);
         discard(start);
         if let Some(b) =
             crate::layout::flex::baseline::layout_baseline(dom, id, &scratch, content_w, ctx)
@@ -345,6 +347,7 @@ fn last_line_baseline(
     ctx: &LayoutCtx,
 ) -> Option<f32> {
     let start = mark();
+    let ortho = crate::layout::block::rotated_ortho::mark();
     let mut scratch = DisplayList::for_dom(dom);
     layout_block(
         dom,
@@ -362,6 +365,7 @@ fn last_line_baseline(
         ctx,
         &mut scratch,
     );
+    crate::layout::block::rotated_ortho::restore(ortho);
     collect_baselines(dom, id, start).1
 }
 

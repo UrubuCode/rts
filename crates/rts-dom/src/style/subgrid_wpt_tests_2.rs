@@ -95,4 +95,64 @@ fn test_line_names_007() {
     }
 }
 
+#[test]
+fn test_grid_gap_008() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-008.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-008-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (st, sr) = (dom_t.query_all("span"), dom_r.query_all("span"));
+    for (i, (&a, &b)) in st.iter().zip(&sr).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb, "span {i}");
+    }
+}
 
+#[test]
+fn test_grid_gap_009() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-009.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-009-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (st, sr) = (dom_t.query_all("span"), dom_r.query_all("span"));
+    for (i, (&a, &b)) in st.iter().zip(&sr).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb, "span {i}");
+    }
+}

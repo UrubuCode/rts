@@ -189,6 +189,7 @@ pub(crate) fn measure_block(
     // on the way out, or the fragment being built around this measure would
     // read them as its own (`inline/line_baseline.rs`).
     let linhas_antes = inline::line_baseline::mark();
+    let ortho_antes = block::rotated_ortho::mark();
     let size = layout_block(
         dom,
         id,
@@ -212,6 +213,7 @@ pub(crate) fn measure_block(
         ctx,
         &mut scratch,
     );
+    block::rotated_ortho::restore(ortho_antes);
     inline::line_baseline::discard(linhas_antes);
     dom.layout_measure_put(key, size);
     size
