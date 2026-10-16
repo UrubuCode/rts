@@ -300,18 +300,43 @@ fn an_assignment_answers_the_value_it_assigned() {
 /// where the type decides it.
 #[test]
 fn a_branch_over_something_always_true_is_folded_by_the_domain() {
-    let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }").expect("covered");
+    let mut lowered =
+        only("function f() { if (1 === 1) { return 1; } return 2; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
+    // THE LOWERING ALONE knows `===` answers a boolean and not which one, so the truth of
+    // it is unknown: that is the honest answer for a graph nothing has folded.
+    let truthiness = |lowered: &Lowered| {
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        lowered
+            .func
+            .insts
+            .iter()
+            .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
+            .map(|tested| types.of(tested.result).clone())
+    };
+    assert_eq!(truthiness(&lowered), Some(Type::Bool(None)));
+    let blocks_before = lowered.func.blocks.len();
+
+    // FOLDED, `1 === 1` is the constant `true`: the truth test over it is decided, the
+    // branch is a jump, and the arm that returned 2 is gone.
+    crate::optimize::fold_constants(&mut lowered.func, &lowered.domain);
+    // THE TRUTH TEST ITSELF is now a constant, so none is left to ask about; what the
+    // branch reads is proved true.
+    assert_eq!(truthiness(&lowered), None);
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-    // `===` answers a boolean of unknown value, so the truth of it is unknown
-    // too: nothing is folded here, and that is the honest answer.
-    let tested = lowered
-        .func
-        .insts
-        .iter()
-        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
-        .expect("a truthiness test");
-    assert_eq!(*types.of(tested.result), Type::Bool(None));
+    let condition = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Branch { condition, .. }) => *condition,
+        other => panic!("expected a branch, got {other:?}"),
+    };
+    assert_eq!(*types.of(condition), Type::Bool(Some(true)));
+    rts_mir::passes::simplify_cfg(&mut lowered.func);
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(lowered.func.blocks.len() < blocks_before);
+    // Not fused into the entry: that needs dominance, which the graph does not have.
+    assert!(matches!(
+        lowered.func.block(lowered.func.entry()).terminator,
+        Some(Terminator::Jump { .. })
+    ));
 }
 
 /// The shape a loop is: an entry that jumps to a header, a header that tests and

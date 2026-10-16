@@ -364,7 +364,18 @@ fn attempt(
     .map_err(|held| format!("lowering: {held:?}"))?;
     // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
     // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
-    crate::optimize::fold_constants(&mut graph, &domain);
+    // FOLD, THEN ACT ON WHAT FOLDED: a comparison of constants becomes a truth value, a
+    // branch over one becomes a jump, and the arm nothing reaches is deleted. Repeated
+    // because deleting an arm leaves values unread, and `remove_dead` is what lets the
+    // next round see a smaller graph.
+    loop {
+        let folded = crate::optimize::fold_constants(&mut graph, &domain);
+        let simplified = rts_mir::passes::simplify_cfg(&mut graph);
+        rts_mir::passes::remove_dead(&mut graph);
+        if folded + simplified == 0 {
+            break;
+        }
+    }
     crate::optimize::replace_scalars(&mut graph, &domain);
     rts_mir::passes::remove_dead(&mut graph);
     // A TEXT CONSTANT IS A CALL (`machine/ops.rs`), so one written inside a loop moves to
