@@ -60,16 +60,54 @@ pub enum Sys {
     Uptime,
     /// Logical CPU count.
     CpuCount,
+    /// `"win32" | "linux" | "darwin"`: a compile-time string constant.
+    Platform,
+    /// `"x64" | "arm64" | ...`: a compile-time string constant.
+    Arch,
+    /// `"LE" | "BE"`: a compile-time string constant.
+    Endianness,
 }
 
 impl Sys {
-    /// The selector `RuntimeOp::SysMemory` takes.
+    /// The selector `RuntimeOp::SysMemory` takes. Meaningless for a constant.
     pub fn selector(self) -> i64 {
         match self {
             Sys::TotalMem => 0,
             Sys::FreeMem => 1,
             Sys::Uptime => 2,
             Sys::CpuCount => 3,
+            Sys::Platform | Sys::Arch | Sys::Endianness => unreachable!("a constant has no entry"),
+        }
+    }
+
+    /// The text of a query known at compile time, or `None` for one that needs
+    /// the entry. Node's `os.platform()/arch()/endianness()` spellings.
+    ///
+    /// TODO: like [`host_available`], this reads the COMPILER's own build
+    /// target, which is the compilation target today (only a native backend
+    /// exists). Thread the real target through when a non-host backend lands.
+    pub fn constant(self) -> Option<&'static str> {
+        match self {
+            Sys::Platform => Some(if cfg!(target_os = "windows") {
+                "win32"
+            } else if cfg!(target_os = "macos") {
+                "darwin"
+            } else if cfg!(target_os = "linux") {
+                "linux"
+            } else {
+                std::env::consts::OS
+            }),
+            Sys::Arch => Some(if cfg!(target_arch = "x86_64") {
+                "x64"
+            } else if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else if cfg!(target_arch = "x86") {
+                "ia32"
+            } else {
+                std::env::consts::ARCH
+            }),
+            Sys::Endianness => Some(if cfg!(target_endian = "little") { "LE" } else { "BE" }),
+            _ => None,
         }
     }
 
@@ -96,6 +134,9 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
         "freemem" => Some(Sys::FreeMem),
         "uptime" => Some(Sys::Uptime),
         "cpuCount" => Some(Sys::CpuCount),
+        "platform" => Some(Sys::Platform),
+        "arch" => Some(Sys::Arch),
+        "endianness" => Some(Sys::Endianness),
         _ => None,
     }
 }

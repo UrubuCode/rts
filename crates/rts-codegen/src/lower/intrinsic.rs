@@ -132,6 +132,9 @@ impl Lowering<'_> {
                 if arguments.len() != sys.arity() {
                     return Err(Unsupported::Expression("an rts:sys call with the wrong number of arguments"));
                 }
+                if let Some(text) = sys.constant() {
+                    return Ok(Some(self.literal(&Literal::String(text.into()), at)?));
+                }
                 let selector = self.domain.constant(JsConst::Count(sys.selector() as u32));
                 let selector = self.declared(selector, at);
                 return Ok(Some(self.entry(crate::runtime::RuntimeOp::SysMemory, vec![selector], at)));

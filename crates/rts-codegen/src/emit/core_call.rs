@@ -38,6 +38,10 @@ pub(super) fn emit(
             if arguments.len() != sys.arity() {
                 return Err(super::module::refuse("an rts:sys call with the wrong number of arguments"));
             }
+            if let Some(text) = sys.constant() {
+                let units: Vec<u16> = text.encode_utf16().collect();
+                return Ok(Some(super::expr::string_literal_units(builder, ctx, &units)?));
+            }
             let id = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
                 repr: Repr::I64,
                 bits: rts_cranelift::ir::ScalarBits(sys.selector() as u64),
