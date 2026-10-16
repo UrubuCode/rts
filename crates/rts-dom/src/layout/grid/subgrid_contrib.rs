@@ -249,19 +249,8 @@ pub(super) fn collect_nested_items(
             });
         }
     }
-
-    let max_occupied = out[start_out_idx..]
-        .iter()
-        .map(|it| it.start.saturating_sub(base_offset) + it.span)
-        .max()
-        .unwrap_or(0);
-    let min_occupied = out[start_out_idx..]
-        .iter()
-        .map(|it| it.start.saturating_sub(base_offset))
-        .min()
-        .unwrap_or(0);
     let orig_len = out.len();
-    if max_occupied > 0 && max_occupied < target_span && embp > 0.0 {
+    if embp > 0.0 {
         out.push(ContribItem {
             child: None,
             start: base_offset + target_span - 1,
@@ -272,7 +261,7 @@ pub(super) fn collect_nested_items(
             avail_h: None,
         });
     }
-    if min_occupied > 0 && smbp > 0.0 {
+    if smbp > 0.0 {
         out.push(ContribItem {
             child: None,
             start: base_offset,

@@ -354,7 +354,7 @@ pub(in crate::layout) fn layout_children_grid(
             None if item_css.width == Some(crate::style::Dimension::MinContent) => {
                 crate::table::min_content(dom, child, font_size, ctx).min(cell_w)
             }
-            None if item_css.width.is_some() && !is_auto_x => nat_w,
+            None if item_css.width.is_some() && (!is_auto_x || !distribute::has_pct(item_css.width)) => nat_w,
             None if item_css.min_width.is_none() && overflow_visible => {
                 let cnt = crate::table::min_content_with_floor(dom, child, font_size, ctx);
                 let auto = aspect::resolve_specified_suggestion(item_css.width, cnt).unwrap_or(cnt);
@@ -364,7 +364,7 @@ pub(in crate::layout) fn layout_children_grid(
         };
         let ih = if stretch_y {
             cell_h
-        } else if item_css.height.is_some() && !is_auto_y {
+        } else if item_css.height.is_some() && (!is_auto_y || !distribute::has_pct(item_css.height)) {
             nat_h
         } else if item_css.min_height.is_none() && overflow_visible {
             let unc_h = measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1;

@@ -373,22 +373,15 @@ fn test_item_percentage_height_001() {
     let list_t = crate::layout::layout_document(&dom_t, &ctx);
     let list_r = crate::layout::layout_document(&dom_r, &ctx);
 
-    for (i, &it) in dom_t.query_all(".item").iter().enumerate() {
-        let n = dom_t.resolve(it).unwrap();
-        println!("test item {i}: {:?}", list_t.rect_of(n));
-    }
-    for (i, &g) in dom_t.query_all(".grid, .subgrid").iter().enumerate() {
-        let n = dom_t.resolve(g).unwrap();
-        println!("test grid {i}: rect={:?}", list_t.rect_of(n));
-    }
-    for (i, &it) in dom_r.query_all(".item").iter().enumerate() {
-        let n = dom_r.resolve(it).unwrap();
-        println!("ref item {i}: {:?}", list_r.rect_of(n));
-    }
-    for (i, &g) in dom_r.query_all(".grid").iter().enumerate() {
-        let n = dom_r.resolve(g).unwrap();
-        println!("ref grid {i}: rect={:?}", list_r.rect_of(n));
-    }
+    let items_t = dom_t.query_all(".item");
+    let items_r = dom_r.query_all(".item");
+    let r_t0 = list_t.rect_of(dom_t.resolve(items_t[0]).unwrap());
+    let r_r1 = list_r.rect_of(dom_r.resolve(items_r[1]).unwrap());
+    assert_eq!(r_t0, r_r1, "first item matches ref");
+
+    let r_t1 = list_t.rect_of(dom_t.resolve(items_t[1]).unwrap());
+    let r_r3 = list_r.rect_of(dom_r.resolve(items_r[3]).unwrap());
+    assert_eq!(r_t1, r_r3, "second item matches ref");
 }
 
 #[test]
