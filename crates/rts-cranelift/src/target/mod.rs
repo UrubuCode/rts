@@ -326,6 +326,8 @@ impl<'a> MachineModule<'a> {
                     types,
                     funcs,
                     self.module.declarations(),
+                    &self.declarations,
+                    &self.emitted,
                 );
                 timing.over(count);
                 cache
@@ -355,6 +357,7 @@ impl<'a> MachineModule<'a> {
                 // function it yields is the same `Emitted` a compile would, so
                 // everything after this point -- `define_all`, the fault table,
                 // the position map -- cannot tell the difference.
+                let base = one.body.position_base();
                 let key = match &cache {
                     Some(cache) => match cache.lookup(one.id, one.declared, &one.name, one.body) {
                         codecache::Lookup::Hit(emitted) => {
@@ -362,6 +365,7 @@ impl<'a> MachineModule<'a> {
                             return Ok((*emitted, None));
                         }
                         codecache::Lookup::Miss(key) => Some(key),
+                        codecache::Lookup::Skip => None,
                     },
                     None => None,
                 };
@@ -370,7 +374,7 @@ impl<'a> MachineModule<'a> {
                 let emitted = compile_one(isa, prepared)?;
                 let stored = match (&cache, key) {
                     (Some(cache), Some(key)) => cache
-                        .encode(shared.machine, &emitted)
+                        .encode(shared.machine, &emitted, base)
                         .map(|payload| (key, payload)),
                     _ => None,
                 };

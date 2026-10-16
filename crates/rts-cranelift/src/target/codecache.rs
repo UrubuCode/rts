@@ -35,10 +35,19 @@
 //!   linkage and signature the module has declared (callees, cache sites, entry
 //!   points, immediates).
 //!
-//! The env is whole-program on purpose. Adding a function changes it and so
-//! recompiles everything; editing a function's body changes only that
-//! function's key. That is the coarse-but-sound end of the trade, and the
-//! finer one (hash only the callees a body names) is the next slice.
+//! The env is global only: build identity, format, ISA and flags, calling
+//! convention, heap shape, and every declaration that is not a user function or
+//! one of its cache sites. What a function reads beyond that is keyed per
+//! function by [`Run::function_text`]: its IR with callees named (not
+//! numbered), the signature of each callee, the content of each signature shape
+//! it names, and the layout of each aggregate type it names. So adding or
+//! editing another function rekeys this one only if this one references it.
+//! Source positions are hashed relative to the function's first and stored
+//! relative, so an edit that shifts later source offsets rekeys nothing.
+//!
+//! What is still in the key by number: property `Key` ids and `TypeId`s, which
+//! the machine layer cannot translate to names (an allocation bakes the type
+//! index; a cache site bakes the key id). Interning a new name early shifts them.
 //!
 //! A value that differs per run and is baked into the *IR* (rather than into
 //! lowering) simply makes that function's key differ per run: a miss, never a
@@ -70,7 +79,7 @@ use cranelift_codegen::isa::{CallConv, TargetIsa};
 use cranelift_module::{DataId, FuncId as MachineFuncId, ModuleDeclarations, ModuleReloc, ModuleRelocTarget};
 use sha2::{Digest, Sha256};
 
-use super::Emitted;
+use super::{Declarations, Emitted};
 use crate::fault::{Fault, FaultKind, FaultTable, Position};
 use crate::ir::{FuncId, FuncRegistry, Function, SigId};
 use crate::mem::RegionBases;
@@ -236,21 +245,28 @@ fn save(directory: &Path, fresh: Vec<(Key, Vec<u8>)>) {
 // ---------------------------------------------------------------------------
 
 /// What `compile_all` holds while it consults the cache.
-pub(super) struct Run {
+pub(super) struct Run<'a> {
     env: Sha256,
     store: Arc<Store>,
     directory: &'static Path,
     functions: HashMap<String, u32>,
     data: HashMap<String, u32>,
+    types: &'a TypeRegistry,
+    funcs: &'a FuncRegistry,
+    machine: &'a ModuleDeclarations,
+    declarations: &'a Declarations,
+    names: &'a HashMap<FuncId, (String, usize)>,
 }
 
 /// A cached function that is ready to define.
 pub(super) enum Lookup {
     Hit(Box<Emitted>),
     Miss(Key),
+    /// A dependency could not be established: neither look up nor store.
+    Skip,
 }
 
-impl Run {
+impl<'a> Run<'a> {
     /// Everything the key depends on beside the function itself. `None` when
     /// any of it cannot be established, which turns the cache off for this
     /// compilation rather than keying on a guess.
@@ -258,9 +274,11 @@ impl Run {
         isa: &dyn TargetIsa,
         call_conv: CallConv,
         heap: Option<&RegionBases>,
-        types: &TypeRegistry,
-        funcs: &FuncRegistry,
-        machine: &ModuleDeclarations,
+        types: &'a TypeRegistry,
+        funcs: &'a FuncRegistry,
+        machine: &'a ModuleDeclarations,
+        declarations: &'a Declarations,
+        names: &'a HashMap<FuncId, (String, usize)>,
     ) -> Option<Self> {
         let directory = directory()?;
         let mut text = String::with_capacity(64 * 1024);
@@ -274,48 +292,50 @@ impl Run {
         }
         let _ = writeln!(text, "call_conv {call_conv:?}");
         let _ = writeln!(text, "{}", heap_shape(heap?));
-        let mut at = 0;
-        while let Some(layout) = types.layout_at(at) {
-            let _ = writeln!(text, "type {at} {layout:?}");
-            at += 1;
-        }
-        for index in 0..funcs.len() {
-            let _ = writeln!(text, "func {index} {:?}", funcs.signature_of(FuncId(index as u32)));
-        }
-        let mut index = 0;
-        while let Some(signature) = funcs.signature(SigId(index)) {
-            let _ = writeln!(text, "sig {index} {signature:?}");
-            index += 1;
-        }
+        // Type layouts, registry functions and signatures are NOT here: a
+        // function's key carries those it references (see `function_text`).
+        // Declarations of user functions and of their cache sites are not here
+        // either, for the same reason; every OTHER declaration (entry points,
+        // immediates, heap symbols -- anything not named after a function this
+        // compilation emitted) stays, so an unforeseen declaration over-invalidates.
+        let user: std::collections::HashSet<&str> = names.values().map(|(n, _)| n.as_str()).collect();
+        let is_site = |name: &str| {
+            name.rsplit_once(".cache.")
+                .is_some_and(|(owner, n)| user.contains(owner) && n.bytes().all(|b| b.is_ascii_digit()))
+        };
 
         let mut functions = HashMap::new();
         let mut data = HashMap::new();
+        let mut decls: Vec<String> = Vec::new();
         for (id, decl) in machine.get_functions() {
-            let _ = writeln!(
-                text,
-                "decl func {} {:?} {:?} {}",
-                id.as_u32(),
-                decl.name,
-                decl.linkage,
-                decl.signature
-            );
+            let own = decl.name.as_deref().is_some_and(|n| user.contains(n));
+            if !own {
+                decls.push(format!(
+                    "decl func {:?} {:?} {}",
+                    decl.name, decl.linkage, decl.signature
+                ));
+            }
             if let Some(name) = &decl.name {
                 functions.insert(name.clone(), id.as_u32());
             }
         }
         for (id, decl) in machine.get_data_objects() {
-            let _ = writeln!(
-                text,
-                "decl data {} {:?} {:?} {} {}",
-                id.as_u32(),
-                decl.name,
-                decl.linkage,
-                decl.writable,
-                decl.tls
-            );
+            let own = decl.name.as_deref().is_some_and(&is_site);
+            if !own {
+                decls.push(format!(
+                    "decl data {:?} {:?} {} {}",
+                    decl.name, decl.linkage, decl.writable, decl.tls
+                ));
+            }
             if let Some(name) = &decl.name {
                 data.insert(name.clone(), id.as_u32());
             }
+        }
+        // Sorted: the module's iteration order is its declaration order, which
+        // is a property of the whole program, and the key must not be.
+        decls.sort();
+        for line in &decls {
+            let _ = writeln!(text, "{line}");
         }
 
         let mut env = Sha256::new();
@@ -326,6 +346,11 @@ impl Run {
             directory,
             functions,
             data,
+            types,
+            funcs,
+            machine,
+            declarations,
+            names,
         })
     }
 
@@ -340,29 +365,102 @@ impl Run {
         let mut hasher = self.env.clone();
         hasher.update((name.len() as u64).to_le_bytes());
         hasher.update(name.as_bytes());
-        struct Sink<'a>(&'a mut Sha256);
-        impl std::fmt::Write for Sink<'_> {
-            fn write_str(&mut self, text: &str) -> std::fmt::Result {
-                self.0.update(text.as_bytes());
-                Ok(())
-            }
-        }
-        let _ = body.write_cache_key(&mut Sink(&mut hasher));
+        let base = body.position_base();
+        let Some(text) = self.function_text(body, base) else {
+            return Lookup::Skip;
+        };
+        hasher.update(text.as_bytes());
         let full: [u8; 32] = hasher.finalize().into();
         let mut key = [0u8; 16];
         key.copy_from_slice(&full[..16]);
 
         if let Some(payload) = self.store.get(&key)
-            && let Some(emitted) = self.decode(payload, id, declared)
+            && let Some(emitted) = self.decode(payload, id, declared, base)
         {
             return Lookup::Hit(Box::new(emitted));
         }
         Lookup::Miss(key)
     }
 
+    /// Everything a function's generated code can depend on, as text: its IR
+    /// (callees by NAME, positions relative) followed by the signature of every
+    /// callee, the content of every signature shape and the layout of every
+    /// aggregate type the IR names.
+    ///
+    /// The references are found by scanning the IR's own `Debug` text for
+    /// `FuncId(n)`, `SigId(n)` and `TypeId(n)`: every field of every
+    /// instruction that holds one prints it, so no instruction variant can hide
+    /// a reference from the scan the way a hand-written visitor could. A
+    /// `FuncId` / `SigId` number is replaced by what it denotes (generated
+    /// code reaches both through names and content, never through the number);
+    /// a `TypeId` keeps its number, because an allocation bakes the index in.
+    /// `None` when a referenced id is not known to this compilation.
+    fn function_text(&self, body: &Function, base: u32) -> Option<String> {
+        let mut raw = String::with_capacity(4096);
+        body.write_cache_key(&mut raw, base).ok()?;
+
+        let mut callees: std::collections::BTreeMap<String, String> = Default::default();
+        let mut types: std::collections::BTreeSet<u32> = Default::default();
+
+        let mut out = String::with_capacity(raw.len() + 512);
+        let mut rest = raw.as_str();
+        'scan: while !rest.is_empty() {
+            for (token, kind) in [("FuncId(", 0u8), ("SigId(", 1), ("TypeId(", 2)] {
+                if let Some(tail) = rest.strip_prefix(token) {
+                    let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+                    if digits == 0 || tail.as_bytes().get(digits) != Some(&b')') {
+                        return None;
+                    }
+                    let n: u32 = tail[..digits].parse().ok()?;
+                    match kind {
+                        0 => {
+                            let id = FuncId(n);
+                            let name = &self.names.get(&id)?.0;
+                            let machine = self.declarations.machine_id(id)?;
+                            let decl = self.machine.get_function_decl(machine);
+                            let signature = self.funcs.signature_of(id)?;
+                            let line = format!(
+                                "{name}|{:?}|{:?}|{}|{signature:?}|{:?}",
+                                decl.name,
+                                decl.linkage,
+                                decl.signature,
+                                self.declarations.signature_of(id)
+                            );
+                            collect_types(&line, &mut types)?;
+                            callees.insert(name.clone(), line);
+                            let _ = write!(out, "FuncId(@{name})");
+                        }
+                        1 => {
+                            let signature = format!("{:?}", self.funcs.signature(SigId(n))?);
+                            collect_types(&signature, &mut types)?;
+                            let _ = write!(out, "SigId(@{signature})");
+                        }
+                        _ => {
+                            types.insert(n);
+                            let _ = write!(out, "TypeId({n})");
+                        }
+                    }
+                    rest = &tail[digits + 1..];
+                    continue 'scan;
+                }
+            }
+            let ch = rest.chars().next()?;
+            out.push(ch);
+            rest = &rest[ch.len_utf8()..];
+        }
+        out.push('\n');
+        for line in callees.values() {
+            let _ = writeln!(out, "callee {line}");
+        }
+        for ty in types {
+            let _ = writeln!(out, "type {ty} {:?}", self.types.layout_at(ty as usize)?);
+        }
+        Some(out)
+    }
+
     /// Rebuilds a function from its payload, resolving every relocation target
     /// by name against THIS run's module. Any doubt is a miss.
-    fn decode(&self, payload: &[u8], id: FuncId, declared: MachineFuncId) -> Option<Emitted> {
+    fn decode(&self, payload: &[u8], id: FuncId, declared: MachineFuncId, base: u32) -> Option<Emitted> {
         let mut r = Reader { bytes: payload, at: 0 };
         let alignment = r.u64()?;
         let size = r.u64()? as usize;
@@ -406,7 +504,7 @@ impl Run {
                 3 => FaultKind::Other(r.u8()?),
                 _ => return None,
             };
-            let position = Position(r.u32()?);
+            let position = Position(from_relative(r.u32()?, base)?);
             faults.push(Fault {
                 offset,
                 kind,
@@ -417,7 +515,7 @@ impl Run {
         let count = r.u32()? as usize;
         let mut runs = Vec::with_capacity(count);
         for _ in 0..count {
-            runs.push((r.u32()?, r.u32()?, r.u32()?));
+            runs.push((r.u32()?, r.u32()?, from_relative(r.u32()?, base)?));
         }
 
         let mut flags = [false; RtEntry::COUNT];
@@ -443,7 +541,7 @@ impl Run {
 
     /// Serializes a freshly compiled function, or `None` when it has a
     /// relocation this cache cannot replay.
-    pub(super) fn encode(&self, machine: &ModuleDeclarations, emitted: &Emitted) -> Option<Vec<u8>> {
+    pub(super) fn encode(&self, machine: &ModuleDeclarations, emitted: &Emitted, base: u32) -> Option<Vec<u8>> {
         let mut w = Vec::with_capacity(emitted.bytes.len() + 256);
         w.extend_from_slice(&emitted.alignment.to_le_bytes());
         w.extend_from_slice(&(emitted.size as u64).to_le_bytes());
@@ -482,7 +580,7 @@ impl Run {
                     w.push(code);
                 }
             }
-            w.extend_from_slice(&fault.position.raw().to_le_bytes());
+            w.extend_from_slice(&to_relative(fault.position.raw(), base)?.to_le_bytes());
         }
 
         let runs = emitted.positions.raw_runs();
@@ -490,7 +588,7 @@ impl Run {
         for (start, end, position) in runs {
             w.extend_from_slice(&start.to_le_bytes());
             w.extend_from_slice(&end.to_le_bytes());
-            w.extend_from_slice(&position.to_le_bytes());
+            w.extend_from_slice(&to_relative(position, base)?.to_le_bytes());
         }
 
         for flag in emitted.entries.flags() {
@@ -503,6 +601,39 @@ impl Run {
     pub(super) fn finish(&self, fresh: Vec<(Key, Vec<u8>)>) {
         save(self.directory, fresh);
     }
+}
+
+/// Positions are stored relative to their function's first (see
+/// `Function::position_base`): 0 stays "nothing said", a known position `p`
+/// becomes `p - base + 1`. `None` when one precedes the base, which a body's
+/// own positions cannot, so the function is simply not cached.
+fn to_relative(position: u32, base: u32) -> Option<u32> {
+    match position {
+        0 => Some(0),
+        p => p.checked_sub(base)?.checked_add(1),
+    }
+}
+
+fn from_relative(relative: u32, base: u32) -> Option<u32> {
+    match relative {
+        0 => Some(0),
+        r => (r - 1).checked_add(base),
+    }
+}
+
+/// Adds every `TypeId(n)` in `text` to `out`; `None` if one is malformed.
+fn collect_types(text: &str, out: &mut std::collections::BTreeSet<u32>) -> Option<()> {
+    let mut rest = text;
+    while let Some(at) = rest.find("TypeId(") {
+        let tail = &rest[at + 7..];
+        let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        out.insert(tail[..digits].parse().ok()?);
+        rest = &tail[digits..];
+    }
+    Some(())
 }
 
 struct Reader<'a> {
@@ -603,4 +734,31 @@ fn executable_identity() -> Option<&'static str> {
             Some(format!("{} {} {}", path.display(), meta.len(), modified.as_nanos()))
         })
         .as_deref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_positions_round_trip_and_keep_unknown() {
+        for base in [0u32, 1, 500] {
+            for p in [0u32, 500, 501, 9000] {
+                if p != 0 && p < base {
+                    continue;
+                }
+                let r = to_relative(p, base).unwrap();
+                assert_eq!(from_relative(r, base), Some(p));
+            }
+        }
+        assert_eq!(to_relative(3, 5), None, "a position before the base is not cacheable");
+    }
+
+    #[test]
+    fn type_references_are_collected_from_debug_text() {
+        let mut set = std::collections::BTreeSet::new();
+        collect_types("Alloc { ty: TypeId(3) } TypeId(12)", &mut set).unwrap();
+        assert_eq!(set.into_iter().collect::<Vec<_>>(), vec![3, 12]);
+        assert!(collect_types("TypeId(x)", &mut Default::default()).is_none());
+    }
 }

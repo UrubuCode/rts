@@ -350,7 +350,12 @@ impl Function {
     /// an input the key does not cover, which is why this destructures the
     /// struct exhaustively: adding a field is a compile error until it is
     /// either written or deliberately ignored.
-    pub(crate) fn write_cache_key(&self, out: &mut dyn core::fmt::Write) -> core::fmt::Result {
+    ///
+    /// Source positions are written RELATIVE to `base` (see
+    /// [`Self::position_base`]): a position only reaches the output as metadata
+    /// (the fault table and position map, which the cache stores relative too),
+    /// so editing an earlier function must not rekey this one.
+    pub(crate) fn write_cache_key(&self, out: &mut dyn core::fmt::Write, base: u32) -> core::fmt::Result {
         let Function {
             signature,
             entry,
@@ -364,10 +369,27 @@ impl Function {
             block_regions,
             positions,
         } = self;
+        let relative: Vec<u32> = positions
+            .iter()
+            .map(|p| match p.raw() {
+                0 => 0,
+                raw => raw.wrapping_sub(base).wrapping_add(1),
+            })
+            .collect();
         write!(
             out,
-            "{signature:?}|{entry:?}|{regions:?}|{values:?}|{blocks:?}|{insts:?}|{consts:?}|{caches}|{block_regions:?}|{positions:?}"
+            "{signature:?}|{entry:?}|{regions:?}|{values:?}|{blocks:?}|{insts:?}|{consts:?}|{caches}|{block_regions:?}|{relative:?}"
         )
+    }
+
+    /// The smallest known source position in this body, or 0 when it has none.
+    pub(crate) fn position_base(&self) -> u32 {
+        self.positions
+            .iter()
+            .map(|p| p.raw())
+            .filter(|&raw| raw != 0)
+            .min()
+            .unwrap_or(0)
     }
 
     /// A value's representation and origin, or `None` if the handle is foreign.
