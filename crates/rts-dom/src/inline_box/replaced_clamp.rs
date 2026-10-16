@@ -124,7 +124,7 @@ pub(crate) fn definite_cb_height(
         return avail_h;
     }
     match cb_css.height {
-        None | Some(Dimension::Auto | Dimension::MaxContent | Dimension::MinContent) => None,
+        None | Some(Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent) => None,
         Some(_) => avail_h,
     }
 }

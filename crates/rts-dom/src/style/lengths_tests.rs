@@ -17,12 +17,15 @@ mod palavras_chave_intrinsecas {
 
     /// `min-content` é parseado e suportado; `fit-content` continua descartado.
     #[test]
-    fn min_content_e_parseado_e_fit_content_fica_de_fora() {
+    fn min_content_e_parseado_e_fit_content_e_parseado() {
         assert_eq!(
             parse_inline("width:min-content").width,
             Some(Dimension::MinContent)
         );
-        assert_eq!(parse_inline("width:fit-content").width, None);
+        assert_eq!(
+            parse_inline("width:fit-content").width,
+            Some(Dimension::FitContent)
+        );
     }
 
     /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.

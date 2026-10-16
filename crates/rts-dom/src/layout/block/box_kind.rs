@@ -331,7 +331,9 @@ pub(in crate::layout) fn in_inline_context(dom: &Dom, parent: NodeIdx, child: No
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
                 && !is_out_of_flow(dom, idx)
-                && !is_block_level(dom, idx)
+                && (!is_block_level(dom, idx)
+                    || crate::layout::float::float::float_of(dom, idx)
+                        != crate::style::FloatSide::None)
                 && !is_inline_block(dom, idx)
         }
         _ => false,

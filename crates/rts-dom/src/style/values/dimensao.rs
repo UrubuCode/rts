@@ -197,6 +197,8 @@ pub enum Dimension {
     /// mesmo mecanismo do eixo inline ali seria a resposta ERRADA (a
     /// máquina só mede o máximo, nunca um mínimo de bloco).
     MinContent,
+    /// `fit-content` — shrink-to-fit sizing keyword.
+    FitContent,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
     Calc(CalcLen),
@@ -244,7 +246,7 @@ impl Dimension {
             // segundo). Responder `None` aqui é o mesmo que o `auto` faz, e é o
             // que faz um chamador sem contexto cair no seu caminho de fallback em
             // vez de inventar um número.
-            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent => return None,
+            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent => return None,
             Dimension::Px(v) => v,
             // A percentage whose basis is not a FINITE number has no basis at
             // all, and CSS says what that computes to: `auto` (CSS 2.1 §10.2
@@ -348,7 +350,7 @@ impl Dimension {
             // quem o ler não sabe distinguir os dois, e a alternativa (uma
             // faixa nova) obrigaria o lado TS a saber medir conteúdo, que é
             // o que ele não pode fazer.
-            Dimension::MaxContent | Dimension::MinContent => return -1,
+            Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

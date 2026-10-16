@@ -32,14 +32,17 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     if v.eq_ignore_ascii_case("auto") {
         return Some(Dimension::Auto);
     }
-    // `max-content` — palavra-chave intrínseca, resolvida pelo layout.
-    //
-    // `min-content` e `fit-content` continuam a cair no `None` do fim, que é o
-    // comportamento de hoje: a máquina de medida que temos calcula o MÁXIMO do
-    // conteúdo e mais nada. Mapeá-las para `MaxContent` daria a um `min-content`
-    // a resposta oposta à que o nome promete, em silêncio.
     if v.eq_ignore_ascii_case("max-content") {
         return Some(Dimension::MaxContent);
+    }
+    if v.eq_ignore_ascii_case("min-content") {
+        return Some(Dimension::MinContent);
+    }
+    if v.eq_ignore_ascii_case("fit-content")
+        || v.eq_ignore_ascii_case("-moz-fit-content")
+        || v.eq_ignore_ascii_case("-webkit-fit-content")
+    {
+        return Some(Dimension::FitContent);
     }
     // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
     let low_full = v.to_ascii_lowercase();
@@ -334,6 +337,7 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
         // que `auto` já faz.
         Dimension::MaxContent => Dimension::MaxContent,
         Dimension::MinContent => Dimension::MinContent,
+        Dimension::FitContent => Dimension::FitContent,
         Dimension::Px(x) => Dimension::Px(-x),
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),

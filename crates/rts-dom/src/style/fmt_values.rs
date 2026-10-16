@@ -146,6 +146,7 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::Auto => "auto".into(),
         Dimension::MaxContent => "max-content".into(),
         Dimension::MinContent => "min-content".into(),
+        Dimension::FitContent => "fit-content".into(),
         // calc: reconstrói a forma canônica com os termos não-zero.
         Dimension::Calc(c) => {
             let mut parts: Vec<String> = Vec::new();

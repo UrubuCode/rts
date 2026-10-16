@@ -325,9 +325,9 @@ fn walk_children(
             lines.forced_break(ctx);
         } else if close_run(dom, child) {
             lines.block(w, ctx);
-        } else if crate::layout::float::float::float_of(dom, child) != crate::style::FloatSide::None
-        {
-            lines.float(w, ctx);
+        } else if crate::layout::float::float::float_of(dom, child) != crate::style::FloatSide::None {
+            let cl = dom.computed_style_idx(child).and_then(|c| c.clear).is_some_and(|c| c != crate::style::Clear::None);
+            lines.float_cleared(w, cl, ctx);
         } else if w > 0.0 {
             // A zero-wide child (`display:none`, an empty inline-block) is not
             // placed: placing it would pin a collapsible space before it that
@@ -471,12 +471,8 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             }
             if css.width == Some(crate::style::Dimension::MinContent) {
                 let content = crate::table::min_content(dom, id, f, ctx);
-                return if border_box {
-                    crate::style::clamp_size(content, mnw, mxw)
-                        + css.margin.resolve_h_intrinseco(&resolve)
-                } else {
-                    crate::style::clamp_size(content, mnw, mxw) + frame
-                };
+                let extra = if border_box { css.margin.resolve_h_intrinseco(&resolve) } else { frame };
+                return crate::style::clamp_size(content, mnw, mxw) + extra;
             }
             // senão: a intrínseca do conteúdo, clampada, + frame. SEM cache
             // (`intrinsic_content_width_no_cache`, não o `intrinsic_content_width`

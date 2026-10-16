@@ -131,19 +131,30 @@ pub(super) fn layout_block_flow_child(
         edge = edge.max(clear_to);
     }
     *child_y = edge - m;
+    let (child_x, child_avail_w) = if child_css.as_deref().is_some_and(|cs| {
+        super::block::establishes_block_formatting_context(dom, child, cs)
+    }) && !bfc.is_empty() {
+        let (band_x, band_w) = bfc.free_band(edge, 0.0, content_x, content_w);
+        (band_x, band_w)
+    } else {
+        (content_x, content_w)
+    };
+    let is_fit_content = child_css
+        .as_deref()
+        .is_some_and(|cs| cs.width == Some(crate::style::Dimension::FitContent));
     let ((_, h), _) = layout_block_reusing(
         dom,
         child,
         child_box,
-        content_x,
+        child_x,
         *child_y,
-        content_w,
+        child_avail_w,
         avail_h,
         || (m, m_bottom),
         None,
         None,
         false,
-        false,
+        is_fit_content,
         bfc,
         ctx,
         list,

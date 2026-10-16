@@ -12,6 +12,7 @@ pub(super) mod line_baseline;
 pub(super) mod line_break;
 pub(super) mod line_break_partition;
 pub(super) mod line_inline_block;
+pub(super) mod line_stack;
 pub(super) mod preserved_spaces;
 pub(super) mod pseudo_inline;
 pub(super) mod run_font;

@@ -264,120 +264,22 @@ fn block_ascent(
             mt + inner
         };
     }
+    if matches!(
+        css.effective_display(),
+        Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+    ) {
+        return height;
+    }
     match last_line_baseline(dom, id, box_id, width, content_w, ctx) {
         Some(b) => b.min(height),
         None => height,
     }
 }
 
-/// One recorded line: the flow's owner, the baseline of its last line box in
-/// the coordinates of the list it was laid into, and whether a cached
-/// FRAGMENT re-announced it (its subtree's answer) or a flow pushed it live.
-#[derive(Clone, Copy)]
-struct LineRecord {
-    owner: NodeIdx,
-    baseline: f32,
-    from_fragment: bool,
-}
-
-thread_local! {
-    /// The last line box of every inline flow laid out, in layout order —
-    /// pushed by `layout_inline_flow` and the inline-block run
-    /// ([`register_last_line`]) and by every emitted fragment
-    /// ([`register_from_fragment`]), read by whoever [`collect_baselines`]s.
-    ///
-    /// A thread-local and not a field of `DisplayList`, whose file is past the
-    /// ceiling. Used as a STACK: a reader takes a [`mark`] before laying out,
-    /// reads only what was pushed after it and truncates on the way out, so a
-    /// nested reader leaves the outer's view intact. A fragment build collapses
-    /// its whole subtree to one record, and `layout_document` clears the stack,
-    /// so it never holds more than one pass's top-level records.
-    static LINES: std::cell::RefCell<Vec<LineRecord>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Records the baseline of the last line of the inline flow owned by `owner`.
-pub(in crate::layout) fn register_last_line(owner: NodeIdx, baseline: f32) {
-    LINES.with(|v| {
-        v.borrow_mut().push(LineRecord {
-            owner,
-            baseline,
-            from_fragment: false,
-        })
-    });
-}
-
-/// Re-announces a cached fragment's last own line where it is emitted: a
-/// fragment served from the cache runs no flow, and without this an atom
-/// holding a cached block would find no line in it and sit on its bottom edge —
-/// silently, and only on the second layout pass.
-pub(in crate::layout) fn register_from_fragment(owner: NodeIdx, baseline: f32) {
-    LINES.with(|v| {
-        v.borrow_mut().push(LineRecord {
-            owner,
-            baseline,
-            from_fragment: true,
-        })
-    });
-}
-
-/// Where the stack stands now — what a reader passes back to [`collect_baselines`].
-pub(in crate::layout) fn mark() -> usize {
-    LINES.with(|v| v.borrow().len())
-}
-
-/// Drops what was recorded since `marca` unread — a throwaway layout's lines
-/// are in its own coordinates and must not reach the reader around it.
-pub(in crate::layout) fn discard(marca: usize) {
-    LINES.with(|v| v.borrow_mut().truncate(marca));
-}
-
-/// Empties the stack. Called where a document layout starts.
-pub(in crate::layout) fn clear() {
-    LINES.with(|v| v.borrow_mut().clear());
-}
-
-/// The LOWEST own line box of `id` among what was recorded since `marca`, as
-/// `(direct, total)`: `direct` counts only lines pushed live by a flow —
-/// what a stitched fragment keeps when one of its child fragments is replaced
-/// — and `total` counts the re-announced fragments too. Truncates to `marca`.
-///
-/// "Lowest" and not "last pushed": a fragment re-announces its subtree after
-/// its own flows ran, so push order is not document order. In normal flow the
-/// last line box is the lowest one; a negative margin that lifts a later line
-/// above an earlier one is the case this gets wrong.
-///
-/// "Own" is [`own_flow`]: a line of `id` itself or of a block inside it,
-/// never of an atom nested in it (whose lines are its own, CSS 2.1 §10.8.1).
-pub(in crate::layout) fn collect_baselines(
-    dom: &Dom,
-    id: NodeIdx,
-    marca: usize,
-) -> (Option<f32>, Option<f32>) {
-    LINES.with(|v| {
-        let mut v = v.borrow_mut();
-        let max_of = |acc: Option<f32>, b: f32| Some(acc.map_or(b, |m: f32| m.max(b)));
-        let (mut direct, mut total) = (None, None);
-        for l in v[marca.min(v.len())..]
-            .iter()
-            .filter(|l| own_flow(dom, id, l.owner, l.from_fragment))
-        {
-            total = max_of(total, l.baseline);
-            if !l.from_fragment {
-                direct = max_of(direct, l.baseline);
-            }
-        }
-        v.truncate(marca);
-        (direct, total)
-    })
-}
-
-/// `overflow` other than `visible` on either axis.
-fn clips_overflow(css: &ComputedStyle) -> bool {
-    [css.overflow_x, css.overflow_y]
-        .iter()
-        .flatten()
-        .any(|o| o.clips())
-}
+pub(in crate::layout) use super::line_stack::{
+    clear, clips_overflow, collect_baselines, discard, mark, own_flow, register_from_fragment,
+    register_last_line,
+};
 
 /// [`collect_baselines`] for the fragment of the BLOCK `id`, laid out at `y` with outer
 /// height `height`: a block that clips answers its bottom margin edge for both
@@ -463,51 +365,7 @@ fn last_line_baseline(
     collect_baselines(dom, id, start).1
 }
 
-/// Is the line recorded by `owner` one of the atom `id`'s OWN line boxes — `owner`
-/// is `id`, or a block reached from it without crossing another atom, an
-/// out-of-flow box or a box that CLIPS?
-///
-/// A block whose `overflow` is not `visible` hides its lines from the atom
-/// around it and stands for its bottom margin edge instead (what Blink does,
-/// and what WPT `CSS2/linebox/baseline-block-with-overflow-001` pins): its
-/// lines are refused here, and its fragment announces the edge
-/// ([`collect_from_block`]) — a record `from_fragment`, whose own `owner` is
-/// therefore allowed to clip.
-fn own_flow(dom: &Dom, id: NodeIdx, owner: NodeIdx, from_fragment: bool) -> bool {
-    let mut cur = owner;
-    while cur != id {
-        let Some(css) = dom.computed_style_idx(cur) else {
-            return false;
-        };
-        use crate::style::DisplayKind as D;
-        let atomic = matches!(
-            css.effective_display(),
-            Some(
-                D::InlineBlock
-                    | D::InlineFlex
-                    | D::InlineFlexWrap
-                    | D::InlineGrid
-                    | D::InlineTable
-                    | D::Flex
-                    | D::FlexWrap
-                    | D::Grid
-                    | D::Table
-            )
-        );
-        let outside = css
-            .float_side
-            .is_some_and(|f| f != crate::style::FloatSide::None)
-            || css.position.is_some_and(|p| p.out_of_flow());
-        if atomic || outside || (clips_overflow(&css) && !(cur == owner && from_fragment)) {
-            return false;
-        }
-        match dom.node(cur).parent {
-            Some(p) => cur = p,
-            None => return false,
-        }
-    }
-    true
-}
+
 
 /// The same for a generated `inline-block` (`::before`/`::after`): its text's
 /// first line baseline, or its bottom margin edge when it has no text.

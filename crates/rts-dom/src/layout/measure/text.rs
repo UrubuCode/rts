@@ -119,6 +119,13 @@ impl Lines {
         self.line += w;
     }
 
+    pub(in crate::layout) fn float_cleared(&mut self, w: f32, clear: bool, ctx: &LayoutCtx) {
+        if clear {
+            self.forced_break(ctx);
+        }
+        self.float(w, ctx);
+    }
+
     /// One text node, under its parent element's style.
     pub(in crate::layout) fn text(&mut self, dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) {
         let NodeKind::Text(t) = &dom.node(id).kind else {
