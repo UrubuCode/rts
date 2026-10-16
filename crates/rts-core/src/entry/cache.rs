@@ -685,6 +685,12 @@ pub fn census_report(context: &Context) -> Option<String> {
 /// merely never run is told apart from one the walk has already declined.
 const REFUSED: i64 = -2;
 
+/// The most links an indirect site will walk before declining a key. Any larger
+/// chain than two is validated by [`CHAIN_EPOCH`] rather than by comparing cells,
+/// so the number is only a bound on the walk the resolver pays once per
+/// resolution, not an argument about soundness.
+const DEEP_LIMIT: usize = 16;
+
 /// Where a property is, for a site that may read it out of the cell the
 /// receiver inherits from.
 ///
@@ -705,16 +711,17 @@ const REFUSED: i64 = -2;
 /// destroys that argument, so each case it must not answer for is refused by
 /// name and reports why under `RTS_CACHE_DEBUG`.
 ///
-/// # One step, and the reason it is one
+/// # How far it reaches, and what vouches for the cells in between
 ///
-/// A property found two links away would be an address this site cannot argue is
-/// alive. At one step the argument holds: the receiver's type is discriminated
-/// by its link (`Context::typed_as`), so recognising the type proves the link is
-/// the cell whose address was remembered, and a live receiver keeps its link
-/// alive through `trace`. At two steps the middle cell's own link can be
-/// reassigned, and nothing the site compares would notice. So depth is one, a
-/// deeper property keeps missing exactly as it does today, and closing that is a
-/// separate change with a separate argument to make.
+/// At one step the receiver's type is discriminated by its link
+/// (`Context::typed_as`), so recognising the type proves the link is the cell
+/// whose address was remembered, and a live receiver keeps its link alive
+/// through `trace`. At two steps the site additionally compares the cell between.
+/// Beyond two (up to `DEEP_LIMIT`) it compares the holder and trusts
+/// [`CHAIN_EPOCH`] for the rest: every link is flagged with `mark_chain_link`,
+/// so relinking one, adding or deleting a property on one, or defining an
+/// accessor on one changes its type and bumps the epoch, and the site (which
+/// names the epoch in words four and five, see `flag_deep_chain`) asks again.
 #[rtse::entry("rts_cache_resolve_indirect")]
 pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
     // ONE crossing, not two. This called `cache_resolve` first and then did its
@@ -859,13 +866,23 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             return refuse("the link holds an accessor for this key");
         }
 
-        // One step, then — if the key is not there — one more. Two and no
-        // further, and the bound is an argument rather than a preference: the
-        // site compares three layouts, so it notices a change to the receiver,
-        // to the holder, and to the cell between them. A third step would put a
-        // cell in the chain that nothing compares, and relinking THAT one would
-        // leave every guard satisfied and the answer stale.
+        // One step, then — if the key is not there — as many more as it takes.
+        // Up to two links the site compares three layouts (the receiver, the
+        // holder and the cell between them); a third cell would be one nothing
+        // compares, so past two the chain is vouched for by the epoch instead.
+        //
+        // Beyond two, the argument changes rather than the bound: a chain of
+        // three or more links has cells in it that no word of the site compares,
+        // so what vouches for them is the process-wide chain epoch every
+        // absence entry already trusts. Every link walked is flagged through
+        // `mark_chain_link`, so a type change on any of them — a method added
+        // or removed, an accessor defined, a prototype relinked — bumps it and
+        // the site's recorded epoch stops matching. See `flag_deep_chain`.
         let mut middle: Option<(u32, u32)> = None;
+        // A count and the first link, not a Vec: this runs on every miss of a
+        // polymorphic site, and an allocation here measured +40 ns per miss.
+        let first_link = holder;
+        let mut walked: usize = 1;
         let mut holder = holder;
         let (_holder_type, slot) = loop {
             let Some(ty) = context.region.type_of(holder) else {
@@ -877,8 +894,8 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             if let Some(slot) = context.shapes.slot_of(shape, named) {
                 break (ty, slot);
             }
-            if middle.is_some() {
-                return refuse("the key is more than two links away");
+            if walked >= DEEP_LIMIT {
+                return refuse("the key is more than `DEEP_LIMIT` links away");
             }
             // `inherited_from` and not `prototype_at`: the holder is known by
             // ADDRESS here (word two, and its header in word three), so the
@@ -900,6 +917,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             }
             middle = Some((holder, ty));
             holder = next;
+            walked += 1;
         };
         // The HOLDER's width, since the offset is read out of the holder. A
         // prototype is an ordinary cell in the common case, so this is fifteen
@@ -958,9 +976,55 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
                     cell.add(5).write(-1);
                 }
             }
+            if walked > 2 {
+                flag_deep_chain(context, cell, first_link, walked);
+            }
         }
         offset
     })
+}
+
+/// Flags every link of a chain longer than two and hands the site the chain
+/// epoch to validate it with, in place of the cell between.
+///
+/// # How a machine that compares cells validates a counter
+///
+/// Words four and five are "the address of a cell, and the layout it carried":
+/// the site loads the word at that address (`HeaderLayout::TYPE_OFFSET` is zero)
+/// and requires it to equal word five. For a two-step answer that address is the
+/// cell between the receiver's link and the holder. For a deeper one the cells in
+/// the middle are too many for the cell to name, so this names the process-wide
+/// epoch counter instead and remembers the value it held: the site's existing
+/// comparison then fails exactly when any flagged link has changed its type,
+/// and it asks again. No instruction was added to the compiled site — a lowering
+/// change that put a branch for this beside the shallow paths measured +11 ns on
+/// a polymorphic one-step site that never reaches it.
+///
+/// Flag BEFORE reading the epoch: flagging never bumps it, and a flag set after
+/// the read could miss a change in between. There is none (one thread), but the
+/// order costs nothing. The walk that found the holder stopped at it, so
+/// re-walking `walked` links from the first one visits exactly the cells it did.
+///
+/// # Safety
+///
+/// `cell` is the eight-word cell this compilation allocated for this site.
+#[cold]
+#[inline(never)]
+unsafe fn flag_deep_chain(context: &mut Context, cell: *mut i64, first_link: u32, walked: usize) {
+    let mut link = first_link;
+    for step in 0..walked {
+        context.mark_chain_link(link);
+        if step + 1 < walked {
+            match super::objects::inherited_from(context, link) {
+                Some(next) => link = next,
+                None => break,
+            }
+        }
+    }
+    unsafe {
+        cell.add(4).write(CHAIN_EPOCH.as_ptr() as i64);
+        cell.add(5).write(chain_epoch() as i64);
+    }
 }
 
 /// The same question, from a site that is about to **write**.
