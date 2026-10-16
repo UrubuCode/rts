@@ -56,6 +56,10 @@ pub enum Sys {
     TotalMem,
     /// Physical memory available, in bytes.
     FreeMem,
+    /// Seconds since boot.
+    Uptime,
+    /// Logical CPU count.
+    CpuCount,
 }
 
 impl Sys {
@@ -64,6 +68,8 @@ impl Sys {
         match self {
             Sys::TotalMem => 0,
             Sys::FreeMem => 1,
+            Sys::Uptime => 2,
+            Sys::CpuCount => 3,
         }
     }
 
@@ -88,6 +94,8 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
     match name {
         "totalmem" => Some(Sys::TotalMem),
         "freemem" => Some(Sys::FreeMem),
+        "uptime" => Some(Sys::Uptime),
+        "cpuCount" => Some(Sys::CpuCount),
         _ => None,
     }
 }

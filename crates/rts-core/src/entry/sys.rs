@@ -7,18 +7,68 @@
 //! TODO: macOS answers `0` here (no `sysctl`/`host_statistics64` binding without
 //! a libc dependency); `rts-node`'s `os.totalmem()` is the real one there.
 
-/// Physical memory in bytes: `which` 0 is the total, 1 is what is available.
-/// Any other selector answers `0`; the compiler only emits those two.
+/// A numeric host query: `which` 0 is physical memory in bytes, 1 what is
+/// available, 2 the uptime in seconds, 3 the logical CPU count. Any other
+/// selector (and any failed read) answers `0`; the compiler only emits those four.
+/// (Named for its first use; one entry with a selector keeps the table short.)
 #[rtse::entry]
 pub fn sys_memory(which: i64) -> f64 {
-    match memory() {
-        Some((total, free)) => match which {
-            0 => total,
-            1 => free,
-            _ => 0.0,
+    match which {
+        0 | 1 => match memory() {
+            Some((total, free)) => if which == 0 { total } else { free },
+            None => 0.0,
         },
-        None => 0.0,
+        2 => uptime().unwrap_or(0.0),
+        3 => cpu_count().unwrap_or(0.0),
+        _ => 0.0,
     }
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetTickCount64() -> u64;
+    fn GetActiveProcessorCount(group: u16) -> u32;
+}
+
+/// Seconds since boot, from `GetTickCount64` (as libuv).
+#[cfg(windows)]
+fn uptime() -> Option<f64> {
+    Some(unsafe { GetTickCount64() } as f64 / 1000.0)
+}
+
+/// Logical processors across every group (`ALL_PROCESSOR_GROUPS` = 0xFFFF).
+#[cfg(windows)]
+fn cpu_count() -> Option<f64> {
+    let n = unsafe { GetActiveProcessorCount(0xFFFF) };
+    (n > 0).then_some(n as f64)
+}
+
+/// Seconds since boot, the first field of `/proc/uptime`.
+#[cfg(target_os = "linux")]
+fn uptime() -> Option<f64> {
+    std::fs::read_to_string("/proc/uptime").ok()?.split_whitespace().next()?.parse().ok()
+}
+
+/// Logical processors: the `cpuN` lines of `/proc/stat`.
+#[cfg(target_os = "linux")]
+fn cpu_count() -> Option<f64> {
+    let text = std::fs::read_to_string("/proc/stat").ok()?;
+    let n = text
+        .lines()
+        .filter(|l| l.strip_prefix("cpu").is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit())))
+        .count();
+    (n > 0).then_some(n as f64)
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn uptime() -> Option<f64> {
+    None
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn cpu_count() -> Option<f64> {
+    std::thread::available_parallelism().ok().map(|n| n.get() as f64)
 }
 
 #[cfg(windows)]
