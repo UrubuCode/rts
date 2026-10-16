@@ -145,6 +145,8 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
 pub fn lookup(name: &str) -> Option<CoreName> {
     let (primitive, arity) = match name {
         "imul" => (CorePrimitive::I32Mul, 2),
+        "clz32" => (CorePrimitive::Clz32, 1),
+        "fround" => (CorePrimitive::Fround, 1),
         _ => return None,
     };
     Some(CoreName {

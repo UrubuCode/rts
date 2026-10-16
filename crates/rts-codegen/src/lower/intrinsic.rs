@@ -142,6 +142,8 @@ impl Lowering<'_> {
         };
         let (op, arity) = match primitive {
             rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
+            rts_corelib::CorePrimitive::Clz32 => (JsPrim::MathClz32, 1),
+            rts_corelib::CorePrimitive::Fround => (JsPrim::MathFround, 1),
             _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),
         };
         if arguments.len() != arity {

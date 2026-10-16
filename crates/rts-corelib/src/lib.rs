@@ -61,6 +61,14 @@ pub enum CorePrimitive {
     /// name -> primitive -> op mechanism has a first inline, safe entry; the
     /// payoff is the later (unsafe) primitives that reuse that mechanism.
     I32Mul,
+    /// Leading zero bits of the 32-bit view (`Math.clz32` semantics, 0..=32). Safe.
+    ///
+    /// The bit-scan primitive std needs without reaching for the `Math` object.
+    Clz32,
+    /// Round to the nearest float32 and back to a double (`Math.fround`). Safe.
+    ///
+    /// The float32 primitive std needs without reaching for the `Math` object.
+    Fround,
     /// IEEE-754 bit pattern of a number. Safe.
     F64ToBits,
     /// A number from its IEEE-754 bit pattern. Safe.
@@ -74,7 +82,13 @@ impl CorePrimitive {
     pub fn is_public(self) -> bool {
         matches!(
             self,
-            Self::Length | Self::I32Add | Self::I32Mul | Self::F64ToBits | Self::F64FromBits
+            Self::Length
+                | Self::I32Add
+                | Self::I32Mul
+                | Self::Clz32
+                | Self::Fround
+                | Self::F64ToBits
+                | Self::F64FromBits
         )
     }
 }

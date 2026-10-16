@@ -53,6 +53,7 @@ pub(super) fn emit(
     };
     let arity = match primitive {
         CorePrimitive::I32Mul => 2,
+        CorePrimitive::Clz32 | CorePrimitive::Fround => 1,
         _ => return Err(super::module::refuse("an rts:core primitive with no lowering")),
     };
     if arguments.len() != arity {
@@ -70,6 +71,8 @@ pub(super) fn emit(
     }
     let answered = match primitive {
         CorePrimitive::I32Mul => super::math::sequence::imul(builder, doubles[0], doubles[1])?,
+        CorePrimitive::Clz32 => super::math::sequence::clz32(builder, doubles[0])?,
+        CorePrimitive::Fround => builder.float_unary(rts_cranelift::ir::FloatOp::RoundToSingle, doubles[0])?,
         _ => unreachable!("arity match above refused the rest"),
     };
     Ok(Some(tagged(builder, answered)))
