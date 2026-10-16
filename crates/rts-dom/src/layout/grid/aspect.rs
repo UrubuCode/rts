@@ -61,16 +61,29 @@ pub(in crate::layout) fn ratio_outer_width(
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
-    if let Some((w, _)) = crate::inline_box::replaced_inline_size(
-        dom,
-        child,
-        &css,
-        cb_w,
-        area_h,
-        (None, None),
-        ctx,
-    ) {
-        return Some(w + css.margin.resolve_h(&resolve));
+    let align = css.align_self.or_else(|| {
+        dom.node(child)
+            .parent
+            .and_then(|p| dom.computed_style_idx(p))
+            .and_then(|p| p.align_items)
+    }).unwrap_or(crate::style::AlignItems::Normal);
+    let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+    if is_rep {
+        let stretch_y = matches!(align, crate::style::AlignItems::Stretch);
+        let forced_h = if stretch_y { area_h } else { None };
+        if css.height.is_some() || forced_h.is_some() {
+            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+                dom,
+                child,
+                &css,
+                cb_w,
+                area_h,
+                (None, forced_h),
+                ctx,
+            ) {
+                return Some(w + css.margin.resolve_h(&resolve));
+            }
+        }
     }
     aspect_ratio::declared_ratio(&css)?;
     if !matches!(css.width, None | Some(Dimension::Auto)) {
@@ -81,7 +94,14 @@ pub(in crate::layout) fn ratio_outer_width(
     let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
     let border_box = css.border_box.unwrap_or(false);
     let content = |v: f32, frame: f32| if border_box { (v - frame).max(0.0) } else { v };
-    let h = content(resolve_height(css.height, area_h, &resolve)?, frame_v);
+    let raw_h = resolve_height(css.height, area_h, &resolve).or_else(|| {
+        if matches!(align, crate::style::AlignItems::Stretch) {
+            area_h
+        } else {
+            None
+        }
+    })?;
+    let h = content(raw_h, frame_v);
     let mnh = resolve_height(css.min_height, area_h, &resolve).map(|v| content(v, frame_v));
     let mxh = resolve_height(css.max_height, area_h, &resolve).map(|v| content(v, frame_v));
     let h = crate::style::clamp_size(h, mnh, mxh);

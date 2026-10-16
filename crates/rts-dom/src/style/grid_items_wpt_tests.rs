@@ -92,4 +92,43 @@ fn test_grid_item_inline_contribution_005() {
     assert_eq!(canvas_rect.h, 100.0, "canvas should be 100px tall");
 }
 
+#[test]
+fn test_aspect_ratio_005() {
+    let html = r#"<!DOCTYPE html>
+<div id="g" style="display: inline-grid; grid-template-rows: 50px 50px; background: red; height: 100px;">
+  <div id="a" style="grid-row: 1; background: green; aspect-ratio: 2/1; height: 100%;"></div>
+  <div id="b" style="grid-row: 2; background: green;"></div>
+</div>"#;
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let a = crate::table::tests::rect(&dom, &list, "#a", 0);
+    let b = crate::table::tests::rect(&dom, &list, "#b", 0);
+    let g = crate::table::tests::rect(&dom, &list, "#g", 0);
+    let g_node = dom.resolve(dom.query_all("#g")[0]).unwrap();
+    assert_eq!((g.w, g.h), (100.0, 100.0));
+    assert_eq!((a.w, a.h), (100.0, 50.0));
+    assert_eq!((b.w, b.h), (100.0, 50.0));
+}
+
+#[test]
+fn test_aspect_ratio_004() {
+    let html = r#"<!DOCTYPE html>
+<div id="g" style="display: inline-grid; grid-template-rows: 100px; background: green;">
+  <img id="img" src="support/50x50-green.png" style="align-self: stretch; opacity: 0;">
+</div>"#;
+    let mut dom = crate::parse_html_to_dom(html);
+    let img_id = dom.query_all("#img")[0];
+    dom.set_pixel_data(img_id, vec![0; 50 * 50 * 4], 50, 50);
+    let img_node = dom.resolve(img_id).unwrap();
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let g = list.rect_of(dom.resolve(dom.query_all("#g")[0]).unwrap()).unwrap();
+    let img = list.rect_of(img_node).unwrap();
+    assert_eq!((g.w, g.h), (100.0, 100.0));
+    assert_eq!((img.w, img.h), (100.0, 100.0));
+}
+
 
