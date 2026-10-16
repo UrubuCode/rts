@@ -1019,87 +1019,22 @@ impl<'a> Body<'a> {
         );
         let cell = self.cache_address(builder, block, cache)?;
 
-        // Every block below takes the base to read from as a parameter, so the
-        // load happens once whichever path reached it — the same reason
-        // `lower_cached_get` has one `read` block rather than one per path.
-        let held_known = builder.create_block();
-        let check_held = builder.create_block();
-        let check_between = builder.create_block();
-        let check_middle = builder.create_block();
+        // Two entries, probed in order: the first is the most recently
+        // resolved layout, the second the one it displaced (see
+        // `cache_resolve_indirect`). Each is validated exactly as the single
+        // entry always was. Each read block takes the base to read from as a
+        // parameter so the load happens once whichever path reached it.
+        let probe_second = builder.create_block();
         let ask = builder.create_block();
         let resolved = builder.create_block();
         let read = builder.create_block();
-        let base = builder.append_block_param(read, types::I64);
+        builder.append_block_param(read, types::I64);
+        let read_second = builder.create_block();
+        builder.append_block_param(read_second, types::I64);
 
-        let remembered = builder.ins().load(types::I64, flags, cell, 0);
-        let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
-        builder.ins().brif(recognized, held_known, &[], ask, &[]);
-
-        // The object is the layout this site remembers. Is the answer in it?
-        builder.switch_to_block(held_known);
-        let held = builder.ins().load(types::I64, flags, cell, 16);
-        builder.ins().brif(
-            held,
-            check_held,
-            &[],
-            read,
-            &[cranelift_codegen::ir::BlockArg::Value(address)],
-        );
-
-        // A second cell was remembered. It is an address rather than a
-        // reference, so the only thing that can be checked about it is the
-        // layout it carried when this site warmed — which is what the resolver
-        // promised to make safe to load from.
-        builder.switch_to_block(check_held);
-        let held_header = builder.ins().load(
-            types::I64,
-            flags,
-            held,
-            i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
-        );
-        let held_remembered = builder.ins().load(types::I64, flags, cell, 24);
-        let still = builder
-            .ins()
-            .icmp(IntCC::Equal, held_header, held_remembered);
-        builder.ins().brif(still, check_between, &[], ask, &[]);
-
-        // A cell BETWEEN the two, when the answer was two steps away. Its layout
-        // has to be recognised as well, because the step from it to the holder
-        // is a fact about IT: change what it reaches and the holder this site
-        // remembers is no longer what the receiver would find, while both of the
-        // comparisons above still succeed.
-        //
-        // Behind a test for its existence, so a site whose answer was one step
-        // away pays a load and a predicted branch rather than a comparison
-        // against a cell that is not there.
-        builder.switch_to_block(check_between);
-        let between = builder.ins().load(types::I64, flags, cell, 32);
-        builder.ins().brif(
-            between,
-            check_middle,
-            &[],
-            read,
-            &[cranelift_codegen::ir::BlockArg::Value(held)],
-        );
-
-        builder.switch_to_block(check_middle);
-        let middle_header = builder.ins().load(
-            types::I64,
-            flags,
-            between,
-            i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
-        );
-        let middle_remembered = builder.ins().load(types::I64, flags, cell, 40);
-        let unchanged = builder
-            .ins()
-            .icmp(IntCC::Equal, middle_header, middle_remembered);
-        builder.ins().brif(
-            unchanged,
-            read,
-            &[cranelift_codegen::ir::BlockArg::Value(held)],
-            ask,
-            &[],
-        );
+        indirect_entry(builder, cell, 0, address, header, probe_second, ask, read);
+        builder.switch_to_block(probe_second);
+        indirect_entry(builder, cell, DUPLEX_SECOND, address, header, ask, ask, read_second);
 
         builder.switch_to_block(ask);
         let key_value = builder.ins().iconst(types::I64, i64::from(key.0));
@@ -1120,7 +1055,9 @@ impl<'a> Body<'a> {
             .brif(found, resolved, &[], miss_target, &miss_args);
 
         // The call may have written a second cell where there was none, so the
-        // base is read back rather than assumed.
+        // base is read back rather than assumed. The resolver always writes the
+        // FIRST entry (demoting what it held into the second), so this reads
+        // the first.
         builder.switch_to_block(resolved);
         let now_held = builder.ins().load(types::I64, flags, cell, 16);
         builder.ins().brif(
@@ -1131,15 +1068,18 @@ impl<'a> Body<'a> {
             &[cranelift_codegen::ir::BlockArg::Value(address)],
         );
 
-        builder.switch_to_block(read);
-        let offset = builder.ins().load(types::I64, flags, cell, 8);
-        let at = builder.ins().iadd(base, offset);
-        let value = builder.ins().load(types::I64, flags, at, 0);
+        for (block_read, at) in [(read, 0i32), (read_second, DUPLEX_SECOND)] {
+            builder.switch_to_block(block_read);
+            let base = builder.block_params(block_read)[0];
+            let offset = builder.ins().load(types::I64, flags, cell, 8 + at);
+            let at = builder.ins().iadd(base, offset);
+            let value = builder.ins().load(types::I64, flags, at, 0);
 
-        let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
-        hit_args.extend(self.block_args(&hit.args));
-        let hit_target = self.blocks[&hit.block];
-        builder.ins().jump(hit_target, &hit_args);
+            let mut hit_args = vec![cranelift_codegen::ir::BlockArg::Value(value)];
+            hit_args.extend(self.block_args(&hit.args));
+            let hit_target = self.blocks[&hit.block];
+            builder.ins().jump(hit_target, &hit_args);
+        }
         Ok(())
     }
 
@@ -1545,4 +1485,86 @@ pub(super) fn trap_code(code: TrapCode) -> cranelift_codegen::ir::TrapCode {
         TrapCode::OutOfBounds => Cl::HEAP_OUT_OF_BOUNDS,
         TrapCode::DivideByZero => Cl::INTEGER_DIVISION_BY_ZERO,
     }
+}
+
+/// Byte offset of an indirect site's second cache entry (see
+/// [`crate::mem::DUPLEX_MARK`]).
+const DUPLEX_SECOND: i32 = 64;
+
+/// One validated entry of an indirect site's cache cell, at byte offset `at`.
+///
+/// Entered in the block the builder is positioned in. An object whose header is
+/// not this entry's goes to `header_miss`; one that is, but whose holder, cell
+/// between or chain epoch no longer matches, goes to `stale` (the resolver),
+/// and one that passes everything goes to `read` with the base to load from.
+/// Exactly the checks the single entry always made, parameterised by offset.
+#[allow(clippy::too_many_arguments)]
+fn indirect_entry(
+    builder: &mut FunctionBuilder,
+    cell: Value,
+    at: i32,
+    address: Value,
+    header: Value,
+    header_miss: Block,
+    stale: Block,
+    read: Block,
+) {
+    use cranelift_codegen::ir::BlockArg;
+    let flags = cranelift_codegen::ir::MemFlags::trusted();
+    let held_known = builder.create_block();
+    let check_held = builder.create_block();
+    let check_between = builder.create_block();
+    let check_middle = builder.create_block();
+
+    let remembered = builder.ins().load(types::I64, flags, cell, at);
+    let recognized = builder.ins().icmp(IntCC::Equal, header, remembered);
+    builder.ins().brif(recognized, held_known, &[], header_miss, &[]);
+
+    // The object is the layout this entry remembers. Is the answer in it?
+    builder.switch_to_block(held_known);
+    let held = builder.ins().load(types::I64, flags, cell, at + 16);
+    builder
+        .ins()
+        .brif(held, check_held, &[], read, &[BlockArg::Value(address)]);
+
+    // A second cell was remembered: an address, so all that can be checked is the
+    // layout it carried when the entry was written.
+    builder.switch_to_block(check_held);
+    let held_header = builder.ins().load(
+        types::I64,
+        flags,
+        held,
+        i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
+    );
+    let held_remembered = builder.ins().load(types::I64, flags, cell, at + 24);
+    let still = builder
+        .ins()
+        .icmp(IntCC::Equal, held_header, held_remembered);
+    builder.ins().brif(still, check_between, &[], stale, &[]);
+
+    // A cell BETWEEN (or the chain epoch for a deeper answer), when there is one.
+    builder.switch_to_block(check_between);
+    let between = builder.ins().load(types::I64, flags, cell, at + 32);
+    builder
+        .ins()
+        .brif(between, check_middle, &[], read, &[BlockArg::Value(held)]);
+
+    builder.switch_to_block(check_middle);
+    let middle_header = builder.ins().load(
+        types::I64,
+        flags,
+        between,
+        i32::from(crate::mem::HeaderLayout::TYPE_OFFSET),
+    );
+    let middle_remembered = builder.ins().load(types::I64, flags, cell, at + 40);
+    let unchanged = builder
+        .ins()
+        .icmp(IntCC::Equal, middle_header, middle_remembered);
+    builder.ins().brif(
+        unchanged,
+        read,
+        &[BlockArg::Value(held)],
+        stale,
+        &[],
+    );
 }

@@ -778,6 +778,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
             // word three cannot match any real header, so a cell claiming an
             // address it never got could not also match a layout.
             unsafe {
+                demote_indirect(cache as *mut i64, header as i64);
                 let cell = cache as *mut i64;
                 cell.write(header as i64);
                 cell.add(1).write(offset);
@@ -956,6 +957,7 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         // SAFETY: a four-word cell this site's terminator declared, kept alive
         // for as long as the code is.
         unsafe {
+            demote_indirect(cache as *mut i64, receiver_header as i64);
             let cell = cache as *mut i64;
             cell.write(receiver_header as i64);
             cell.add(1).write(offset);
@@ -982,6 +984,37 @@ pub fn cache_resolve_indirect(object: u64, key: i64, cache: i64) -> i64 {
         }
         offset
     })
+}
+
+/// Moves an indirect site's first entry into its second before the first is
+/// overwritten, so the site holds the TWO most recent layouts it resolved.
+///
+/// Only a cell carrying `DUPLEX_MARK` in word seven has a
+/// second entry (words eight to thirteen); any other cell is sixty-four bytes
+/// and is left alone. The first entry is demoted only when it holds a
+/// DIFFERENT, live layout: an equal one is being refreshed in place (demoting it
+/// would fill both entries with one answer), the cold `-1` has nothing to
+/// keep, and a refused marker in word three means the entry is dead. The old
+/// second entry is dropped (least recently used), the same policy as the read
+/// duplex in `remember`. The entry is copied whole, so a deep chain's epoch
+/// address and value (words four and five) travel with it and keep validating.
+///
+/// # Safety
+///
+/// `cell` is the cell this compilation allocated for an indirect site.
+unsafe fn demote_indirect(cell: *mut i64, header: i64) {
+    unsafe {
+        if cell.add(7).read() != rts_cranelift::mem::DUPLEX_MARK {
+            return;
+        }
+        let held = cell.read();
+        if held == header || held == -1 || cell.add(3).read() == REFUSED {
+            return;
+        }
+        for word in 0..6 {
+            cell.add(8 + word).write(cell.add(word).read());
+        }
+    }
 }
 
 /// Flags every link of a chain longer than two and hands the site the chain

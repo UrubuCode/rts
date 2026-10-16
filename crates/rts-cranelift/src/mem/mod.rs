@@ -61,4 +61,4 @@ pub use address::{Addressing, RegionBase, RegionBases};
 pub use cursor::CellCursor;
 pub use runs::RunTable;
 pub use imports::{HeapImports, IMM_BASE, IMM_CURSOR, IMM_RUNS, ImmediateIds};
-pub use layout::{HeaderLayout, ObjectLayout, SLOT_BYTES};
+pub use layout::{DUPLEX_MARK, HeaderLayout, ObjectLayout, SLOT_BYTES};

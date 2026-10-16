@@ -846,6 +846,18 @@ impl MachineModule<'_> {
             .map(|(name, _)| name.clone())
             .ok_or(TargetError::UndeclaredFunction(id))?;
 
+        // Indirect method/property sites hold TWO entries (a duplex), so their
+        // cell is two cache lines; every other kind stays one. Per kind and not
+        // global so the monomorphic direct read keeps the tight 64-byte cell.
+        let mut duplex = vec![false; func.cache_count()];
+        for (_, block) in func.blocks() {
+            if let Some(crate::ir::Terminator::CachedGetIndirect { cache, .. }) = &block.terminator
+                && let Some(flag) = duplex.get_mut(cache.index())
+            {
+                *flag = true;
+            }
+        }
+
         let mut declared = Vec::with_capacity(func.cache_count());
         for site in 0..func.cache_count() {
             let data = self.module.declare_data(
@@ -888,6 +900,17 @@ impl MachineModule<'_> {
             // not a claim about a size that is not one.
             cold.extend_from_slice(&0i64.to_ne_bytes());
             cold.extend_from_slice(&0i64.to_ne_bytes());
+            if duplex[site] {
+                // Word seven carries the marker the resolver tests before it
+                // writes the second entry: a cell that does not carry it is
+                // sixty-four bytes and has no second entry to write.
+                let at = cold.len() - 8;
+                cold[at..].copy_from_slice(&crate::mem::DUPLEX_MARK.to_ne_bytes());
+                // The second entry, cold in the same way as the first.
+                for word in [-1i64, 0, 0, -1, 0, -1, 0, 0] {
+                    cold.extend_from_slice(&word.to_ne_bytes());
+                }
+            }
 
             let mut description = cranelift_module::DataDescription::new();
             // Every load of these words is `MemFlags::trusted()`, which asserts
