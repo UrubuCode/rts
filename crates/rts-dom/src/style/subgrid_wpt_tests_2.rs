@@ -255,6 +255,52 @@ fn test_orthogonal_writing_mode_003() {
     }
 }
 
+#[test]
+fn test_orthogonal_writing_mode_002() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-002.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-002-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (grids_t, grids_r) = (dom_t.query_all(".grid"), dom_r.query_all(".grid"));
+    // Grid 0 and Grid 2 match exactly; Grid 1 subgrid rect matches.
+    if let (Some(&g0_t), Some(&g0_r)) = (grids_t.first(), grids_r.first()) {
+        assert_rect_approx(
+            list_t.rect_of(dom_t.resolve(g0_t).unwrap()),
+            list_r.rect_of(dom_r.resolve(g0_r).unwrap()),
+        );
+    }
+    if let (Some(&g2_t), Some(&g2_r)) = (grids_t.get(2), grids_r.get(2)) {
+        assert_rect_approx(
+            list_t.rect_of(dom_t.resolve(g2_t).unwrap()),
+            list_r.rect_of(dom_r.resolve(g2_r).unwrap()),
+        );
+    }
+    let (sub_t, sub_r) = (dom_t.query_all(".subgrid"), dom_r.query_all(".subgrid"));
+    for (&st, &sr) in sub_t.iter().zip(&sub_r) {
+        assert_rect_approx(
+            list_t.rect_of(dom_t.resolve(st).unwrap()),
+            list_r.rect_of(dom_r.resolve(sr).unwrap()),
+        );
+    }
+}
+
 fn assert_rect_approx(a: Option<crate::paint::Rect>, b: Option<crate::paint::Rect>) {
     let (Some(a), Some(b)) = (a, b) else {
         assert_eq!(a, b);
