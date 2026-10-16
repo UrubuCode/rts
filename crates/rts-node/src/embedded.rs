@@ -11,6 +11,9 @@
 /// `(name, source)` — `name` without the `node:` prefix.
 const MODULES: &[(&str, &str)] = &[
     ("querystring", include_str!("../std/node/querystring.ts")),
+    ("path", include_str!("../std/node/path.ts")),
+    ("path/posix", include_str!("../std/node/path_posix.ts")),
+    ("path/win32", include_str!("../std/node/path_win32.ts")),
 ];
 
 /// The canonical specifier and embedded source for a written specifier
