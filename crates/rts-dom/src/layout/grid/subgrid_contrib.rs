@@ -386,15 +386,26 @@ pub(in crate::layout) fn collect_column_contributions(
             let span = item.span.max(1);
             let (w, min_w) = if let Some((child, box_id)) = item.child {
                 let item_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
-                let (bw, _) = measure_block(
+                let (bw, bh) = measure_block(
                     dom, child, box_id, f32::INFINITY, item.avail_h, None, None, true, ctx,
                 );
+                let is_element = matches!(dom.node(child).kind, crate::dom::NodeKind::Element { .. });
+                let text_wm = if is_element {
+                    item_wm
+                } else {
+                    dom.node(child)
+                        .parent
+                        .and_then(|p| dom.computed_style_idx(p))
+                        .and_then(|c| c.writing_mode)
+                        .unwrap_or(item_wm)
+                };
+                let w = if !is_element && is_ortho && text_wm.is_horizontal() { bh } else { bw };
                 let bmin = if parent_wm.is_horizontal() == item_wm.is_horizontal() && needs_min {
                     table::min_content_with_floor(dom, child, font_size, ctx)
                 } else {
-                    bw
+                    w
                 };
-                (bw, bmin)
+                (w, bmin)
             } else {
                 (0.0, 0.0)
             };
