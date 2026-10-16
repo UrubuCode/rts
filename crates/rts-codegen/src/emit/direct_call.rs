@@ -24,12 +24,14 @@
 //! - **Light.** `light_call::is_light`, decided where the body is emitted: no `arguments`,
 //!   rest, fifth parameter, `new.target`, `eval`, and strict. The door's bookkeeping for
 //!   those is exactly what a direct call skips.
-//! - **A leaf.** No call, `new`, tagged template, `await`, `yield`, `super`, class,
-//!   nested function, loop over an iterator, `using` or `with`. The door records the callee
-//!   on a stack that error traces read, and settles a pending tail call; with no call in
-//!   the body there is no tail call to settle. A throw from an OPERATION inside the body
-//!   (a property read of `undefined`) therefore carries a trace without this frame -- the
-//!   one observable difference, and only in the text of `stack`.
+//! - **Never tail-calls.** The door settles a recorded tail call (`return g(x)` records and
+//!   answers `undefined`; only the door's `settle` makes the call), which a direct call does
+//!   not do. That is the one CORRECTNESS reason a body may not hold a call; calls in
+//!   non-tail positions are fine, and a thrown flag from deep inside is checked after the
+//!   call. So no `return` may end in a call (`may_tail_call`). Also no `await`, `yield`,
+//!   `super`, class, nested function, loop over an iterator, `using` or `with`
+//!   (conservative). The door also records the callee on a stack that error traces read; a
+//!   throw inside therefore carries a trace without this frame -- cosmetic, only `stack`.
 //! - **Plain parameters.** No default and no destructuring, so the free-name rule above
 //!   cannot be confused by a default evaluated in the parameter scope.
 //!
@@ -213,6 +215,27 @@ fn is_leaf(function: &Function) -> bool {
     !probe.refused
 }
 
+/// Whether `return <returned>` could be emitted as a recorded tail call (`tail.rs`): the
+/// returned expression, through the wrappers a tail position sees through (and the ones it
+/// might, conservatively), ends in a call. A direct call never settles a record, so a callee
+/// that can make one stays on the door.
+fn may_tail_call(returned: &Expr) -> bool {
+    match &returned.kind {
+        ExprKind::Call { .. } => true,
+        ExprKind::Asserted { value, .. } | ExprKind::Chain(value) => {
+            may_tail_call(value)
+        }
+        ExprKind::Conditional {
+            then_branch,
+            else_branch,
+            ..
+        } => may_tail_call(then_branch) || may_tail_call(else_branch),
+        ExprKind::Logical { right, .. } => may_tail_call(right),
+        ExprKind::Sequence { operands } => operands.last().is_some_and(may_tail_call),
+        _ => false,
+    }
+}
+
 struct Leaf {
     refused: bool,
 }
@@ -222,9 +245,21 @@ impl Leaf {
         if self.refused {
             return;
         }
+        if let StmtKind::Return(Some(returned)) = &statement.kind
+            && may_tail_call(returned)
+        {
+            self.refused = true;
+            return;
+        }
         if matches!(
             statement.kind,
-            StmtKind::ForEach { .. } | StmtKind::Using { .. } | StmtKind::With { .. }
+            StmtKind::ForEach { .. }
+                | StmtKind::Using { .. }
+                | StmtKind::With { .. }
+                // An explicit `throw` builds its `stack` from the callee record the door
+                // keeps: skipping it would drop the THROWING function from the trace
+                // (`an_error_says_where_it_came_from`). Worse than the leaf divergence.
+                | StmtKind::Throw(_)
         ) {
             self.refused = true;
             return;
@@ -248,9 +283,8 @@ impl Leaf {
         }
         if matches!(
             value.kind,
-            ExprKind::Call { .. }
-                | ExprKind::New { .. }
-                | ExprKind::TaggedTemplate { .. }
+            // `new` may build an Error whose `stack` reads the door's callee record.
+            ExprKind::New { .. }
                 | ExprKind::Await(_)
                 | ExprKind::Yield { .. }
                 | ExprKind::SuperCall { .. }
