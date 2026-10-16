@@ -168,4 +168,31 @@ fn test_grid_img_item_percent_max_height_001() {
     assert_eq!((img.w, img.h), (100.0, 100.0));
 }
 
+#[test]
+fn test_grid_item_containing_block_004() {
+    let html = r#"<!DOCTYPE html>
+<style>
+    body { margin: 8px; }
+    p { margin-top: 16px; margin-bottom: 16px; font-size: 16px; }
+    #grid {
+        display: grid;
+        position: absolute;
+        height: 200px;
+        width: 200px;
+        grid-template-rows: 1fr 1fr;
+        grid-template-columns: 1fr 1fr;
+    }
+    #test-item { width: 100%; height: 100%; }
+</style>
+<p>Test</p>
+<div id="grid">
+    <div id="test-item"></div>
+</div>"#;
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let grid = crate::table::tests::rect(&dom, &list, "#grid", 0);
+    assert_eq!(grid.x, 8.0);
+    assert!(grid.y >= 40.0, "grid.y should account for p bottom margin, got {}", grid.y);
+    assert_eq!((grid.w, grid.h), (200.0, 200.0));
+}
+
 
