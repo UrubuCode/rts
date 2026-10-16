@@ -201,6 +201,32 @@ pub(in crate::entry) fn window_mut<'a>(
     context.bytes_at_mut(view.buffer)?.get_mut(range)
 }
 
+/// Keeps a cell visible to the conservative stack scan across allocating calls.
+///
+/// The scan roots a word only if it is an ENCODED reference Value; a bare `u32`
+/// slot index in a Rust local is invisible, so a cell held that way is swept by
+/// a collection the next allocation triggers. This writes the encoded Value to a
+/// stack slot with a volatile store and [`Pin::release`] reads it back, so the
+/// compiler must keep the encoded word in the frame for the whole span.
+pub(in crate::entry) struct Pin(u64);
+
+impl Pin {
+    #[inline(always)]
+    pub(in crate::entry) fn new(cell: u32) -> Self {
+        let mut held = 0u64;
+        // SAFETY: `held` is a live local; the volatile store only pins it in memory.
+        unsafe { std::ptr::write_volatile(&mut held, Value::from_slot(cell).bits()) };
+        Self(held)
+    }
+
+    /// Ends the pin; the read keeps the stack word alive up to here.
+    #[inline(always)]
+    pub(in crate::entry) fn release(mut self) {
+        // SAFETY: reading a live local.
+        std::hint::black_box(unsafe { std::ptr::read_volatile(&mut self.0) });
+    }
+}
+
 /// A new `ArrayBuffer` of `length` zero bytes, as a cell.
 ///
 /// The prototype comes from the class's own registration, so a buffer made by
@@ -210,6 +236,7 @@ pub(in crate::entry) fn window_mut<'a>(
 /// name `ArrayBuffer`.
 pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Option<u32> {
     let cell = super::native::plain(context)?;
+    let pin = Pin::new(cell);
     // ASKED first, registered only if the answer is no.
     //
     // `class_support`'s table is a `Vec` scanned by comparing class NAMES, and
@@ -241,6 +268,7 @@ pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Opti
         context.set_prototype(cell, prototype);
     }
     install_internal_bytes(context, cell, length);
+    pin.release();
     Some(cell)
 }
 

@@ -54,9 +54,14 @@ pub(in crate::entry) fn made(context: &mut Context, bytes: &[u8]) -> u64 {
 /// A `Buffer` instance over an EXISTING view — what [`slice`]/[`subarray`]
 /// answer, sharing bytes rather than copying them.
 fn instance_over(context: &mut Context, view: View) -> u64 {
+    // The backing cell is a bare slot index here; pin it (and the new instance)
+    // so a collection fired by any allocation below cannot sweep them.
+    let backing = super::super::buffers::Pin::new(view.buffer);
     let Some(cell) = native::plain(context) else {
+        backing.release();
         return undefined_of(context);
     };
+    let instance = super::super::buffers::Pin::new(cell);
     super::register_buffer(context);
     if let Some(prototype) = super::super::class_support::prototype(context, "Buffer") {
         context.set_prototype(cell, prototype);
@@ -68,6 +73,8 @@ fn instance_over(context: &mut Context, view: View) -> u64 {
     // same identity as the source storage.
     let parent_key = context.well_known("parent");
     super::super::objects::put(context, cell, parent_key, parent);
+    instance.release();
+    backing.release();
     Value::from_slot(cell).bits()
 }
 
