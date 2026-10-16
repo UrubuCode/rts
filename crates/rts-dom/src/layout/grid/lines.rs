@@ -161,23 +161,16 @@ pub(in crate::layout) fn find_named_line_forward(
     let start_idx = after_line.max(0) as usize;
     let suffixed = format!("{}-end", name);
     let mut count = 0;
-    let mut last_match = None;
     for (idx, line) in lines.iter().enumerate().skip(start_idx) {
         if line.iter().any(|l| l == &suffixed || l == name) {
             count += 1;
-            last_match = Some(idx as i32 + 1);
             if count == nth {
                 return Some(idx as i32 + 1);
             }
         }
     }
-    if count > 0 {
-        let remaining = (nth - count) as i32;
-        let last_idx = last_match.unwrap_or(lines.len() as i32);
-        Some(last_idx + remaining)
-    } else {
-        Some(after_line + nth as i32)
-    }
+    let remaining = (nth - count) as i32;
+    Some(lines.len() as i32 + remaining)
 }
 
 pub(in crate::layout) fn find_named_line_backward(
@@ -192,23 +185,16 @@ pub(in crate::layout) fn find_named_line_backward(
     let end_idx = (before_line - 1).min(lines.len() as i32) as usize;
     let suffixed = format!("{}-start", name);
     let mut count = 0;
-    let mut first_match = None;
     for idx in (0..end_idx).rev() {
         if lines[idx].iter().any(|l| l == &suffixed || l == name) {
             count += 1;
-            first_match.get_or_insert(idx as i32 + 1);
             if count == nth {
                 return Some(idx as i32 + 1);
             }
         }
     }
-    if count > 0 {
-        let remaining = (nth - count) as i32;
-        let last_idx = first_match.unwrap_or(1);
-        Some(last_idx - remaining)
-    } else {
-        Some(before_line - nth as i32)
-    }
+    let remaining = (nth - count) as i32;
+    Some(1 - remaining)
 }
 
 /// One edge after name resolution: an absolute line, a span count, a named span,
