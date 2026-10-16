@@ -156,6 +156,15 @@ fn resolved(key: u64, object: u64) -> bool {
                 .get(at)
                 .is_some_and(|&held| !super::super::array::is_hole(context, held));
         }
+        // A typed array's elements are own storage no shape records either.
+        // Only a numeric-looking key is asked; the others fall through, so
+        // `'length' in ta` still resolves through the layout.
+        if let Some(view) = context.view_at(slot)
+            && !matches!(view.kind, super::super::buffers::element::Kind::Raw)
+            && let Some(at) = super::super::array::as_index(context, Value(key))
+        {
+            return at < view.count();
+        }
         // An index past `DENSE_LIMIT` never reaches the dense store — see
         // `array::DENSE_LIMIT` — so it falls through to the ordinary property
         // walk below, which is where such a write actually landed.

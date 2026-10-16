@@ -803,6 +803,17 @@ pub(in crate::entry) fn key_list(
                 }
             }
         }
+        // A typed array's own keys are its element indices. Its `byteLength`,
+        // `byteOffset`, `length` and `buffer` are stored as real properties (see
+        // `buffers::attach`) so compiled reads hit the layout, but the language
+        // makes them prototype accessors: they are not own keys, enumerable or
+        // not. A `DataView` has no element indices at all.
+        let view = context.view_at(slot);
+        if let Some(view) = view
+            && !matches!(view.kind, super::buffers::element::Kind::Raw)
+        {
+            keys.extend((0..view.count()).map(|index| crate::object::Key::Index(index as u32)));
+        }
         let Some(ty) = context.region.type_of(slot) else {
             return keys;
         };
@@ -845,6 +856,13 @@ pub(in crate::entry) fn key_list(
             // Caught by a probe when it was missing: `for (k in [1,2,3])`
             // summed to 9 instead of 6, because the loop visited "length".
             if enumerable_only && !super::integrity::enumerable(context, slot, key) {
+                continue;
+            }
+            if view.is_some()
+                && ["byteLength", "byteOffset", "length", "buffer"]
+                    .iter()
+                    .any(|name| context.well_known(name) == crate::object::Key::Name(key))
+            {
                 continue;
             }
             if let Some(text) = context.interner.text(key) {
