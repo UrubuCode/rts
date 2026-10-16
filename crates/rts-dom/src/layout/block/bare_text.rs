@@ -126,9 +126,13 @@ pub(super) fn layout_bare_text(
         decoration: 0,
         orientation,
     });
-    if parent_css.writing_mode.map_or(false, |wm| !wm.is_horizontal()) {
+    let (w, h) = if parent_css.writing_mode.map_or(false, |wm| !wm.is_horizontal()) {
         (lh, tw)
     } else {
         (tw, lh)
-    }
+    };
+    crate::layout::record_box_rect(list, box_id, Rect::new(x, y, w, h));
+    let ascent = ctx.measurer.font_ascent_family(size, family);
+    crate::layout::inline::line_baseline::register_last_line(id, y + ascent);
+    (w, h)
 }

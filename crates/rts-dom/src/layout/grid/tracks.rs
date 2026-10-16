@@ -141,21 +141,11 @@ pub(in crate::layout) fn resolve_tracks(
             T::Fixed(d) => dim(d),
             T::Bounded { min, .. } => dim(min),
             T::Auto => max_of(i),
-            T::Intrinsic { min, max } => {
-                let base = match min {
-                    B::Auto => min_of(i),
-                    other => eval_bound(other, i),
-                };
-                if matches!(min, B::Auto) {
-                    match max {
-                        B::Fixed(d) => base.min(dim(d)),
-                        B::FitContent(d) => base.min(dim(d)),
-                        _ => base,
-                    }
-                } else {
-                    base
-                }
-            }
+            T::Intrinsic { min, .. } => match min {
+                B::Auto => min_of(i),
+                other => eval_bound(other, i),
+            },
+
             T::Fr(f) => {
                 sum_fr += f.max(0.0);
                 0.0
@@ -393,11 +383,7 @@ pub(in crate::layout) fn resolve_row_tracks(
                         B::MinContent => min_h,
                         B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
                     };
-                    let base = if matches!(min, B::Auto) {
-                        mn.min(mx)
-                    } else {
-                        mn
-                    };
+                    let base = mn;
                     ch.max(base).min(mx.max(base))
                 }
                 _ => ch,

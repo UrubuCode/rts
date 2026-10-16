@@ -87,6 +87,7 @@ pub struct Fragment {
     /// on every emission (`crate::layout::inline::line_baseline::register_from_fragment`), because a
     /// cached fragment runs no flow; the split is what lets a stitch replace a
     /// child and recompute the total (`fragment::stitch`).
+    pub first_line: Option<f32>,
     pub direct_line: Option<f32>,
     pub last_line: Option<f32>,
     /// The static positions the inline flows of THIS fragment's own list
@@ -165,6 +166,7 @@ impl Fragment {
             grid_column_tracks: std::rc::Rc::clone(&self.grid_column_tracks),
             grid_row_tracks: std::rc::Rc::clone(&self.grid_row_tracks),
             scroll_regions: self.scroll_regions.clone(),
+            first_line: self.first_line,
             direct_line: self.direct_line,
             last_line: self.last_line,
             static_anchors: std::rc::Rc::new(
@@ -194,8 +196,15 @@ impl Fragment {
         shrink_to_fit: bool,
     ) {
         let (dx, dy) = (x - self.origin.0, y - self.origin.1);
-        if let (Some(baseline), Some(owner)) = (self.last_line, self.tree.node_of(self.box_id)) {
-            crate::layout::inline::line_baseline::register_from_fragment(owner, baseline + dy);
+        if let Some(owner) = self.tree.node_of(self.box_id) {
+            if let Some(first) = self.first_line {
+                crate::layout::inline::line_baseline::register_from_fragment(owner, first + dy);
+            }
+            if let Some(last) = self.last_line {
+                if Some(last) != self.first_line {
+                    crate::layout::inline::line_baseline::register_from_fragment(owner, last + dy);
+                }
+            }
         }
         // APONTA, não copia: os itens desta subárvore já existem e não mudaram.
         // Os RETÂNGULOS abaixo continuam sendo materializados, porque a consulta

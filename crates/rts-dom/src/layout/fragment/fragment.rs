@@ -207,6 +207,7 @@ fn stitch(
         grid_column_tracks: std::rc::Rc::new(grid_column_tracks),
         grid_row_tracks: std::rc::Rc::new(grid_row_tracks),
         scroll_regions: previous.scroll_regions.clone(),
+        first_line: previous.first_line,
         direct_line: previous.direct_line,
         last_line: last_line,
         static_anchors: std::rc::Rc::clone(&previous.static_anchors),
@@ -400,7 +401,7 @@ pub(in crate::layout) fn layout_block_reusing(
     // emissão, mesmo em cache-hit) fica para quando um caso real o pedir —
     // documentado, não escondido, no cabeçalho de `block/bfc.rs`.
     let floats_escaped = bfc.len() != floats_before;
-    let (direct_line, last_line) =
+    let (first_line, direct_line, last_line) =
         crate::layout::inline::line_baseline::collect_from_block(dom, id, lines_before, y, size.1);
     // O desenho guardado conserva a identidade que o produziu: `BoxId`. A
     // chave também a carrega; a passagem seguinte é fazer cada chamador levar
@@ -423,8 +424,9 @@ pub(in crate::layout) fn layout_block_reusing(
         ),
         scroll_regions: std::mem::take(&mut own.scroll_regions),
         pieces: std::rc::Rc::new(std::mem::take(&mut own.pieces)),
-        direct_line: direct_line,
-        last_line: last_line,
+        first_line,
+        direct_line,
+        last_line,
         static_anchors: std::rc::Rc::new(std::mem::take(&mut own.static_anchors)),
         origin: (x, y),
         size,

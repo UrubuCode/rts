@@ -256,7 +256,8 @@ pub(in crate::layout) fn layout_inline_flow(
         .unwrap_or(0.0);
     let mut first_line = true;
     let mut cy = y;
-    // The last line's baseline, for an atom measuring its own (`line_baseline.rs`).
+    // The first and last line's baseline, for an atom measuring its own (`line_baseline.rs`).
+    let mut first_baseline: Option<f32> = None;
     let mut last_baseline: Option<f32> = None;
     // A generated inline broken across lines carries its open surface over.
     let mut carried = super::inline_fragments::Surfaces::default();
@@ -441,11 +442,20 @@ pub(in crate::layout) fn layout_inline_flow(
             (content_w, cb_h),
             ctx,
         );
-        last_baseline = Some(text_top + ctx.measurer.font_ascent_family(font_size, family));
+        let b = text_top + ctx.measurer.font_ascent_family(font_size, family);
+        if first_baseline.is_none() {
+            first_baseline = Some(b);
+        }
+        last_baseline = Some(b);
         cy += line_advance;
     }
-    if let Some(b) = last_baseline {
+    if let Some(b) = first_baseline {
         super::line_baseline::register_last_line(owner, b);
+    }
+    if let Some(b) = last_baseline {
+        if Some(b) != first_baseline {
+            super::line_baseline::register_last_line(owner, b);
+        }
     }
     cy
 }

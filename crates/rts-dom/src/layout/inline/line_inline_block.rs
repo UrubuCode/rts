@@ -75,6 +75,14 @@ pub(in crate::layout) fn item_ascent(
             (bt + pt + inner).min(h)
         };
     }
+    if matches!(
+        dom.computed_style_idx(id)
+            .and_then(|c| c.effective_display()),
+        Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+    ) {
+        return crate::layout::grid::baseline::container_ascent(dom, id, h, content_w, ctx);
+    }
+
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
     // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px

@@ -195,4 +195,209 @@ fn test_grid_item_containing_block_004() {
     assert_eq!((grid.w, grid.h), (200.0, 200.0));
 }
 
+#[test]
+fn test_debug_minmax_img_002() {
+    let html_t = r#"<!DOCTYPE html>
+<style>
+.grid {
+    display: inline-grid;
+    grid-template-columns: minmax(auto, 0);
+    grid-template-rows: minmax(auto, 0);
+    border: 5px solid goldenrod;
+}
+.spacer{
+    height: 10px;
+}
+img {
+    border: 2px solid indigo;
+}
+.stretch {
+    align-self: stretch;
+    justify-self: stretch;
+}
+.start {
+    align-self: start;
+    justify-self: start;
+}
+</style>
+<div class="grid">
+  <img src="support/100x100-green.png">
+</div>
+<div class="spacer"></div>
+<div class="grid">
+  <img class="stretch" src="support/100x100-green.png">
+</div>
+<div class="spacer"></div>
+<div class="grid">
+  <img class="start" src="support/100x100-green.png">
+</div>"#;
+
+    let html_r = r#"<!DOCTYPE html>
+<style>
+.grid {
+    display: inline-grid;
+    grid-template-columns: 4px;
+    grid-template-rows: 4px;
+    border: 5px solid goldenrod;
+}
+.spacer{
+    height: 10px;
+}
+.img{
+    background-image: url("support/100x100-green.png");
+    width: 100px;
+    height: 100px;
+}
+.img, .empty{
+    border: 2px solid indigo;
+}
+</style>
+<div class="grid">
+  <div class="img"></div>
+</div>
+<div class="spacer"></div>
+<div class="grid">
+  <div class="empty"></div>
+</div>
+<div class="spacer"></div>
+<div class="grid">
+  <div class="img"></div>
+</div>"#;
+
+    let mut dom_t = crate::parse_html_to_dom(html_t);
+    for img in dom_t.query_all("img") {
+        dom_t.set_pixel_data(img, vec![0; 100 * 100 * 4], 100, 100);
+    }
+    let mut dom_r = crate::parse_html_to_dom(html_r);
+
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+
+    let grids_t: Vec<_> = dom_t.query_all(".grid").into_iter().map(|g| list_t.rect_of(dom_t.resolve(g).unwrap()).unwrap()).collect();
+    let grids_r: Vec<_> = dom_r.query_all(".grid").into_iter().map(|g| list_r.rect_of(dom_r.resolve(g).unwrap()).unwrap()).collect();
+
+    let imgs_t: Vec<_> = dom_t.query_all("img").into_iter().map(|g| list_t.rect_of(dom_t.resolve(g).unwrap()).unwrap()).collect();
+    let imgs_r: Vec<_> = dom_r.query_all(".img, .empty").into_iter().map(|g| list_r.rect_of(dom_r.resolve(g).unwrap()).unwrap()).collect();
+
+    assert_eq!(grids_t, grids_r);
+    assert_eq!(imgs_t, imgs_r);
+}
+
+#[test]
+fn test_grid_inline_items_001() {
+    let html = r#"<!DOCTYPE html>
+<style>
+  body { margin: 8px; }
+  p { margin: 16px 0; font-size: 16px; }
+  #reference-overlapped-red {
+    position: absolute;
+    background-color: red;
+    width: 100px;
+    height: 100px;
+    z-index: -1;
+  }
+  .test-inline-grid-overlapping-green {
+    display: inline-grid;
+    font: 25px/1 Ahem;
+    color: green;
+  }
+</style>
+<p>Test</p>
+<div id="reference-overlapped-red"></div>
+<div class="test-inline-grid-overlapping-green">
+  <div>it</div>
+  em
+  <div>it</div>
+  em
+</div><div class="test-inline-grid-overlapping-green">
+  it
+  <span>em</span>
+  it
+  <span>em</span>
+</div>"#;
+
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let red = crate::table::tests::rect(&dom, &list, "#reference-overlapped-red", 0);
+    let g1 = crate::table::tests::rect(&dom, &list, ".test-inline-grid-overlapping-green", 0);
+    let g2 = crate::table::tests::rect(&dom, &list, ".test-inline-grid-overlapping-green", 1);
+    assert_eq!(g1.y, red.y);
+    assert_eq!(g2.y, red.y);
+    assert_eq!(g1.x, red.x);
+    assert_eq!(g2.x, g1.x + g1.w);
+    assert_eq!(g1.w + g2.w, red.w);
+    assert_eq!(g1.h, red.h);
+    assert_eq!(g2.h, red.h);
+}
+
+#[test]
+fn test_grid_inline_items_002() {
+    let html = r#"<!DOCTYPE html>
+<style>
+  body { margin: 8px; }
+  p { margin: 16px 0; font-size: 16px; }
+  #reference-overlapped-red {
+    position: absolute;
+    background-color: red;
+    width: 100px;
+    height: 100px;
+    z-index: -1;
+  }
+  .test-inline-grid-overlapping-green {
+    display: inline-grid;
+    font: 25px/1 Ahem;
+    color: green;
+  }
+</style>
+<p>Test</p>
+<div id="reference-overlapped-red"></div>
+<div class="test-inline-grid-overlapping-green">
+  <div>
+    <div>it</div>
+    em
+  </div>
+  <div>
+    it
+    <div>em</div>
+  </div>
+</div><div class="test-inline-grid-overlapping-green">
+  <span>
+    <span>i</span>t
+  </span>
+  <span>
+    e<span>m</span>
+  </span>
+  <span>
+    <span>i</span>t
+  </span>
+  <span>
+    e<span>m</span>
+  </span>
+</div>"#;
+
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let red = crate::table::tests::rect(&dom, &list, "#reference-overlapped-red", 0);
+    let g1 = crate::table::tests::rect(&dom, &list, ".test-inline-grid-overlapping-green", 0);
+    let g2 = crate::table::tests::rect(&dom, &list, ".test-inline-grid-overlapping-green", 1);
+    assert_eq!(g1.y, red.y);
+    assert_eq!(g2.y, red.y);
+    assert_eq!(g1.x, red.x);
+    assert_eq!(g2.x, g1.x + g1.w);
+    assert_eq!(g1.w + g2.w, red.w);
+    assert_eq!(g1.h, red.h);
+    assert_eq!(g2.h, red.h);
+}
+
+
+
+
+
+
+
+
+
 

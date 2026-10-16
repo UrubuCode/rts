@@ -391,20 +391,12 @@ pub(super) fn min_content_na_arvore(
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
             if let Some((w, _)) = crate::inline_box::replaced_inline_size(
-                dom,
-                id,
-                &css,
-                f32::INFINITY,
-                None,
-                (None, None),
-                ctx,
+                dom, id, &css, f32::INFINITY, None, (None, None), ctx,
             ) {
-                // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
-                // com razão de aspeto, o piso vem dela, não da `width` acima
-                // (essa é a caixa REAL).
-                let w = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve)
-                    .unwrap_or(w);
-                return w + frame;
+                if let Some(cw) = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve) {
+                    return cw + frame;
+                }
+                return w + css.margin.resolve_h(&resolve);
             }
             if css
                 .effective_display()

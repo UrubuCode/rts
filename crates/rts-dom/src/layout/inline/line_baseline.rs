@@ -270,8 +270,11 @@ fn block_ascent(
         css.effective_display(),
         Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
     ) {
-        return height;
+        let border_h = (height - mt - mb).max(0.0);
+        let inner = crate::layout::grid::baseline::container_ascent(dom, id, border_h, content_w, ctx);
+        return mt + inner;
     }
+
     match last_line_baseline(dom, id, box_id, width, content_w, ctx) {
         Some(b) => b.min(height),
         None => height,
@@ -284,7 +287,7 @@ pub(in crate::layout) use super::line_stack::{
 };
 
 /// [`collect_baselines`] for the fragment of the BLOCK `id`, laid out at `y` with outer
-/// height `height`: a block that clips answers its bottom margin edge for both
+/// height `height`: a block that clips answers its bottom margin edge for all three
 /// values instead of its lines (see [`own_flow`]).
 pub(in crate::layout) fn collect_from_block(
     dom: &Dom,
@@ -292,13 +295,13 @@ pub(in crate::layout) fn collect_from_block(
     marca: usize,
     y: f32,
     height: f32,
-) -> (Option<f32>, Option<f32>) {
+) -> (Option<f32>, Option<f32>, Option<f32>) {
     let lines = collect_baselines(dom, id, marca);
     if dom
         .computed_style_idx(id)
         .is_some_and(|c| clips_overflow(&c))
     {
-        return (Some(y + height), Some(y + height));
+        return (Some(y + height), Some(y + height), Some(y + height));
     }
     lines
 }
@@ -366,7 +369,7 @@ fn last_line_baseline(
         &mut scratch,
     );
     crate::layout::block::rotated_ortho::restore(ortho);
-    collect_baselines(dom, id, start).1
+    collect_baselines(dom, id, start).2
 }
 
 

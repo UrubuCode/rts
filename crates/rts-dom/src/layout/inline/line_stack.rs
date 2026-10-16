@@ -62,27 +62,30 @@ pub(in crate::layout) fn clear() {
 }
 
 /// The LOWEST own line box of `id` among what was recorded since `marca`, as
-/// `(direct, total)`.
+/// The baselines of `id` among what was recorded since `marca`, as
+/// `(first, direct, total)`.
 pub(in crate::layout) fn collect_baselines(
     dom: &Dom,
     id: NodeIdx,
     marca: usize,
-) -> (Option<f32>, Option<f32>) {
+) -> (Option<f32>, Option<f32>, Option<f32>) {
     LINES.with(|v| {
         let mut v = v.borrow_mut();
+        let min_of = |acc: Option<f32>, b: f32| Some(acc.map_or(b, |m: f32| m.min(b)));
         let max_of = |acc: Option<f32>, b: f32| Some(acc.map_or(b, |m: f32| m.max(b)));
-        let (mut direct, mut total) = (None, None);
+        let (mut first, mut direct, mut total) = (None, None, None);
         for l in v[marca.min(v.len())..]
             .iter()
             .filter(|l| own_flow(dom, id, l.owner, l.from_fragment))
         {
+            first = min_of(first, l.baseline);
             total = max_of(total, l.baseline);
             if !l.from_fragment {
                 direct = max_of(direct, l.baseline);
             }
         }
         v.truncate(marca);
-        (direct, total)
+        (first, direct, total)
     })
 }
 
