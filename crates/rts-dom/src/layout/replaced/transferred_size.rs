@@ -16,6 +16,7 @@
 //! linhas e não crescem: só chamam esta função.
 
 use super::*;
+use crate::layout::measure::aspect_ratio;
 
 /// `(largura outer, altura outer)` de um `<img>` cujo eixo cruzado (a
 /// altura, num flex-ROW) já é `cross_h` — ou `None` quando a regra não se
@@ -38,11 +39,80 @@ pub(in crate::layout) fn transferred(
     let NodeKind::Element { tag } = &dom.node(id).kind else {
         return None;
     };
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    if css.width.is_some() {
+        return None;
+    }
+    let is_rep = matches!(tag.as_str(), "img" | "canvas" | "video" | "svg");
+    if is_rep && (tag == "canvas" || css.height.is_some()) {
+        let (w, h) = crate::inline_box::replaced_inline_size(
+            dom,
+            id,
+            &css,
+            content_w,
+            Some(cross_h),
+            (None, None),
+            ctx,
+        )?;
+        let font = font_px(&css, font_size);
+        let resolve = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let margin_h = css.margin.resolve_h(&resolve);
+        return Some((w + margin_h, h));
+    }
+    if let Some(_) = aspect_ratio::declared_ratio(&css) {
+        let font = font_px(&css, font_size);
+        let resolve = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        if let Some(used_h) = resolve_height(css.height, Some(cross_h), &resolve) {
+            let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+            let frame_h = css.padding.resolve_h(&resolve) + bl + br;
+            let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
+            let content_h = if css.border_box.unwrap_or(false) { (used_h - frame_v).max(0.0) } else { used_h };
+            if let Some(w) = aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v) {
+                let margin_h = css.margin.resolve_h(&resolve);
+                return Some((w + frame_h + margin_h, used_h));
+            }
+        }
+    }
+    if css.effective_display() == Some(crate::style::DisplayKind::Inline) {
+        let mut max_w = 0.0f32;
+        let mut any = false;
+        for &c in &dom.node(id).children {
+            if let Some((w, _)) = transferred(dom, c, content_w, cross_h, font_size, ctx) {
+                any = true;
+                if w > max_w {
+                    max_w = w;
+                }
+            }
+        }
+        if any {
+            let font = font_px(&css, font_size);
+            let resolve = ResolveCtx {
+                parent_content_w: content_w,
+                node_font_size: font,
+                root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            let margin_h = css.margin.resolve_h(&resolve);
+            return Some((max_w + margin_h, cross_h));
+        }
+    }
     if tag != "img" {
         return None;
     }
-    let css = dom.computed_style_idx(id).unwrap_or_default();
-    if css.width.is_some() || css.height.is_some() {
+    if css.height.is_some() {
         return None;
     }
     let node = dom.node(id);
@@ -170,8 +240,17 @@ pub(in crate::layout) fn transferred_intrinsic_width(
     if is_column {
         return None;
     }
+    if let Some(css) = dom.computed_style_idx(id) {
+        if matches!(
+            css.effective_display(),
+            Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+        ) {
+            return None;
+        }
+    }
     let display = css_display(dom, id);
-    if display != crate::block::DISPLAY_HORIZONTAL && display != crate::block::DISPLAY_WRAP {
+    let is_row = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    if !is_row && own_cross_h.is_none() {
         return None;
     }
     let h = own_cross_h.or_else(|| {
@@ -202,6 +281,7 @@ pub(in crate::layout) fn transferred_intrinsic_width(
         .unwrap_or(0.0)
         .max(0.0);
     let mut sum = 0.0f32;
+    let mut max_w = 0.0f32;
     let mut count: usize = 0;
     let mut some_transferred = false;
     for &child in &dom.node(id).children {
@@ -224,11 +304,18 @@ pub(in crate::layout) fn transferred_intrinsic_width(
             count += 1;
         }
         sum += w;
+        if w > max_w {
+            max_w = w;
+        }
     }
     if !some_transferred {
         // nenhum filho precisava da regra — o caminho cached decide igual,
         // e ele é o que os outros milhares de contentores já usam.
         return None;
     }
-    Some(sum + (count.saturating_sub(1)) as f32 * gap)
+    if is_row {
+        Some(sum + (count.saturating_sub(1)) as f32 * gap)
+    } else {
+        Some(max_w)
+    }
 }

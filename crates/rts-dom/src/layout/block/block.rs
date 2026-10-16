@@ -183,13 +183,23 @@ pub(crate) fn layout_block(
             // existe e fica vazia, que é o que o browser também faz.
             // The replaced element's `height: %` basis: its parent's height, kept
             // only when the parent declares one (`definite_cb_height`).
-            let replaced_cb_h = dom
-                .node(id)
-                .parent
-                .and_then(|p| dom.computed_style_idx(p))
-                .and_then(|pcss| {
+            let replaced_cb_h = dom.node(id).parent.and_then(|p| {
+                let pcss = dom.computed_style_idx(p)?;
+                let is_grid_item = dom
+                    .node(p)
+                    .parent
+                    .and_then(|gp| dom.computed_style_idx(gp))
+                    .is_some_and(|gp_css| {
+                        gp_css
+                            .effective_display()
+                            .is_some_and(crate::style::DisplayKind::is_grid_container)
+                    });
+                if is_grid_item {
+                    avail_h
+                } else {
                     crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h)
-                });
+                }
+            });
             if tag == "canvas" {
                 if let Some(r) = layout_canvas(
                     dom,
@@ -838,6 +848,7 @@ pub(crate) fn layout_block(
                 content_y,
                 children_w,
                 avail_children,
+                explicit_content_h,
                 &css,
                 font_size,
                 children_bfc,

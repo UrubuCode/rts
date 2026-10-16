@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) mod abspos;
 pub(super) mod align;
-pub(super) mod aspect;
+pub(crate) mod aspect;
 pub(super) mod baseline;
 pub(super) mod collapse;
 pub(crate) mod distribute;

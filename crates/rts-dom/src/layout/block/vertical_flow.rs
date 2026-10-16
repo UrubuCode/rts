@@ -70,6 +70,7 @@ pub(in crate::layout) fn layout_children_vertical(
     content_y: f32,
     content_w: f32,
     avail_h: Option<f32>,
+    definite_h: Option<f32>,
     css: &ComputedStyle,
     font_size: f32,
     // O bloco de formatação AMBIENTE — de quem o estabeleceu, herdado por
@@ -83,6 +84,7 @@ pub(in crate::layout) fn layout_children_vertical(
     list: &mut DisplayList,
 ) -> f32 {
     let mut child_y = content_y;
+    let cb_h = definite_h.or_else(|| crate::inline_box::replaced_clamp::definite_cb_height(css, avail_h));
     // A base da chave de fragmento é a mesma para todos os filhos deste
     // container — só o nó e o epoch dele mudam.
     let key_base = KeyBase::new(dom, content_w, avail_h, ctx);
@@ -126,7 +128,7 @@ pub(in crate::layout) fn layout_children_vertical(
         ($y:expr) => {
             if !ib_run.is_empty() {
                 $y = layout_inline_block_line(
-                    dom, id, &ib_run, content_x, $y, content_w, avail_h, css, font_size, ctx, list,
+                    dom, id, &ib_run, content_x, $y, content_w, cb_h, css, font_size, ctx, list,
                 );
                 ib_run.clear();
                 border = $y;
@@ -151,7 +153,7 @@ pub(in crate::layout) fn layout_children_vertical(
                     content_x,
                     $y,
                     content_w,
-                    crate::inline_box::replaced_clamp::definite_cb_height(css, avail_h),
+                    cb_h,
                     css,
                     font_size,
                     bfc,
@@ -218,7 +220,7 @@ pub(in crate::layout) fn layout_children_vertical(
             let edge = border + collapsed_strut(strut);
             child_y = edge;
             let h = super::block_box::layout_anonymous(
-                dom, &from_tree, anon, content_x, child_y, content_w, avail_h, css, font_size, bfc,
+                dom, &from_tree, anon, content_x, child_y, content_w, avail_h, definite_h, css, font_size, bfc,
                 ctx, list,
             );
             if !collapses_through(h, 0.0, 0.0) {
@@ -482,7 +484,7 @@ pub(in crate::layout) fn layout_children_vertical(
                         content_x,
                         child_y,
                         content_w,
-                        crate::inline_box::replaced_clamp::definite_cb_height(css, avail_h),
+                        cb_h,
                         css,
                         font_size,
                         bfc,

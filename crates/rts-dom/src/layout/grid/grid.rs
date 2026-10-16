@@ -107,23 +107,19 @@ pub(in crate::layout) fn layout_children_grid(
         .iter()
         .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. } | crate::style::GridTrack::Auto));
     let needs_measure = needs_min;
-    let (content_max, content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
+    let (mut content_max, mut content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
         let mut wmax = vec![0.0f32; ncols];
         let mut wmin = vec![0.0f32; ncols];
-        let item_w = |c: &lines::GridCell| {
-            let area_h = aspect::definite_area_height(
-                &explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve,
-            );
-            aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx)
-        };
         for c in &cells {
             let is_sub = subgrid::is_subgrid_node(dom, c.child, container_wm).0;
             if is_sub { continue; }
             if c.c1 - c.c0 == 1 && c.c0 < ncols {
-                let w = item_w(c);
-                wmax[c.c0] = wmax[c.c0].max(w);
+                let ah = aspect::definite_area_height(
+                    &explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve,
+                );
+                wmax[c.c0] = wmax[c.c0].max(aspect::grid_item_outer_width(dom, c.child, c.box_id, ah, content_w, css, font_size, ctx));
                 if needs_min {
-                    let min = aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
+                    let min = aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), ah, Some(css), font_size, &resolve, ctx);
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
             }
@@ -153,7 +149,7 @@ pub(in crate::layout) fn layout_children_grid(
     } else {
         (None, None)
     };
-    let col_sizes = if let Some(cs) = col_sub {
+    let mut col_sizes = if let Some(cs) = col_sub {
         cs.track_sizes.clone()
     } else {
         tracks::resolve_tracks(
@@ -276,6 +272,16 @@ pub(in crate::layout) fn layout_children_grid(
     };
     if css.grid_template_rows.is_some() || row_sub.is_some() {
         list.grid_row_tracks.insert(id, row_sizes.clone());
+    }
+    if col_sub.is_none() && row_sub.is_none() {
+        distribute::re_resolve_columns_with_rows(
+            dom, &cells, ncols, &col_tracks, &row_sizes, row_gap, col_gap,
+            content_w, &col_collapsed, css, container_wm, font_size, &resolve, ctx,
+            &mut content_max, &mut content_min, &mut col_sizes,
+        );
+        if css.grid_template_columns.is_some() {
+            list.grid_column_tracks.insert(id, col_sizes.clone());
+        }
     }
 
     if row_sub.is_some() {
