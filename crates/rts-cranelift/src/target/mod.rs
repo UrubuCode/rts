@@ -1193,10 +1193,17 @@ pub fn isa_with(
     // `Priority::CodeQuality` at `target/destination.rs` precisely to buy code
     // quality at build time and is currently buying it with the optimizer off.
     // No stated argument covers that, and this knob does not settle it.
-    if let Ok(level) = std::env::var("RTS_CL_OPT") {
-        cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
-            .expect("a real setting");
-    }
+    //
+    // UPDATE 2026-10-16: default is now `speed`. With direct calls, inline
+    // RunRead and inline CellAlloc the IR is no longer mostly opaque. Release,
+    // min-of-7, interleaved 2 passes, ns/iter none -> speed: arith 1.04->0.91,
+    // index 5.57->5.30, alloc_escape 30.9-34.2->29.0-29.5, call_noinline
+    // 7.0->6.2, mod 6.39->6.31. 400-fn script place: 172 vs 171 ms (noise).
+    // `RTS_CL_OPT=none` restores the old behaviour. Not covered: whether it
+    // helps programs that are still dominated by runtime calls.
+    let level = std::env::var("RTS_CL_OPT").unwrap_or_else(|_| "speed".to_owned());
+    cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
+        .expect("a real setting");
     let verify = match std::env::var_os("RTS_CL_VERIFY") {
         Some(_) => true,
         None => cfg!(debug_assertions),
