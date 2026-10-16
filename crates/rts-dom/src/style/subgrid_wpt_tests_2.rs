@@ -449,3 +449,36 @@ fn test_independent_formatting_context() {
         assert_rect_approx(rt, rr);
     }
 }
+
+#[test]
+fn test_grid_gap_007() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-007.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-007-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let ccc_t = list_t.rect_of(dom_t.resolve(dom_t.query_all("span")[2]).unwrap());
+    let ccc_r = list_r.rect_of(dom_r.resolve(dom_r.query_all("span")[3]).unwrap());
+    assert_rect_approx(ccc_t, ccc_r);
+
+    let hlt = list_t.rect_of(dom_t.resolve(dom_t.query_all(".hl")[0]).unwrap()).unwrap();
+    assert_eq!(hlt.x, 3.0);
+    assert_eq!(hlt.y, 3.0);
+    assert_eq!(hlt.w, 60.0);
+}

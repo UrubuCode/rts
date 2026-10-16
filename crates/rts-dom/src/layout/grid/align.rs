@@ -53,7 +53,10 @@ pub(super) fn resolve_cell_rect(
     nrows: usize,
 ) -> (f32, f32, f32, f32) {
     let (cx, cw) = if let Some(cs) = col_sub {
-        let (rel_x, w) = cs.cell_pos_and_span(cell.c0, cell.c1);
+        let (mut rel_x, w) = cs.cell_pos_and_span(cell.c0, cell.c1);
+        if cs.reversed && crate::layout::rotated_frame_mode().is_some_and(|wm| wm == crate::style::WritingMode::SidewaysLr) {
+            rel_x = (cs.content_span() - (rel_x + w)).max(0.0);
+        }
         (content_x + rel_x, w)
     } else {
         let c0 = if is_rtl {
@@ -65,7 +68,10 @@ pub(super) fn resolve_cell_rect(
     };
 
     let (cy, ch) = if let Some(rs) = row_sub {
-        let (rel_y, h) = rs.cell_pos_and_span(cell.r0, cell.r1.min(nrows));
+        let (mut rel_y, h) = rs.cell_pos_and_span(cell.r0, cell.r1.min(nrows));
+        if rs.reversed && crate::layout::rotated_frame_mode().is_some_and(|wm| matches!(wm, crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl)) {
+            rel_y = (rs.content_span() - (rel_y + h)).max(0.0);
+        }
         (content_y + rel_y, h)
     } else {
         let r0 = cell.r0.min(row_y.len().saturating_sub(1));
