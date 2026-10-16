@@ -11,6 +11,7 @@
 /// `(name, source)` — `name` without the `node:` prefix.
 const MODULES: &[(&str, &str)] = &[
     ("querystring", include_str!("../std/node/querystring.ts")),
+    ("string_decoder", include_str!("../std/node/string_decoder.ts")),
     ("path", include_str!("../std/node/path.ts")),
     ("path/posix", include_str!("../std/node/path_posix.ts")),
     ("path/win32", include_str!("../std/node/path_win32.ts")),
