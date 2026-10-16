@@ -233,6 +233,18 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "height" => dst.height = src.height,
         "align-self" => dst.align_self = src.align_self,
         "justify-self" => dst.justify_self = src.justify_self,
+        "align-items" => dst.align_items = src.align_items,
+        "justify-items" => dst.grid_justify_items = src.grid_justify_items,
+        "place-items" => {
+            dst.align_items = src.align_items;
+            dst.grid_justify_items = src.grid_justify_items;
+        }
+        "align-content" => dst.align_content = src.align_content,
+        "justify-content" => dst.justify = src.justify,
+        "place-content" => {
+            dst.align_content = src.align_content;
+            dst.justify = src.justify;
+        }
         "grid-template-areas" => dst.grid_template_areas = src.grid_template_areas.clone(),
         "grid-template-columns" => dst.grid_template_columns = src.grid_template_columns.clone(),
         "grid-template-rows" => dst.grid_template_rows = src.grid_template_rows.clone(),

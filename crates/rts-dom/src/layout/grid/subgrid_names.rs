@@ -122,9 +122,10 @@ pub(in crate::layout) fn subgrid_span(
     s0: Option<&crate::style::grid_lines::GridLine>,
     s1: Option<&crate::style::grid_lines::GridLine>,
 ) -> usize {
-    use crate::style::grid_lines::GridLine::Span;
+    use crate::style::grid_lines::GridLine::*;
     match (s0, s1) {
         (Some(Span(s)), _) | (_, Some(Span(s))) => (*s as usize).max(1),
+        (Some(Line(a)), Some(Line(b))) if a != b => (b - a).unsigned_abs() as usize,
         _ => 1,
     }
 }

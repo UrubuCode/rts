@@ -58,9 +58,7 @@ fn test_repeat_auto_fill_006() {
     for (i, (&a, &b)) in it_t.iter().zip(&it_r).enumerate() {
         let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
         let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
-        if ra != rb {
-            println!("MISMATCH item {i}: test={ra:?} ref={rb:?}");
-        }
+        assert_eq!(ra, rb, "item {i}");
     }
 }
 
@@ -218,5 +216,121 @@ fn test_orthogonal_writing_mode_005() {
         let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
         assert_eq!(ra, rb, "div {i}");
     }
+}
+
+fn assert_rect_approx(a: Option<crate::paint::Rect>, b: Option<crate::paint::Rect>) {
+    let (Some(a), Some(b)) = (a, b) else {
+        assert_eq!(a, b);
+        return;
+    };
+    assert!(
+        (a.x - b.x).abs() < 0.05
+            && (a.y - b.y).abs() < 0.05
+            && (a.w - b.w).abs() < 0.05
+            && (a.h - b.h).abs() < 0.05,
+        "{a:?} != {b:?}"
+    );
+}
+
+#[test]
+fn test_subgrid_baseline_001() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-001.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-001-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let yt = list_t.rect_of(dom_t.resolve(dom_t.query_all("y")[0]).unwrap());
+    let yr = list_r.rect_of(dom_r.resolve(dom_r.query_all("y")[0]).unwrap());
+    assert_rect_approx(yt, yr);
+
+    let st = list_t.rect_of(dom_t.resolve(dom_t.query_all(".subgrid")[0]).unwrap());
+    let sr = list_r.rect_of(dom_r.resolve(dom_r.query_all(".subgrid")[0]).unwrap());
+    assert_rect_approx(st, sr);
+}
+
+#[test]
+fn test_subgrid_baseline_004() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-004.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-004-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    for sel in [".first", ".second"] {
+        let (dt, dr) = (dom_t.query_all(sel), dom_r.query_all(sel));
+        for (i, (&a, &b)) in dt.iter().zip(&dr).enumerate() {
+            let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+            let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+            assert_rect_approx(ra, rb);
+        }
+    }
+}
+
+#[test]
+fn test_subgrid_baseline_002() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-002.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-baseline-002-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let yt = list_t.rect_of(dom_t.resolve(dom_t.query_all("y")[0]).unwrap());
+    let yr = list_r.rect_of(dom_r.resolve(dom_r.query_all("y")[0]).unwrap());
+    assert_rect_approx(yt, yr);
+
+    let st = list_t.rect_of(dom_t.resolve(dom_t.query_all(".subgrid")[0]).unwrap());
+    let sr = list_r.rect_of(dom_r.resolve(dom_r.query_all(".subgrid")[0]).unwrap());
+    assert_rect_approx(st, sr);
+
+    // The text item in test is x[0], and in ref is x[0]
+    let xt = list_t.rect_of(dom_t.resolve(dom_t.query_all("x")[0]).unwrap());
+    let xr = list_r.rect_of(dom_r.resolve(dom_r.query_all("x")[0]).unwrap());
+    assert_rect_approx(xt, xr);
 }
 
