@@ -47,7 +47,7 @@ pub(in crate::layout) fn layout_children_grid(
     let tree = std::rc::Rc::clone(&list.tree);
     let children: Vec<GridItem> = collect_items(dom, &tree, container);
     let (explicit_rows, row_collapsible, row_lines) =
-        subgrid::init_row_tracks(row_sub, css, container_content_h, row_gap, &resolve, is_p_grid);
+        subgrid::init_row_tracks(row_sub, css, areas.as_deref(), container_content_h, row_gap, &resolve, is_p_grid);
     let has_oof = tree
         .children_without_generated(container)
         .iter()

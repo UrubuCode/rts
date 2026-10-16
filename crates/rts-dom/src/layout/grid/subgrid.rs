@@ -371,62 +371,8 @@ pub(in crate::layout) fn is_subgrid_item(
     }
 }
 
-pub(in crate::layout) fn init_col_tracks(
-    col_sub: Option<&SubgriddedAxis>,
-    css: &ComputedStyle,
-    areas: Option<&crate::style::GridAreas>,
-    content_w: f32,
-    col_gap: f32,
-    container_content_h: Option<f32>,
-    resolve: &ResolveCtx,
-    is_p_grid: bool,
-) -> (Vec<crate::style::GridTrack>, Vec<bool>, Vec<LineNames>) {
-    if let Some(cs) = col_sub {
-        (vec![crate::style::GridTrack::Auto; cs.track_sizes.len()], vec![false; cs.track_sizes.len()], cs.line_names.clone())
-    } else {
-        let has_def = css.width.is_some() && !matches!(css.width, Some(crate::style::Dimension::MinContent) | Some(crate::style::Dimension::MaxContent));
-        let is_inl = matches!(css.effective_display(), Some(crate::style::DisplayKind::InlineGrid));
-        let min_s = super::aspect::container_min_size_for_auto_repeat(css, true, container_content_h, resolve);
-        let c_w = if (has_def || (!is_inl && content_w > 0.0)) && min_s.map_or(true, |ms| content_w >= ms) { content_w } else { 0.0 };
-        match css.grid_template_columns.as_deref() {
-            Some(GridTemplate::Subgrid(_)) if is_p_grid => {
-                let s = subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref());
-                (vec![crate::style::GridTrack::Auto; s], vec![false; s], vec![Vec::new(); s + 1])
-            }
-            Some(GridTemplate::Tracks(t)) => super::tracks::expand_auto_repeats(t, c_w, col_gap, min_s),
-            _ => match areas.map(|a| a.cols).or_else(|| css.grid_columns.map(|c| c.max(1) as usize)) {
-                Some(cols) => {
-                    let tl = crate::style::TrackList::from_tracks(vec![crate::style::GridTrack::Fr(1.0); cols]);
-                    super::tracks::expand_auto_repeats(&tl, c_w, col_gap, min_s)
-                }
-                None => (Vec::new(), Vec::new(), Vec::new()),
-            },
-        }
-    }
-}
+pub(in crate::layout) use super::init_tracks::{init_col_tracks, init_row_tracks};
 
-pub(in crate::layout) fn init_row_tracks(
-    row_sub: Option<&SubgriddedAxis>,
-    css: &ComputedStyle,
-    container_content_h: Option<f32>,
-    row_gap: f32,
-    resolve: &ResolveCtx,
-    is_p_grid: bool,
-) -> (Vec<crate::style::GridTrack>, Vec<bool>, Vec<LineNames>) {
-    if let Some(rs) = row_sub {
-        (vec![crate::style::GridTrack::Auto; rs.track_sizes.len()], vec![false; rs.track_sizes.len()], rs.line_names.clone())
-    } else {
-        let min_s = super::aspect::container_min_size_for_auto_repeat(css, false, container_content_h, resolve);
-        match css.grid_template_rows.as_deref() {
-            Some(GridTemplate::Subgrid(_)) if is_p_grid => {
-                let s = subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref());
-                (vec![crate::style::GridTrack::Auto; s], vec![false; s], vec![Vec::new(); s + 1])
-            }
-            Some(GridTemplate::Tracks(t)) => super::tracks::expand_auto_repeats(t, container_content_h.unwrap_or(0.0), row_gap, min_s),
-            _ => (Vec::new(), Vec::new(), Vec::new()),
-        }
-    }
-}
 
 pub(in crate::layout) fn register_if_subgrid(
     dom: &Dom,

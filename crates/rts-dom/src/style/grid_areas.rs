@@ -109,7 +109,7 @@ impl GridAreas {
                 }
             }
         }
-        if named.is_empty() {
+        if cols == 0 {
             return None;
         }
         Some(GridAreas {
