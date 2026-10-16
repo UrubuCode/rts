@@ -50,6 +50,7 @@ mod run_write;
 mod terminator;
 mod types;
 mod value;
+mod whole_index;
 
 pub use body::Outside;
 pub use error::{Capability, LowerError};

@@ -73,6 +73,8 @@ pub struct Body<'a> {
     pub(super) hoist: super::row_hoist::HoistPlan,
     /// The rows resolved so far, by (preheader, root).
     pub(super) rows: HashMap<(BlockId, ValueId), super::row_hoist::HoistedRow>,
+    /// Doubles proven to be whole numbers; see `super::whole_index`.
+    pub(super) whole: std::collections::HashSet<ValueId>,
 }
 
 impl<'a> Body<'a> {
@@ -95,6 +97,7 @@ impl<'a> Body<'a> {
             refs: FunctionRefs::new(),
             hoist: super::row_hoist::plan(func),
             rows: HashMap::new(),
+            whole: super::whole_index::plan(func),
         };
         body.create_blocks(builder);
         body.bind_entry_params(builder);

@@ -66,6 +66,9 @@ impl Body<'_> {
         // A single region: a reference IS the cell number.
         let cell = self.value(owner);
         let position = self.value(index);
+        // A position proven whole (see `super::whole_index`) skips the round trip
+        // below; the bounds compare is never skipped.
+        let known = self.whole.contains(&index);
 
         let heap = self.heap.as_ref().expect("a run table implies a heap");
         let header = super::memory::baked(builder, heap, super::memory::Baked::Runs, table);
@@ -87,10 +90,8 @@ impl Body<'_> {
                 .load(types::I64, flags, header, RunTable::GENERATION_OFFSET);
             let same = builder.ins().icmp(IntCC::Equal, generation, row.generation);
             let whole = builder.ins().fcvt_to_sint_sat(types::I64, position);
-            let again = builder.ins().fcvt_from_sint(types::F64, whole);
-            let exact = builder.ins().fcmp(FloatCC::Equal, again, position);
             let inside = builder.ins().icmp(IntCC::UnsignedLessThan, whole, row.length);
-            let usable = builder.ins().band(exact, inside);
+            let usable = super::whole_index::position_usable(builder, known, whole, position, inside);
             let usable = builder.ins().band(usable, same);
             let walk = builder.create_block();
             builder.ins().brif(
@@ -132,10 +133,8 @@ impl Body<'_> {
             .load(types::I64, flags, row, RunTable::ROW_LENGTH_OFFSET);
 
         let whole = builder.ins().fcvt_to_sint_sat(types::I64, position);
-        let again = builder.ins().fcvt_from_sint(types::F64, whole);
-        let exact = builder.ins().fcmp(FloatCC::Equal, again, position);
         let inside = builder.ins().icmp(IntCC::UnsignedLessThan, whole, length);
-        let usable = builder.ins().band(exact, inside);
+        let usable = super::whole_index::position_usable(builder, known, whole, position, inside);
 
         let load_block = builder.create_block();
         let miss_args = self.block_args(&miss.args);
