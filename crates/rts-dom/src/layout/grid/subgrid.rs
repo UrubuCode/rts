@@ -334,12 +334,17 @@ pub(in crate::layout) fn check_and_build(
     );
 
     let (smbp_x, embp_x, smbp_y, embp_y) = subgrid_mbp(&child_css, resolve);
+    let (smbp_c, embp_c, smbp_r, embp_r) = if child_wm.is_horizontal() {
+        (smbp_x, embp_x, smbp_y, embp_y)
+    } else {
+        (smbp_y, embp_y, smbp_x, embp_x)
+    };
 
-    let (p_tracks_c, p_range_c, p_gap_c, p_lines_c, p_is_col_c, smbp_c, embp_c, parent_dir_c) =
+    let (p_tracks_c, p_range_c, p_gap_c, p_lines_c, p_is_col_c, parent_dir_c) =
         if !is_orthogonal {
-            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, smbp_x, embp_x, parent_col_dir)
+            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, parent_col_dir)
         } else {
-            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, smbp_y, embp_y, parent_row_dir)
+            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, parent_row_dir)
         };
     let cols = build_axis(
         child_css.grid_template_columns.as_deref(),
@@ -359,11 +364,11 @@ pub(in crate::layout) fn check_and_build(
         true,
     );
 
-    let (p_tracks_r, p_range_r, p_gap_r, p_lines_r, p_is_col_r, smbp_r, embp_r, parent_dir_r) =
+    let (p_tracks_r, p_range_r, p_gap_r, p_lines_r, p_is_col_r, parent_dir_r) =
         if !is_orthogonal {
-            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, smbp_y, embp_y, parent_row_dir)
+            (row_sizes, (cell.r0, cell.r1), row_gap, row_lines, false, parent_row_dir)
         } else {
-            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, smbp_x, embp_x, parent_col_dir)
+            (col_sizes, (cell.c0, cell.c1), col_gap, col_lines, true, parent_col_dir)
         };
     let rows = build_axis(
         child_css.grid_template_rows.as_deref(),
