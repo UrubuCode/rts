@@ -355,10 +355,16 @@ pub(in crate::layout) fn layout_children_grid(
         };
         let justify = if is_col_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.justify_self.unwrap_or(justify)) };
         let align = if is_row_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.align_self.unwrap_or(align)) };
+        let is_in_frame = crate::layout::in_rotated_frame();
+        let (inline_sz, block_sz, inline_min, inline_max, block_min, block_max) = if is_in_frame {
+            (item_css.height, item_css.width, item_css.min_height, item_css.max_height, item_css.min_width, item_css.max_width)
+        } else {
+            (item_css.width, item_css.height, item_css.min_width, item_css.max_width, item_css.min_height, item_css.max_height)
+        };
         let is_stretch = |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
-        let stretch_x = is_col_sub || (is_stretch(justify) && item_css.width.is_none());
+        let stretch_x = is_col_sub || (is_stretch(justify) && inline_sz.is_none());
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = is_row_sub || (is_stretch(align) && item_css.height.is_none());
+        let stretch_y = is_row_sub || (is_stretch(align) && block_sz.is_none());
 
         let use_area_h = area_h.or(Some(cell_h));
         let (nat_w, nat_h) = measure_block(
@@ -379,25 +385,29 @@ pub(in crate::layout) fn layout_children_grid(
         let iw = match ratio_w {
             Some(w) => w,
             None if stretch_x => cell_w,
-            None if item_css.width == Some(crate::style::Dimension::MinContent) => {
-                crate::table::min_content(dom, child, font_size, ctx).min(cell_w)
+            None if inline_sz == Some(crate::style::Dimension::MinContent) => {
+                if is_in_frame { nat_w.min(cell_w) } else { crate::table::min_content(dom, child, font_size, ctx).min(cell_w) }
             }
-            None if item_css.width.is_some() && (!is_auto_x || !distribute::has_pct(item_css.width)) => nat_w,
-            None if item_css.min_width.is_none() && overflow_visible => {
-                let cnt = crate::table::min_content_with_floor(dom, child, font_size, ctx);
-                let auto = aspect::resolve_specified_suggestion(item_css.width, cnt).unwrap_or(cnt);
-                nat_w.max(clamp_auto(auto, item_css.width, item_css.max_width))
+            None if inline_sz.is_some() && (!is_auto_x || !distribute::has_pct(inline_sz)) => nat_w,
+            None if inline_min.is_none() && overflow_visible => {
+                let cnt = if is_in_frame { nat_w } else { crate::table::min_content_with_floor(dom, child, font_size, ctx) };
+                let auto = aspect::resolve_specified_suggestion(inline_sz, cnt).unwrap_or(cnt);
+                nat_w.max(clamp_auto(auto, inline_sz, inline_max))
             }
             None => nat_w,
         };
         let ih = if stretch_y {
             cell_h
-        } else if item_css.height.is_some() && (!is_auto_y || !distribute::has_pct(item_css.height)) {
+        } else if block_sz.is_some() && (!is_auto_y || !distribute::has_pct(block_sz)) {
             nat_h
-        } else if item_css.min_height.is_none() && overflow_visible {
-            let unc_h = measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1;
-            let auto = aspect::resolve_specified_suggestion(item_css.height, unc_h).unwrap_or(unc_h);
-            nat_h.max(clamp_auto(auto, item_css.height, item_css.max_height))
+        } else if block_min.is_none() && overflow_visible {
+            let unc = if is_in_frame {
+                crate::table::min_content_with_floor(dom, child, font_size, ctx)
+            } else {
+                measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1
+            };
+            let auto = aspect::resolve_specified_suggestion(block_sz, unc).unwrap_or(unc);
+            nat_h.max(clamp_auto(auto, block_sz, block_max))
         } else {
             nat_h
         };

@@ -59,10 +59,12 @@ impl Canvas {
     }
 
     pub fn fill_rect(&mut self, r: Rect, color: u32, clip: Option<Rect>) {
-        let x0 = r.x.floor() as i32;
-        let y0 = r.y.floor() as i32;
-        let x1 = (r.x + r.w).ceil() as i32;
-        let y1 = (r.y + r.h).ceil() as i32;
+        let snap = |v: f32| if (v.round() - v).abs() < 1e-3 { v.round() } else { v };
+        let (rx, ry, rw, rh) = (snap(r.x), snap(r.y), snap(r.w), snap(r.h));
+        let x0 = rx.floor() as i32;
+        let y0 = ry.floor() as i32;
+        let x1 = (rx + rw).ceil() as i32;
+        let y1 = (ry + rh).ceil() as i32;
         for y in y0..y1 {
             for x in x0..x1 {
                 self.blend(x, y, color, clip);
