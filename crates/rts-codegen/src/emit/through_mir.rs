@@ -158,6 +158,32 @@ fn attempt(
     if resolution.omitted(function.at) {
         return Err("an arrow folded into a function this stage did not compile".to_owned());
     }
+    // A CALL TO A STATEMENT-BODY HELPER the running emitter would substitute.
+    // `substitutes` below admits one-expression bodies only, so a call to a
+    // `const`/`let`/guard helper stayed a real call here (~26 ns) while the same
+    // call the running emitter compiles is spliced (~5 ns): `inline.rs` accepted
+    // the shape and this door never asked. Declined, so the emitter that can
+    // substitute it does.
+    {
+        let mut called = Vec::new();
+        match &function.body {
+            crate::syntax::FunctionBody::Block(statements) => {
+                statements.iter().for_each(|held| called_in_statement(held, &mut called))
+            }
+            crate::syntax::FunctionBody::Expression(expr) => called_in(expr, &mut called),
+        }
+        if called.iter().any(|name| {
+            ctx.inlinable_here(*name).is_some_and(|candidate| {
+                !candidate.statements.is_empty()
+                    && candidate.rest_length.is_none()
+                    && is_call_free(&candidate)
+                    && (candidate.free_proved || ctx.omits(*name))
+                    && (ctx.omits(*name) || enclosing.lookup(*name).is_some())
+            })
+        }) {
+            return Err("a call to a statement-body helper the running emitter substitutes".to_owned());
+        }
+    }
     // THE FUNCTIONS WRITTEN DIRECTLY INSIDE, whose closures this function makes. Their
     // BODIES are emitted by the running emitter -- in the scope this function sits in,
     // which is what they reach: a function this door takes builds no environment, so
@@ -719,6 +745,31 @@ fn methods(
         );
     }
     out
+}
+
+/// Whether a substitutable body makes no call at all. A body that calls can
+/// capture or throw a stack, and substituting it drops its frame from
+/// `Error.stack` (`claude-error-capture-stack-trace.test.ts` caught
+/// `captureStackTrace` in a helper), so only call-free bodies are taken here.
+fn is_call_free(candidate: &super::inline::Inlinable) -> bool {
+    fn free(expr: &crate::syntax::Expr) -> bool {
+        use crate::syntax::ExprKind;
+        if matches!(
+            expr.kind,
+            ExprKind::Call { .. } | ExprKind::New { .. } | ExprKind::TaggedTemplate { .. } | ExprKind::Function(_) | ExprKind::Class(_)
+        ) {
+            return false;
+        }
+        let mut ok = true;
+        crate::emit::capture::walk_expr(expr, &mut |child| match child {
+            crate::emit::capture::Child::Expr(inner) => ok &= free(inner),
+            _ => ok = false,
+        });
+        ok
+    }
+    let mut exprs = Vec::new();
+    candidate.statements.iter().for_each(|held| exprs_in_statement(held, &mut exprs));
+    exprs.into_iter().all(free) && free(&candidate.body) && candidate.defaults.iter().flatten().all(free)
 }
 
 /// Every `o.m(...)` in an expression, nested functions aside.
