@@ -156,6 +156,9 @@ fn inspect(value: u64, depth: u32, ancestors: &mut Vec<u32>) -> Result<String, P
     if is_array(value) {
         return array(value, depth, ancestors, slot);
     }
+    if let Some(name) = typed_array_name(value)? {
+        return typed_array(value, &name, depth, ancestors, slot);
+    }
     object(value, depth, ancestors, slot)
 }
 
@@ -261,6 +264,54 @@ fn array(value: u64, depth: u32, ancestors: &mut Vec<u32>, slot: u32) -> Result<
     }
     ancestors.pop();
     Ok(format!("[ {} ]", items.join(", ")))
+}
+
+/// The constructor name when `value` is a typed array (by its constructor, the
+/// same read `label_of` makes), so the inspector can print `Uint8Array(2) [ 7, 8 ]`.
+fn typed_array_name(value: u64) -> Result<Option<String>, Poisoned> {
+    const NAMES: [&str; 11] = [
+        "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array",
+        "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array",
+    ];
+    let label = label_of(value)?;
+    let name = label.trim_end();
+    Ok(NAMES.contains(&name).then(|| name.to_owned()))
+}
+
+/// `Name(length) [ a, b ]`, past 100 elements `... N more items` as Node does.
+/// Elements are read through the indexed path, so a BigInt element prints with
+/// its `n` suffix via [`inspect`].
+fn typed_array(
+    value: u64,
+    name: &str,
+    depth: u32,
+    ancestors: &mut Vec<u32>,
+    slot: u32,
+) -> Result<String, Poisoned> {
+    if depth > MAX_DEPTH {
+        return Ok(format!("[{name}]"));
+    }
+    let length = length_of(value)?;
+    if length == 0 {
+        return Ok(format!("{name}(0) []"));
+    }
+    ancestors.push(slot);
+    let shown = length.min(100);
+    let mut items = Vec::with_capacity(shown + 1);
+    for index in 0..shown {
+        let element = get_indexed(value, make_number(index as f64));
+        if poisoned() {
+            ancestors.pop();
+            return Err(Poisoned);
+        }
+        items.push(inspect(element, depth + 1, ancestors)?);
+    }
+    ancestors.pop();
+    if length > shown {
+        let more = length - shown;
+        items.push(format!("... {more} more item{}", if more == 1 { "" } else { "s" }));
+    }
+    Ok(format!("{name}({length}) [ {} ]", items.join(", ")))
 }
 
 fn object(value: u64, depth: u32, ancestors: &mut Vec<u32>, slot: u32) -> Result<String, Poisoned> {

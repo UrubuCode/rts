@@ -1024,12 +1024,28 @@ pub(in crate::entry) fn access_refusal(
 ) -> Option<String> {
     let word = nullish(context, object)?;
     let verb = if reading { "reading" } else { "setting" };
+    // A symbol key is stored as reserved text (`@@iterator`, `@@sym:17`); Node
+    // names it by its description, `Symbol(Symbol.iterator)` / `Symbol(zz)`.
+    let key_text = match key {
+        Some(Key::Name(key)) => context.interner.text(key).and_then(crate::text::Str::to_rust),
+        _ => None,
+    };
+    let symbol_text = key_text
+        .as_deref()
+        .filter(|text| text.starts_with("@@"))
+        .and_then(|text| super::symbol::value_of_key_text(context, text))
+        .and_then(|symbol| super::symbol::described(context, symbol));
+    if let (Some(symbol), true, "@@iterator") = (&symbol_text, reading, key_text.as_deref().unwrap_or("")) {
+        // V8 words an iterator read on null/undefined as "not iterable".
+        let subject = if word == "null" { "object null" } else { word };
+        return Some(format!("{subject} is not iterable (cannot read property {symbol})"));
+    }
     let named = match key {
-        Some(Key::Name(key)) => context
-            .interner
-            .text(key)
-            .and_then(crate::text::Str::to_rust)
-            .map(|text| format!(" ({verb} '{text}')")),
+        Some(Key::Name(_)) => match (&symbol_text, &key_text) {
+            (Some(symbol), _) => Some(format!(" ({verb} '{symbol}')")),
+            (None, Some(text)) => Some(format!(" ({verb} '{text}')")),
+            _ => None,
+        },
         Some(Key::Index(at)) => Some(format!(" ({verb} '{at}')")),
         None => None,
     };
