@@ -57,6 +57,16 @@ macro_rules! tables {
         pub(in crate::entry) fn release_tables(context: &mut Context, cell: u32) {
             $( bury(context, cell, SideTable::$table); )*
         }
+
+        /// A reference below which [`release_tables`] MIGHT find something, and
+        /// at or above which it provably finds nothing in any table.
+        ///
+        /// The sweep asks this once and skips `release_tables` for every dead
+        /// cell past it. The same list as `release_tables`, so it is total for
+        /// the same reason: a table cannot be added without being counted here.
+        pub(in crate::entry) fn table_bound(context: &Context) -> u64 {
+            0 $( .max(bound_of(context, SideTable::$table)) )*
+        }
     };
 }
 
@@ -65,6 +75,37 @@ tables!(
     Helpers, Prototypes, Accessors, Boxed, ProtoTypes, PendingStacks, BufferOf, Detached, Regexes,
     Integrity, Attributes, Derived, ChainLinks, Foreign,
 );
+
+/// The reference past which `table` cannot hold an entry. Exhaustive, like
+/// [`bury`], so a new table is counted or the crate does not compile.
+#[inline(always)]
+fn bound_of(context: &Context, table: SideTable) -> u64 {
+    match table {
+        SideTable::SpillOf => context.spill_of.bound(),
+        SideTable::ArrayElements => context.array_elements.bound(),
+        SideTable::BufferOf => context.buffer_of.bound(),
+        SideTable::Detached => context.detached.bound(),
+        SideTable::Prototypes => context.prototypes.bound(),
+        SideTable::ProtoTypes => context.proto_types.bound(),
+        SideTable::Callables => context.callables.bound(),
+        SideTable::Proxies => context.proxies.bound(),
+        SideTable::Cursors => context.cursors.bound(),
+        SideTable::Bound => context.bound.bound(),
+        SideTable::Views => context.views.bound(),
+        SideTable::Collections => context.collections.bound(),
+        SideTable::Generators => context.generators.bound(),
+        SideTable::Helpers => context.helpers.bound(),
+        SideTable::Regexes => context.regexes.bound(),
+        SideTable::Accessors => context.accessors.bound(),
+        SideTable::Integrity => context.integrity.bound(),
+        SideTable::Attributes => context.attributes.bound(),
+        SideTable::Derived => context.derived.bound(),
+        SideTable::ChainLinks => context.chain_links.bound(),
+        SideTable::Boxed => context.boxed.bound(),
+        SideTable::PendingStacks => context.pending_stacks.bound(),
+        SideTable::Foreign => context.foreign.bound(),
+    }
+}
 
 /// What one table gives up when a cell dies. Inlined with a constant `table`,
 /// so only the named arm survives.

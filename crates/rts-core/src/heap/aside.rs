@@ -124,6 +124,20 @@ impl<T> Aside<T> {
         (reference >> self.selector_bits) as usize
     }
 
+    /// A reference at or past which [`Self::remove`] is certain to answer `None`.
+    ///
+    /// `0` for a table holding nothing. Otherwise the first reference whose cell
+    /// is past the end of `entries`, which `remove` already treats as empty. Used
+    /// by the sweep to ask once, for all the tables, what it would otherwise ask
+    /// of each table for every dead cell.
+    #[inline]
+    pub fn bound(&self) -> u64 {
+        if self.held == 0 {
+            return 0;
+        }
+        (self.entries.len() as u64).saturating_mul(1u64 << self.selector_bits.min(32))
+    }
+
     /// How many entries the table has grown to.
     ///
     /// Not a count of what is attached — the gaps below the highest cell are
