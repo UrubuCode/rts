@@ -35,6 +35,78 @@ pub(in crate::layout) fn span_size(sizes: &[f32], start: usize, end: usize, gap:
     sizes[start..end].iter().sum::<f32>() + (n.saturating_sub(1)) as f32 * gap
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_cell_rect(
+    cell: &super::lines::GridCell,
+    _is_ortho: bool,
+    is_rtl: bool,
+    col_sub: Option<&super::subgrid::SubgriddedAxis>,
+    row_sub: Option<&super::subgrid::SubgriddedAxis>,
+    col_x: &[f32],
+    row_y: &[f32],
+    col_sizes: &[f32],
+    row_sizes: &[f32],
+    col_gap: f32,
+    row_gap: f32,
+    content_x: f32,
+    content_y: f32,
+    nrows: usize,
+) -> (f32, f32, f32, f32) {
+    let (cx, cw) = if let Some(cs) = col_sub {
+        let (rel_x, w) = cs.cell_pos_and_span(cell.c0, cell.c1);
+        (content_x + rel_x, w)
+    } else {
+        let c0 = if is_rtl {
+            cell.c1.saturating_sub(1).min(col_x.len().saturating_sub(1))
+        } else {
+            cell.c0.min(col_x.len().saturating_sub(1))
+        };
+        (col_x[c0], span_size(col_sizes, cell.c0, cell.c1, col_gap))
+    };
+
+    let (cy, ch) = if let Some(rs) = row_sub {
+        let (rel_y, h) = rs.cell_pos_and_span(cell.r0, cell.r1.min(nrows));
+        (content_y + rel_y, h)
+    } else {
+        let r0 = cell.r0.min(row_y.len().saturating_sub(1));
+        (row_y[r0], span_size(row_sizes, cell.r0, cell.r1.min(nrows), row_gap))
+    };
+
+    (cx, cw, cy, ch)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn subgrid_total_dims(
+    _is_ortho: bool,
+    col_sub: Option<&super::subgrid::SubgriddedAxis>,
+    row_sub: Option<&super::subgrid::SubgriddedAxis>,
+    col_sizes: &[f32],
+    row_sizes: &[f32],
+    ncols: usize,
+    nrows: usize,
+    col_collapsed: &[bool],
+    row_collapsed: &[bool],
+    col_gap: f32,
+    row_gap: f32,
+) -> (f32, f32) {
+    let tw = col_sub
+        .map(|cs| cs.content_span())
+        .unwrap_or_else(|| {
+            col_sizes.iter().sum::<f32>() + super::collapse::gutters(ncols, col_collapsed, col_gap)
+        })
+        .max(0.0);
+
+    let th = row_sub
+        .map(|rs| rs.content_span())
+        .unwrap_or_else(|| {
+            row_sizes.iter().sum::<f32>() + super::collapse::gutters(nrows, row_collapsed, row_gap)
+        })
+        .max(0.0);
+
+    (tw, th)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::cell_align_offset;

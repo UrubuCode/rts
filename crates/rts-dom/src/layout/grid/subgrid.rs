@@ -51,7 +51,9 @@ impl SubgriddedAxis {
 pub(in crate::layout) struct SubgridContext {
     pub cols: Option<SubgriddedAxis>,
     pub rows: Option<SubgriddedAxis>,
+    pub is_orthogonal: bool,
 }
+
 
 thread_local! {
     static ACTIVE_SUBGRIDS: std::cell::RefCell<crate::fasthash::FastMap<BoxId, SubgridContext>> =
@@ -307,15 +309,14 @@ pub(in crate::layout) fn check_and_build(
 
     let parent_node = dom.node(child).parent;
     let parent_css = parent_node.and_then(|p| dom.computed_style_idx(p));
-    let parent_wm = parent_css
-        .as_ref()
-        .and_then(|c| c.writing_mode)
+    let parent_wm = crate::layout::block::rotated::rotated_frame_mode()
+        .or_else(|| parent_css.as_ref().and_then(|c| c.writing_mode))
         .unwrap_or_default();
     let parent_dir = parent_css
         .as_ref()
         .and_then(|c| c.direction)
         .unwrap_or_default();
-    let child_wm = child_css.writing_mode.unwrap_or_default();
+    let child_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
     let child_dir = child_css.direction.unwrap_or_default();
     let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
 
@@ -378,31 +379,38 @@ pub(in crate::layout) fn check_and_build(
         false,
     );
 
-    Some(SubgridContext { cols, rows })
+    Some(SubgridContext {
+        cols,
+        rows,
+        is_orthogonal,
+    })
+}
+
+
+pub(in crate::layout) fn is_subgrid_node(
+    dom: &Dom,
+    child: NodeIdx,
+    parent_wm: crate::style::WritingMode,
+) -> (bool, bool) {
+    let Some(css) = dom.computed_style_idx(child) else { return (false, false); };
+    if css.disables_subgrid == Some(true) { return (false, false); }
+    let child_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
+    let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
+    let col = matches!(css.grid_template_columns.as_deref(), Some(GridTemplate::Subgrid(_)));
+    let row = matches!(css.grid_template_rows.as_deref(), Some(GridTemplate::Subgrid(_)));
+    if is_orthogonal { (row, col) } else { (col, row) }
 }
 
 pub(in crate::layout) fn is_subgrid_item(
     css: &ComputedStyle,
     parent_wm: crate::style::WritingMode,
 ) -> (bool, bool) {
-    if css.disables_subgrid == Some(true) {
-        return (false, false);
-    }
+    if css.disables_subgrid == Some(true) { return (false, false); }
     let child_wm = css.writing_mode.unwrap_or_default();
     let is_orthogonal = child_wm.is_horizontal() != parent_wm.is_horizontal();
-    let col = matches!(
-        css.grid_template_columns.as_deref(),
-        Some(GridTemplate::Subgrid(_))
-    );
-    let row = matches!(
-        css.grid_template_rows.as_deref(),
-        Some(GridTemplate::Subgrid(_))
-    );
-    if is_orthogonal {
-        (row, col)
-    } else {
-        (col, row)
-    }
+    let col = matches!(css.grid_template_columns.as_deref(), Some(GridTemplate::Subgrid(_)));
+    let row = matches!(css.grid_template_rows.as_deref(), Some(GridTemplate::Subgrid(_)));
+    if is_orthogonal { (row, col) } else { (col, row) }
 }
 
 pub(in crate::layout) use super::init_tracks::{init_col_tracks, init_row_tracks};

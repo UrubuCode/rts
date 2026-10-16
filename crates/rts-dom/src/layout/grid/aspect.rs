@@ -104,9 +104,11 @@ pub(in crate::layout) fn is_item_orthogonal(
     grid_css: &ComputedStyle,
 ) -> bool {
     let Some(child_css) = dom.computed_style_idx(child) else { return false };
-    let g_wm = grid_css.writing_mode.unwrap_or_default();
+    let g_wm = crate::layout::block::rotated::rotated_frame_mode()
+        .unwrap_or_else(|| grid_css.writing_mode.unwrap_or_default());
     let c_wm = child_css.writing_mode.unwrap_or_default();
     g_wm.is_horizontal() != c_wm.is_horizontal()
+        || crate::layout::block::rotated::is_ortho_in_frame(child)
 }
 
 pub(in crate::layout) fn grid_item_outer_width(
@@ -119,6 +121,11 @@ pub(in crate::layout) fn grid_item_outer_width(
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
+    let container_wm = crate::layout::block::rotated::rotated_frame_mode()
+        .unwrap_or_else(|| grid_css.writing_mode.unwrap_or_default());
+    if !container_wm.is_horizontal() {
+        return crate::layout::measure_block(dom, child, box_id, f32::INFINITY, area_h, None, None, true, ctx).0;
+    }
     if let Some(w) = ratio_outer_width(dom, child, area_h, cb_w, parent_font, ctx) {
         return w;
     }

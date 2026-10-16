@@ -282,9 +282,7 @@ pub(in crate::layout) fn measure_content_rows(
     let mut min_row_h = vec![0.0f32; nrows];
     let mut multi_row_items = Vec::new();
     for cell in cells {
-        let is_row_sub = dom
-            .computed_style_idx(cell.child)
-            .is_some_and(|c| super::subgrid::is_subgrid_item(&c, wm).1);
+        let is_row_sub = super::subgrid::is_subgrid_node(dom, cell.child, wm).1;
         if is_row_sub {
             continue;
         }
@@ -292,7 +290,8 @@ pub(in crate::layout) fn measure_content_rows(
             .map(|s| s.cell_span(cell.c0, cell.c1))
             .unwrap_or_else(|| super::grid::span_size(col_sizes, cell.c0, cell.c1, col_gap));
         let is_rep = matches!(&dom.node(cell.child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
-        let stretch_x = dom.computed_style_idx(cell.child).is_some_and(|c| {
+        let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(cell.child);
+        let stretch_x = !is_ortho_frame && dom.computed_style_idx(cell.child).is_some_and(|c| {
             let j = c.justify_self.unwrap_or(crate::style::AlignItems::Normal);
             let s = match j {
                 crate::style::AlignItems::Stretch => true,
@@ -302,10 +301,12 @@ pub(in crate::layout) fn measure_content_rows(
             s && c.width.is_none()
         });
         let forced_w = if stretch_x { Some(cw) } else { None };
-        let area_h = super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve);
-        let (_, h) = measure_block(
-            dom, cell.child, cell.box_id, cw, area_h, forced_w, None, !stretch_x, ctx,
-        );
+        let area_h = if is_ortho_frame { Some(cw) } else {
+            super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve)
+        };
+        let avail_w = if is_ortho_frame { f32::INFINITY } else { cw };
+        let (bw, bh) = measure_block(dom, cell.child, cell.box_id, avail_w, area_h, forced_w, None, !stretch_x, ctx);
+        let h = bh;
         if cell.rows() == 1 && cell.r0 < nrows {
             content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
             let mh = super::aspect::grid_item_min_content_height(dom, cell.child, h, cw, resolve.node_font_size, resolve, ctx);

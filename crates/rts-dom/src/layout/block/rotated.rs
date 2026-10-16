@@ -150,6 +150,7 @@ pub(crate) fn rotated_frame_mode() -> Option<WritingMode> {
     IN_FRAME.with(Cell::get)
 }
 
+
 fn is_vertical(wm: WritingMode) -> bool {
     !wm.is_horizontal()
 }
@@ -204,10 +205,7 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
     if is_out_of_flow(dom, id) {
         return Some(own);
     }
-    let parent = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-    if parent.is_some_and(|p| is_vertical(p.writing_mode.unwrap_or_default())) {
-        return None;
-    }
+    let _parent = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
     Some(own)
 }
 
@@ -249,6 +247,18 @@ fn install(
                     // Orthogonal descendant: do NOT rotate its style into the frame,
                     // and do NOT descend into its children (WM-2).
                     ortho_roots.push(n);
+                    let (sub_c, sub_r) = crate::layout::grid::subgrid::is_subgrid_node(dom, n, mode);
+                    if sub_c || sub_r {
+                        let mut sub_stack = dom.node(n).children.clone();
+                        while let Some(c) = sub_stack.pop() {
+                            if let Some(c_css) = dom.computed_style_idx(c) {
+                                if c_css.writing_mode.unwrap_or_default().is_horizontal() != mode.is_horizontal() {
+                                    ortho_roots.push(c);
+                                }
+                            }
+                            sub_stack.extend(dom.node(c).children.iter().copied());
+                        }
+                    }
                     continue;
                 }
             }

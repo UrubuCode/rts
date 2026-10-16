@@ -70,9 +70,22 @@ pub(super) fn layout_bare_text(
                 list,
             );
             let total_h = (end_y - y).max(lh);
-            return (tw.min(avail_w), total_h);
+            if parent_css.writing_mode.map_or(false, |wm| !wm.is_horizontal()) {
+                return (total_h, tw.min(avail_w));
+            } else {
+                return (tw.min(avail_w), total_h);
+            }
         }
     }
+    let orientation = match parent_css.writing_mode {
+        Some(crate::style::WritingMode::VerticalRl | crate::style::WritingMode::SidewaysRl) => {
+            crate::paint::item::Orientation::SidewaysRl
+        }
+        Some(crate::style::WritingMode::VerticalLr | crate::style::WritingMode::SidewaysLr) => {
+            crate::paint::item::Orientation::SidewaysLr
+        }
+        _ => crate::paint::item::Orientation::Horizontal,
+    };
     list.push_item(DisplayItem::Text {
         x,
         y,
@@ -86,7 +99,11 @@ pub(super) fn layout_bare_text(
         italic: false,
         letter_spacing: parent_css.letter_spacing.unwrap_or(0.0),
         decoration: 0,
-        orientation: crate::paint::item::Orientation::Horizontal,
+        orientation,
     });
-    (tw, lh)
+    if parent_css.writing_mode.map_or(false, |wm| !wm.is_horizontal()) {
+        (lh, tw)
+    } else {
+        (tw, lh)
+    }
 }

@@ -2,7 +2,7 @@
 //!
 //! Subgrid items contribute intrinsic sizes to the parent grid's tracks.
 
-use super::subgrid::{is_subgrid_item, subgrid_mbp};
+use super::subgrid::{is_subgrid_item, subgrid_mbp, PhysicalAxisDirection};
 use crate::Dom;
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
@@ -12,6 +12,7 @@ use crate::layout::{LayoutCtx, ResolveCtx, font_px};
 use crate::style::{DisplayKind, LineNames, WritingMode};
 use crate::table;
 
+#[derive(Debug)]
 pub(super) struct ContribItem {
     pub(super) child: Option<(NodeIdx, BoxId)>,
     pub(super) start: usize,
@@ -34,10 +35,10 @@ pub(super) fn collect_nested_items(
     row_lines: &[LineNames],
     target_axis_is_col: bool,
     parent_wm: WritingMode,
+    parent_axis_dir: PhysicalAxisDirection,
     base_offset: usize,
     parent_gap: f32,
     font_size: f32,
-    top_rtl: bool,
     inherited_rows: Option<&[f32]>,
     ctx: &LayoutCtx,
     out: &mut Vec<ContribItem>,
@@ -55,23 +56,14 @@ pub(super) fn collect_nested_items(
     let (smbp_x, embp_x, smbp_y, embp_y) = subgrid_mbp(&css, &resolve);
     let child_wm = css.writing_mode.unwrap_or_default();
     let is_ortho = child_wm.is_horizontal() != parent_wm.is_horizontal();
-    let p_css = dom
-        .node(node)
-        .parent
-        .and_then(|p| dom.computed_style_idx(p));
-    let p_rtl = p_css
-        .map(|c| c.direction == Some(crate::style::Direction::Rtl))
-        .unwrap_or(false);
-    let c_rtl = css.direction == Some(crate::style::Direction::Rtl);
-    let rev = !is_ortho && (top_rtl != c_rtl);
-    let (smbp, embp) = if target_axis_is_col == child_wm.is_horizontal() {
-        if top_rtl {
-            (embp_x, smbp_x)
-        } else {
-            (smbp_x, embp_x)
-        }
-    } else {
-        (smbp_y, embp_y)
+    let c_dir = css.direction.unwrap_or_default();
+    let current_axis_dir = super::subgrid::axis_direction(child_wm, c_dir, target_axis_is_col);
+    let rev = parent_axis_dir != current_axis_dir;
+    let (smbp, embp) = match parent_axis_dir {
+        PhysicalAxisDirection::TopToBottom => (smbp_y, embp_y),
+        PhysicalAxisDirection::BottomToTop => (embp_y, smbp_y),
+        PhysicalAxisDirection::LeftToRight => (smbp_x, embp_x),
+        PhysicalAxisDirection::RightToLeft => (embp_x, smbp_x),
     };
     let resolved_standalone = if target_axis_is_col {
         super::aspect::resolve_standalone_row_tracks(
@@ -169,7 +161,7 @@ pub(super) fn collect_nested_items(
         } else {
             (cell.r0, cell.r1.saturating_sub(cell.r0).max(1))
         };
-        let track_start = if target_axis_is_col && rev {
+        let track_start = if rev {
             target_span.saturating_sub(raw_start + track_span)
         } else {
             raw_start
@@ -179,8 +171,8 @@ pub(super) fn collect_nested_items(
             .effective_display()
             .is_some_and(DisplayKind::is_grid_container);
         let cell_wm = cell_css.writing_mode.unwrap_or_default();
-        let is_ortho_cell = cell_wm.is_horizontal() != parent_wm.is_horizontal();
-        let (sub_col, sub_row) = is_subgrid_item(&cell_css, parent_wm);
+        let is_ortho_cell = cell_wm.is_horizontal() != child_wm.is_horizontal();
+        let (sub_col, sub_row) = is_subgrid_item(&cell_css, child_wm);
         let nested_subgrid = is_grid && if target_axis_is_col { sub_col } else { sub_row };
         if nested_subgrid {
             let next_target_is_col = if is_ortho_cell {
@@ -227,11 +219,11 @@ pub(super) fn collect_nested_items(
                 &dummy_cols,
                 &dummy_rows,
                 next_target_is_col,
-                cell_wm,
+                child_wm,
+                parent_axis_dir,
                 base_offset + track_start,
                 sub_gap,
                 font_size,
-                top_rtl,
                 nested_rows,
                 ctx,
                 out,
@@ -329,12 +321,12 @@ pub(in crate::layout) fn collect_column_contributions(
         {
             continue;
         }
-        let (is_col_sub, is_row_sub) = is_subgrid_item(&css, parent_wm);
+        let (is_col_sub, is_row_sub) = super::subgrid::is_subgrid_node(dom, c.child, parent_wm);
         if !is_col_sub {
             continue;
         }
 
-        let child_wm = css.writing_mode.unwrap_or_default();
+        let child_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
         let is_ortho = child_wm.is_horizontal() != parent_wm.is_horizontal();
         let sub_span = c.c1.saturating_sub(c.c0).max(1);
         let sub_span_rows = c.r1.saturating_sub(c.r0).max(1);
@@ -357,12 +349,17 @@ pub(in crate::layout) fn collect_column_contributions(
             .node(c.child)
             .parent
             .and_then(|p| dom.computed_style_idx(p));
-        let p_rtl = p_css
-            .map(|c| c.direction == Some(crate::style::Direction::Rtl))
-            .unwrap_or(false);
-        let c_rtl = css.direction == Some(crate::style::Direction::Rtl);
-        let rev = !is_ortho && (p_rtl != c_rtl);
-        let mut sub_col_lines = match css.grid_template_columns.as_deref() {
+        let p_dir = p_css.and_then(|c| c.direction).unwrap_or_default();
+        let c_dir = css.direction.unwrap_or_default();
+        let parent_col_dir = super::subgrid::axis_direction(parent_wm, p_dir, true);
+        let child_axis_dir = super::subgrid::axis_direction(child_wm, c_dir, !is_ortho);
+        let rev = parent_col_dir != child_axis_dir;
+        let sub_template = if is_ortho {
+            css.grid_template_rows.as_deref()
+        } else {
+            css.grid_template_columns.as_deref()
+        };
+        let mut sub_col_lines = match sub_template {
             Some(crate::style::GridTemplate::Subgrid(l)) => {
                 super::subgrid::expand_subgrid_line_names(l, sub_span, p_slice, rev)
             }
@@ -391,25 +388,22 @@ pub(in crate::layout) fn collect_column_contributions(
             (&sub_col_lines, &sub_row_lines)
         };
         collect_nested_items(
-            dom, tree, c.child, c.box_id, span_cols, span_rows, col_l, row_l, !is_ortho, child_wm,
-            0, col_gap, font_size, p_rtl, None, ctx, &mut items,
+            dom, tree, c.child, c.box_id, span_cols, span_rows, col_l, row_l, !is_ortho, parent_wm,
+            parent_col_dir, 0, col_gap, font_size, None, ctx, &mut items,
         );
 
         let mut multi_span = Vec::new();
         for item in items {
             let span = item.span.max(1);
             let (w, min_w) = if let Some((child, box_id)) = item.child {
-                let (bw, _) =
-                    measure_block(dom, child, box_id, 0.0, item.avail_h, None, None, true, ctx);
-                let cell_css = dom.computed_style_idx(child).unwrap_or_default();
-                let is_ortho = cell_css.writing_mode.unwrap_or_default().is_horizontal()
-                    != parent_wm.is_horizontal();
-                let bmin = if is_ortho && item.avail_h.is_some() {
-                    bw
-                } else if needs_min {
+                let item_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
+                let (bw, _) = measure_block(
+                    dom, child, box_id, f32::INFINITY, item.avail_h, None, None, true, ctx,
+                );
+                let bmin = if parent_wm.is_horizontal() == item_wm.is_horizontal() && needs_min {
                     table::min_content_with_floor(dom, child, font_size, ctx)
                 } else {
-                    0.0
+                    bw
                 };
                 (bw, bmin)
             } else {

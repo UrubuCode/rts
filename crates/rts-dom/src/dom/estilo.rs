@@ -10,7 +10,7 @@ impl Dom {
     /// O `advance` consulta isto a cada frame; entre frames de animação (revisão
     /// estrutural estável) é um hit de cache — a cascade não re-roda. `None` p/
     /// não-elemento.
-    pub(in crate::dom) fn base_style_idx(
+    pub(crate) fn base_style_idx(
         &self,
         idx: NodeIdx,
     ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {

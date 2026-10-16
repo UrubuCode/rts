@@ -156,3 +156,67 @@ fn test_grid_gap_009() {
         assert_eq!(ra, rb, "span {i}");
     }
 }
+
+
+#[test]
+fn test_orthogonal_writing_mode_006() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-006.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-006-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (divs_t, divs_r) = (dom_t.query_all("div"), dom_r.query_all("div"));
+    for (i, (&a, &b)) in divs_t.iter().zip(&divs_r).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb, "div {i}");
+    }
+}
+
+#[test]
+fn test_orthogonal_writing_mode_005() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-005.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\orthogonal-writing-mode-005-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (divs_t, divs_r) = (dom_t.query_all("div"), dom_r.query_all("div"));
+    for (i, (&a, &b)) in divs_t.iter().zip(&divs_r).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb, "div {i}");
+    }
+}
+

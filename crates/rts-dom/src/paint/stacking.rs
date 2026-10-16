@@ -151,6 +151,7 @@ fn creates_context(dom: &Dom, node: NodeIdx) -> bool {
 pub(crate) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
     target.pieces.splice(0..0, antes.pieces);
     target.grid_column_tracks.extend(antes.grid_column_tracks);
+    target.grid_row_tracks.extend(antes.grid_row_tracks);
     target.scroll_regions.splice(0..0, antes.scroll_regions);
 }
 
@@ -166,6 +167,7 @@ pub(crate) fn merge_before(target: &mut DisplayList, antes: DisplayList) {
 pub(crate) fn merge_after(target: &mut DisplayList, mut depois: DisplayList) {
     target.pieces.append(&mut depois.pieces);
     target.grid_column_tracks.extend(depois.grid_column_tracks);
+    target.grid_row_tracks.extend(depois.grid_row_tracks);
     target.scroll_regions.append(&mut depois.scroll_regions);
 }
 

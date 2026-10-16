@@ -168,6 +168,7 @@ pub(super) fn rotate_out(
         own.static_anchors.extend(child.list.static_anchors);
         own.scroll_regions.extend(child.list.scroll_regions);
         own.grid_column_tracks.extend(child.list.grid_column_tracks);
+        own.grid_row_tracks.extend(child.list.grid_row_tracks);
         child.list.pieces
     };
     let orig_pieces = std::mem::take(&mut own.pieces);
@@ -190,5 +191,6 @@ pub(super) fn rotate_out(
     list.box_rects.extend(own.box_rects);
     list.static_anchors.extend(own.static_anchors);
     list.grid_column_tracks.extend(own.grid_column_tracks);
+    list.grid_row_tracks.extend(own.grid_row_tracks);
     list.scroll_regions.extend(own.scroll_regions);
 }

@@ -1,6 +1,6 @@
 //! Subgrid row sizing contributions (CSS Grid Level 2 §9).
 
-use super::subgrid::{is_subgrid_item, subgrid_mbp};
+use super::subgrid::subgrid_mbp;
 use super::subgrid_contrib::collect_nested_items;
 use crate::Dom;
 use crate::layout::grid::lines::GridCell;
@@ -38,7 +38,7 @@ pub(in crate::layout) fn collect_row_contributions(
         {
             continue;
         }
-        let (is_sub_col, is_row_sub) = is_subgrid_item(&css, parent_wm);
+        let (is_sub_col, is_row_sub) = super::subgrid::is_subgrid_node(dom, c.child, parent_wm);
         if !is_row_sub {
             continue;
         }
@@ -51,7 +51,7 @@ pub(in crate::layout) fn collect_row_contributions(
             viewport_h: ctx.viewport_h,
         };
         let (smbp_x, embp_x, _, _) = subgrid_mbp(&css, &resolve);
-        let child_wm = css.writing_mode.unwrap_or_default();
+        let child_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
         let is_ortho = child_wm.is_horizontal() != parent_wm.is_horizontal();
         let sub_inner_w =
             (super::grid::span_size(col_sizes, c.c0, c.c1, col_gap) - smbp_x - embp_x).max(0.0);
@@ -76,12 +76,17 @@ pub(in crate::layout) fn collect_row_contributions(
             .node(c.child)
             .parent
             .and_then(|p| dom.computed_style_idx(p));
-        let p_rtl = p_css
-            .map(|c| c.direction == Some(crate::style::Direction::Rtl))
-            .unwrap_or(false);
-        let c_rtl = css.direction == Some(crate::style::Direction::Rtl);
-        let rev = is_ortho && (p_rtl != c_rtl);
-        let mut sub_row_lines = match css.grid_template_rows.as_deref() {
+        let p_dir = p_css.and_then(|c| c.direction).unwrap_or_default();
+        let c_dir = css.direction.unwrap_or_default();
+        let parent_row_dir = super::subgrid::axis_direction(parent_wm, p_dir, false);
+        let child_axis_dir = super::subgrid::axis_direction(child_wm, c_dir, is_ortho);
+        let rev = parent_row_dir != child_axis_dir;
+        let sub_template = if is_ortho {
+            css.grid_template_columns.as_deref()
+        } else {
+            css.grid_template_rows.as_deref()
+        };
+        let mut sub_row_lines = match sub_template {
             Some(crate::style::GridTemplate::Subgrid(l)) => {
                 super::subgrid::expand_subgrid_line_names(l, sub_span_rows, p_slice, rev)
             }
@@ -119,11 +124,11 @@ pub(in crate::layout) fn collect_row_contributions(
             col_l,
             row_l,
             target_is_col,
-            child_wm,
+            parent_wm,
+            parent_row_dir,
             0,
             row_gap,
             font_size,
-            p_rtl,
             None,
             ctx,
             &mut items,
@@ -140,9 +145,10 @@ pub(in crate::layout) fn collect_row_contributions(
                     sub_inner_w / eff_cols as f32
                 };
                 let item_w = (base_w - item.extra_mbp_x).max(0.0);
-                let (_, bh) =
-                    measure_block(dom, child, box_id, item_w, None, None, None, true, ctx);
-                bh
+                let (_, h) = measure_block(
+                    dom, child, box_id, item_w, None, None, None, true, ctx,
+                );
+                h
             } else {
                 0.0
             };

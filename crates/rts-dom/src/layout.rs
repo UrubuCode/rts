@@ -379,11 +379,13 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
             pieces,
             box_rects,
             grid_column_tracks,
+            grid_row_tracks,
             scroll_regions,
             ..
         } = fragment;
         list.box_rects.extend(box_rects);
         list.grid_column_tracks.extend(grid_column_tracks);
+        list.grid_row_tracks.extend(grid_row_tracks);
         list.scroll_regions.extend(scroll_regions);
         let pieces = if stacking::z_index_of(dom, node) == 0 {
             match stacking::splice_layer8(dom, &arvore, &mut list.pieces, node, pieces, 0.0, 0.0) {

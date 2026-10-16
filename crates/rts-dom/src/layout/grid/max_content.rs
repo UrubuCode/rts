@@ -47,6 +47,8 @@ fn grid_content_width(
     let Some(concrete_box) = box_id.or_else(|| tree.boxes_of(id).first().copied()) else {
         return 0.0;
     };
+    let container_wm = crate::layout::block::rotated::rotated_frame_mode()
+        .unwrap_or_else(|| css.writing_mode.unwrap_or_default());
 
     let resolve = ResolveCtx {
         parent_content_w: 0.0,
@@ -150,7 +152,8 @@ fn grid_content_width(
         super::aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, 0.0, &css, font, ctx)
     };
     for c in &cells {
-        if c.c1 - c.c0 != 1 || c.c0 >= ncols {
+        let is_sub = super::subgrid::is_subgrid_node(dom, c.child, container_wm).0;
+        if is_sub || c.c1 - c.c0 != 1 || c.c0 >= ncols {
             continue;
         }
         let max = item_w(c);
@@ -180,7 +183,7 @@ fn grid_content_width(
         is_min,
         font,
         col_gap,
-        css.writing_mode.unwrap_or_default(),
+        container_wm,
         ctx,
         &col_lines,
         areas.as_deref(),
@@ -197,11 +200,7 @@ fn grid_content_width(
             ncols,
             col_gap,
             &resolve,
-            |c| {
-                dom.computed_style_idx(c.child).is_some_and(|css| {
-                    super::subgrid::is_subgrid_item(&css, css.writing_mode.unwrap_or_default()).0
-                })
-            },
+            |c| super::subgrid::is_subgrid_node(dom, c.child, container_wm).0,
             |c| {
                 if super::aspect::is_item_orthogonal(dom, c.child, &css) {
                     item_w(c)
@@ -218,11 +217,7 @@ fn grid_content_width(
             ncols,
             col_gap,
             &resolve,
-            |c| {
-                dom.computed_style_idx(c.child).is_some_and(|css| {
-                    super::subgrid::is_subgrid_item(&css, css.writing_mode.unwrap_or_default()).0
-                })
-            },
+            |c| super::subgrid::is_subgrid_node(dom, c.child, container_wm).0,
             |c| item_w(c),
             &mut wmax,
         );
