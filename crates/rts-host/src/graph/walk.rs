@@ -344,7 +344,13 @@ fn visit(
         });
         return Ok(());
     }
-    let source = std::fs::read_to_string(path)
+    // A module authored in TypeScript and embedded in `rts-node`: its "path" is
+    // the canonical specifier (`node:querystring`), not a file on disk.
+    let embedded = path.to_str().and_then(rts_node::embedded::source_of);
+    let source = match embedded {
+        Some(text) => Ok(text.to_owned()),
+        None => std::fs::read_to_string(path),
+    }
         .map_err(|error| HostError::Parse(match path.is_dir() {
             // A DIRECTORY reached as a module, which the OS reports as a
             // permission error on Windows ("Acesso negado. (os error 5)") and

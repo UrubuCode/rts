@@ -258,7 +258,18 @@ pub fn declare_module_entry(context: &mut Context, specifier: &str, entry: Modul
         // Never over a module already built or already registered by a host:
         // `node:fs` is not a file of this program, and a compiled module that
         // somehow shares a specifier with one must not displace it.
-        Some(held) if held.namespace.is_some() || held.provided => {}
+        Some(held) if held.namespace.is_some() => {}
+        // A LAZY host module nobody has built yet is a promise, not a module:
+        // a compiled body for the same specifier (a `node:` module authored in
+        // TypeScript and compiled with the program) replaces the promise, so the
+        // compiled one is what every name resolves to. An EAGER host module has
+        // a namespace and is caught by the arm above.
+        Some(held) if held.provided && held.build.is_some() => {
+            held.build = None;
+            held.provided = false;
+            held.entry = Some(entry);
+        }
+        Some(held) if held.provided => {}
         Some(held) => held.entry = Some(entry),
         None => context.modules.push(Registered {
             specifier: specifier.to_owned(),

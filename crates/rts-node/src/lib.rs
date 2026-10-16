@@ -31,6 +31,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod embedded;
 mod fetch;
 mod errors;
 pub(crate) mod host_exports;
