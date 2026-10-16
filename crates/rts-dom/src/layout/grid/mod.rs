@@ -6,6 +6,7 @@ pub(super) mod abspos;
 pub(super) mod align;
 pub(crate) mod aspect;
 pub(crate) mod baseline;
+pub(crate) mod clamp;
 pub(super) mod collapse;
 pub(crate) mod distribute;
 pub(super) mod grid;

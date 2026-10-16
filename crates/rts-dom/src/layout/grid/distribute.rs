@@ -352,6 +352,7 @@ pub(in crate::layout) fn re_resolve_columns_with_rows(
             let new_min = grid_item_min_content_width(
                 dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx,
             );
+            let new_min = super::clamp::clamp_item_min_w(new_min, dom, c.child, col_tracks, c.c0, c.c1, col_gap, Some(content_w), resolve);
             if new_min > wmin[c.c0] {
                 wmin[c.c0] = new_min;
                 changed = true;
@@ -375,7 +376,9 @@ pub(in crate::layout) fn re_resolve_columns_with_rows(
                 };
                 let max = aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx);
                 let min = grid_item_min_content_width(dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx);
+                let min = super::clamp::clamp_item_min_w(min, dom, c.child, col_tracks, c.c0, c.c1, col_gap, Some(content_w), resolve);
                 let min_sz = grid_item_min_size_width(dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx);
+                let min_sz = super::clamp::clamp_item_min_w(min_sz, dom, c.child, col_tracks, c.c0, c.c1, col_gap, Some(content_w), resolve);
                 ItemSizes { min_size: min_sz, min_content: min, max_content: max }
             },
             wmax,

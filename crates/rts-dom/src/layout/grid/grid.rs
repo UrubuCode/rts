@@ -120,6 +120,7 @@ pub(in crate::layout) fn layout_children_grid(
                 wmax[c.c0] = wmax[c.c0].max(aspect::grid_item_outer_width(dom, c.child, c.box_id, ah, content_w, css, font_size, ctx));
                 if needs_min {
                     let min = aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), ah, Some(css), font_size, &resolve, ctx);
+                    let min = clamp::clamp_item_min_w(min, dom, c.child, &col_tracks, c.c0, c.c1, col_gap, Some(content_w), &resolve);
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
             }
@@ -135,7 +136,9 @@ pub(in crate::layout) fn layout_children_grid(
                 let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (c.r0, c.r1), row_gap, container_content_h, &resolve);
                 let max = aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx);
                 let min = distribute::grid_item_min_content_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
+                let min = clamp::clamp_item_min_w(min, dom, c.child, &col_tracks, c.c0, c.c1, col_gap, Some(content_w), &resolve);
                 let min_sz = distribute::grid_item_min_size_width(dom, c.child, Some(c.box_id), None, Some(css), font_size, &resolve, ctx);
+                let min_sz = clamp::clamp_item_min_w(min_sz, dom, c.child, &col_tracks, c.c0, c.c1, col_gap, Some(content_w), &resolve);
                 distribute::ItemSizes { min_size: min_sz, min_content: min, max_content: max }
             },
             &mut wmax,
@@ -380,14 +383,10 @@ pub(in crate::layout) fn layout_children_grid(
         use crate::scrollbar::Overflow::{Clip, Visible};
         let axis_vis = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
         let overflow_visible = axis_vis(item_css.overflow_x) && axis_vis(item_css.overflow_y);
-        let def_px = |d| match d { Some(crate::style::Dimension::Px(p)) => Some(p), _ => None };
-        let clamp_auto = |mut base: f32, sz, mx| {
-            if let Some(p) = def_px(sz) { base = base.min(p); }
-            if let Some(m) = def_px(mx) { base = base.min(m); }
-            base
-        };
         let is_auto_x = (cell.c0..cell.c1).any(|c| col_tracks.get(c).map_or(true, |t| matches!(t, crate::style::GridTrack::Auto)));
         let is_auto_y = (cell.r0..cell.r1).any(|r| explicit_rows.get(r).map_or(true, |t| matches!(t, crate::style::GridTrack::Auto)));
+        let col_ceil = clamp::clamped_automatic_minimum_size(&col_tracks, cell.c0, cell.c1, col_gap, Some(content_w), &resolve);
+        let row_ceil = clamp::clamped_automatic_minimum_size(&explicit_rows, cell.r0, cell.r1, row_gap, container_content_h, &resolve);
         let iw = match ratio_w {
             Some(w) => w,
             None if stretch_x => cell_w,
@@ -398,7 +397,7 @@ pub(in crate::layout) fn layout_children_grid(
             None if inline_min.is_none() && overflow_visible => {
                 let cnt = if is_in_frame { nat_w } else { crate::table::min_content_with_floor(dom, child, font_size, ctx) };
                 let auto = aspect::resolve_specified_suggestion(inline_sz, cnt).unwrap_or(cnt);
-                nat_w.max(clamp_auto(auto, inline_sz, inline_max))
+                nat_w.max(clamp::clamp_auto_size(auto, inline_sz, inline_max, col_ceil))
             }
             None => nat_w,
         };
@@ -413,7 +412,7 @@ pub(in crate::layout) fn layout_children_grid(
                 measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1
             };
             let auto = aspect::resolve_specified_suggestion(block_sz, unc).unwrap_or(unc);
-            nat_h.max(clamp_auto(auto, block_sz, block_max))
+            nat_h.max(clamp::clamp_auto_size(auto, block_sz, block_max, row_ceil))
         } else {
             nat_h
         };

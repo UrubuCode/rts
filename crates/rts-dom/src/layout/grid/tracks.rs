@@ -300,6 +300,7 @@ pub(in crate::layout) fn measure_content_rows(
         if cell.rows() == 1 && cell.r0 < nrows {
             content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
             let mh = super::aspect::grid_item_min_content_height(dom, cell.child, h, cw, resolve.node_font_size, resolve, ctx);
+            let mh = super::clamp::clamp_item_min_h(mh, dom, cell.child, explicit_rows, cell.r0, cell.r1, row_gap, container_content_h, resolve);
             min_row_h[cell.r0] = min_row_h[cell.r0].max(mh);
         } else if cell.rows() > 1 {
             multi_row_items.push((cell, h));

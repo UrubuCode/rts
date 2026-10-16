@@ -392,12 +392,39 @@ fn test_grid_inline_items_002() {
     assert_eq!(g2.h, red.h);
 }
 
+#[test]
+fn test_grid_minimum_size_grid_items_017() {
+    let html = r#"<!DOCTYPE html>
+<style>
+#reference-overlapped-green {
+    position: absolute;
+    background-color: green;
+    width: 100px;
+    height: 100px;
+    z-index: -1;
+}
+#constrained-grid {
+    display: grid;
+    width: 10px;
+    height: 10px;
+    grid: minmax(auto, 0px) / minmax(auto, 0px);
+}
+#test-grid-item-overlapping-red {
+    background-color: red;
+}
+#content-100x100 {
+    width: 100px;
+    height: 100px;
+}
+</style>
+<div id="reference-overlapped-green"></div>
+<div id="constrained-grid">
+    <div id="test-grid-item-overlapping-red">
+        <div id="content-100x100"></div>
+    </div>
+</div>"#;
 
-
-
-
-
-
-
-
-
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let item = crate::table::tests::rect(&dom, &list, "#test-grid-item-overlapping-red", 0);
+    assert_eq!((item.w, item.h), (0.0, 0.0));
+}
