@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 614,
+    "passing": 616,
     "total": 870,
-    "pct": 70.6,
+    "pct": 70.8,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -59,7 +59,7 @@
         "total": 53
       },
       "gap": {
-        "passing": 39,
+        "passing": 40,
         "total": 46
       },
       "percentage": {
@@ -83,7 +83,7 @@
         "total": 32
       },
       "basis": {
-        "passing": 24,
+        "passing": 25,
         "total": 30
       },
       "table": {
