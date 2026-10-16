@@ -63,3 +63,36 @@ fn test_repeat_auto_fill_006() {
         }
     }
 }
+
+#[test]
+fn test_line_names_007() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-007.html",
+        )
+        .unwrap(),
+    );
+    let dom_r = crate::parse_html_to_dom(
+        &std::fs::read_to_string(
+            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-007-ref.html",
+        )
+        .unwrap(),
+    );
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (xt, xr) = (dom_t.query_all("x"), dom_r.query_all("x"));
+    for (i, (&a, &b)) in xt.iter().zip(&xr).enumerate() {
+        let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
+        let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
+        assert_eq!(ra, rb, "x {i}");
+    }
+}
+
+

@@ -109,7 +109,7 @@ pub(in crate::layout) fn effective_lines(
 
 /// The 1-based line a NAME denotes on one axis (CSS Grid 1 §8.3.1).
 /// Matches against implicit area -start/-end suffixes first (§8.3.1), then falls back to explicit line names.
-fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Option<i32> {
+pub(in crate::layout) fn named_line(name: &str, nth: i32, end_edge: bool, lines: &[LineNames]) -> Option<i32> {
     if nth == 0 {
         return None;
     }

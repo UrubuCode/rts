@@ -1,7 +1,7 @@
 //! Static position anchors and grid-area containing blocks for out-of-flow items inside a grid container.
 
 use super::lines::{
-    effective_lines, find_named_line_backward, find_named_line_forward, resolve_edge, Edge,
+    effective_lines, find_named_line_backward, find_named_line_forward, Edge,
 };
 use crate::boxes::BoxId;
 use crate::dom::Dom;
@@ -182,6 +182,37 @@ pub(in crate::layout) fn record_out_of_flow(
     let mut oof_boxes = Vec::new();
     collect_oof_descendants(dom, tree, container, true, &mut oof_boxes);
 
+fn resolve_abspos_edge(
+    l: &GridLine,
+    end_edge: bool,
+    explicit: usize,
+    lines: &[crate::style::LineNames],
+) -> Edge {
+    match l {
+        GridLine::Auto => Edge::Auto,
+        GridLine::Line(n) => {
+            if *n > 0 {
+                Edge::Abs(*n)
+            } else if *n < 0 {
+                let total_lines = explicit as i32 + 1;
+                Edge::Abs(total_lines + *n + 1)
+            } else {
+                Edge::Auto
+            }
+        }
+        GridLine::Span(n) => Edge::Span(*n),
+        GridLine::Named(id, nth) => {
+            let n = nth.unwrap_or(1);
+            if let Some(line) = super::lines::named_line(id, n, end_edge, lines) {
+                Edge::Abs(line)
+            } else {
+                Edge::Auto
+            }
+        }
+        GridLine::SpanNamed(id, n) => Edge::SpanNamed(id.clone(), *n),
+    }
+}
+
     for (child_box, child_node, _) in oof_boxes {
         let child_css = dom.computed_style_idx(child_node).unwrap_or_default();
         let cs = child_css.grid_column_start.as_ref().unwrap_or(&auto_line);
@@ -189,20 +220,18 @@ pub(in crate::layout) fn record_out_of_flow(
         let rs = child_css.grid_row_start.as_ref().unwrap_or(&auto_line);
         let re = child_css.grid_row_end.as_ref().unwrap_or(&auto_line);
 
-
-
         if establishes_cb {
-            let col_s_line = match resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+            let col_s_line = match resolve_abspos_edge(cs, false, explicit_cols, &eff_col_lines) {
                 Edge::Abs(n) => Some(n + col_shift),
                 Edge::Span(n) => {
-                    if let Edge::Abs(b) = resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                    if let Edge::Abs(b) = resolve_abspos_edge(ce, true, explicit_cols, &eff_col_lines) {
                         Some((b + col_shift) - n as i32)
                     } else {
                         None
                     }
                 }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(b) = resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                    if let Edge::Abs(b) = resolve_abspos_edge(ce, true, explicit_cols, &eff_col_lines) {
                         find_named_line_backward(&id, b, n, &eff_col_lines).map(|l| l + col_shift)
                     } else {
                         None
@@ -210,17 +239,17 @@ pub(in crate::layout) fn record_out_of_flow(
                 }
                 _ => None,
             };
-            let col_e_line = match resolve_edge(ce, true, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+            let col_e_line = match resolve_abspos_edge(ce, true, explicit_cols, &eff_col_lines) {
                 Edge::Abs(n) => Some(n + col_shift),
                 Edge::Span(n) => {
-                    if let Edge::Abs(a) = resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                    if let Edge::Abs(a) = resolve_abspos_edge(cs, false, explicit_cols, &eff_col_lines) {
                         Some((a + col_shift) + n as i32)
                     } else {
                         None
                     }
                 }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(a) = resolve_edge(cs, false, explicit_cols, &eff_col_lines, col_sub.is_some()) {
+                    if let Edge::Abs(a) = resolve_abspos_edge(cs, false, explicit_cols, &eff_col_lines) {
                         find_named_line_forward(&id, a, n, &eff_col_lines).map(|l| l + col_shift)
                     } else {
                         None
@@ -244,17 +273,17 @@ pub(in crate::layout) fn record_out_of_flow(
             let cb_x = edge_start_x.min(edge_end_x);
             let cb_w = (edge_start_x.max(edge_end_x) - cb_x).max(0.0);
 
-            let row_s_line = match resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+            let row_s_line = match resolve_abspos_edge(rs, false, explicit_rows, &eff_row_lines) {
                 Edge::Abs(n) => Some(n + row_shift),
                 Edge::Span(n) => {
-                    if let Edge::Abs(b) = resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                    if let Edge::Abs(b) = resolve_abspos_edge(re, true, explicit_rows, &eff_row_lines) {
                         Some((b + row_shift) - n as i32)
                     } else {
                         None
                     }
                 }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(b) = resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                    if let Edge::Abs(b) = resolve_abspos_edge(re, true, explicit_rows, &eff_row_lines) {
                         find_named_line_backward(&id, b, n, &eff_row_lines).map(|l| l + row_shift)
                     } else {
                         None
@@ -262,17 +291,17 @@ pub(in crate::layout) fn record_out_of_flow(
                 }
                 _ => None,
             };
-            let row_e_line = match resolve_edge(re, true, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+            let row_e_line = match resolve_abspos_edge(re, true, explicit_rows, &eff_row_lines) {
                 Edge::Abs(n) => Some(n + row_shift),
                 Edge::Span(n) => {
-                    if let Edge::Abs(a) = resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                    if let Edge::Abs(a) = resolve_abspos_edge(rs, false, explicit_rows, &eff_row_lines) {
                         Some((a + row_shift) + n as i32)
                     } else {
                         None
                     }
                 }
                 Edge::SpanNamed(id, n) => {
-                    if let Edge::Abs(a) = resolve_edge(rs, false, explicit_rows, &eff_row_lines, row_sub.is_some()) {
+                    if let Edge::Abs(a) = resolve_abspos_edge(rs, false, explicit_rows, &eff_row_lines) {
                         find_named_line_forward(&id, a, n, &eff_row_lines).map(|l| l + row_shift)
                     } else {
                         None
