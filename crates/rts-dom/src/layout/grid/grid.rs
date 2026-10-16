@@ -1,8 +1,8 @@
 //! GRID layout: track sizing, placement, alignment.
 use super::abspos;
-use super::align::cell_align_offset;
 pub(in crate::layout) use super::align::span_size;
 use super::aspect;
+use super::baseline;
 use super::collapse;
 use super::lines::{collect_items, place_grid_items, GridItem};
 use super::subgrid;
@@ -33,10 +33,13 @@ pub(in crate::layout) fn layout_children_grid(
     let container_wm = crate::layout::block::rotated::rotated_frame_mode()
         .unwrap_or_else(|| css.writing_mode.unwrap_or_default());
     let subgrid_ctx = subgrid::take_subgrid(container);
-    let is_ortho = subgrid_ctx.as_ref().map_or(false, |s| s.is_orthogonal);
+    let parent_node = dom.node(id).parent;
+    let parent_css = parent_node.and_then(|p| dom.computed_style_idx(p));
+    let parent_wm = parent_css.as_ref().and_then(|c| c.writing_mode).unwrap_or_default();
+    let is_ortho = subgrid_ctx.as_ref().map_or(false, |s| s.is_orthogonal)
+        || (container_wm.is_horizontal() != parent_wm.is_horizontal());
     let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
     let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
-
 
     let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
     let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
@@ -45,13 +48,13 @@ pub(in crate::layout) fn layout_children_grid(
     let container_content_h = css.height.is_some().then_some(container_content_h).flatten();
     let is_p_grid = subgrid::is_parent_grid(dom, id);
     let (col_tracks, col_collapsible, col_lines) =
-        subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid);
+        subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid, is_ortho);
     let explicit_cols_n = col_tracks.len();
 
     let tree = std::rc::Rc::clone(&list.tree);
     let children: Vec<GridItem> = collect_items(dom, &tree, container);
     let (explicit_rows, row_collapsible, row_lines) =
-        subgrid::init_row_tracks(row_sub, css, areas.as_deref(), container_content_h, row_gap, &resolve, is_p_grid);
+        subgrid::init_row_tracks(row_sub, css, areas.as_deref(), container_content_h, row_gap, &resolve, is_p_grid, is_ortho);
     let has_oof = tree
         .children_without_generated(container)
         .iter()
@@ -169,9 +172,21 @@ pub(in crate::layout) fn layout_children_grid(
     if css.grid_template_columns.is_some() {
         list.grid_column_tracks.insert(id, col_sizes.clone());
     }
-    let (row_sizes, nrows, row_collapsed) = if let Some(rs) = row_sub {
+    let inherited_baselines = baseline::take_subgrid_baselines(container);
+    let col_baselines = if is_ortho {
+        inherited_baselines.clone().unwrap_or_else(|| vec![None; ncols])
+    } else {
+        vec![None; ncols]
+    };
+    let align = css.align_items.unwrap_or(crate::style::AlignItems::Normal);
+    let (row_sizes, nrows, row_collapsed, row_baselines) = if let Some(rs) = row_sub {
         let nr = rs.track_sizes.len().max(1);
-        (rs.track_sizes.clone(), nr, vec![false; nr])
+        let baselines = if !is_ortho {
+            inherited_baselines.unwrap_or_else(|| vec![None; nr])
+        } else {
+            vec![None; nr]
+        };
+        (rs.track_sizes.clone(), nr, vec![false; nr], baselines)
     } else {
         let nrows = cells
             .iter()
@@ -231,6 +246,20 @@ pub(in crate::layout) fn layout_children_grid(
             container_content_h,
             &mut content_row_h,
         );
+        let row_baselines = baseline::compute_row_baselines(
+            dom,
+            &tree,
+            &cells,
+            container,
+            align,
+            nrows,
+            &col_sizes,
+            col_gap,
+            row_gap,
+            container_wm,
+            ctx,
+        );
+        baseline::apply_baseline_sizes(&mut content_row_h, &row_baselines);
         let row_sizes = tracks::resolve_row_tracks(
             nrows,
             &explicit_rows,
@@ -243,7 +272,7 @@ pub(in crate::layout) fn layout_children_grid(
             &row_collapsed,
             row_gap,
         );
-        (row_sizes, nrows, row_collapsed)
+        (row_sizes, nrows, row_collapsed, row_baselines)
     };
     if css.grid_template_rows.is_some() || row_sub.is_some() {
         list.grid_row_tracks.insert(id, row_sizes.clone());
@@ -260,7 +289,6 @@ pub(in crate::layout) fn layout_children_grid(
     let justify = css
         .grid_justify_items
         .unwrap_or(crate::style::AlignItems::Normal);
-    let align = css.align_items.unwrap_or(crate::style::AlignItems::Normal);
     // O início de cada coluna e de cada linha, com `justify-content` /
     // `align-content` já embutidos — o mesmo `justify_offsets` do flex (a spec
     // §8.4 partilha o vocabulário). `justify-content` ausente é `start`.
@@ -373,27 +401,10 @@ pub(in crate::layout) fn layout_children_grid(
         } else {
             nat_h
         };
-        let x = match justify {
-            crate::style::AlignItems::Left => cell_x,
-            crate::style::AlignItems::Right => cell_x + cell_w - iw,
-            crate::style::AlignItems::SelfStart => {
-                if item_css.direction == Some(crate::style::Direction::Rtl) {
-                    cell_x + cell_w - iw
-                } else {
-                    cell_x
-                }
-            }
-            crate::style::AlignItems::SelfEnd => {
-                if item_css.direction == Some(crate::style::Direction::Rtl) {
-                    cell_x
-                } else {
-                    cell_x + cell_w - iw
-                }
-            }
-            _ if is_rtl => cell_x + cell_w - iw - cell_align_offset(justify, cell_w, iw),
-            _ => cell_x + cell_align_offset(justify, cell_w, iw),
-        };
-        let y = cell_y + cell_align_offset(align, cell_h, ih);
+        let (x, y) = align::resolve_item_offsets(
+            cell, child, dom, &item_css, is_rtl, cell_x, cell_w, cell_y, cell_h,
+            justify, align, iw, ih, &row_baselines, &col_baselines, ctx,
+        );
         let forced_w = if is_col_sub {
             Some(cell_w)
         } else if stretch_x {
@@ -425,6 +436,11 @@ pub(in crate::layout) fn layout_children_grid(
                 col_sub.is_some(),
                 row_sub.is_some(),
             );
+            if is_row_sub && cell.r0 < row_baselines.len() {
+                let end = cell.r1.min(row_baselines.len());
+                let (_, _, smbp_y, embp_y) = subgrid::subgrid_mbp(&item_css, &resolve);
+                baseline::register_subgrid_baselines(cell.box_id, &row_baselines[cell.r0..end], smbp_y, embp_y);
+            }
         }
         layout_block_reusing(
             dom,
@@ -445,6 +461,7 @@ pub(in crate::layout) fn layout_children_grid(
         );
     }
     subgrid::cleanup_subgrids(&cells);
+    baseline::cleanup_baselines(&cells);
     let (total_w, total_h) = align::subgrid_total_dims(
         is_ortho, col_sub, row_sub, &col_sizes, &row_sizes, ncols, nrows,
         &col_collapsed, &row_collapsed, col_gap, row_gap,

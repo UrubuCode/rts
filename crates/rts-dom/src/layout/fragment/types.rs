@@ -78,6 +78,7 @@ pub struct Fragment {
     pub rects: std::rc::Rc<Vec<(crate::boxes::BoxId, Rect)>>,
     /// Tracks de coluna resolvidas desta subárvore, para `computedProperty`.
     pub grid_column_tracks: std::rc::Rc<Vec<(NodeIdx, Vec<f32>)>>,
+    pub grid_row_tracks: std::rc::Rc<Vec<(NodeIdx, Vec<f32>)>>,
     /// Regiões roláveis internas descobertas dentro da subárvore.
     pub scroll_regions: Vec<ScrollRegion>,
     /// The baseline of this subtree's lowest OWN line box, in the coordinates
@@ -162,6 +163,7 @@ impl Fragment {
             pieces: std::rc::Rc::new(pieces),
             rects: std::rc::Rc::new(rects),
             grid_column_tracks: std::rc::Rc::clone(&self.grid_column_tracks),
+            grid_row_tracks: std::rc::Rc::clone(&self.grid_row_tracks),
             scroll_regions: self.scroll_regions.clone(),
             direct_line: self.direct_line,
             last_line: self.last_line,
@@ -201,6 +203,9 @@ impl Fragment {
         // os 48 de um item, numa quantidade menor.
         for (node, tracks) in self.grid_column_tracks.iter() {
             list.grid_column_tracks.insert(*node, tracks.clone());
+        }
+        for (node, tracks) in self.grid_row_tracks.iter() {
+            list.grid_row_tracks.insert(*node, tracks.clone());
         }
         list.pieces.push(super::Piece::Child(ChildRef {
             box_id: self.box_id,

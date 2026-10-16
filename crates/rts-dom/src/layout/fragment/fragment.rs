@@ -103,6 +103,7 @@ fn stitch(
     // it moves and there is no index to correct.
     let mut pieces = (*previous.pieces).clone();
     let mut grid_column_tracks = (*previous.grid_column_tracks).clone();
+    let mut grid_row_tracks = (*previous.grid_row_tracks).clone();
     let mut replaced = false;
     for piece in &mut pieces {
         let super::Piece::Child(child) = piece else {
@@ -182,6 +183,8 @@ fn stitch(
         let stitched_ref = crate::paint::pieces::children(&own.pieces).next()?;
         grid_column_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
         grid_column_tracks.extend(stitched_ref.fragment.grid_column_tracks.iter().cloned());
+        grid_row_tracks.retain(|(node, _)| !previous_grid_nodes.contains(node));
+        grid_row_tracks.extend(stitched_ref.fragment.grid_row_tracks.iter().cloned());
         (child.dx, child.dy) = (stitched_ref.dx, stitched_ref.dy);
         child.fragment = stitched_ref.fragment.clone();
         replaced = true;
@@ -202,6 +205,7 @@ fn stitch(
         pieces: std::rc::Rc::new(pieces),
         rects: std::rc::Rc::clone(&previous.rects),
         grid_column_tracks: std::rc::Rc::new(grid_column_tracks),
+        grid_row_tracks: std::rc::Rc::new(grid_row_tracks),
         scroll_regions: previous.scroll_regions.clone(),
         direct_line: previous.direct_line,
         last_line: last_line,
@@ -409,6 +413,11 @@ pub(in crate::layout) fn layout_block_reusing(
         rects: std::rc::Rc::new(std::mem::take(&mut own.box_rects).into_pairs()),
         grid_column_tracks: std::rc::Rc::new(
             std::mem::take(&mut own.grid_column_tracks)
+                .into_iter()
+                .collect(),
+        ),
+        grid_row_tracks: std::rc::Rc::new(
+            std::mem::take(&mut own.grid_row_tracks)
                 .into_iter()
                 .collect(),
         ),

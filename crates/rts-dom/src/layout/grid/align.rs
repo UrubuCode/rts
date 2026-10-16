@@ -106,6 +106,59 @@ pub(super) fn subgrid_total_dims(
     (tw, th)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_item_offsets(
+    cell: &super::lines::GridCell,
+    child: crate::dom::NodeIdx,
+    dom: &crate::Dom,
+    item_css: &crate::style::ComputedStyle,
+    is_rtl: bool,
+    cell_x: f32,
+    cell_w: f32,
+    cell_y: f32,
+    cell_h: f32,
+    justify: crate::style::AlignItems,
+    align: crate::style::AlignItems,
+    iw: f32,
+    ih: f32,
+    row_baselines: &[Option<super::baseline::TrackBaseline>],
+    col_baselines: &[Option<super::baseline::TrackBaseline>],
+    ctx: &crate::layout::LayoutCtx,
+) -> (f32, f32) {
+    let x = if matches!(justify, crate::style::AlignItems::Baseline | crate::style::AlignItems::LastBaseline) {
+        if let Some(tb) = col_baselines.get(cell.c0).and_then(|t| t.as_ref()) {
+            let first = justify == crate::style::AlignItems::Baseline;
+            let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
+            tb.align_offset(justify, ascent, cell_w)
+                .map_or_else(|| cell_x + cell_align_offset(justify, cell_w, iw), |o| cell_x + o)
+        } else {
+            cell_x + cell_align_offset(justify, cell_w, iw)
+        }
+    } else {
+        match justify {
+            crate::style::AlignItems::Left => cell_x,
+            crate::style::AlignItems::Right => cell_x + cell_w - iw,
+            crate::style::AlignItems::SelfStart => if item_css.direction == Some(crate::style::Direction::Rtl) { cell_x + cell_w - iw } else { cell_x },
+            crate::style::AlignItems::SelfEnd => if item_css.direction == Some(crate::style::Direction::Rtl) { cell_x } else { cell_x + cell_w - iw },
+            _ if is_rtl => cell_x + cell_w - iw - cell_align_offset(justify, cell_w, iw),
+            _ => cell_x + cell_align_offset(justify, cell_w, iw),
+        }
+    };
+    let y = if matches!(align, crate::style::AlignItems::Stretch) {
+        cell_y
+    } else if let Some(tb) = row_baselines
+        .get(if align == crate::style::AlignItems::Baseline { cell.r0 } else { cell.r1.saturating_sub(1) })
+        .and_then(|t| t.as_ref())
+    {
+        let first = align == crate::style::AlignItems::Baseline;
+        let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
+        tb.align_offset(align, ascent, cell_h)
+            .map_or_else(|| cell_y + cell_align_offset(align, cell_h, ih), |o| cell_y + o)
+    } else {
+        cell_y + cell_align_offset(align, cell_h, ih)
+    };
+    (x, y)
+}
 
 #[cfg(test)]
 mod tests {

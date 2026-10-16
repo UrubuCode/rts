@@ -14,6 +14,7 @@ pub(in crate::layout) fn init_col_tracks(
     container_content_h: Option<f32>,
     resolve: &ResolveCtx,
     is_p_grid: bool,
+    is_ortho: bool,
 ) -> (Vec<GridTrack>, Vec<bool>, Vec<LineNames>) {
     if let Some(cs) = col_sub {
         (
@@ -36,7 +37,11 @@ pub(in crate::layout) fn init_col_tracks(
         };
         let (mut tracks, mut collapsible, mut line_names) = match css.grid_template_columns.as_deref() {
             Some(GridTemplate::Subgrid(_)) if is_p_grid => {
-                let s = subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref());
+                let s = if is_ortho {
+                    subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref())
+                } else {
+                    subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref())
+                };
                 (vec![GridTrack::Auto; s], vec![false; s], vec![Vec::new(); s + 1])
             }
             Some(GridTemplate::Tracks(t)) => super::tracks::expand_auto_repeats(t, c_w, col_gap, min_s),
@@ -75,6 +80,7 @@ pub(in crate::layout) fn init_row_tracks(
     row_gap: f32,
     resolve: &ResolveCtx,
     is_p_grid: bool,
+    is_ortho: bool,
 ) -> (Vec<GridTrack>, Vec<bool>, Vec<LineNames>) {
     if let Some(rs) = row_sub {
         (
@@ -86,7 +92,11 @@ pub(in crate::layout) fn init_row_tracks(
         let min_s = super::aspect::container_min_size_for_auto_repeat(css, false, container_content_h, resolve);
         let (mut tracks, mut collapsible, mut line_names) = match css.grid_template_rows.as_deref() {
             Some(GridTemplate::Subgrid(_)) if is_p_grid => {
-                let s = subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref());
+                let s = if is_ortho {
+                    subgrid_span(css.grid_column_start.as_ref(), css.grid_column_end.as_ref())
+                } else {
+                    subgrid_span(css.grid_row_start.as_ref(), css.grid_row_end.as_ref())
+                };
                 (vec![GridTrack::Auto; s], vec![false; s], vec![Vec::new(); s + 1])
             }
             Some(GridTemplate::Tracks(t)) => {
