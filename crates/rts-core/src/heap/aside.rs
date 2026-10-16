@@ -153,6 +153,18 @@ impl<T> Aside<T> {
         self.entries.get(self.cell_of(reference))?.as_ref()
     }
 
+    /// References of every cell whose attachment satisfies `wanted`, in the
+    /// region of `like` (a context holds one region, so its bits are shared).
+    pub fn references_where(&self, like: u32, mut wanted: impl FnMut(&T) -> bool) -> Vec<u32> {
+        let region = like & ((1u32 << self.selector_bits.min(31)) - 1);
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.as_ref().is_some_and(&mut wanted))
+            .map(|(cell, _)| ((cell as u32) << self.selector_bits) | region)
+            .collect()
+    }
+
     /// The same, to write through.
     pub fn get_mut(&mut self, reference: u32) -> Option<&mut T> {
         let cell = self.cell_of(reference);

@@ -72,8 +72,15 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
     {
         return answered;
     }
+    // `undefined[k]` / `null[k]` throw at the access, exactly as `u.x` does.
+    let mut refusal: Option<String> = None;
     let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
+            if super::super::objects::nullish(context, object).is_some() {
+                let named = property_key(context, Value(key));
+                refusal = super::super::objects::access_refusal(context, object, named, true);
+                return super::super::accessor::Found::Value(undefined_of(context));
+            }
             // A number, a boolean, a symbol or a bigint — none of which has a
             // cell to walk from. The same fallback [`super::super::objects::get_property`]
             // makes, and it was missing here: `(255).toString(16)` answered
@@ -135,6 +142,10 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
         // slot would make which spelling was written decide what a property IS.
         super::super::accessor::resolve(context, slot, key)
     });
+    if let Some(refusal) = refusal {
+        super::super::throw::type_error(&refusal);
+        return with_current(|context| undefined_of(context));
+    }
     match found {
         super::super::accessor::Found::Value(value) => value,
         // On the RECEIVER, which is the object the read was written on rather
@@ -183,8 +194,13 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         return value;
     }
+    let mut refusal: Option<String> = None;
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
+            if super::super::objects::nullish(context, object).is_some() {
+                let named = property_key(context, Value(key));
+                refusal = super::super::objects::access_refusal(context, object, named, false);
+            }
             return None;
         };
         if let Some(at) = super::super::array::as_index(context, Value(key))
@@ -296,6 +312,10 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
             }
         }
     });
+    if let Some(refusal) = refusal {
+        super::super::throw::type_error(&refusal);
+        return value;
+    }
     match setter {
         Some(Store::Setter(setter)) => {
             let undefined = with_current(|context| undefined_of(context));

@@ -117,7 +117,7 @@ impl ArrayBuffer {
     /// A shorter length truncates and a longer one zero-fills, which is the
     /// language's rule and is why the new length is read before the copy.
     fn transfer(this: u64, length: u64) -> u64 {
-        transferred(this, length)
+        transferred(this, length, "transfer")
     }
 
     /// `b.transferToFixedLength(newLength)`.
@@ -129,12 +129,12 @@ impl ArrayBuffer {
     /// way — and a program that called the wrong one of two would otherwise keep
     /// reading bytes it had given away.
     fn transfer_to_fixed_length(this: u64, length: u64) -> u64 {
-        transferred(this, length)
+        transferred(this, length, "transferToFixedLength")
     }
 }
 
 /// The bytes moved into a new buffer, leaving this one detached.
-fn transferred(this: u64, length: u64) -> u64 {
+fn transferred(this: u64, length: u64, method: &str) -> u64 {
     let wanted = super::optional_number(length);
     let taken = with_current(|context| {
         let cell = Value(this).as_slot()?;
@@ -156,7 +156,7 @@ fn transferred(this: u64, length: u64) -> u64 {
         Some(moved)
     });
     let Some(taken) = taken else {
-        crate::entry::throw::type_error("ArrayBuffer is detached");
+        crate::entry::throw::type_error(&format!("Cannot perform ArrayBuffer.prototype.{method} on a detached ArrayBuffer"));
         return super::undefined();
     };
     // The source is detached BEFORE the answer is made: allocating takes the

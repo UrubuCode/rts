@@ -64,6 +64,17 @@ impl Context {
         self.region.runs_mut().retract_typed();
         self.detached.set(cell, true);
         super::stamp(self, cell, "byteLength", 0.0);
+        // Every typed-array view over these bytes now covers nothing: the
+        // language gives a detached view length, byteLength and byteOffset 0.
+        // (A `DataView` has no `length`; it is left alone.)
+        for view in self.views.references_where(cell, |view| view.buffer == cell) {
+            if self.views.copied(view).is_some_and(|v| matches!(v.kind, super::Kind::Raw)) {
+                continue;
+            }
+            super::stamp(self, view, "byteLength", 0.0);
+            super::stamp(self, view, "byteOffset", 0.0);
+            super::stamp(self, view, "length", 0.0);
+        }
         super::flag(self, cell, "detached", true);
         true
     }

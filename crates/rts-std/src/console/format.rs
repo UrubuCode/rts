@@ -129,6 +129,9 @@ fn formatted(verb: char, value: u64) -> Result<String, Poisoned> {
 /// point — so a `toString` that threw leaves the throw in flight and this
 /// answers nothing rather than spending it.
 fn string_text(value: u64) -> Result<String, Poisoned> {
+    if entry::text_of(entry::type_of(value)).as_deref() == Some("bigint") {
+        return Ok(format!("{}n", entry::described(value).unwrap_or_default()));
+    }
     if let Some(text) = entry::text_of(value) {
         return Ok(text);
     }

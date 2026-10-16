@@ -1023,13 +1023,14 @@ pub(in crate::entry) fn access_refusal(
     reading: bool,
 ) -> Option<String> {
     let word = nullish(context, object)?;
+    let verb = if reading { "reading" } else { "setting" };
     let named = match key {
         Some(Key::Name(key)) => context
             .interner
             .text(key)
             .and_then(crate::text::Str::to_rust)
-            .map(|text| format!(" (reading '{text}')")),
-        Some(Key::Index(at)) => Some(format!(" (reading '{at}')")),
+            .map(|text| format!(" ({verb} '{text}')")),
+        Some(Key::Index(at)) => Some(format!(" ({verb} '{at}')")),
         None => None,
     };
     let what = if reading { "read" } else { "set" };

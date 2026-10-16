@@ -517,6 +517,10 @@ pub(in crate::entry) fn stamp(context: &mut Context, cell: u32, name: &str, valu
 /// [`super::computed::get_indexed`]'s, which already holds one.
 pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value) -> Option<u64> {
     let view = context.view_at(cell)?;
+    // A DataView is an ordinary object: an index is a plain property.
+    if view.kind == Kind::Raw {
+        return None;
+    }
     let at = super::array::as_index(context, key)?;
     let absent = undefined_of(context);
     if at >= view.count() {
@@ -573,6 +577,9 @@ pub(in crate::entry) fn indexed_set(
     let Some(view) = context.view_at(cell) else {
         return false;
     };
+    if view.kind == Kind::Raw {
+        return false;
+    }
     let Some(at) = super::array::as_index(context, key) else {
         // A CanonicalNumericIndexString that is not a valid index (fractional,
         // negative, NaN, infinite, "-0", past 2^32-2) is still a view's key:

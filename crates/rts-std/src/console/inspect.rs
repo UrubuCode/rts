@@ -134,6 +134,8 @@ fn inspect(value: u64, depth: u32, ancestors: &mut Vec<u32>) -> Result<String, P
             // reads the tag for rather than trusting the text.
             Some(number) if number == 0.0 && number.is_sign_negative() => "-0".to_owned(),
             Some(_) => text,
+            // A bigint is the one primitive Node suffixes: `2n`.
+            None if entry::text_of(entry::type_of(value)).as_deref() == Some("bigint") => format!("{text}n"),
             None if as_slot(value).is_none() => text, // boolean / null / undefined
             None => quoted(&text),                    // a string, nested
         });
