@@ -256,11 +256,13 @@ pub(in crate::layout) fn axis_placement(
             }
         }
         (Abs(a), SpanNamed(id, n)) => {
-            let l = find_named_line_forward(&id, a, n, lines).unwrap_or(a + 1);
+            let def = if is_subgrid { lines.len() as i32 } else { a + 1 };
+            let l = find_named_line_forward(&id, a, n, lines).unwrap_or(def);
             (a, if l > a { l } else { a + 1 })
         }
         (SpanNamed(id, n), Abs(b)) => {
-            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(b - 1);
+            let def = if is_subgrid { 1 } else { b - 1 };
+            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(def);
             (if l < b { l } else { b - 1 }, b)
         }
         (Abs(a), Span(n)) => (a, a + n as i32),
