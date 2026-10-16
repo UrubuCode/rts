@@ -111,7 +111,7 @@ pub(in crate::layout) fn is_item_orthogonal(
         || crate::layout::block::rotated::is_ortho_in_frame(child)
 }
 
-pub(in crate::layout) fn grid_item_outer_width(
+pub(crate) fn grid_item_outer_width(
     dom: &Dom,
     child: NodeIdx,
     box_id: crate::boxes::BoxId,
@@ -129,8 +129,17 @@ pub(in crate::layout) fn grid_item_outer_width(
     if let Some(w) = ratio_outer_width(dom, child, area_h, cb_w, parent_font, ctx) {
         return w;
     }
-    if is_item_orthogonal(dom, child, grid_css) {
-        crate::layout::measure_block(dom, child, box_id, f32::INFINITY, area_h, None, None, true, ctx).0
+    if is_item_orthogonal(dom, child, grid_css) || area_h.is_some() {
+        let item_css = dom.computed_style_idx(child).unwrap_or_default();
+        let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+        let align = item_css.align_self.or(grid_css.align_items).unwrap_or(crate::style::AlignItems::Normal);
+        let stretch_y = match align {
+            crate::style::AlignItems::Stretch => true,
+            crate::style::AlignItems::Normal => !is_rep && aspect_ratio::declared_ratio(&item_css).is_none(),
+            _ => false,
+        };
+        let forced_h = if stretch_y { area_h } else { None };
+        crate::layout::measure_block(dom, child, box_id, f32::INFINITY, area_h, None, forced_h, true, ctx).0
     } else {
         intrinsic_outer_width(dom, child, parent_font, ctx)
     }

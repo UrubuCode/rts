@@ -190,7 +190,7 @@ pub(crate) fn measure_block(
     // read them as its own (`inline/line_baseline.rs`).
     let linhas_antes = inline::line_baseline::mark();
     let ortho_antes = block::rotated_ortho::mark();
-    let size = layout_block(
+    let mut size = layout_block(
         dom,
         id,
         caixa,
@@ -213,6 +213,33 @@ pub(crate) fn measure_block(
         ctx,
         &mut scratch,
     );
+    if shrink_to_fit && forced_outer_w.is_none() {
+        let tree = dom.box_tree();
+        let css = dom.computed_style_idx(id).unwrap_or_default();
+        let [_, br, _, _] = crate::style::borders::used_widths(&css);
+        let resolve = ResolveCtx {
+            parent_content_w: avail_w,
+            node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let p_right = css.padding.right.resolve(&resolve).unwrap_or(0.0).max(0.0);
+        let m_right = css.margin.right.resolve(&resolve).unwrap_or(0.0);
+        for (b_id, rect) in scratch.box_rects.unions() {
+            if b_id == caixa {
+                continue;
+            }
+            if let Some(node) = tree.node_of(b_id) {
+                if !is_out_of_flow(dom, node) {
+                    let needed_outer = rect.x + rect.w + br + p_right + m_right;
+                    if needed_outer > size.0 {
+                        size.0 = needed_outer;
+                    }
+                }
+            }
+        }
+    }
     block::rotated_ortho::restore(ortho_antes);
     inline::line_baseline::discard(linhas_antes);
     dom.layout_measure_put(key, size);

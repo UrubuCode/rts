@@ -80,7 +80,19 @@ pub(in crate::layout) fn grid_item_min_content_width(
         }
         return min_floor.max(frame_h);
     }
-    let mut content = crate::table::min_content(dom, child, f, ctx);
+    let mut content = if let (Some(b), Some(ah)) = (box_id, area_h) {
+        let is_rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+        let align = css.align_self.or_else(|| grid_css.and_then(|g| g.align_items)).unwrap_or(crate::style::AlignItems::Normal);
+        let stretch_y = match align {
+            crate::style::AlignItems::Stretch => true,
+            crate::style::AlignItems::Normal => !is_rep && aspect_ratio::declared_ratio(&css).is_none(),
+            _ => false,
+        };
+        let forced_h = if stretch_y { Some(ah) } else { None };
+        crate::layout::measure_block(dom, child, b, 0.0, Some(ah), None, forced_h, true, ctx).0
+    } else {
+        crate::table::min_content(dom, child, f, ctx)
+    };
     if has_pct(css.max_width) {
         content = 0.0;
     } else if let Some(mx) = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, child, f, ctx, resolve) {
@@ -291,3 +303,93 @@ pub(in crate::layout) fn distribute_spanning_slice<F, S>(
         }
     }
 }
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::layout) fn re_resolve_columns_with_rows(
+    dom: &Dom,
+    cells: &[GridCell],
+    ncols: usize,
+    col_tracks: &[GridTrack],
+    row_sizes: &[f32],
+    row_gap: f32,
+    col_gap: f32,
+    content_w: f32,
+    col_collapsed: &[bool],
+    css: &ComputedStyle,
+    container_wm: crate::style::WritingMode,
+    font_size: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+    content_max: &mut Option<Vec<f32>>,
+    content_min: &mut Option<Vec<f32>>,
+    col_sizes: &mut Vec<f32>,
+) {
+    if col_tracks.is_empty() || row_sizes.is_empty() || cells.is_empty() {
+        return;
+    }
+    let Some(wmax) = content_max.as_mut() else {
+        return;
+    };
+    let mut changed = false;
+    for c in cells {
+        let is_sub = subgrid::is_subgrid_node(dom, c.child, container_wm).0;
+        if is_sub || c.c1 - c.c0 != 1 || c.c0 >= ncols || c.r0 >= row_sizes.len() {
+            continue;
+        }
+        let r1 = c.r1.min(row_sizes.len());
+        let area_h = Some(
+            row_sizes[c.r0..r1].iter().sum::<f32>()
+                + (r1 - c.r0).saturating_sub(1) as f32 * row_gap,
+        );
+        let new_max = aspect::grid_item_outer_width(
+            dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx,
+        );
+        if new_max > wmax[c.c0] {
+            wmax[c.c0] = new_max;
+            changed = true;
+        }
+        if let Some(wmin) = content_min.as_mut() {
+            let new_min = grid_item_min_content_width(
+                dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx,
+            );
+            if new_min > wmin[c.c0] {
+                wmin[c.c0] = new_min;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        distribute_spanning_columns(
+            col_tracks,
+            cells,
+            ncols,
+            col_gap,
+            resolve,
+            |c| subgrid::is_subgrid_node(dom, c.child, container_wm).0,
+            |c| {
+                let r1 = c.r1.min(row_sizes.len());
+                let area_h = if c.r0 < row_sizes.len() {
+                    Some(row_sizes[c.r0..r1].iter().sum::<f32>() + (r1 - c.r0).saturating_sub(1) as f32 * row_gap)
+                } else {
+                    None
+                };
+                let max = aspect::grid_item_outer_width(dom, c.child, c.box_id, area_h, content_w, css, font_size, ctx);
+                let min = grid_item_min_content_width(dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx);
+                let min_sz = grid_item_min_size_width(dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx);
+                ItemSizes { min_size: min_sz, min_content: min, max_content: max }
+            },
+            wmax,
+            content_min.as_deref_mut().unwrap_or(&mut Vec::new()),
+        );
+        *col_sizes = tracks::resolve_tracks(
+            col_tracks,
+            content_w,
+            collapse::gutters(ncols, col_collapsed, col_gap),
+            Some(wmax),
+            content_min.as_deref(),
+            css.justify.is_none(),
+            resolve,
+        );
+    }
+}
+

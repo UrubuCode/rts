@@ -1,0 +1,95 @@
+// Tests running grid items WPT fixtures against references or expected positions.
+
+#[test]
+fn test_grid_item_inline_contribution_001() {
+    let html = r#"<!DOCTYPE html>
+<div style="display: inline-grid; background: green; height: 100px; grid-template-rows: 50px;">
+  <div style="height: 100%;">
+    <canvas width="20" height="10" style="height: 100%;">
+  </div>
+</div>"#;
+    let dom = crate::parse_html_to_dom(html);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let divs = dom.query_all("div");
+    let grid_rect = list.rect_of(dom.resolve(divs[0]).unwrap()).unwrap();
+    let child_rect = list.rect_of(dom.resolve(divs[1]).unwrap()).unwrap();
+    let canvases = dom.query_all("canvas");
+    let canvas_rect = list.rect_of(dom.resolve(canvases[0]).unwrap()).unwrap();
+    assert_eq!(grid_rect.w, 100.0, "grid should be 100px wide");
+    assert_eq!(grid_rect.h, 100.0, "grid should be 100px tall");
+    assert_eq!(child_rect.w, 100.0, "child div should be 100px wide");
+    assert_eq!(child_rect.h, 50.0, "child div should be 50px tall");
+    assert_eq!(canvas_rect.w, 100.0, "canvas should be 100px wide");
+    assert_eq!(canvas_rect.h, 50.0, "canvas should be 50px tall");
+}
+
+#[test]
+fn test_grid_item_inline_contribution_003() {
+    let html = r#"<!DOCTYPE html>
+<div style="display: grid; width: 0; grid-template: auto / auto auto;">
+  <div style="background: green;">
+    <canvas width="10" height="10" style="height: 100%;">
+  </div>
+  <div>
+    <div style="height: 100px;"></div>
+  </div>
+</div>"#;
+    let dom = crate::parse_html_to_dom(html);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let divs = dom.query_all("div");
+    let green_div_node = dom.resolve(divs[1]).unwrap();
+    let green_div = list.rect_of(green_div_node).unwrap();
+    let canvases = dom.query_all("canvas");
+    let canvas_rect = list.rect_of(dom.resolve(canvases[0]).unwrap()).unwrap();
+    let grid_node = dom.resolve(divs[0]).unwrap();
+    let col_tracks = list.grid_column_tracks.get(&grid_node);
+    assert_eq!(col_tracks, Some(&vec![100.0, 0.0]), "col tracks should be 100px and 0px");
+    assert_eq!(green_div.w, 100.0, "green div should be 100px wide");
+    assert_eq!(green_div.h, 100.0, "green div should be 100px tall");
+    assert_eq!(canvas_rect.w, 100.0, "canvas should be 100px wide");
+    assert_eq!(canvas_rect.h, 100.0, "canvas should be 100px tall");
+}
+
+#[test]
+fn test_grid_item_inline_contribution_005() {
+    let html = r#"<!DOCTYPE html>
+<div style="display: grid; width: 0; grid-template: auto / auto auto;">
+  <div style="grid-row: 1 / 2; background: green;">
+    <canvas width="10" height="10" style="height: 100%;">
+  </div>
+  <div style="grid-row: 1 / 2;">
+    <div style="height: 100px;"></div>
+  </div>
+</div>"#;
+    let dom = crate::parse_html_to_dom(html);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let divs = dom.query_all("div");
+    let green_div_node = dom.resolve(divs[1]).unwrap();
+    let green_div = list.rect_of(green_div_node).unwrap();
+    let canvases = dom.query_all("canvas");
+    let canvas_rect = list.rect_of(dom.resolve(canvases[0]).unwrap()).unwrap();
+    let grid_node = dom.resolve(divs[0]).unwrap();
+    let col_tracks = list.grid_column_tracks.get(&grid_node);
+    assert_eq!(col_tracks, Some(&vec![100.0, 0.0]), "col tracks should be 100px and 0px");
+    assert_eq!(green_div.w, 100.0, "green div should be 100px wide");
+    assert_eq!(green_div.h, 100.0, "green div should be 100px tall");
+    assert_eq!(canvas_rect.w, 100.0, "canvas should be 100px wide");
+    assert_eq!(canvas_rect.h, 100.0, "canvas should be 100px tall");
+}
+
+
