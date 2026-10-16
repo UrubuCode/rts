@@ -378,6 +378,8 @@ pub(in crate::entry) fn to_json(this: u64) -> u64 {
         let Some(view) = view_of(context, this) else { return absent };
         let bytes = window(context, &view).map(<[u8]>::to_vec).unwrap_or_default();
         let Some(cell) = native::plain(context) else { return absent };
+        // Bare slot index across the interning / array allocations below: pin it.
+        let pin = super::super::buffers::Pin::new(cell);
         let type_value = context.intern_value(crate::text::Str::from_str("Buffer")).bits();
         let type_key = context.well_known("type");
         super::super::objects::put(context, cell, type_key, type_value);
@@ -385,6 +387,7 @@ pub(in crate::entry) fn to_json(this: u64) -> u64 {
         let data_value = super::super::array::built_in(context, data);
         let data_key = context.well_known("data");
         super::super::objects::put(context, cell, data_key, data_value);
+        pin.release();
         Value::from_slot(cell).bits()
     })
 }
