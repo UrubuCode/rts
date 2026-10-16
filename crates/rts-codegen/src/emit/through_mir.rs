@@ -362,6 +362,7 @@ fn attempt(
         ctx.sloppy,
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
+    crate::lower_module::verify_after("lower", &graph);
     // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
     // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
     // FOLD, THEN ACT ON WHAT FOLDED: a comparison of constants becomes a truth value, a
@@ -370,14 +371,19 @@ fn attempt(
     // next round see a smaller graph.
     loop {
         let folded = crate::optimize::fold_constants(&mut graph, &domain);
+        crate::lower_module::verify_after("fold_constants", &graph);
         let simplified = rts_mir::passes::simplify_cfg(&mut graph);
+        crate::lower_module::verify_after("simplify_cfg", &graph);
         rts_mir::passes::remove_dead(&mut graph);
+        crate::lower_module::verify_after("remove_dead", &graph);
         if folded + simplified == 0 {
             break;
         }
     }
     crate::optimize::replace_scalars(&mut graph, &domain);
+    crate::lower_module::verify_after("replace_scalars", &graph);
     rts_mir::passes::remove_dead(&mut graph);
+    crate::lower_module::verify_after("remove_dead", &graph);
     // A TEXT CONSTANT IS A CALL (`machine/ops.rs`), so one written inside a loop moves to
     // the entry -- `emit/expr.rs::string_const` makes the same decision, for the same
     // two reasons, and says why nothing cheaper is worth the live range.
@@ -385,10 +391,12 @@ fn attempt(
         matches!(held, rts_mir::cfg::Const::Declared(index)
             if matches!(domain.declared(*index), Some(crate::domain::JsConst::Text(_))))
     });
+    crate::lower_module::verify_after("hoist_loop_constants", &graph);
     // A LOOP WHOSE ACCUMULATOR CAN BE A DOUBLE gets a clone in which it is one -- see
     // `optimize/version.rs`. `RTS_VERSION=0` turns it off, for measuring the same binary.
     if std::env::var("RTS_VERSION").map_or(true, |held| held != "0") {
         let versioned = crate::optimize::version_loops(&mut graph, &domain);
+        crate::lower_module::verify_after("version_loops", &graph);
         if versioned > 0 && std::env::var(TRACE).is_ok() {
             eprintln!(
                 "[version] {versioned} loop(s) of {}",
@@ -400,7 +408,9 @@ fn attempt(
     // was proved -- inferred again when it changed anything, since what the machine reads
     // is the types of the graph it is handed.
     let mut inferred = rts_mir::infer::infer(&graph, &domain);
-    if crate::optimize::fuse_templates(&mut graph, &domain, &inferred) > 0 {
+    let fused = crate::optimize::fuse_templates(&mut graph, &domain, &inferred);
+    crate::lower_module::verify_after("fuse_templates", &graph);
+    if fused > 0 {
         inferred = rts_mir::infer::infer(&graph, &domain);
     }
     // A number's `toString`/`toFixed` over a receiver the inference typed, under the
@@ -409,10 +419,12 @@ fn attempt(
         to_string: ctx.names.find("toString"),
         to_fixed: ctx.names.find("toFixed"),
     };
-    if ctx.statics_primordial.number
-        && crate::optimize::fuse_number_methods(&mut graph, &domain, &inferred, members) > 0
-    {
-        inferred = rts_mir::infer::infer(&graph, &domain);
+    if ctx.statics_primordial.number {
+        let fused = crate::optimize::fuse_number_methods(&mut graph, &domain, &inferred, members);
+        crate::lower_module::verify_after("fuse_number_methods", &graph);
+        if fused > 0 {
+            inferred = rts_mir::infer::infer(&graph, &domain);
+        }
     }
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
