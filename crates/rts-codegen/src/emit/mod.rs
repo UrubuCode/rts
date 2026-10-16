@@ -111,6 +111,7 @@ mod receiver;
 mod regex;
 mod scope;
 mod serde_names;
+mod treeshake;
 mod settled;
 mod sloppy;
 mod stmt;
@@ -1206,6 +1207,10 @@ pub fn emit_program_with_exports(
     // Its own entry, key `""` — when it can reach the pickle (`serde_names`).
     ctx.module_key = serde_names::script_reaches_pickle(imports, body, ctx).then(String::new);
     ctx.names_top_level = true;
+    if treeshake::wanted() {
+        let unit = treeshake::Unit { imports, body, publications };
+        treeshake::report(&[unit], ctx.names);
+    }
     emit_program_into(body, imports, specifier, publications, &nothing, ctx)
 }
 
@@ -1627,6 +1632,13 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // load-bearing: `Name` ids are handed out in interning order, and moving
     // this earlier would renumber every map keyed by one.
     whole_program_facts(&program, ctx);
+    if treeshake::wanted() {
+        let all: Vec<treeshake::Unit> = lowered
+            .iter()
+            .map(|(_, imports, body, publications)| treeshake::Unit { imports, body, publications })
+            .collect();
+        treeshake::report(&all, ctx.names);
+    }
 
     // ANY module reaching the pickle registers EVERY module — `serde_names`.
     let registers = serde_names::program_reaches_pickle(units, ctx);
