@@ -539,6 +539,26 @@ pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value
     })
 }
 
+/// Whether `key` is a number, or a string that is the canonical spelling of
+/// one (`"1.5"`, `"-1"`, `"NaN"`, `"-0"`) — the keys a typed array never
+/// stores as properties.
+fn is_canonical_numeric(context: &Context, key: Value) -> bool {
+    if key.numeric().is_some() {
+        return true;
+    }
+    let Some(slot) = key.as_slot() else {
+        return false;
+    };
+    let Some(text) = context.text_at(slot) else {
+        return false;
+    };
+    if *text == crate::text::Str::from_str("-0") {
+        return true;
+    }
+    let number = crate::coerce::string_to_number(text);
+    crate::coerce::number_to_string(number) == *text
+}
+
 /// `t[i] = v` — whether the write was a view's and is finished.
 ///
 /// `true` for any index-shaped key on a view, including one out of range: the
@@ -554,8 +574,15 @@ pub(in crate::entry) fn indexed_set(
         return false;
     };
     let Some(at) = super::array::as_index(context, key) else {
-        return false;
+        // A CanonicalNumericIndexString that is not a valid index (fractional,
+        // negative, NaN, infinite, "-0", past 2^32-2) is still a view's key:
+        // [[Set]] ignores it and creates no property.
+        // A DataView is an ordinary object, not an integer-indexed one.
+        return view.kind != Kind::Raw && is_canonical_numeric(context, key);
     };
+    if at >= view.count() {
+        return true;
+    }
     let kind = view.kind;
     // Read before the mutable borrow, because both halves need the context: a
     // bigint's digits are in the slab and a number's conversion may read a
