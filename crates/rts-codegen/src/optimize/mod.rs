@@ -14,7 +14,9 @@ mod fold;
 mod number_methods;
 mod scalar;
 mod template;
+mod version;
 
+pub use version::version_loops;
 pub use fold::fold_constants;
 pub use scalar::{Replaced, replace_scalars};
 pub use number_methods::{NumberMembers, fuse_number_methods};

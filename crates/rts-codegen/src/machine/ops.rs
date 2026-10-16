@@ -192,6 +192,23 @@ impl MachineOps for JsMachine<'_> {
         };
         let of = of.clone();
 
+        // THE TWO ROWS OF LOOP VERSIONING, which `optimize::version_loops` alone emits.
+        if which == JsPrim::NumberTest
+            && let [only] = args
+        {
+            return self.number_test(into, inst.result, *only);
+        }
+        if which == JsPrim::NumberPeek
+            && let [object, key] = args
+        {
+            return self.number_peek(into, inst.result, *object, *key);
+        }
+        if which == JsPrim::NumberOf
+            && let ([value, _], [_, test]) = (args, of.as_slice())
+        {
+            return self.number_of(into, *test, *value);
+        }
+
         // THE ROWS WHOSE REQUIREMENT IS NOT "TWO NUMBERS", ahead of the gate below,
         // because the gate would refuse them for failing a condition they never had.
         //

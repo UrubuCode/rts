@@ -374,6 +374,17 @@ fn attempt(
         matches!(held, rts_mir::cfg::Const::Declared(index)
             if matches!(domain.declared(*index), Some(crate::domain::JsConst::Text(_))))
     });
+    // A LOOP WHOSE ACCUMULATOR CAN BE A DOUBLE gets a clone in which it is one -- see
+    // `optimize/version.rs`. `RTS_VERSION=0` turns it off, for measuring the same binary.
+    if std::env::var("RTS_VERSION").map_or(true, |held| held != "0") {
+        let versioned = crate::optimize::version_loops(&mut graph, &domain);
+        if versioned > 0 && std::env::var(TRACE).is_ok() {
+            eprintln!(
+                "[version] {versioned} loop(s) of {}",
+                function.name.map_or("<anonymous>", |name| ctx.names.text(name))
+            );
+        }
+    }
     // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
     // was proved -- inferred again when it changed anything, since what the machine reads
     // is the types of the graph it is handed.

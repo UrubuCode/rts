@@ -194,6 +194,9 @@ pub struct JsMachine<'a> {
     /// So the machine value is recorded where it is made. The alternative was passing the
     /// whole graph to every question, which would let any answer depend on anything.
     from_constant: std::collections::BTreeMap<MachineValue, u32>,
+    /// The double a `NumberTest` unboxed on the way to its answer, by the test's own value
+    /// (see `speculate.rs`).
+    number_payload: std::collections::BTreeMap<ValueId, MachineValue>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -316,6 +319,7 @@ impl<'a> JsMachine<'a> {
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
+            number_payload: std::collections::BTreeMap::new(),
         }
     }
 
@@ -347,6 +351,7 @@ impl<'a> JsMachine<'a> {
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
+            number_payload: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1068,5 +1073,6 @@ mod keyed;
 mod light;
 mod ops;
 mod reach;
+mod speculate;
 
 pub use reach::{Parts, Shared, reaches_machine};

@@ -320,6 +320,9 @@ impl Js {
         JsPrim::NumberIsInteger,
         JsPrim::NumberIsSafeInteger,
         JsPrim::NewObjectUnder,
+        JsPrim::NumberTest,
+        JsPrim::NumberOf,
+        JsPrim::NumberPeek,
     ];
 
     /// A domain holding only the fixed constants.
@@ -453,7 +456,12 @@ impl Js {
             | JsPrim::NumberIsNaN
             | JsPrim::NumberIsFinite
             | JsPrim::NumberIsInteger
-            | JsPrim::NumberIsSafeInteger => Effect::PURE,
+            | JsPrim::NumberIsSafeInteger
+            // Reads a value's own bits and nothing it refers to.
+            | JsPrim::NumberTest
+            | JsPrim::NumberOf => Effect::PURE,
+            // Reads the heap, and only as far as a cache hit answers: no getter, no trap.
+            JsPrim::NumberPeek => Effect::READS,
             // Draining runs every reaction that settles first, which is code the program
             // wrote, and a rejection raises here.
             JsPrim::AwaitDrain => Effect::CALLS_USER.and(Effect::THROWS).and(Effect::ALLOCATES),
@@ -708,7 +716,11 @@ impl Domain for Js {
             JsPrim::NumberIsNaN
             | JsPrim::NumberIsFinite
             | JsPrim::NumberIsInteger
-            | JsPrim::NumberIsSafeInteger => Type::Bool(None),
+            | JsPrim::NumberIsSafeInteger
+            | JsPrim::NumberTest
+            | JsPrim::NumberPeek => Type::Bool(None),
+            // A number as a double, by the test that precedes it.
+            JsPrim::NumberOf => Type::Double,
             // What the promise settled with, which nothing here decided.
             JsPrim::AwaitDrain => Type::Anything,
             JsPrim::Negate => match args {
