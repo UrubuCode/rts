@@ -53,7 +53,7 @@ impl RunTable {
     /// The header word holding the marker for "no element here".
     pub const ABSENT_OFFSET: i32 = 16;
     /// How far apart consecutive rows are.
-    pub const ROW_BYTES: i64 = 24;
+    pub const ROW_BYTES: i64 = 32;
     /// The word of a row holding the address of the run's first element.
     pub const ROW_START_OFFSET: i32 = 0;
     /// The word of a row holding how many elements the run has.
@@ -65,6 +65,13 @@ impl RunTable {
     /// array's bytes — that the machine loads at the kind's width and converts to
     /// a double. A kind the machine does not know is a miss, never a guess.
     pub const ROW_KIND_OFFSET: i32 = 16;
+    /// The word of a row holding how many leading elements a STORE may overwrite.
+    ///
+    /// Equal to the length for a run that is writable and zero for one that is
+    /// not (a frozen array). A store below this index is an in-place overwrite
+    /// of an element that already exists; everything else -- growth, a hole past
+    /// the end, a refused write -- is the client's.
+    pub const ROW_WRITE_LENGTH_OFFSET: i32 = 24;
 
     /// Elements are tagged words (a plain array's store).
     pub const KIND_WORDS: i64 = 0;
@@ -84,4 +91,7 @@ impl RunTable {
     pub const KIND_I8: i64 = 7;
     /// Elements are `u8`.
     pub const KIND_U8: i64 = 8;
+    /// Elements are `u8`, and a store CLAMPS (round half to even) instead of
+    /// wrapping. A load is the same as [`Self::KIND_U8`].
+    pub const KIND_U8_CLAMPED: i64 = 9;
 }

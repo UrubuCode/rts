@@ -891,6 +891,49 @@ impl<'a> FuncBuilder<'a> {
         Ok(())
     }
 
+    /// Overwrites one element of a run the owner keeps, at a position proved to be
+    /// a double, or enters `miss` having written nothing.
+    ///
+    /// The value is widened to the generic form, as for [`Self::cached_set`]; what
+    /// is and is not written inline is [`Terminator::RunWrite`]'s to say.
+    pub fn run_write(
+        &mut self,
+        owner: ValueId,
+        index: ValueId,
+        value: ValueId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(owner);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "run_write",
+                found,
+            });
+        }
+        let position = self.func.repr_of(index);
+        if position != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "run_write index",
+                found: position,
+            });
+        }
+        let value = self.widen_if_needed(value);
+        let hit_call = self.block_call(hit.0, hit.1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
     /// Takes one cell of the client's plain kind inline, or enters `miss`.
     ///
     /// The first parameter of `hit` receives the new cell's reference in the

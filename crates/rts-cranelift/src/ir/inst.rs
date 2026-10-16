@@ -1034,6 +1034,45 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Overwrites one element of a run the owner keeps, in place, or enters `miss`.
+    ///
+    /// The store that [`Self::RunRead`] is the load of, with the same contract and
+    /// the same reason the operand is the OWNER: the row is looked up from
+    /// `owner` inside this terminator and no address survives it.
+    ///
+    /// # What is stored, and the only case it answers
+    ///
+    /// The owner has a row, the position is a whole number BELOW the row's write
+    /// length (the elements that already exist and may be overwritten), and --
+    /// for a row of tagged words -- the value is stored as given. For a typed
+    /// array's row the value must be a number (a double or an inline integer)
+    /// and is converted to the element kind by the rule the specification gives
+    /// that kind: a double for Float64, the nearest single for Float32, the
+    /// truncated integer modulo 2^bits for the integer kinds, a clamp with ties
+    /// to even for Uint8Clamped.
+    ///
+    /// EVERY other case enters `miss` with nothing written: no table, no row, a
+    /// position that is negative, fractional, not a number or at or past the
+    /// write length (an append, a hole, a typed array's silent no-op), a frozen
+    /// run, a value the kind cannot convert inline (a string, an object, a
+    /// double whose truncation does not fit 63 bits), a kind the machine does
+    /// not know. The client decides all of those, so growth -- which can move
+    /// the run -- is never done here.
+    ///
+    /// `hit` and `miss` take only their own arguments; the value is not produced.
+    RunWrite {
+        /// The object whose run is written. A proven reference.
+        owner: ValueId,
+        /// The position, a proven double.
+        index: ValueId,
+        /// What is stored, in the generic form.
+        value: ValueId,
+        /// Entered once the element is written.
+        hit: BlockCall,
+        /// Entered for every other case, with nothing written.
+        miss: BlockCall,
+    },
+
     /// Takes one cell of the client's plain kind from the heap, or enters `miss`.
     ///
     /// # What it does, and that every other case is the miss edge

@@ -466,7 +466,8 @@ fn publish_view(context: &mut Context, cell: u32, view: &View) {
         Kind::Int16 => RunTable::KIND_I16,
         Kind::Uint16 => RunTable::KIND_U16,
         Kind::Int8 => RunTable::KIND_I8,
-        Kind::Uint8 | Kind::Uint8Clamped => RunTable::KIND_U8,
+        Kind::Uint8 => RunTable::KIND_U8,
+        Kind::Uint8Clamped => RunTable::KIND_U8_CLAMPED,
         Kind::BigInt64 | Kind::BigUint64 | Kind::Raw => 0,
     };
     let start = match kind {

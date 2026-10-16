@@ -41,12 +41,17 @@ struct Row {
     /// What the elements are: `0` tagged words, otherwise a typed array's element
     /// kind as `rts_cranelift::mem::RunTable::KIND_*` names it.
     kind: u64,
+    /// How many leading elements compiled code may OVERWRITE in place: the length
+    /// for a writable run, zero for a frozen array. See
+    /// `rts_cranelift::mem::RunTable::ROW_WRITE_LENGTH_OFFSET`.
+    writable: u64,
 }
 
 const EMPTY: Row = Row {
     start: std::ptr::null(),
     length: 0,
     kind: 0,
+    writable: 0,
 };
 
 /// The table, header first. `repr(C)` and boxed: compiled code reads the header
@@ -63,6 +68,10 @@ pub struct Runs {
     armed: bool,
     /// Whether typed-array rows may be published. Cleared by a detach.
     typed_armed: bool,
+    /// Cells whose array is frozen: their rows are published read-only, and stay
+    /// so across every republish (`ElementsMut` rewrites a row without a context
+    /// to ask). A cell number is cleared here when its row is retracted.
+    frozen: Vec<bool>,
 }
 
 // SAFETY: the raw pointers name memory owned by the context that last filled the
@@ -81,6 +90,7 @@ impl Runs {
             store: Vec::new(),
             armed: true,
             typed_armed: true,
+            frozen: Vec::new(),
         })
     }
 
@@ -97,6 +107,7 @@ impl Runs {
     /// numbering gives the thing the table must never hand to a program.
     pub fn reset(&mut self, absent: u64) {
         self.store.clear();
+        self.frozen.clear();
         self.armed = true;
         self.typed_armed = true;
         self.absent = absent;
@@ -109,12 +120,30 @@ impl Runs {
         if at >= self.store.len() {
             self.store.resize(at + 1, EMPTY);
         }
+        let writable = match self.frozen.get(at) {
+            Some(true) => 0,
+            _ => length as u64,
+        };
         self.store[at] = Row {
             start,
             length: length as u64,
             kind: 0,
+            writable,
         };
         self.refresh();
+    }
+
+    /// Marks a cell's array frozen: compiled code may still READ its run but no
+    /// longer overwrites it. Sticky across republishes until the row is retracted.
+    pub fn freeze(&mut self, cell: u32) {
+        let at = cell as usize;
+        if at >= self.frozen.len() {
+            self.frozen.resize(at + 1, false);
+        }
+        self.frozen[at] = true;
+        if let Some(row) = self.store.get_mut(at) {
+            row.writable = 0;
+        }
     }
 
     /// Publishes a typed array's window: the address of its first byte, its
@@ -136,6 +165,7 @@ impl Runs {
             start: start.cast::<u64>(),
             length: length as u64,
             kind,
+            writable: length as u64,
         };
         self.refresh();
     }
@@ -157,6 +187,9 @@ impl Runs {
     pub fn retract(&mut self, cell: u32) {
         if let Some(row) = self.store.get_mut(cell as usize) {
             *row = EMPTY;
+        }
+        if let Some(held) = self.frozen.get_mut(cell as usize) {
+            *held = false;
         }
     }
 
@@ -193,6 +226,7 @@ mod tests {
         assert_eq!(offset_of!(Row, start), RunTable::ROW_START_OFFSET as usize);
         assert_eq!(offset_of!(Row, length), RunTable::ROW_LENGTH_OFFSET as usize);
         assert_eq!(offset_of!(Row, kind), RunTable::ROW_KIND_OFFSET as usize);
+        assert_eq!(offset_of!(Row, writable), RunTable::ROW_WRITE_LENGTH_OFFSET as usize);
     }
 
     #[test]

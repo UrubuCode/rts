@@ -183,6 +183,35 @@ pub(super) fn check_terminators(func: &Function, errors: &mut Vec<VerifyError>) 
                 check_block_call(func, from, miss, 0, errors);
             }
 
+            // As the read: a proven reference and a proven double. The value is
+            // generic (the builder widens), and neither edge takes anything of
+            // ours, so both are ordinary block calls.
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit,
+                miss,
+            } => {
+                let found = func.repr_of(*owner);
+                if !matches!(found, Repr::Ref(_)) {
+                    errors.push(VerifyError::GuardTypeOnNonReference { from, found });
+                }
+                let position = func.repr_of(*index);
+                if position != Repr::F64 {
+                    errors.push(VerifyError::RunIndexNotDouble {
+                        from,
+                        found: position,
+                    });
+                }
+                let written = func.repr_of(*value);
+                if written != Repr::Tagged {
+                    errors.push(VerifyError::GuardTypeOnNonReference { from, found: written });
+                }
+                check_block_call(func, from, hit, 0, errors);
+                check_block_call(func, from, miss, 0, errors);
+            }
+
             // No operand. The hit block takes the new cell's reference, in the
             // generic form, ahead of whatever else it carries.
             Terminator::CellAlloc { hit, miss } => {

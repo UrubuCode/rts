@@ -155,6 +155,7 @@ impl Body<'_> {
             RunTable::KIND_U16,
             RunTable::KIND_I8,
             RunTable::KIND_U8,
+            RunTable::KIND_U8_CLAMPED,
         ];
         for (index, wanted) in kinds.iter().enumerate() {
             let this = builder.create_block();

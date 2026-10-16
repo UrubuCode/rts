@@ -161,6 +161,7 @@ fn settled_blocks(function: &Function) -> HashSet<BlockId> {
             | Terminator::CachedGetIndirect { hit, .. }
             | Terminator::CachedGetKeyed { hit, .. }
             | Terminator::RunRead { hit, .. }
+            | Terminator::RunWrite { hit, .. }
             | Terminator::CellAlloc { hit, .. }
             | Terminator::CachedSet { hit, .. } => vec![hit.block],
             _ => Vec::new(),
@@ -241,6 +242,7 @@ fn render(front: &FrontEnd) -> String {
                 | Some(Terminator::CachedGetIndirect { .. })
                 | Some(Terminator::CachedGetKeyed { .. })
                 | Some(Terminator::RunRead { .. })
+                | Some(Terminator::RunWrite { .. })
                 | Some(Terminator::CellAlloc { .. })
                 | Some(Terminator::CachedSet { .. }) => tally.caches += 1,
                 _ => {}

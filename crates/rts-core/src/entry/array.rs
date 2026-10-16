@@ -381,7 +381,14 @@ impl Context {
             _ => None,
         };
         match run {
-            Some((start, length)) => self.region.runs_mut().publish(cell, start, length),
+            Some((start, length)) => {
+                self.region.runs_mut().publish(cell, start, length);
+                // A frozen array's row is READ-ONLY to compiled code, and this is
+                // where a row that was just rebuilt from nothing learns it.
+                if super::integrity::refuses_write(self, reference) {
+                    self.region.runs_mut().freeze(cell);
+                }
+            }
             None => self.region.runs_mut().retract(cell),
         }
     }

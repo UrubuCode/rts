@@ -86,6 +86,58 @@ impl JsMachine<'_> {
         Ok(result)
     }
 
+    /// `a[i] = v` with a position the inference typed a number: the element overwritten
+    /// inline in the run table's row, and `SetIndexed` for every case the row cannot take.
+    ///
+    /// ```text
+    ///   guard a is a reference ── not one ──┐
+    ///          │                            │
+    ///   run_write(a, i, v) ─── missed ──────┤
+    ///          │                            │
+    ///        hit                  slow: SetIndexed(a, i, v)
+    ///          │                            │
+    ///          └──────────► join ◄──────────┘
+    /// ```
+    ///
+    /// The row answers only an in-place overwrite of an element that already exists (or a
+    /// typed array's in-range element, converted to its kind); an append, a hole, a frozen
+    /// array, an out-of-range typed index and a value it cannot convert all take the call,
+    /// which is where growth -- the one thing that moves a run -- stays.
+    /// `rts_cranelift::ir::inst::Terminator::RunWrite` has the contract.
+    pub(super) fn indexed_write(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: MachineValue,
+        value: MachineValue,
+    ) -> Result<(), String> {
+        let receiver = match into.repr_of(object) {
+            Repr::Tagged => object,
+            _ => into.widen(object),
+        };
+        let position = super::coerced(into, key, Repr::F64)?;
+        let stored = super::coerced(into, value, Repr::Tagged)?;
+        let reference = into.create_block();
+        let narrowed = into.add_block_param(reference, Repr::Ref(RefKind::Opaque));
+        let slow = into.create_block();
+        let join = into.create_block();
+        into.guard(receiver, Repr::Ref(RefKind::Opaque), (reference, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(reference);
+        into.run_write(narrowed, position, stored, (join, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(slow);
+        let mode = self.write_mode(into);
+        self.call_runtime(
+            into,
+            RuntimeOp::SetIndexed,
+            &[receiver, position, stored, mode],
+        )?;
+        into.jump(join, &[]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(())
+    }
+
     /// `o[k]` through the keyed site, with `GetIndexed` on every path the site does not
     /// take.
     pub(super) fn keyed_read(

@@ -1593,6 +1593,10 @@ fn emit_assign(
             }
         };
         let assigned = tagged(builder, assigned);
+        // A position PROVEN to be a number overwrites an existing element in place.
+        if builder.repr_of(key) == Repr::F64 {
+            return super::property::emit_write_indexed(builder, ctx, receiver, key, assigned);
+        }
         let mode = super::property::write_mode(builder, ctx);
         return Ok(call(
             builder,

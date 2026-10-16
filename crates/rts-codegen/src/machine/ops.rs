@@ -313,6 +313,17 @@ impl MachineOps for JsMachine<'_> {
             return self.indexed_read(into, args[0], args[1]);
         }
 
+        // `a[i] = v` WITH A KEY THE INFERENCE TYPED A NUMBER: the element overwritten inline
+        // when it exists, and the runtime's `SetIndexed` for everything else -- `keyed.rs`.
+        // A WRITE answers the value written, which the graph types as the value.
+        if which == JsPrim::IndexWrite
+            && let ([_, _, _], [_, of_key, _]) = (args, of.as_slice())
+            && !self.reads_keyed(*of_key)
+        {
+            self.indexed_write(into, args[0], args[1], args[2])?;
+            return Ok(args[2]);
+        }
+
         // `o[k]` WITH A COMPUTED KEY reads through a keyed site -- `keyed.rs`.
         if which == JsPrim::IndexRead
             && let ([object, key], [_, of_key]) = (args, of.as_slice())

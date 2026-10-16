@@ -273,6 +273,46 @@ pub(super) fn emit_read_keyed(
     Ok(result)
 }
 
+/// `a[i] = v` with a position PROVEN to be a double: the element overwritten in place
+/// when it already exists, and `SetIndexed` for every other case.
+///
+/// The mirror of the inline read in [`emit_read_keyed`]; what the row answers and what
+/// it hands to the call is `rts_cranelift::ir::inst::Terminator::RunWrite`'s to say. The
+/// call is the whole of the old behaviour -- growth, holes, frozen arrays, a typed
+/// array's out-of-range no-op, strict-mode refusals -- so this only ever removes work.
+/// The assignment's value is the value written, on both paths.
+pub(super) fn emit_write_indexed(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    key: ValueId,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    let receiver = tagged(builder, receiver);
+    let value = tagged(builder, value);
+    let as_reference = builder.create_block();
+    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+    let slow = builder.create_block();
+    let join = builder.create_block();
+
+    builder.guard(
+        receiver,
+        Repr::Ref(RefKind::Opaque),
+        (as_reference, &[]),
+        (slow, &[]),
+    )?;
+    builder.switch_to(as_reference);
+    builder.run_write(narrowed, key, value, (join, &[]), (slow, &[]))?;
+
+    builder.switch_to(slow);
+    let mode = write_mode(builder, ctx);
+    call(builder, ctx, RuntimeOp::SetIndexed, &[receiver, key, value, mode])?;
+    builder.jump(join, &[])?;
+
+    builder.switch_to(join);
+    Ok(value)
+}
+
 /// Reads a property the site may last have found on something the receiver
 /// inherits from.
 ///

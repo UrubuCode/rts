@@ -45,6 +45,7 @@ mod cleanup;
 mod error;
 mod memory;
 mod run_read;
+mod run_write;
 mod terminator;
 mod types;
 mod value;

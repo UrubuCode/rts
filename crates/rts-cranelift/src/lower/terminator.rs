@@ -146,6 +146,16 @@ impl Body<'_> {
                 self.lower_run_read(builder, block, *owner, *index, hit, miss)?;
             }
 
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit,
+                miss,
+            } => {
+                self.lower_run_write(builder, block, *owner, *index, *value, hit, miss)?;
+            }
+
             Terminator::CellAlloc { hit, miss } => {
                 self.lower_cell_alloc(builder, hit, miss)?;
             }
