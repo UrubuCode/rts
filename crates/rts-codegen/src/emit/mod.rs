@@ -78,6 +78,7 @@ mod delegate;
 mod destructure;
 mod dynamic;
 mod escape;
+mod factory;
 mod eval;
 mod expr;
 mod fold;

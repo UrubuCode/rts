@@ -121,6 +121,9 @@ pub(super) struct Inlinable {
     pub body: Expr,
     /// A zero-fixed-parameter rest function whose body is exactly `rest.length`.
     pub rest_length: Option<Name>,
+    /// Whether this is a `function` declaration written at the top level of the
+    /// body the candidates were collected from, so bound at every site in it.
+    pub top_level: bool,
 }
 
 /// Every function in `body` a call site may substitute, by the name it is
@@ -241,6 +244,9 @@ pub(super) fn candidates(
             _ => true,
         });
         candidate.free_proved = free_proved;
+        candidate.top_level = body.iter().any(|held| {
+            matches!(&held.kind, StmtKind::Function(declared) if declared.name == Some(name))
+        });
 
         // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
         // body be substituted at all.
@@ -780,6 +786,7 @@ pub(super) fn shape_of(
                 statements: Vec::new(),
                 body: answered.clone(),
                 rest_length: Some(*rest),
+                top_level: false,
             },
             Vec::new(),
             Vec::new(),
@@ -909,6 +916,7 @@ pub(super) fn shape_of(
             statements,
             body: answered,
             rest_length: None,
+            top_level: false,
         },
         free,
         locals,

@@ -698,6 +698,10 @@ pub(super) fn emit_body(
     module: Option<&str>,
     publications: &[super::module::Publication],
 ) -> EmitResult<MachineFunction> {
+    // A call to an object-returning factory whose result nothing else sees is the
+    // literal it builds, so `escape` can scalar-replace it. See `factory`.
+    let factored = super::factory::rewritten(&ctx.inlinable, body, parameters);
+    let body: &[Stmt] = factored.as_deref().unwrap_or(body);
     // A function WRITTEN INSIDE a `with` body closes over the `with` scope: its
     // free names resolve against the object first, every time it is called,
     // wherever it is called from. This engine cannot express that — the objects
