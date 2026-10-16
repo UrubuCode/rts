@@ -185,11 +185,13 @@ fn dated(context: &mut Context, ms: f64) -> u64 {
     let Some(cell) = super::super::native::plain(context) else {
         return undefined_of(context);
     };
+    let pin = super::super::buffers::Pin::new(cell);
     if let Some(prototype) = class_prototype(context, "Date") {
         context.set_prototype(cell, prototype);
     }
     let key = context.well_known(super::super::date::TIME);
     super::super::objects::put(context, cell, key, Value::from_f64(ms).bits());
+    pin.release();
     Value::from_slot(cell).bits()
 }
 

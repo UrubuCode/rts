@@ -639,7 +639,9 @@ pub fn make_namespace(context: &mut Context, members: &[(&str, Provided)]) -> u6
     let Some(cell) = super::native::plain(context) else {
         return undefined_of(context);
     };
+    let pin = super::buffers::Pin::new(cell);
     super::native::install_host(context, cell, members);
+    pin.release();
     Value::from_slot(cell).bits()
 }
 

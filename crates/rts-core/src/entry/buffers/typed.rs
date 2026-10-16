@@ -107,6 +107,7 @@ pub(in crate::entry) fn construct(
         let Some(buffer) = super::new_buffer(context, count * size) else {
             return undefined_of(context);
         };
+        let backing = super::Pin::new(buffer);
         let view = View {
             buffer,
             offset: 0,
@@ -119,6 +120,7 @@ pub(in crate::entry) fn construct(
             }
         }
         super::attach(context, cell, view);
+        backing.release();
         Value::from_slot(cell).bits()
     })
 }
@@ -615,12 +617,19 @@ pub(in crate::entry) fn entries(this: u64) -> u64 {
 
 /// A new instance of the view's own class, over these bytes.
 pub(in crate::entry) fn made(context: &mut Context, view: View) -> u64 {
+    // The backing buffer and the new cell are bare slot indices: pin both across
+    // the allocating calls below (plain, class registration, attach).
+    let backing = super::Pin::new(view.buffer);
     let Some(cell) = crate::entry::native::plain(context) else {
+        backing.release();
         return undefined_of(context);
     };
+    let instance = super::Pin::new(cell);
     if let Some(prototype) = super::typed_classes::ensure(context, view.kind) {
         context.set_prototype(cell, prototype);
     }
     super::attach(context, cell, view);
+    instance.release();
+    backing.release();
     Value::from_slot(cell).bits()
 }
