@@ -353,8 +353,8 @@ pub(in crate::layout) fn layout_children_grid(
             crate::style::AlignItems::Normal => if has_ratio { crate::style::AlignItems::FlexStart } else { crate::style::AlignItems::Stretch },
             other => other,
         };
-        let justify = if is_col_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.justify_self.unwrap_or(justify)) };
-        let align = if is_row_sub { crate::style::AlignItems::Stretch } else { resolve_align(item_css.align_self.unwrap_or(align)) };
+        let justify = if is_col_sub && !is_ortho { crate::style::AlignItems::Stretch } else { resolve_align(item_css.justify_self.unwrap_or(justify)) };
+        let align = if is_row_sub && !is_ortho { crate::style::AlignItems::Stretch } else { resolve_align(item_css.align_self.unwrap_or(align)) };
         let is_in_frame = crate::layout::in_rotated_frame();
         let (inline_sz, block_sz, inline_min, inline_max, block_min, block_max) = if is_in_frame {
             (item_css.height, item_css.width, item_css.min_height, item_css.max_height, item_css.min_width, item_css.max_width)
@@ -362,9 +362,9 @@ pub(in crate::layout) fn layout_children_grid(
             (item_css.width, item_css.height, item_css.min_width, item_css.max_width, item_css.min_height, item_css.max_height)
         };
         let is_stretch = |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
-        let stretch_x = is_col_sub || (is_stretch(justify) && inline_sz.is_none());
+        let stretch_x = (is_col_sub && !is_ortho) || (is_stretch(justify) && inline_sz.is_none());
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = is_row_sub || (is_stretch(align) && block_sz.is_none());
+        let stretch_y = (is_row_sub && !is_ortho) || (is_stretch(align) && block_sz.is_none());
 
         let use_area_h = area_h.or(Some(cell_h));
         let (nat_w, nat_h) = measure_block(
