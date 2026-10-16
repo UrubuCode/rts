@@ -38,11 +38,15 @@
 struct Row {
     start: *const u64,
     length: u64,
+    /// What the elements are: `0` tagged words, otherwise a typed array's element
+    /// kind as `rts_cranelift::mem::RunTable::KIND_*` names it.
+    kind: u64,
 }
 
 const EMPTY: Row = Row {
     start: std::ptr::null(),
     length: 0,
+    kind: 0,
 };
 
 /// The table, header first. `repr(C)` and boxed: compiled code reads the header
@@ -57,6 +61,8 @@ pub struct Runs {
     absent: u64,
     store: Vec<Row>,
     armed: bool,
+    /// Whether typed-array rows may be published. Cleared by a detach.
+    typed_armed: bool,
 }
 
 // SAFETY: the raw pointers name memory owned by the context that last filled the
@@ -74,6 +80,7 @@ impl Runs {
             absent: 0,
             store: Vec::new(),
             armed: true,
+            typed_armed: true,
         })
     }
 
@@ -91,6 +98,7 @@ impl Runs {
     pub fn reset(&mut self, absent: u64) {
         self.store.clear();
         self.armed = true;
+        self.typed_armed = true;
         self.absent = absent;
         self.refresh();
     }
@@ -104,8 +112,45 @@ impl Runs {
         self.store[at] = Row {
             start,
             length: length as u64,
+            kind: 0,
         };
         self.refresh();
+    }
+
+    /// Publishes a typed array's window: the address of its first byte, its
+    /// element count and its element kind.
+    ///
+    /// Refused (the row stays empty) once any buffer has been detached, because a
+    /// detach frees bytes that OTHER views over the same buffer have rows for and
+    /// nothing indexes views by buffer. See [`Runs::retract_typed`].
+    pub fn publish_typed(&mut self, cell: u32, start: *const u8, length: usize, kind: u64) {
+        if !self.typed_armed || cfg!(target_endian = "big") {
+            self.retract(cell);
+            return;
+        }
+        let at = cell as usize;
+        if at >= self.store.len() {
+            self.store.resize(at + 1, EMPTY);
+        }
+        self.store[at] = Row {
+            start: start.cast::<u64>(),
+            length: length as u64,
+            kind,
+        };
+        self.refresh();
+    }
+
+    /// Empties every typed row and stops publishing new ones, for the rest of the
+    /// context's life. Called when a buffer is detached: its bytes are freed, and
+    /// every view over them is a row that would read freed memory. Detaching is
+    /// rare, so the blunt answer (typed arrays take the runtime) is the sound one.
+    pub fn retract_typed(&mut self) {
+        self.typed_armed = false;
+        for row in &mut self.store {
+            if row.kind != 0 {
+                *row = EMPTY;
+            }
+        }
     }
 
     /// Empties a cell's row. A cell number is handed to a stranger after this.
@@ -147,6 +192,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<Row>(), RunTable::ROW_BYTES as usize);
         assert_eq!(offset_of!(Row, start), RunTable::ROW_START_OFFSET as usize);
         assert_eq!(offset_of!(Row, length), RunTable::ROW_LENGTH_OFFSET as usize);
+        assert_eq!(offset_of!(Row, kind), RunTable::ROW_KIND_OFFSET as usize);
     }
 
     #[test]

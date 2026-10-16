@@ -125,7 +125,12 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
                 context.bound.remove(cell);
             }
             SideTable::Views => {
-                context.views.remove(cell);
+                if context.views.remove(cell).is_some() {
+                    // The row names bytes the cell's buffer owns; compiled code
+                    // reads it with no check the cell is still a view.
+                    let number = context.region.cell_of_reference(cell);
+                    context.region.runs_mut().retract(number);
+                }
             }
             SideTable::Collections => {
                 context.collections.remove(cell);

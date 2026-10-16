@@ -372,6 +372,7 @@ pub(in crate::entry) fn flag(context: &mut Context, cell: u32, name: &str, value
 /// already makes.
 pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     context.views.set(cell, view);
+    publish_view(context, cell, &view);
 
     // ONE shape, not four. These properties are always the same names in the
     // same order for a given kind, so every typed array ever made walks the
@@ -435,6 +436,61 @@ pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     context.retype_cell(cell, ty);
     for (at, (_, value)) in slots.iter().zip(wanted) {
         super::objects::set_slot_value(context, cell, *at, *value);
+    }
+}
+
+/// Makes the run table say where a typed array's elements are, so compiled code
+/// reads `t[i]` without calling in.
+///
+/// # Why this row stays true
+///
+/// It names bytes owned by the view's buffer, and there are exactly two ways
+/// those stop being there. The buffer is DETACHED, which frees them while other
+/// views of the buffer still exist -- [`Context::detach_buffer`] retracts every
+/// typed row and stops publishing. Or the buffer dies, which cannot happen under
+/// a live view because the view's side-table edge keeps it reachable; and when
+/// the view dies its row is retracted in `release`. A buffer's bytes are never
+/// resized in place (every writer is a same-length `copy_from_slice`), so the
+/// address cannot move.
+///
+/// A kind the machine has no load for (`DataView`, the bigint arrays) and a
+/// window not wholly inside the bytes get an EMPTY row, which is the runtime.
+fn publish_view(context: &mut Context, cell: u32, view: &View) {
+    use rts_cranelift::mem::RunTable;
+    let number = context.region.cell_of_reference(cell);
+    let kind = match view.kind {
+        Kind::Float64 => RunTable::KIND_F64,
+        Kind::Float32 => RunTable::KIND_F32,
+        Kind::Int32 => RunTable::KIND_I32,
+        Kind::Uint32 => RunTable::KIND_U32,
+        Kind::Int16 => RunTable::KIND_I16,
+        Kind::Uint16 => RunTable::KIND_U16,
+        Kind::Int8 => RunTable::KIND_I8,
+        Kind::Uint8 | Kind::Uint8Clamped => RunTable::KIND_U8,
+        Kind::BigInt64 | Kind::BigUint64 | Kind::Raw => 0,
+    };
+    let start = match kind {
+        0 => None,
+        _ => {
+            let bytes = context.bytes_at(view.buffer);
+            match bytes {
+                Some(bytes) if !context.buffer_detached(view.buffer) => view
+                    .offset
+                    .checked_add(view.length)
+                    .filter(|end| *end <= bytes.len())
+                    .map(|_| bytes.as_ptr().wrapping_add(view.offset)),
+                _ => None,
+            }
+        }
+    };
+    match start {
+        Some(start) => {
+            context
+                .region
+                .runs_mut()
+                .publish_typed(number, start, view.count(), kind as u64);
+        }
+        None => context.region.runs_mut().retract(number),
     }
 }
 

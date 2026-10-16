@@ -59,6 +59,9 @@ impl Context {
             bytes.clear();
             bytes.shrink_to_fit();
         }
+        // Before anything else can run: every view over these bytes has a row
+        // naming them, and nothing indexes views by buffer to find just those.
+        self.region.runs_mut().retract_typed();
         self.detached.set(cell, true);
         super::stamp(self, cell, "byteLength", 0.0);
         super::flag(self, cell, "detached", true);

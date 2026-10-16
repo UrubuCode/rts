@@ -53,9 +53,35 @@ impl RunTable {
     /// The header word holding the marker for "no element here".
     pub const ABSENT_OFFSET: i32 = 16;
     /// How far apart consecutive rows are.
-    pub const ROW_BYTES: i64 = 16;
+    pub const ROW_BYTES: i64 = 24;
     /// The word of a row holding the address of the run's first element.
     pub const ROW_START_OFFSET: i32 = 0;
     /// The word of a row holding how many elements the run has.
     pub const ROW_LENGTH_OFFSET: i32 = 8;
+    /// The word of a row holding what the elements ARE.
+    ///
+    /// [`Self::KIND_WORDS`] is a run of tagged words, the original meaning of a
+    /// row. Every other kind is a run of raw numeric machine elements — a typed
+    /// array's bytes — that the machine loads at the kind's width and converts to
+    /// a double. A kind the machine does not know is a miss, never a guess.
+    pub const ROW_KIND_OFFSET: i32 = 16;
+
+    /// Elements are tagged words (a plain array's store).
+    pub const KIND_WORDS: i64 = 0;
+    /// Elements are little-endian `f64`.
+    pub const KIND_F64: i64 = 1;
+    /// Elements are little-endian `f32`.
+    pub const KIND_F32: i64 = 2;
+    /// Elements are little-endian `i32`.
+    pub const KIND_I32: i64 = 3;
+    /// Elements are little-endian `u32`.
+    pub const KIND_U32: i64 = 4;
+    /// Elements are little-endian `i16`.
+    pub const KIND_I16: i64 = 5;
+    /// Elements are little-endian `u16`.
+    pub const KIND_U16: i64 = 6;
+    /// Elements are `i8`.
+    pub const KIND_I8: i64 = 7;
+    /// Elements are `u8`.
+    pub const KIND_U8: i64 = 8;
 }

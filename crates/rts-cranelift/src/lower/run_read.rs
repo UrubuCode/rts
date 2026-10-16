@@ -106,6 +106,16 @@ impl Body<'_> {
             .brif(usable, load_block, &[], miss_target, &miss_args);
 
         builder.switch_to_block(load_block);
+        let kind = builder
+            .ins()
+            .load(types::I64, flags, row, RunTable::ROW_KIND_OFFSET);
+        let words_block = builder.create_block();
+        let numeric_block = builder.create_block();
+        builder
+            .ins()
+            .brif(kind, numeric_block, &[], words_block, &[]);
+
+        builder.switch_to_block(words_block);
         let byte_offset = builder.ins().ishl_imm(whole, 3);
         let at = builder.ins().iadd(start, byte_offset);
         let element = builder.ins().load(types::I64, flags, at, 0);
@@ -125,6 +135,106 @@ impl Body<'_> {
 
         builder.switch_to_block(present);
         builder.ins().jump(hit_target, &hit_args);
+
+        // A typed array's elements: raw numbers at a fixed width, converted to a
+        // double and boxed. The row's start is the first byte of the VIEW's own
+        // window and its length is in elements, both published by the client
+        // under the same contract as a word run.
+        builder.switch_to_block(numeric_block);
+        // Not `trusted()`: that promises natural alignment, and a byte store
+        // owned by a `Vec<u8>` promises none.
+        let flags = MemFlags::new().with_notrap();
+        let joined = builder.create_block();
+        let number = builder.append_block_param(joined, types::F64);
+        let kinds = [
+            RunTable::KIND_F64,
+            RunTable::KIND_F32,
+            RunTable::KIND_I32,
+            RunTable::KIND_U32,
+            RunTable::KIND_I16,
+            RunTable::KIND_U16,
+            RunTable::KIND_I8,
+            RunTable::KIND_U8,
+        ];
+        for (index, wanted) in kinds.iter().enumerate() {
+            let this = builder.create_block();
+            let next = if index + 1 == kinds.len() {
+                None
+            } else {
+                Some(builder.create_block())
+            };
+            let is_kind = builder.ins().icmp_imm(IntCC::Equal, kind, *wanted);
+            let miss_args = self.block_args(&miss.args);
+            match next {
+                Some(next) => builder.ins().brif(is_kind, this, &[], next, &[]),
+                // Past the last kind it knows, a row is a miss and not a guess.
+                None => builder.ins().brif(is_kind, this, &[], miss_target, &miss_args),
+            };
+            builder.switch_to_block(this);
+            let shift = match *wanted {
+                RunTable::KIND_F64 => 3,
+                RunTable::KIND_F32 | RunTable::KIND_I32 | RunTable::KIND_U32 => 2,
+                RunTable::KIND_I16 | RunTable::KIND_U16 => 1,
+                _ => 0,
+            };
+            let scaled = if shift == 0 {
+                whole
+            } else {
+                builder.ins().ishl_imm(whole, shift)
+            };
+            let at = builder.ins().iadd(start, scaled);
+            let converted = match *wanted {
+                RunTable::KIND_F64 => builder.ins().load(types::F64, flags, at, 0),
+                RunTable::KIND_F32 => {
+                    let narrow = builder.ins().load(types::F32, flags, at, 0);
+                    builder.ins().fpromote(types::F64, narrow)
+                }
+                RunTable::KIND_I32 => {
+                    let word = builder.ins().sload32(flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+                RunTable::KIND_U32 => {
+                    let word = builder.ins().uload32(flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+                RunTable::KIND_I16 => {
+                    let word = builder.ins().sload16(types::I64, flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+                RunTable::KIND_U16 => {
+                    let word = builder.ins().uload16(types::I64, flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+                RunTable::KIND_I8 => {
+                    let word = builder.ins().sload8(types::I64, flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+                _ => {
+                    let word = builder.ins().uload8(types::I64, flags, at, 0);
+                    builder.ins().fcvt_from_sint(types::F64, word)
+                }
+            };
+            builder.ins().jump(joined, &[BlockArg::Value(converted)]);
+            if let Some(next) = next {
+                builder.switch_to_block(next);
+            }
+        }
+
+        // One boxing for every kind, with the same NaN canonicalisation a double
+        // gets anywhere else: a `NaN` payload read out of bytes could otherwise
+        // land in the encoded quadrant and be mistaken for a reference.
+        builder.switch_to_block(joined);
+        let bits = builder
+            .ins()
+            .bitcast(types::I64, cranelift_codegen::ir::MemFlags::new(), number);
+        let canonical = builder
+            .ins()
+            .iconst(types::I64, crate::tags::CANONICAL_NAN as i64);
+        let is_nan = builder.ins().fcmp(FloatCC::NotEqual, number, number);
+        let boxed = builder.ins().select(is_nan, canonical, bits);
+        let mut boxed_args = vec![BlockArg::Value(boxed)];
+        boxed_args.extend(self.block_args(&hit.args));
+        builder.ins().jump(hit_target, &boxed_args);
         Ok(())
     }
 }
