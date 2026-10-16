@@ -161,15 +161,23 @@ pub(in crate::layout) fn find_named_line_forward(
     let start_idx = after_line.max(0) as usize;
     let suffixed = format!("{}-end", name);
     let mut count = 0;
+    let mut last_match = None;
     for (idx, line) in lines.iter().enumerate().skip(start_idx) {
         if line.iter().any(|l| l == &suffixed || l == name) {
             count += 1;
+            last_match = Some(idx as i32 + 1);
             if count == nth {
                 return Some(idx as i32 + 1);
             }
         }
     }
-    None
+    if count > 0 {
+        let remaining = (nth - count) as i32;
+        let last_idx = last_match.unwrap_or(lines.len() as i32);
+        Some(last_idx + remaining)
+    } else {
+        Some(after_line + nth as i32)
+    }
 }
 
 pub(in crate::layout) fn find_named_line_backward(
@@ -184,15 +192,23 @@ pub(in crate::layout) fn find_named_line_backward(
     let end_idx = (before_line - 1).min(lines.len() as i32) as usize;
     let suffixed = format!("{}-start", name);
     let mut count = 0;
+    let mut first_match = None;
     for idx in (0..end_idx).rev() {
         if lines[idx].iter().any(|l| l == &suffixed || l == name) {
             count += 1;
+            first_match.get_or_insert(idx as i32 + 1);
             if count == nth {
                 return Some(idx as i32 + 1);
             }
         }
     }
-    None
+    if count > 0 {
+        let remaining = (nth - count) as i32;
+        let last_idx = first_match.unwrap_or(1);
+        Some(last_idx - remaining)
+    } else {
+        Some(before_line - nth as i32)
+    }
 }
 
 /// One edge after name resolution: an absolute line, a span count, a named span,
@@ -210,7 +226,7 @@ pub(in crate::layout) fn resolve_edge(
     end_edge: bool,
     explicit: usize,
     lines: &[LineNames],
-    is_subgrid: bool,
+    _is_subgrid: bool,
 ) -> Edge {
     match l {
         GridLine::Auto => Edge::Auto,
@@ -219,9 +235,7 @@ pub(in crate::layout) fn resolve_edge(
         GridLine::Named(id, nth) => {
             let n = nth.unwrap_or(1);
             Edge::Abs(named_line(id, n, end_edge, lines).unwrap_or_else(|| {
-                if is_subgrid {
-                    if n > 0 { lines.len() as i32 } else { 1 }
-                } else if n > 0 {
+                if n > 0 {
                     lines.len() as i32 + n
                 } else {
                     2 + n
@@ -256,13 +270,11 @@ pub(in crate::layout) fn axis_placement(
             }
         }
         (Abs(a), SpanNamed(id, n)) => {
-            let def = if is_subgrid { lines.len() as i32 } else { a + 1 };
-            let l = find_named_line_forward(&id, a, n, lines).unwrap_or(def);
+            let l = find_named_line_forward(&id, a, n, lines).unwrap_or(a + n as i32);
             (a, if l > a { l } else { a + 1 })
         }
         (SpanNamed(id, n), Abs(b)) => {
-            let def = if is_subgrid { 1 } else { b - 1 };
-            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(def);
+            let l = find_named_line_backward(&id, b, n, lines).unwrap_or(b - n as i32);
             (if l < b { l } else { b - 1 }, b)
         }
         (Abs(a), Span(n)) => (a, a + n as i32),
@@ -274,13 +286,16 @@ pub(in crate::layout) fn axis_placement(
     let (mut a, mut b) = if a <= b { (a, b) } else { (b, a) };
     if b == a { b = a + 1; }
     if is_subgrid && explicit > 0 {
-        let span = (b - a).max(1);
         let exp = explicit as i32;
-        if a - 1 >= exp {
+        if a > exp {
+            a = exp;
             b = exp + 1;
-            a = (b - span).max(1);
-        } else if b - 1 > exp {
-            b = exp + 1;
+        } else if b <= 1 {
+            a = 1;
+            b = 2;
+        } else {
+            if a < 1 { a = 1; }
+            if b > exp + 1 { b = exp + 1; }
         }
     }
     Some((a - 1, b - 1))
