@@ -47,6 +47,10 @@ pub(super) fn emit(
                 bits: rts_cranelift::ir::ScalarBits(sys.selector() as u64),
             });
             let which = builder.use_const(id);
+            if sys.is_text() {
+                // Already a tagged string value: no boxing.
+                return Ok(Some(super::expr::call(builder, ctx, RuntimeOp::SysText, &[which])?[0]));
+            }
             let answered = super::expr::call(builder, ctx, RuntimeOp::SysMemory, &[which])?[0];
             return Ok(Some(tagged(builder, answered)));
         }

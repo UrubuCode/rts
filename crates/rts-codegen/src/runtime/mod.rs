@@ -1198,6 +1198,10 @@ pub enum RuntimeOp {
     /// unboxed, selected by an integer (0 total, 1 free). Reads the operating
     /// system, so it is a call. Host-only; **appended**.
     SysMemory,
+    /// `hostname()` / `homedir()` / `tmpdir()` from `"rts:sys"`: an interned
+    /// string, selected by an integer (0 host, 1 home, 2 tmp). Allocates, so
+    /// unlike `SysMemory` it can collect. Host-only; **appended**.
+    SysText,
 }
 
 impl RuntimeOp {
@@ -1342,6 +1346,7 @@ impl RuntimeOp {
         RuntimeOp::MapNewDirect,
         RuntimeOp::SetNewDirect,
         RuntimeOp::SysMemory,
+        RuntimeOp::SysText,
     ];
 
     /// The linker name the runtime must define.
@@ -1486,6 +1491,7 @@ impl RuntimeOp {
             RuntimeOp::MapNewDirect => "__rts_map_new_direct",
             RuntimeOp::SetNewDirect => "__rts_set_new_direct",
             RuntimeOp::SysMemory => "__rts_sys_memory",
+            RuntimeOp::SysText => "__rts_sys_text",
         }
     }
 
@@ -1526,6 +1532,7 @@ impl RuntimeOp {
             RuntimeOp::MapNewDirect | RuntimeOp::SetNewDirect => (vec![], vec![UNPROVEN]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::SysMemory => (vec![Repr::I64], vec![Repr::F64]),
+            RuntimeOp::SysText => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
                 (vec![UNPROVEN], vec![UNPROVEN])

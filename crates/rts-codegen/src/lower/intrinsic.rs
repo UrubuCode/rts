@@ -137,7 +137,12 @@ impl Lowering<'_> {
                 }
                 let selector = self.domain.constant(JsConst::Count(sys.selector() as u32));
                 let selector = self.declared(selector, at);
-                return Ok(Some(self.entry(crate::runtime::RuntimeOp::SysMemory, vec![selector], at)));
+                let op = if sys.is_text() {
+                    crate::runtime::RuntimeOp::SysText
+                } else {
+                    crate::runtime::RuntimeOp::SysMemory
+                };
+                return Ok(Some(self.entry(op, vec![selector], at)));
             }
         };
         let (op, arity) = match primitive {

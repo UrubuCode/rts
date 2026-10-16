@@ -326,7 +326,7 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // both names through a selector, not two. It adds a capability rather than
     // removing a crossing, which is the host layer's whole point.
     assert!(
-        CORE_ENTRY_COUNT <= 134,
+        CORE_ENTRY_COUNT <= 135,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

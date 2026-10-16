@@ -66,16 +66,32 @@ pub enum Sys {
     Arch,
     /// `"LE" | "BE"`: a compile-time string constant.
     Endianness,
+    /// `os.hostname()`: a runtime string, from `RuntimeOp::SysText`.
+    Hostname,
+    /// `os.homedir()`: a runtime string.
+    Homedir,
+    /// `os.tmpdir()`: a runtime string.
+    Tmpdir,
 }
 
 impl Sys {
-    /// The selector `RuntimeOp::SysMemory` takes. Meaningless for a constant.
+    /// Whether the answer is a runtime STRING (`RuntimeOp::SysText`) rather than
+    /// a number (`RuntimeOp::SysMemory`).
+    pub fn is_text(self) -> bool {
+        matches!(self, Sys::Hostname | Sys::Homedir | Sys::Tmpdir)
+    }
+
+    /// The selector `RuntimeOp::SysMemory` (or `SysText`, see [`Sys::is_text`])
+    /// takes. Meaningless for a constant.
     pub fn selector(self) -> i64 {
         match self {
             Sys::TotalMem => 0,
             Sys::FreeMem => 1,
             Sys::Uptime => 2,
             Sys::CpuCount => 3,
+            Sys::Hostname => 0,
+            Sys::Homedir => 1,
+            Sys::Tmpdir => 2,
             Sys::Platform | Sys::Arch | Sys::Endianness => unreachable!("a constant has no entry"),
         }
     }
@@ -137,6 +153,9 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
         "platform" => Some(Sys::Platform),
         "arch" => Some(Sys::Arch),
         "endianness" => Some(Sys::Endianness),
+        "hostname" => Some(Sys::Hostname),
+        "homedir" => Some(Sys::Homedir),
+        "tmpdir" => Some(Sys::Tmpdir),
         _ => None,
     }
 }

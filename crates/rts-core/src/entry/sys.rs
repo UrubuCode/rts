@@ -125,3 +125,80 @@ fn memory() -> Option<(f64, f64)> {
 fn memory() -> Option<(f64, f64)> {
     None
 }
+
+/// A textual host query: `which` 0 is `os.hostname()`, 1 `os.homedir()`, 2
+/// `os.tmpdir()`. Returns an interned string; any other selector (and any
+/// failed read) answers the empty string, and the compiler only emits those
+/// three. Unlike [`sys_memory`] it allocates, so it is NOT in the codegen's
+/// `CANNOT_RAISE` set.
+#[rtse::entry]
+pub fn sys_text(which: i64) -> u64 {
+    let text = match which {
+        0 => hostname(),
+        1 => homedir(),
+        2 => Some(tmpdir()),
+        _ => None,
+    }
+    .unwrap_or_default();
+    // The string is built before the context is borrowed: reading the OS holds
+    // no heap state.
+    super::with_current(|context| context.intern_value(crate::text::Str::from_str(&text)).bits())
+}
+
+fn env_text(name: &str) -> Option<String> {
+    let value = std::env::var_os(name)?.to_string_lossy().into_owned();
+    (!value.is_empty()).then_some(value)
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetComputerNameExW(kind: u32, buffer: *mut u16, size: *mut u32) -> i32;
+}
+
+/// The DNS host name (`ComputerNameDnsHostname`), which is what libuv's
+/// `uv_os_gethostname` answers.
+#[cfg(windows)]
+fn hostname() -> Option<String> {
+    let mut buffer = [0u16; 1024];
+    let mut size = buffer.len() as u32;
+    (unsafe { GetComputerNameExW(1, buffer.as_mut_ptr(), &mut size) } != 0)
+        .then(|| String::from_utf16_lossy(&buffer[..size as usize]))
+}
+
+#[cfg(not(windows))]
+fn hostname() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+        .ok()?;
+    let text = text.trim().to_string();
+    (!text.is_empty()).then_some(text).or_else(|| env_text("HOSTNAME"))
+}
+
+/// `USERPROFILE` on Windows, `HOME` elsewhere: libuv's first choice, which is
+/// what `os.homedir()` answers in practice.
+fn homedir() -> Option<String> {
+    if cfg!(windows) { env_text("USERPROFILE") } else { env_text("HOME") }
+}
+
+/// Node's `os.tmpdir()`: the first set of `TEMP`/`TMP` (Windows) or
+/// `TMPDIR`/`TMP`/`TEMP` (elsewhere), else `SystemRoot\temp` / `/tmp`, with one
+/// trailing separator removed (but not from `C:\` or `/`).
+fn tmpdir() -> String {
+    let mut path = if cfg!(windows) {
+        env_text("TEMP")
+            .or_else(|| env_text("TMP"))
+            .or_else(|| env_text("SystemRoot").or_else(|| env_text("windir")).map(|root| format!("{root}\\temp")))
+            .unwrap_or_default()
+    } else {
+        env_text("TMPDIR").or_else(|| env_text("TMP")).or_else(|| env_text("TEMP")).unwrap_or_else(|| "/tmp".to_string())
+    };
+    if cfg!(windows) {
+        if path.len() > 1 && path.ends_with('\\') && !path.ends_with(":\\") {
+            path.pop();
+        }
+    } else if path.len() > 1 && path.ends_with('/') {
+        path.pop();
+    }
+    path
+}

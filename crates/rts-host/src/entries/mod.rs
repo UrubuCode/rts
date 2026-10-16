@@ -114,6 +114,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::SysMemory => (CoreEntry::SysMemory, {
             rts_core::entry::sys_memory as extern "C" fn(i64) -> f64 as *const u8
         }),
+        RuntimeOp::SysText => (CoreEntry::SysText, {
+            rts_core::entry::sys_text as extern "C" fn(i64) -> u64 as *const u8
+        }),
         RuntimeOp::MathDirect2 => (CoreEntry::MathDirect2, {
             rts_core::entry::math_direct2 as extern "C" fn(i64, f64, f64) -> f64 as *const u8
         }),

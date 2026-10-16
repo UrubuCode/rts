@@ -192,6 +192,7 @@ impl Js {
         RuntimeOp::MathDirect2,
         // `totalmem()`/`freemem()` from `rts:sys` -- `lower/intrinsic.rs`.
         RuntimeOp::SysMemory,
+        RuntimeOp::SysText,
         // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
         RuntimeOp::ElementAt,
         // Whether an array may be read by index where its iterator would step it --
@@ -799,7 +800,8 @@ impl Domain for Js {
                 RuntimeOp::StringOf
                 | RuntimeOp::TemplateJoin
                 | RuntimeOp::NumberToStringDirect
-                | RuntimeOp::NumberToFixedDirect,
+                | RuntimeOp::NumberToFixedDirect
+                | RuntimeOp::SysText,
             ) => Type::Str,
             Some(RuntimeOp::BigIntNew) => Type::BigInt,
             // A truth value wherever the row answers one unboxed -- the representation
