@@ -48,7 +48,7 @@ impl Body<'_> {
     pub(super) fn lower_run_write(
         &mut self,
         builder: &mut FunctionBuilder,
-        _block: BlockId,
+        block: BlockId,
         owner: ValueId,
         index: ValueId,
         value: ValueId,
@@ -71,6 +71,45 @@ impl Body<'_> {
 
         let heap = self.heap.as_ref().expect("a run table implies a heap");
         let header = super::memory::baked(builder, heap, super::memory::Baked::Runs, table);
+
+        // Where both walks meet; see `run_read`.
+        let tail = builder.create_block();
+        let tail_start = builder.append_block_param(tail, types::I64);
+        let tail_kind = builder.append_block_param(tail, types::I64);
+        let tail_whole = builder.append_block_param(tail, types::I64);
+
+        // A row resolved ahead of the loop, trusted exactly while the table's
+        // generation is the one it was resolved under; see `super::row_hoist`.
+        // The bound is the hoisted WRITE length, so a frozen array, an append and a
+        // typed array's out-of-range no-op still all fall to the walk.
+        if let Some(row) = self.hoisted_row(block) {
+            let generation = builder
+                .ins()
+                .load(types::I64, flags, header, RunTable::GENERATION_OFFSET);
+            let same = builder.ins().icmp(IntCC::Equal, generation, row.generation);
+            let whole = builder.ins().fcvt_to_sint_sat(types::I64, position);
+            let again = builder.ins().fcvt_from_sint(types::F64, whole);
+            let exact = builder.ins().fcmp(FloatCC::Equal, again, position);
+            let inside = builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThan, whole, row.writable);
+            let usable = builder.ins().band(exact, inside);
+            let usable = builder.ins().band(usable, same);
+            let walk = builder.create_block();
+            builder.ins().brif(
+                usable,
+                tail,
+                &[
+                    BlockArg::Value(row.start),
+                    BlockArg::Value(row.kind),
+                    BlockArg::Value(whole),
+                ],
+                walk,
+                &[],
+            );
+            builder.switch_to_block(walk);
+        }
+
         let count = builder
             .ins()
             .load(types::I64, flags, header, RunTable::COUNT_OFFSET);
@@ -108,9 +147,20 @@ impl Body<'_> {
             .brif(usable, store_block, &[], miss_target, &miss_args);
 
         builder.switch_to_block(store_block);
-        let kind = builder
+        let walked_kind = builder
             .ins()
             .load(types::I64, flags, row, RunTable::ROW_KIND_OFFSET);
+        builder.ins().jump(
+            tail,
+            &[
+                BlockArg::Value(start),
+                BlockArg::Value(walked_kind),
+                BlockArg::Value(whole),
+            ],
+        );
+
+        builder.switch_to_block(tail);
+        let (start, kind, whole) = (tail_start, tail_kind, tail_whole);
         let words_block = builder.create_block();
         let numeric_block = builder.create_block();
         builder

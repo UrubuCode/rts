@@ -69,6 +69,10 @@ pub struct Body<'a> {
     /// The heap this function may read and write.
     pub(super) heap: Option<super::Heap<'a>>,
     pub(super) refs: FunctionRefs,
+    /// Which run accesses read a row resolved ahead of their loop.
+    pub(super) hoist: super::row_hoist::HoistPlan,
+    /// The rows resolved so far, by (preheader, root).
+    pub(super) rows: HashMap<(BlockId, ValueId), super::row_hoist::HoistedRow>,
 }
 
 impl<'a> Body<'a> {
@@ -89,6 +93,8 @@ impl<'a> Body<'a> {
             outside: environment.outside,
             heap: environment.heap,
             refs: FunctionRefs::new(),
+            hoist: super::row_hoist::plan(func),
+            rows: HashMap::new(),
         };
         body.create_blocks(builder);
         body.bind_entry_params(builder);

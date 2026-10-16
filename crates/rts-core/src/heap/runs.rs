@@ -64,6 +64,13 @@ pub struct Runs {
     count: u64,
     /// The word that means "no element here".
     absent: u64,
+    /// Incremented by EVERY method below that changes what any row says (or whether
+    /// the table is offered at all). Compiled code that resolved a row once reads this
+    /// word to learn the copy is still true; see
+    /// `rts_cranelift::mem::RunTable::GENERATION_OFFSET`. A new mutator that forgot
+    /// this would make that copy stale silently -- `store` is private so that every
+    /// mutation is in this file, and each calls [`Runs::touch`].
+    generation: u64,
     store: Vec<Row>,
     armed: bool,
     /// Whether typed-array rows may be published. Cleared by a detach.
@@ -87,6 +94,7 @@ impl Runs {
             rows: std::ptr::null(),
             count: 0,
             absent: 0,
+            generation: 0,
             store: Vec::new(),
             armed: true,
             typed_armed: true,
@@ -106,6 +114,7 @@ impl Runs {
     /// happens to share its cell number. `absent` is the marker this context's
     /// numbering gives the thing the table must never hand to a program.
     pub fn reset(&mut self, absent: u64) {
+        self.touch();
         self.store.clear();
         self.frozen.clear();
         self.armed = true;
@@ -116,6 +125,7 @@ impl Runs {
 
     /// Publishes a run for a cell, growing the table to hold it.
     pub fn publish(&mut self, cell: u32, start: *const u64, length: usize) {
+        self.touch();
         let at = cell as usize;
         if at >= self.store.len() {
             self.store.resize(at + 1, EMPTY);
@@ -136,6 +146,7 @@ impl Runs {
     /// Marks a cell's array frozen: compiled code may still READ its run but no
     /// longer overwrites it. Sticky across republishes until the row is retracted.
     pub fn freeze(&mut self, cell: u32) {
+        self.touch();
         let at = cell as usize;
         if at >= self.frozen.len() {
             self.frozen.resize(at + 1, false);
@@ -153,6 +164,7 @@ impl Runs {
     /// detach frees bytes that OTHER views over the same buffer have rows for and
     /// nothing indexes views by buffer. See [`Runs::retract_typed`].
     pub fn publish_typed(&mut self, cell: u32, start: *const u8, length: usize, kind: u64) {
+        self.touch();
         if !self.typed_armed || cfg!(target_endian = "big") {
             self.retract(cell);
             return;
@@ -175,6 +187,7 @@ impl Runs {
     /// every view over them is a row that would read freed memory. Detaching is
     /// rare, so the blunt answer (typed arrays take the runtime) is the sound one.
     pub fn retract_typed(&mut self) {
+        self.touch();
         self.typed_armed = false;
         for row in &mut self.store {
             if row.kind != 0 {
@@ -185,6 +198,7 @@ impl Runs {
 
     /// Empties a cell's row. A cell number is handed to a stranger after this.
     pub fn retract(&mut self, cell: u32) {
+        self.touch();
         if let Some(row) = self.store.get_mut(cell as usize) {
             *row = EMPTY;
         }
@@ -198,8 +212,14 @@ impl Runs {
     /// For a fact that makes the machine's answer wrong where the runtime's is
     /// right and that cannot be checked per row. Permanent, because the fact is.
     pub fn disarm(&mut self) {
+        self.touch();
         self.armed = false;
         self.refresh();
+    }
+
+    /// Says that some row (or the table's availability) may have changed.
+    fn touch(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
 
     /// Republishes the header after the rows may have moved or changed count.
@@ -222,6 +242,7 @@ mod tests {
         assert_eq!(offset_of!(Runs, rows), RunTable::ROWS_OFFSET as usize);
         assert_eq!(offset_of!(Runs, count), RunTable::COUNT_OFFSET as usize);
         assert_eq!(offset_of!(Runs, absent), RunTable::ABSENT_OFFSET as usize);
+        assert_eq!(offset_of!(Runs, generation), RunTable::GENERATION_OFFSET as usize);
         assert_eq!(std::mem::size_of::<Row>(), RunTable::ROW_BYTES as usize);
         assert_eq!(offset_of!(Row, start), RunTable::ROW_START_OFFSET as usize);
         assert_eq!(offset_of!(Row, length), RunTable::ROW_LENGTH_OFFSET as usize);

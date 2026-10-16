@@ -52,6 +52,13 @@ impl RunTable {
     pub const COUNT_OFFSET: i32 = 8;
     /// The header word holding the marker for "no element here".
     pub const ABSENT_OFFSET: i32 = 16;
+    /// The header word holding the table's GENERATION: a counter the client
+    /// increments on EVERY change to any row (a publish, a freeze, a retract, a
+    /// disarm, a reset) -- a row the machine copied under generation `g` is still
+    /// the row exactly while this word still reads `g`. That is what lets a loop
+    /// resolve a row once, ahead of itself, and re-check one word per access
+    /// instead of walking the table; see `lower::row_hoist`.
+    pub const GENERATION_OFFSET: i32 = 24;
     /// How far apart consecutive rows are.
     pub const ROW_BYTES: i64 = 32;
     /// The word of a row holding the address of the run's first element.

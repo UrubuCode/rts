@@ -27,6 +27,7 @@ impl Body<'_> {
     ) -> Result<(), LowerError> {
         match terminator {
             Terminator::Jump(call) => {
+                self.emit_hoisted_rows(builder, block);
                 let args = self.block_args(&call.args);
                 let target = self.blocks[&call.block];
                 builder.ins().jump(target, &args);
