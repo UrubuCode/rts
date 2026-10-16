@@ -103,7 +103,7 @@ fn test_aspect_ratio_005() {
     let a = crate::table::tests::rect(&dom, &list, "#a", 0);
     let b = crate::table::tests::rect(&dom, &list, "#b", 0);
     let g = crate::table::tests::rect(&dom, &list, "#g", 0);
-    let g_node = dom.resolve(dom.query_all("#g")[0]).unwrap();
+    let _g_node = dom.resolve(dom.query_all("#g")[0]).unwrap();
     assert_eq!((g.w, g.h), (100.0, 100.0));
     assert_eq!((a.w, a.h), (100.0, 50.0));
     assert_eq!((b.w, b.h), (100.0, 50.0));
@@ -129,6 +129,23 @@ fn test_aspect_ratio_004() {
     let img = list.rect_of(img_node).unwrap();
     assert_eq!((g.w, g.h), (100.0, 100.0));
     assert_eq!((img.w, img.h), (100.0, 100.0));
+}
+
+#[test]
+fn test_grid_items_001() {
+    let html = r#"<!DOCTYPE html>
+<div id="g1" style="display: grid; font: 25px/1 Ahem; color: green; grid-template-columns: auto auto; justify-content: start; align-content: start;">
+  <div>it</div>
+  em
+  <div>it</div>
+  em
+</div>"#;
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let g1 = crate::table::tests::rect(&dom, &list, "#g1", 0);
+    let g1_node = dom.resolve(dom.query_all("#g1")[0]).unwrap();
+    let col_tracks = list.grid_column_tracks.get(&g1_node);
+    assert_eq!(col_tracks, Some(&vec![50.0, 50.0]));
+    assert_eq!((g1.w, g1.h), (800.0, 50.0));
 }
 
 

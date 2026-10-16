@@ -35,6 +35,31 @@ pub(super) fn layout_bare_text(
         .parent
         .and_then(|p| dom.computed_style_idx(p))
         .unwrap_or_default();
+    let ws = parent_css.white_space.unwrap_or(crate::style::WhiteSpace::Normal);
+    let text_cow: std::borrow::Cow<'_, str> = if ws.preserves_spaces() {
+        std::borrow::Cow::Borrowed(t)
+    } else {
+        let trimmed = t.trim();
+        if trimmed.chars().any(crate::inline_box::e_espaco_css) || trimmed.contains('\n') || trimmed.contains('\t') {
+            let mut s = String::with_capacity(trimmed.len());
+            let mut in_space = false;
+            for ch in trimmed.chars() {
+                if ch == '\n' || ch == '\t' || crate::inline_box::e_espaco_css(ch) {
+                    if !in_space {
+                        s.push(' ');
+                        in_space = true;
+                    }
+                } else {
+                    s.push(ch);
+                    in_space = false;
+                }
+            }
+            std::borrow::Cow::Owned(s)
+        } else {
+            std::borrow::Cow::Borrowed(trimmed)
+        }
+    };
+    let t = &*text_cow;
     let size = crate::layout::font_px(&parent_css, DEFAULT_FONT_SIZE);
     let bold = parent_css.bold.unwrap_or(false);
     let mono = parent_css

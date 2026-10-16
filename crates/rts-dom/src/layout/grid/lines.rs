@@ -19,7 +19,7 @@ use crate::{Dom, NodeIdx};
 /// Item de grid antes da colocação. A geometria usa a caixa, enquanto a
 /// colocação e o estilo continuam a consultar o nó que a gerou.
 #[derive(Clone, Copy)]
-pub(in crate::layout) struct GridItem {
+pub(crate) struct GridItem {
     pub node: NodeIdx,
     pub box_id: BoxId,
 }
@@ -296,7 +296,7 @@ pub(in crate::layout) use super::placement::place_grid_items;
 /// carries this construction's `BoxId` rather than coming back through its
 /// `NodeIdx`. One list, two readers: a second filter in the measure would
 /// count an item the layout drops.
-pub(in crate::layout) fn collect_items(
+pub(crate) fn collect_items(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
     container: BoxId,
