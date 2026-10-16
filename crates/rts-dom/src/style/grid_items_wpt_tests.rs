@@ -148,4 +148,24 @@ fn test_grid_items_001() {
     assert_eq!((g1.w, g1.h), (800.0, 50.0));
 }
 
+#[test]
+fn test_grid_img_item_percent_max_height_001() {
+    let html = r#"<!DOCTYPE html>
+<div id="g" style="display: grid; grid-template-rows: 200px;">
+  <img id="img" src="support/200x200-green.png" style="max-height: 50%;">
+</div>"#;
+    let mut dom = crate::parse_html_to_dom(html);
+    let img_id = dom.query_all("#img")[0];
+    dom.set_pixel_data(img_id, vec![0; 200 * 200 * 4], 200, 200);
+    let img_node = dom.resolve(img_id).unwrap();
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let img = list.rect_of(img_node).unwrap();
+    assert_eq!((img.w, img.h), (100.0, 100.0));
+}
+
 

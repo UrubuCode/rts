@@ -71,7 +71,7 @@ pub(in crate::layout) fn ratio_outer_width(
     if is_rep {
         let stretch_y = matches!(align, crate::style::AlignItems::Stretch);
         let forced_h = if stretch_y { area_h } else { None };
-        if css.height.is_some() || forced_h.is_some() {
+        if css.height.is_some() || css.min_height.is_some() || css.max_height.is_some() || forced_h.is_some() {
             if let Some((w, _)) = crate::inline_box::replaced_inline_size(
                 dom,
                 child,
