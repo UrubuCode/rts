@@ -2119,16 +2119,17 @@ mod tests {
         // so the test follows the refusal to the next construct rather than
         // being deleted with the gap it happened to name.
         //
-        // `using` is that construct: it needs `Symbol.dispose`, which the
-        // runtime does not have. Written inside a function because the checker
-        // refuses one at a script's top level before emission is reached — a
-        // different refusal, and pinning it here would be testing the checker.
-        let error =
-            emit_source("function f() { using r = {}; }").expect_err("`using` is not emitted");
+        // A `using` declaration is rewritten by the parser to a `try`/`finally`
+        // now, so the construct still refused by name is the for-head spelling,
+        // which has to dispose once per iteration. Written inside a function
+        // because the checker refuses a top-level one first — a different
+        // refusal, and pinning it here would be testing the checker.
+        let error = emit_source("function f() { for (using r of []) {} }")
+            .expect_err("a `using` for-head is not emitted");
         assert_eq!(
             error,
             EmitError::Unsupported {
-                construct: "`using`, which needs `Symbol.dispose`"
+                construct: "`using` in a for-head, which needs `Symbol.dispose`"
             },
             "the name is the deliverable — a gap reported as `Unsupported` with              no word in it is indistinguishable from any other gap"
         );

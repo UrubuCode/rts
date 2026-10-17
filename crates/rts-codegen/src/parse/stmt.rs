@@ -113,7 +113,9 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
                             Some(test) => Some(expr(cx, test)?),
                             None => None,
                         },
-                        body: stmts(cx, &case.cons)?,
+                        // Not `stmts`: a `using` directly in a clause is the checker's to refuse
+                        // (no scope ends there), and the rewrite would hide it.
+                        body: case.cons.iter().map(|s| stmt(cx, s)).collect::<Result<Vec<_>>>()?,
                     })
                 })
                 .collect::<Result<_>>()?,
@@ -151,7 +153,8 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
 }
 
 pub(super) fn stmts(cx: &mut Cx, list: &[swc::Stmt]) -> Result<Vec<Stmt>> {
-    list.iter().map(|s| stmt(cx, s)).collect()
+    let lowered = list.iter().map(|s| stmt(cx, s)).collect::<Result<Vec<_>>>()?;
+    Ok(super::using::lower(cx, lowered))
 }
 
 fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {

@@ -43,6 +43,7 @@ mod members;
 mod module;
 mod pat;
 mod stmt;
+mod using;
 
 use std::fmt;
 

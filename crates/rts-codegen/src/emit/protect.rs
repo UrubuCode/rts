@@ -36,18 +36,11 @@
 //! puts the value straight back into the region tree this module already builds.
 //! So the handler search is unchanged; only the reach is.
 //!
-//! # Why `using` is not here yet, and what it is waiting on
+//! # Where `using` went
 //!
-//! Not the cleanup. A cleanup is a piece rather than a block now, which is what
-//! `finally` was waiting on and what `using` was waiting on with it — the region
-//! and the disposal-on-every-exit are exactly the shape this module already
-//! emits.
-//!
-//! It is waiting on the *disposal*. `using x = e` calls `x[Symbol.dispose]()`,
-//! and this engine has no `Symbol`, so there is no way to name the method. A
-//! region with no call in its cleanup would scope correctly and dispose
-//! nothing, which reads as working — the one failure a resource construct must
-//! not have. So it is refused by name, and the name says which half is missing.
+//! `using x = e` is rewritten by `parse::using` into a `try`/`finally` whose
+//! cleanup calls `x[Symbol.dispose]()`, so it reaches this module as a `try`.
+//! Only a `using` that rewrite does not cover is refused by name.
 
 use rts_cranelift::ir::FuncBuilder;
 use rts_cranelift::unwind::{Handler, Tag};

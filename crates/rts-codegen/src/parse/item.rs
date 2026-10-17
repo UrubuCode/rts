@@ -303,6 +303,7 @@ fn block_body(
         body.push(stmt(cx, statement)?);
     }
 
+    let body = super::using::lower(cx, body);
     Ok((directives, FunctionBody::Block(body)))
 }
 
