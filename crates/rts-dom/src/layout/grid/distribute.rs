@@ -170,186 +170,31 @@ pub(in crate::layout) fn distribute_spanning_columns<F, S>(
         .filter(|c| c.c1 > c.c0 && c.c0 < ncols && !is_sub(c) && (c.c1 - c.c0) > 1)
         .collect();
     spanning.sort_by_key(|c| c.c1 - c.c0);
-    let items: Vec<(&GridCell, ItemSizes)> = spanning.into_iter().map(|c| (c, get_sizes(c))).collect();
+    let items: Vec<super::spanning::SpanningItem> = spanning
+        .into_iter()
+        .map(|c| {
+            let s = get_sizes(c);
+            super::spanning::SpanningItem {
+                start: c.c0,
+                end: c.c1,
+                min_size: s.min_size,
+                min_content: s.min_content,
+                max_content: s.max_content,
+            }
+        })
+        .collect();
 
-    for &(c, ref item) in &items {
-        let end = c.c1.min(ncols);
-        let gutters = (end.saturating_sub(c.c0 + 1)) as f32 * col_gap;
-        let mut current_base = gutters;
-        let mut target_min_cols = Vec::new();
-        let mut has_min_content_track = false;
-        for col in c.c0..end {
-            match col_tracks.get(col) {
-                Some(GridTrack::Fixed(d)) => current_base += d.resolve(resolve).unwrap_or(0.0),
-                Some(GridTrack::Bounded { min, .. }) => current_base += min.resolve(resolve).unwrap_or(0.0),
-                Some(GridTrack::Auto) => {
-                    current_base += wmin[col];
-                    target_min_cols.push(col);
-                }
-                Some(GridTrack::Intrinsic { min, .. }) => match min {
-                    TrackBound::Fixed(d) => current_base += d.resolve(resolve).unwrap_or(0.0),
-                    TrackBound::MinContent => {
-                        current_base += wmin[col];
-                        target_min_cols.push(col);
-                        has_min_content_track = true;
-                    }
-                    TrackBound::Auto | TrackBound::MaxContent => {
-                        current_base += wmin[col];
-                        target_min_cols.push(col);
-                    }
-                    TrackBound::FitContent(d) => current_base += d.resolve(resolve).unwrap_or(0.0),
-                },
-                _ => { current_base += wmin[col]; }
-            }
-        }
-        let req_base = if has_min_content_track { item.min_content } else { item.min_size };
-        let empty_min: Vec<usize> = target_min_cols.iter().copied().filter(|&col| !had_single_col[col]).collect();
-        let targets = if !empty_min.is_empty() { empty_min } else { target_min_cols };
-        if req_base > current_base && !targets.is_empty() {
-            let extra = (req_base - current_base) / targets.len() as f32;
-            for &col in &targets {
-                wmin[col] += extra;
-                wmax[col] = wmax[col].max(wmin[col]);
-            }
-        }
-    }
-
-    for &(c, ref item) in &items {
-        let end = c.c1.min(ncols);
-        let gutters = (end.saturating_sub(c.c0 + 1)) as f32 * col_gap;
-
-        // Step 2: Growth limits for tracks with max function min-content
-        let mut current_min_growth = gutters;
-        let mut min_growth_cols = Vec::new();
-        for col in c.c0..end {
-            match col_tracks.get(col) {
-                Some(GridTrack::Fixed(d)) => current_min_growth += d.resolve(resolve).unwrap_or(0.0),
-                Some(GridTrack::Bounded { min, max }) => {
-                    current_min_growth += max.resolve(resolve).or_else(|| min.resolve(resolve)).unwrap_or(0.0);
-                }
-                Some(GridTrack::Auto) => {
-                    current_min_growth += wmax[col].max(wmin[col]);
-                    min_growth_cols.push(col);
-                }
-                Some(GridTrack::Intrinsic { max, .. }) => match max {
-                    TrackBound::Fixed(d) => current_min_growth += d.resolve(resolve).unwrap_or(0.0),
-                    _ => {
-                        let cur = if matches!(max, TrackBound::MinContent) {
-                            wmin[col]
-                        } else {
-                            wmax[col].max(wmin[col])
-                        };
-                        current_min_growth += cur;
-                        min_growth_cols.push(col);
-                    }
-                },
-                _ => { current_min_growth += wmax[col]; }
-            }
-        }
-        if item.min_content > current_min_growth && !min_growth_cols.is_empty() {
-            let extra = (item.min_content - current_min_growth) / min_growth_cols.len() as f32;
-            for &col in &min_growth_cols {
-                if matches!(col_tracks.get(col), Some(GridTrack::Intrinsic { max: TrackBound::MinContent, .. })) {
-                    wmin[col] += extra;
-                    wmax[col] = wmax[col].max(wmin[col]);
-                } else {
-                    wmax[col] += extra;
-                }
-            }
-        }
-
-        // Step 3: Growth limits for tracks with max function max-content / auto / fit-content
-        let has_explicit_max_content = (c.c0..end).any(|col| {
-            matches!(col_tracks.get(col), Some(GridTrack::Intrinsic { max: TrackBound::MaxContent, .. }))
-        });
-
-        let mut current_max_growth = gutters;
-        let mut max_growth_cols = Vec::new();
-        for col in c.c0..end {
-            match col_tracks.get(col) {
-                Some(GridTrack::Fixed(d)) => current_max_growth += d.resolve(resolve).unwrap_or(0.0),
-                Some(GridTrack::Bounded { min, max }) => {
-                    current_max_growth += max.resolve(resolve).or_else(|| min.resolve(resolve)).unwrap_or(0.0);
-                }
-                Some(GridTrack::Auto) => {
-                    current_max_growth += wmax[col].max(wmin[col]);
-                    if !has_explicit_max_content {
-                        max_growth_cols.push(col);
-                    }
-                }
-                Some(GridTrack::Intrinsic { max, .. }) => match max {
-                    TrackBound::Fixed(d) => current_max_growth += d.resolve(resolve).unwrap_or(0.0),
-                    TrackBound::MinContent => current_max_growth += wmin[col],
-                    TrackBound::MaxContent => {
-                        current_max_growth += wmax[col].max(wmin[col]);
-                        max_growth_cols.push(col);
-                    }
-                    TrackBound::Auto => {
-                        current_max_growth += wmax[col].max(wmin[col]);
-                        if !has_explicit_max_content {
-                            max_growth_cols.push(col);
-                        }
-                    }
-                    TrackBound::FitContent(d) => {
-                        let cur = wmax[col].max(wmin[col]);
-                        let cap = d.resolve(resolve).unwrap_or(f32::INFINITY).max(wmin[col]);
-                        current_max_growth += cur.min(cap);
-                        if !has_explicit_max_content {
-                            max_growth_cols.push(col);
-                        }
-                    }
-                },
-                _ => { current_max_growth += wmax[col]; }
-            }
-        }
-        if item.max_content > current_max_growth && !max_growth_cols.is_empty() {
-            let mut remaining = item.max_content - current_max_growth;
-            let mut active = max_growth_cols.clone();
-            let empty: Vec<usize> = active.iter().copied().filter(|&col| !had_single_col[col]).collect();
-            if !empty.is_empty() { active = empty; }
-            while !active.is_empty() && remaining > 1e-4 {
-                let quota = remaining / active.len() as f32;
-                let mut next_active = Vec::new();
-                for &col in &active {
-                    let cap = match col_tracks.get(col) {
-                        Some(GridTrack::Intrinsic { max: TrackBound::FitContent(d), .. }) => {
-                            d.resolve(resolve).unwrap_or(f32::INFINITY).max(wmin[col])
-                        }
-                        _ => f32::INFINITY,
-                    };
-                    let cur = wmax[col].max(wmin[col]);
-                    let can_grow = (cap - cur).max(0.0);
-                    let grow = can_grow.min(quota);
-                    wmax[col] = cur + grow;
-                    remaining -= grow;
-                    if can_grow > quota + 1e-4 {
-                        next_active.push(col);
-                    }
-                }
-                if next_active.len() == active.len() || remaining <= 1e-4 {
-                    if remaining > 1e-4 {
-                        let unbounded: Vec<usize> = active
-                            .into_iter()
-                            .filter(|&col| {
-                                !matches!(
-                                    col_tracks.get(col),
-                                    Some(GridTrack::Intrinsic { max: TrackBound::FitContent(_), .. })
-                                )
-                            })
-                            .collect();
-                        if !unbounded.is_empty() {
-                            let each = remaining / unbounded.len() as f32;
-                            for col in unbounded {
-                                wmax[col] += each;
-                            }
-                        }
-                    }
-                    break;
-                }
-                active = next_active;
-            }
-        }
-    }
+    super::spanning::distribute_spanning_tracks(
+        col_tracks,
+        &items,
+        ncols,
+        col_gap,
+        Some(resolve.parent_content_w),
+        resolve,
+        &had_single_col,
+        wmax,
+        wmin,
+    );
 }
 
 pub(in crate::layout) fn distribute_spanning_slice<F, S>(

@@ -94,19 +94,8 @@ pub(in crate::layout) fn resolve_tracks(
             .filter(|(_, t)| matches!(t, T::Auto | T::Intrinsic { max: B::FitContent(_), .. }))
             .map(|(i, _)| i)
             .collect();
-        if !auto_tracks.is_empty() {
-            let reducible: f32 = auto_tracks
-                .iter()
-                .map(|&i| (sizes[i] - min_of(i)).max(0.0))
-                .sum();
-            if reducible > 0.0 {
-                let factor = (overflow / reducible).min(1.0);
-                for &i in &auto_tracks {
-                    let can_reduce = (sizes[i] - min_of(i)).max(0.0);
-                    sizes[i] -= can_reduce * factor;
-                }
-            }
-        }
+        let min_sizes: Vec<f32> = (0..tracks.len()).map(min_of).collect();
+        super::spanning::reduce_tracks_overflow(&mut sizes, &min_sizes, &auto_tracks, overflow);
     }
     let free = (container - sizes.iter().sum::<f32>() - total_gap).max(0.0);
 
@@ -174,27 +163,7 @@ pub(in crate::layout) fn resolve_tracks(
                 _ => unreachable!("filtrado acima"),
             })
             .collect();
-        let mut active: Vec<usize> = (0..bounded.len())
-            .filter(|&idx| sizes[bounded[idx]] < ceilings[idx])
-            .collect();
-        while !active.is_empty() && remaining > 1e-4 {
-            let quota = remaining / active.len() as f32;
-            let mut next_active = Vec::new();
-            for &idx in &active {
-                let i = bounded[idx];
-                let ceiling = ceilings[idx];
-                let grow = (ceiling - sizes[i]).min(quota);
-                sizes[i] += grow;
-                remaining -= grow;
-                if sizes[i] < ceiling - 1e-4 {
-                    next_active.push(idx);
-                }
-            }
-            if next_active.len() == active.len() {
-                break;
-            }
-            active = next_active;
-        }
+        remaining = super::spanning::expand_bounded_tracks(&mut sizes, &ceilings, &bounded, remaining);
     }
     let auto_tracks: Vec<usize> = tracks
         .iter()
@@ -259,49 +228,56 @@ pub(in crate::layout) fn measure_content_rows(
             measure_block(dom, cell.child, cell.box_id, avail_w, area_h, forced_w, None, !stretch_x, ctx)
         };
         let h = bh;
+        let item_css = dom.computed_style_idx(cell.child);
+        let is_ortho_item = is_ortho_frame || item_css.as_ref().map_or(false, |c| crate::layout::block::rotated::opens_frame(dom, cell.child, c));
+        let mh = if is_ortho_item && item_css.as_ref().map_or(true, |c| c.min_height.is_none() && c.height.is_none() && c.max_height.is_none()) {
+            measure_block(dom, cell.child, cell.box_id, cw, Some(0.0), None, None, true, ctx).1
+        } else if is_ortho_frame {
+            measure_block(dom, cell.child, cell.box_id, 0.0, area_h, None, None, true, ctx).1
+        } else {
+            super::aspect::grid_item_min_content_height(dom, cell.child, h, cw, resolve.node_font_size, resolve, ctx)
+        };
+        let min_sz = super::clamp::clamp_item_min_h(mh, dom, cell.child, explicit_rows, cell.r0, cell.r1, row_gap, container_content_h, resolve);
         if cell.rows() == 1 && cell.r0 < nrows {
             content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
-            let mh = super::aspect::grid_item_min_content_height(dom, cell.child, h, cw, resolve.node_font_size, resolve, ctx);
-            let mh = super::clamp::clamp_item_min_h(mh, dom, cell.child, explicit_rows, cell.r0, cell.r1, row_gap, container_content_h, resolve);
-            min_row_h[cell.r0] = min_row_h[cell.r0].max(mh);
+            min_row_h[cell.r0] = min_row_h[cell.r0].max(min_sz);
         } else if cell.rows() > 1 {
-            multi_row_items.push((cell, h));
+            multi_row_items.push(super::spanning::SpanningItem {
+                start: cell.r0,
+                end: cell.r1,
+                min_size: min_sz,
+                min_content: mh,
+                max_content: h,
+            });
         }
     }
-    for (cell, h) in multi_row_items {
-        let end = cell.r1.min(nrows);
-        let mut current_span_h = (end.saturating_sub(cell.r0 + 1)) as f32 * row_gap;
-        let mut unfixed_rows = Vec::new();
-        for r in cell.r0..end {
-            let track = explicit_rows
+    let mut had_single_row = vec![false; nrows];
+    for cell in cells {
+        if cell.rows() == 1 && cell.r0 < nrows && !super::subgrid::is_subgrid_node(dom, cell.child, wm).1 {
+            had_single_row[cell.r0] = true;
+        }
+    }
+    let row_tracks: Vec<crate::style::GridTrack> = (0..nrows)
+        .map(|r| {
+            explicit_rows
                 .get(r)
-                .or_else(|| auto_row.map(|t| t.track_at(r.saturating_sub(explicit_rows.len()))));
-            match track {
-                Some(crate::style::GridTrack::Fixed(d)) => {
-                    current_span_h +=
-                        resolve_height(Some(*d), container_content_h, resolve).unwrap_or(0.0);
-                }
-                _ => {
-                    current_span_h += content_row_h[r];
-                    unfixed_rows.push(r);
-                }
-            }
-        }
-        if h > current_span_h {
-            let empty: Vec<usize> = unfixed_rows.iter().copied().filter(|&r| content_row_h[r] == 0.0).collect();
-            let targets = if !empty.is_empty() {
-                empty
-            } else if !unfixed_rows.is_empty() {
-                unfixed_rows
-            } else {
-                (cell.r0..end).collect()
-            };
-            let extra = (h - current_span_h) / targets.len() as f32;
-            for r in targets {
-                content_row_h[r] += extra;
-            }
-        }
-    }
+                .cloned()
+                .or_else(|| auto_row.map(|t| t.track_at(r.saturating_sub(explicit_rows.len()))).cloned())
+                .unwrap_or(crate::style::GridTrack::Auto)
+        })
+        .collect();
+    multi_row_items.sort_by_key(|i| i.end - i.start);
+    super::spanning::distribute_spanning_tracks(
+        &row_tracks,
+        &multi_row_items,
+        nrows,
+        row_gap,
+        container_content_h,
+        resolve,
+        &had_single_row,
+        &mut content_row_h,
+        &mut min_row_h,
+    );
     (content_row_h, min_row_h)
 }
 
@@ -365,55 +341,81 @@ pub(in crate::layout) fn resolve_row_tracks(
         })
         .collect();
 
-    if align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch)) {
-        if let Some(ch) = container_h.or(mnh) {
-            let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
-            let sum_fr: f32 = (0..nrows).filter_map(|r| row_track(r).and_then(|t| t.flex_factor()).map(|f| f.max(0.0))).sum();
-            if sum_fr > 0.0 {
-                let non_fr: f32 = (0..nrows).filter(|&r| row_track(r).and_then(|t| t.flex_factor()).is_none()).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
-                let free = (ch - non_fr).max(0.0);
-                let flex_sum = sum_fr.max(1.0);
-                for r in 0..nrows {
-                    if let Some(f) = row_track(r).and_then(|t| t.flex_factor()) { row_sizes[r] = free * f.max(0.0) / flex_sum; }
-                }
-            } else {
-                let min_of_row = |r: usize| match row_track(r) {
-                    Some(T::Fixed(d)) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
-                    Some(T::Bounded { min, .. }) => resolve_height(Some(*min), container_h, resolve).unwrap_or(0.0),
-                    Some(T::Intrinsic { min, .. }) => match min {
-                        B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
-                        B::MinContent | B::Auto => min_row_h.get(r).copied().unwrap_or(0.0),
-                        B::MaxContent => content_row_h.get(r).copied().unwrap_or(0.0),
-                        B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
-                    },
-                    _ => min_row_h.get(r).copied().unwrap_or(0.0),
-                };
-                let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
-                if ch > current_used {
+    let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+    let min_of_row = |r: usize| match row_track(r) {
+        Some(T::Fixed(d)) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+        Some(T::Bounded { min, .. }) => resolve_height(Some(*min), container_h, resolve).unwrap_or(0.0),
+        Some(T::Intrinsic { min, .. }) => match min {
+            B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+            B::MinContent | B::Auto => min_row_h.get(r).copied().unwrap_or(0.0),
+            B::MaxContent => content_row_h.get(r).copied().unwrap_or(0.0),
+            B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+        },
+        _ => min_row_h.get(r).copied().unwrap_or(0.0),
+    };
+    if let Some(ch) = container_h {
+        let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
+        if current_used > ch {
+            let overflow = current_used - ch;
+            let auto_tracks: Vec<usize> = (0..nrows)
+                .filter(|&r| matches!(row_track(r), Some(T::Auto | T::Intrinsic { max: B::FitContent(_), .. }) | None))
+                .collect();
+            let min_sizes: Vec<f32> = (0..nrows).map(min_of_row).collect();
+            super::spanning::reduce_tracks_overflow(&mut row_sizes, &min_sizes, &auto_tracks, overflow);
+        }
+    }
+
+    let sum_fr: f32 = (0..nrows).filter_map(|r| row_track(r).and_then(|t| t.flex_factor()).map(|f| f.max(0.0))).sum();
+    if let Some(ch) = container_h.or(mnh) {
+        if sum_fr > 0.0 {
+            let non_fr: f32 = (0..nrows).filter(|&r| row_track(r).and_then(|t| t.flex_factor()).is_none()).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
+            let free = (ch - non_fr).max(0.0);
+            let flex_sum = sum_fr.max(1.0);
+            for r in 0..nrows {
+                if let Some(f) = row_track(r).and_then(|t| t.flex_factor()) { row_sizes[r] = free * f.max(0.0) / flex_sum; }
+            }
+        } else {
+            let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
+            if ch > current_used {
+                let free = ch - current_used;
+                let bounded_indices: Vec<usize> = (0..nrows)
+                    .filter(|&r| matches!(row_track(r), Some(T::Bounded { .. } | T::Intrinsic { .. })))
+                    .collect();
+                let ceilings: Vec<f32> = bounded_indices
+                    .iter()
+                    .map(|&r| match row_track(r) {
+                        Some(T::Bounded { max, .. }) => resolve_height(Some(*max), container_h, resolve).unwrap_or(f32::INFINITY),
+                        Some(T::Intrinsic { max, min }) => {
+                            let c = match max {
+                                B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(row_sizes[r]),
+                                B::MinContent => min_row_h.get(r).copied().unwrap_or(0.0),
+                                B::MaxContent | B::Auto => content_row_h.get(r).copied().unwrap_or(row_sizes[r]),
+                                B::FitContent(d) => {
+                                    let lim = resolve_height(Some(*d), container_h, resolve).unwrap_or(row_sizes[r]);
+                                    let mn = min_row_h.get(r).copied().unwrap_or(0.0);
+                                    let mx = content_row_h.get(r).copied().unwrap_or(row_sizes[r]).max(mn);
+                                    lim.max(mn).min(mx)
+                                }
+                            };
+                            if matches!(min, B::Auto) { c } else { c.max(row_sizes[r]) }
+                        }
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                let remaining = super::spanning::expand_bounded_tracks(&mut row_sizes, &ceilings, &bounded_indices, free);
+                let stretch = align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch));
+                if stretch && remaining > 0.0 {
                     let auto_rows: Vec<usize> = (0..nrows)
                         .filter(|&r| !row_collapsed.get(r).copied().unwrap_or(false) && matches!(row_track(r), None | Some(T::Auto | T::Intrinsic { max: B::Auto, .. })))
                         .collect();
                     if !auto_rows.is_empty() {
-                        let each = (ch - current_used) / auto_rows.len() as f32;
+                        let each = remaining / auto_rows.len() as f32;
                         for r in auto_rows { row_sizes[r] += each; }
-                    }
-                } else if container_h.is_some() && current_used > ch {
-                    let overflow = current_used - ch;
-                    let non_fixed: Vec<usize> = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fixed(_)))).collect();
-                    let reducible: f32 = non_fixed
-                        .iter()
-                        .map(|&r| (row_sizes[r] - min_of_row(r)).max(0.0))
-                        .sum();
-                    if reducible > 0.0 {
-                        let factor = (overflow / reducible).min(1.0);
-                        for &r in &non_fixed {
-                            let can_reduce = (row_sizes[r] - min_of_row(r)).max(0.0);
-                            row_sizes[r] -= can_reduce * factor;
-                        }
                     }
                 }
             }
-        } else {
+        }
+    } else if align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch)) {
             let mut max_fr_share = 0.0f32;
             for r in 0..nrows {
                 if let Some(t) = row_track(r) {
@@ -475,7 +477,6 @@ pub(in crate::layout) fn resolve_row_tracks(
                     for r in auto_rows {
                         row_sizes[r] = each;
                     }
-                }
             }
         }
     }
