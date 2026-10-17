@@ -183,7 +183,9 @@ pub use eval_scope::{
     declare_eval_compiler_with_receiver, environment_names, eval_direct, evaluate_in_scope,
     evaluate_in_scope_with_receiver, hides_node_globals, mark_hides_node_globals,
 };
-pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
+pub use generator::{
+    FrameShape, async_generator_new, declare_frames, delegate_step, generator_new, generator_yield,
+};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
 pub use page_scope::{page_global_get, page_global_set};
 pub use iterate::{array_append, array_append_all, iterate, iterator_result};

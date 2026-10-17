@@ -110,7 +110,9 @@ use super::objects::{
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
-use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::generator::{
+    ASYNC_GENERATOR_NEW_ENTRY, DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY,
+};
 use super::arguments::ARGUMENTS_OBJECT_ENTRY;
 use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
@@ -859,6 +861,9 @@ pub enum CoreEntry {
     F64ToBits = 135,
     /// [`super::f64_from_bits`] -- `f64FromBits`: the double a bigint's low 64 bits spell.
     F64FromBits = 136,
+    /// [`super::async_generator_new`] -- the object an `async function*` call answers:
+    /// `GeneratorNew`'s frame under the async generator's prototype. Allocates.
+    AsyncGeneratorNew = 137,
 }
 
 /// How many entry points exist.
@@ -866,7 +871,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 137;
+pub const CORE_ENTRY_COUNT: usize = 138;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -1011,6 +1016,7 @@ impl CoreEntry {
         CoreEntry::SysText,
         CoreEntry::F64ToBits,
         CoreEntry::F64FromBits,
+        CoreEntry::AsyncGeneratorNew,
     ];
 
     /// The number a call site holds.
@@ -1163,6 +1169,7 @@ impl CoreEntry {
             CoreEntry::SysText => SYS_TEXT_ENTRY,
             CoreEntry::F64ToBits => F64_TO_BITS_ENTRY,
             CoreEntry::F64FromBits => F64_FROM_BITS_ENTRY,
+            CoreEntry::AsyncGeneratorNew => ASYNC_GENERATOR_NEW_ENTRY,
         }
     }
 

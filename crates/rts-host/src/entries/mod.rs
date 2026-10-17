@@ -154,6 +154,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
             rts_core::entry::generator_new
                 as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::AsyncGeneratorNew => (CoreEntry::AsyncGeneratorNew, {
+            rts_core::entry::async_generator_new
+                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::AsyncStart => (CoreEntry::AsyncStart, {
             rts_core::entry::async_start
                 as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8

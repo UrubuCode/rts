@@ -10,7 +10,7 @@
 //! ordinary call in the program to express something one site knows.
 //!
 //! They stack, and the stacking is the semantics: an `async function*` is
-//! [`generator`] (its frame parks) with [`async_generator`] on top (its object
+//! [`generator`] (its frame parks) with an async object on top (its steps answer promises and its object
 //! is async-iterable).
 //!
 //! Split out of `function.rs` rather than added to it: that file is already
@@ -41,7 +41,7 @@ use crate::runtime::RuntimeOp;
 ///
 /// The body's arguments are passed on and written into the frame there, because
 /// a resumed body is entered afresh with nothing in the registers it had.
-pub(super) fn generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
+pub(super) fn generator(ctx: &mut Ctx, inner: FuncId, asynchronous: bool) -> EmitResult<FuncId> {
     let sig = ctx.funcs.declare_signature(signature());
     let id = ctx.funcs.declare_function(sig);
     let mut func = MachineFunction::new(signature());
@@ -69,82 +69,14 @@ pub(super) fn generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
     let mut operands = Vec::with_capacity(1 + arguments.len());
     operands.push(code);
     operands.extend(arguments);
-    let made = expr::call(&mut builder, ctx, RuntimeOp::GeneratorNew, &operands)?[0];
-    builder.ret(&[made]);
-    ctx.body.leave_nested(outer_throw);
-    ctx.pending.push((id, func));
-    Ok(id)
-}
-
-/// Wraps a generator's wrapper so that `async function*` answers something the
-/// async iteration protocol can step.
-///
-/// # What an async generator is here, exactly
-///
-/// The frame half is already right: an `async function*` body suspends at
-/// `yield` and drains at `await`, which is what [`generator`] hands to the
-/// runtime. What is missing is the PROTOCOL — `for await (x of xs)` asks `xs`
-/// for `[Symbol.asyncIterator]` and nothing else, and a generator object
-/// declares only `[Symbol.iterator]`. So this installs the one member that
-/// separates the two.
-///
-/// # Why the member is READ off the object rather than emitted
-///
-/// `[Symbol.iterator]` on a generator answers the generator itself
-/// (`entry/generator.rs`'s `itself`), and `[Symbol.asyncIterator]` on an async
-/// generator has to answer exactly the same thing. Emitting a second
-/// "return this" function here would be that rule written twice, and the copy is
-/// the one that goes stale — so the function the runtime already installed is
-/// the value written under the second key.
-///
-/// # What this deliberately does NOT do
-///
-/// `next()` answers `{ value, done }` where the language says a PROMISE of one.
-/// `await` on a non-thenable answers the value, so `await g.next()` and
-/// `for await` both read correctly; what diverges is `g.next().then(…)`, which
-/// has no `then` to call. Closing it needs the object's `next` to settle a
-/// promise, which is `entry/generator.rs`'s to decide and not this layer's.
-///
-/// A synchronous `for (const x of asyncGen())` also still iterates, because the
-/// inherited `[Symbol.iterator]` is not removed — the language says an async
-/// generator has none. Removing it needs a prototype of its own, which is the
-/// same file's decision.
-pub(super) fn async_generator(ctx: &mut Ctx, inner: FuncId) -> EmitResult<FuncId> {
-    let sig = ctx.funcs.declare_signature(signature());
-    let id = ctx.funcs.declare_function(sig);
-    let mut func = MachineFunction::new(signature());
-    let entry = func.entry;
-    let arguments: Vec<ValueId> = func
-        .block(entry)
-        .expect("a function always has its entry block")
-        .params
-        .clone();
-    let types = rts_cranelift::types::TypeRegistry::new();
-    let mut builder = FuncBuilder::new(&mut func, &types, entry);
-    // Taken for the reason [`generator`] takes it: this is its own function, and
-    // an SSA value defined in another one is not a value here.
-    let outer_throw = ctx.body.enter_nested();
-
-    // The generator object, made by the wrapper this one stacks on: the frame is
-    // parked exactly as a synchronous generator's is.
-    let made = builder.call(ctx.funcs, inner, &arguments)?[0];
-    // `@@` is the reserved spelling of a well-known symbol's key — the same one
-    // `delegate.rs` reads `@@iterator` under and `class.rs` writes a
-    // `[Symbol.iterator]() {}` member under. A key minted here and one interned
-    // by the runtime from a symbol's own text are the same number, because there
-    // is one `KeyRegistry`.
-    let named = ctx.names.intern("@@iterator");
-    let key = super::property::key_constant(&mut builder, ctx, named);
-    let itself = expr::call(&mut builder, ctx, RuntimeOp::GetProperty, &[made, key])?[0];
-    let named = ctx.names.intern("@@asyncIterator");
-    let key = super::property::key_constant(&mut builder, ctx, named);
-    let estrito = super::property::estrito(&mut builder, ctx);
-    expr::call(
-        &mut builder,
-        ctx,
-        RuntimeOp::SetProperty,
-        &[made, key, itself, estrito],
-    )?;
+    // An `async function*` parks the same frame; only the object differs. Its
+    // prototype carries `[Symbol.asyncIterator]` and promise-answering steps, so
+    // it is chosen where the object is made rather than patched onto it after.
+    let op = match asynchronous {
+        false => RuntimeOp::GeneratorNew,
+        true => RuntimeOp::AsyncGeneratorNew,
+    };
+    let made = expr::call(&mut builder, ctx, op, &operands)?[0];
     builder.ret(&[made]);
     ctx.body.leave_nested(outer_throw);
     ctx.pending.push((id, func));

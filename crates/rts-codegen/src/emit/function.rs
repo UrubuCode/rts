@@ -596,19 +596,14 @@ fn emit_function(
         // against it. `ctx.generators` is what tells the host to put this
         // function through `resumable_form` before placing it.
         ctx.generators.push(id);
-        let made = super::wrap::generator(ctx, id)?;
-        // `is_async` is asked AFTER the generator wrapper rather than instead of
-        // it, and that order is the whole of what an `async function*` is: it
-        // parks a frame like a generator AND it is stepped by the async
-        // protocol. This returned here, so `async function* g()` answered a
-        // plain generator — one with no `[Symbol.asyncIterator]`, which is the
-        // only thing `for await` asks a source for, so every `for await` over a
-        // declared async generator died on `undefined is not a function`.
-        let wrapped = match function.is_async {
-            false => made,
-            true => super::wrap::async_generator(ctx, made)?,
-        };
-        return Ok(named(ctx, wrapped));
+        // `is_async` picks the OBJECT the wrapper makes, and that is the whole of
+        // what an `async function*` is: it parks a frame like a generator AND it
+        // is stepped by the async protocol — `[Symbol.asyncIterator]` for
+        // `for await`, and `next`/`return`/`throw` answering promises. Both come
+        // from the object's prototype, chosen by the runtime half of
+        // `RuntimeOp::AsyncGeneratorNew`.
+        let made = super::wrap::generator(ctx, id, function.is_async)?;
+        return Ok(named(ctx, made));
     }
     match function.is_async {
         false => Ok(id),

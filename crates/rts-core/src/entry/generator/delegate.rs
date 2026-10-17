@@ -86,6 +86,7 @@ pub fn delegate_step(step: u64, source: u64, sent: u64) -> u64 {
     // the name operand carries. `functions::NO_CALL_NAME` is that, said once.
     let unnamed = functions::NO_CALL_NAME;
     let answered = functions::call_counted(step, source, 1, unnamed, sent, absent, absent, absent);
+    let answered = awaited(answered);
     // Rule 8: `next` is user code, and a throw leaves `call` answering
     // `undefined`. Reading `done` off that answers `undefined`, which is never
     // true, so the loop above would yield for ever.
@@ -97,6 +98,18 @@ pub fn delegate_step(step: u64, source: u64, sent: u64) -> u64 {
     let finished = primitives::to_boolean(member(answered, "done"));
     recorded((!finished).then_some(source));
     answered
+}
+
+/// What an inner iterator's step answered, with a promise waited for.
+///
+/// `yield*` inside an `async function*` delegates to an ASYNC iterator, whose
+/// `next`/`return`/`throw` answer promises of `{ value, done }`; the loop
+/// reads `done` and `value` off the result itself, so the promise is settled
+/// here the way `await` settles it (`promise_await`: drains, hands a plain value
+/// back unchanged, and leaves a rejection in flight as a throw). A synchronous
+/// inner iterator's plain result passes straight through.
+fn awaited(answered: u64) -> u64 {
+    crate::entry::promise::promise_await(answered)
 }
 
 /// Records what the generator now being resumed is delegating to.
@@ -157,6 +170,7 @@ pub(super) fn forward_throw(cell: u32, inner: u64, error: u64) -> Option<u64> {
     let absent = with_current(|context| objects::undefined_of(context));
     let unnamed = functions::NO_CALL_NAME;
     let answered = functions::call_counted(method, inner, 1, unnamed, error, absent, absent, absent);
+    let answered = awaited(answered);
     if throw::in_flight() {
         return Some(raised_at_the_yield(cell));
     }
@@ -178,6 +192,7 @@ pub(super) fn forward_return(cell: u32, inner: u64, value: u64) -> Option<u64> {
     let absent = with_current(|context| objects::undefined_of(context));
     let unnamed = functions::NO_CALL_NAME;
     let answered = functions::call_counted(method, inner, 1, unnamed, value, absent, absent, absent);
+    let answered = awaited(answered);
     if throw::in_flight() {
         return Some(raised_at_the_yield(cell));
     }

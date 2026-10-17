@@ -331,7 +331,7 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // the membership rule. They are two rows because the argument and result
     // shapes differ (f64 -> bigint, bigint -> f64), which one selector cannot carry.
     assert!(
-        CORE_ENTRY_COUNT <= 137,
+        CORE_ENTRY_COUNT <= 138,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

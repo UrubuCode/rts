@@ -1209,6 +1209,9 @@ pub enum RuntimeOp {
     /// `f64FromBits(b)` from `rts:core`: the double a bigint's low 64 bits spell,
     /// unboxed. Reads the heap, so a call. **Appended**.
     F64FromBits,
+    /// The object an `async function*` call answers: `GeneratorNew`'s frame under the
+    /// async generator's prototype, so its steps answer promises. **Appended**.
+    AsyncGeneratorNew,
 }
 
 impl RuntimeOp {
@@ -1356,6 +1359,7 @@ impl RuntimeOp {
         RuntimeOp::SysText,
         RuntimeOp::F64ToBits,
         RuntimeOp::F64FromBits,
+        RuntimeOp::AsyncGeneratorNew,
     ];
 
     /// The linker name the runtime must define.
@@ -1503,6 +1507,7 @@ impl RuntimeOp {
             RuntimeOp::SysText => "__rts_sys_text",
             RuntimeOp::F64ToBits => "__rts_f64_to_bits",
             RuntimeOp::F64FromBits => "__rts_f64_from_bits",
+            RuntimeOp::AsyncGeneratorNew => "__rts_async_generator_new",
         }
     }
 
@@ -1546,6 +1551,14 @@ impl RuntimeOp {
             RuntimeOp::SysText => (vec![Repr::I64], vec![UNPROVEN]),
             RuntimeOp::F64ToBits => (vec![Repr::F64], vec![UNPROVEN]),
             RuntimeOp::F64FromBits => (vec![UNPROVEN], vec![Repr::F64]),
+            // The same row as `GeneratorNew`: the code address, then the convention's own
+            // parameters.
+            RuntimeOp::AsyncGeneratorNew => (
+                std::iter::once(Repr::I64)
+                    .chain(std::iter::repeat_n(UNPROVEN, 2 + ARGUMENT_SLOTS))
+                    .collect(),
+                vec![UNPROVEN],
+            ),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
                 (vec![UNPROVEN], vec![UNPROVEN])
