@@ -14,8 +14,8 @@ use super::item::{class_parts, enum_declaration, function_parts, namespace_decla
 use super::pat::{binding, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
-    Binding, BindingKind, Catch, Class, ForEachSource, ForEachTarget, ForInit, Function, Stmt,
-    StmtKind, SwitchClause,
+    Binding, BindingKind, Catch, Class, Expr, ExprKind, ForEachSource, ForEachTarget, ForInit,
+    Function, Pattern, Stmt, StmtKind, SwitchClause,
 };
 /// One statement.
 
@@ -75,6 +75,48 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
             subject: expr(cx, &for_in.right)?,
             body: Box::new(stmt(cx, &for_in.body)?),
         },
+
+        // `for (using x of xs) body` is `for (const %item of xs) { using x = %item; body }`:
+        // the `using` rewrite then gives each pass its own `try`/`finally`, so the
+        // disposal runs at the end of THAT pass on every exit -- fall-through,
+        // `continue`, `break`, `throw` -- and the iterator close is the loop's own.
+        swc::Stmt::ForOf(for_of) if matches!(for_of.left, swc::ForHead::UsingDecl(_)) => {
+            let ForEachTarget::Dispose { target: name, is_async } = for_head(cx, &for_of.left)?
+            else {
+                unreachable!("a `using` head reads as `Dispose`")
+            };
+            let swc::ForHead::UsingDecl(using) = &for_of.left else { unreachable!() };
+            let head = position(using.span);
+            let item = cx.names.intern("%item");
+            let declare = Stmt::new(
+                StmtKind::Using {
+                    bindings: vec![Binding {
+                        claim: None,
+                        target: Pattern::Name(name),
+                        value: Some(Expr::new(ExprKind::Ident(item), position(for_of.right.span()))),
+                    }],
+                    is_async,
+                },
+                head,
+            );
+            let body = stmt(cx, &for_of.body)?;
+            StmtKind::ForEach {
+                source: if for_of.is_await {
+                    ForEachSource::AwaitOf
+                } else {
+                    ForEachSource::Of
+                },
+                target: ForEachTarget::Declare {
+                    kind: BindingKind::Const,
+                    target: Pattern::Name(item),
+                },
+                subject: expr(cx, &for_of.right)?,
+                body: Box::new(Stmt::new(
+                    StmtKind::Block(super::using::lower(cx, vec![declare, body])),
+                    head,
+                )),
+            }
+        }
 
         swc::Stmt::ForOf(for_of) => StmtKind::ForEach {
             source: if for_of.is_await {

@@ -614,18 +614,24 @@ fn an_unsupported_construct_is_named_rather_than_dropped() {
 
 #[test]
 fn using_in_a_for_head_arrives_as_the_disposal_it_is() {
-    // Its own case rather than a `BindingKind`, because a binding kind answers
-    // "what scope, and can it be assigned again" — and `using` changes neither.
-    // What it adds is an obligation on the way out, which no binding kind can
-    // carry and every place that reads one would have to learn to ignore.
+    // Rewritten by the parser: a per-pass `const` item, and a body that opens
+    // with the `try`/`finally` the `using` becomes, so the disposal is the
+    // body's own and needs no loop machinery.
     let (kind, _) = only_statement("for (using x of xs) {}");
-    let StmtKind::ForEach { target, .. } = kind else {
+    let StmtKind::ForEach { target, body, .. } = kind else {
         panic!("expected a for-each");
     };
-    let ForEachTarget::Dispose { is_async, .. } = target else {
-        panic!("expected a disposal target: {target:?}");
+    assert!(
+        matches!(target, ForEachTarget::Declare { .. }),
+        "expected a per-pass declaration: {target:?}"
+    );
+    let StmtKind::Block(list) = body.kind else {
+        panic!("expected a block body");
     };
-    assert!(!is_async);
+    assert!(
+        list.iter().any(|s| matches!(s.kind, StmtKind::Try { finally: Some(_), .. })),
+        "the disposal is a `finally`: {list:?}"
+    );
 }
 
 #[test]

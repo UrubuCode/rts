@@ -2119,20 +2119,14 @@ mod tests {
         // so the test follows the refusal to the next construct rather than
         // being deleted with the gap it happened to name.
         //
-        // A `using` declaration is rewritten by the parser to a `try`/`finally`
-        // now, so the construct still refused by name is the for-head spelling,
-        // which has to dispose once per iteration. Written inside a function
-        // because the checker refuses a top-level one first — a different
-        // refusal, and pinning it here would be testing the checker.
-        let error = emit_source("function f() { for (using r of []) {} }")
-            .expect_err("a `using` for-head is not emitted");
-        assert_eq!(
-            error,
-            EmitError::Unsupported {
-                construct: "`using` in a for-head, which needs `Symbol.dispose`"
-            },
-            "the name is the deliverable — a gap reported as `Unsupported` with              no word in it is indistinguishable from any other gap"
-        );
+        // A `using` declaration is rewritten by the parser to a `try`/`finally`,
+        // and so is the for-head spelling now: each pass gets its own, so the
+        // disposal runs once per iteration. Written inside a function because
+        // the checker refuses a top-level one first -- a different refusal.
+        // What the test pins is that the gap this used to name is gone; the
+        // shape of a named refusal is pinned by `tests/bridge.rs`.
+        emit_source("function f() { for (using r of []) {} }")
+            .expect("a `using` for-head emits");
     }
 
     /// `[...a, , 1]` is elision beside a spread, and elision is not `undefined`.
