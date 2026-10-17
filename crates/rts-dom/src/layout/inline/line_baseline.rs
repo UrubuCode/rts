@@ -288,7 +288,11 @@ fn block_ascent(
     ) {
         let border_h = (height - mt - mb).max(0.0);
         let inner = crate::layout::grid::baseline::container_ascent(dom, id, border_h, content_w, ctx);
-        return mt + inner;
+        return if inner >= border_h {
+            height
+        } else {
+            mt + inner
+        };
     }
 
     match last_line_baseline(dom, id, box_id, width, content_w, ctx) {

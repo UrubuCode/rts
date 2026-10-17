@@ -61,14 +61,14 @@ pub(in crate::layout) fn distribute_align_content(
     n_lines: usize,
 ) -> (f32, f32, f32) {
     match declared {
+        Some(JustifyContent::Stretch) | None => {
+            let free = (container_cross_h - estimate).max(0.0);
+            (0.0, 0.0, free / n_lines as f32)
+        }
         Some(v) => {
             let free = container_cross_h - estimate;
             let (leading, between) = super::column::justify_offsets(v, free, n_lines);
             (leading, between, 0.0)
-        }
-        None => {
-            let free = (container_cross_h - estimate).max(0.0);
-            (0.0, 0.0, free / n_lines as f32)
         }
     }
 }
