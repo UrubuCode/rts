@@ -173,8 +173,16 @@ impl Buffer {
     }
 
     /// `buf.compare(target)`.
-    fn compare(this: u64, other: u64) -> f64 {
-        statics::compare_values(this, other, "source", "target")
+    ///
+    /// `sourceEnd` is the fifth argument, past the four slots a call carries,
+    /// so it is read from the argument vector.
+    #[arity(5)]
+    fn compare(this: u64, other: u64, target_start: u64, target_end: u64, source_start: u64) -> f64 {
+        let given = super::with_current(|context| {
+            super::array_proto::arguments_at(context, 0, [other, target_start, target_end, source_start])
+        });
+        let source_end = given.get(4).copied().unwrap_or_else(super::buffers::undefined);
+        statics::compare_ranged(this, other, target_start, target_end, source_start, source_end)
     }
 
     /// `buf.copy(target, targetStart?, sourceStart?, sourceEnd?)`.

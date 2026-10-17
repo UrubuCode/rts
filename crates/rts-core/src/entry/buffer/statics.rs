@@ -408,6 +408,55 @@ pub(in crate::entry) fn compare_values(a: u64, b: u64, first: &str, second: &str
     })
 }
 
+/// `buf.compare(target, targetStart, targetEnd, sourceStart, sourceEnd)`.
+///
+/// Node's order: validate the four ranges (starts up to MAX_SAFE_INTEGER, ends
+/// up to the respective length), then an empty/inverted range loses to a
+/// non-empty one; starts past the end therefore just mean "empty".
+pub(in crate::entry) fn compare_ranged(
+    this: u64,
+    other: u64,
+    target_start: u64,
+    target_end: u64,
+    source_start: u64,
+    source_end: u64,
+) -> f64 {
+    const SAFE: usize = 9_007_199_254_740_991;
+    let Some(source_len) = validate::bytes("source", this) else {
+        return 0.0;
+    };
+    let Some(target_len) = validate::bytes("target", other) else {
+        return 0.0;
+    };
+    let Some(ts) = validate::compare_offset("targetStart", target_start, 0, SAFE) else {
+        return 0.0;
+    };
+    let Some(te) = validate::compare_offset("targetEnd", target_end, target_len, target_len) else {
+        return 0.0;
+    };
+    let Some(ss) = validate::compare_offset("sourceStart", source_start, 0, SAFE) else {
+        return 0.0;
+    };
+    let Some(se) = validate::compare_offset("sourceEnd", source_end, source_len, source_len) else {
+        return 0.0;
+    };
+    if ss >= se {
+        return if ts >= te { 0.0 } else { -1.0 };
+    }
+    if ts >= te {
+        return 1.0;
+    }
+    with_current(|context| {
+        let a = view_of(context, this).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
+        let b = view_of(context, other).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
+        match a[ss..se].cmp(&b[ts..te]) {
+            std::cmp::Ordering::Less => -1.0,
+            std::cmp::Ordering::Equal => 0.0,
+            std::cmp::Ordering::Greater => 1.0,
+        }
+    })
+}
+
 /// `pattern` repeated/truncated to exactly `length` bytes.
 fn repeated(pattern: &[u8], length: usize) -> Vec<u8> {
     if pattern.is_empty() {
