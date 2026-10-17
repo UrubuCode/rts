@@ -45,13 +45,12 @@ const METHODS: &[(&str, Provided)] = &[
     ("sort", sort),
     ("toString", to_string),
     ("forEach", for_each),
-    ("keys", keys),
-    ("values", values),
-    ("entries", entries),
-    // `[...params]` iterates in `entries()` order per WHATWG; `entries` already
-    // answers a plain array, which is itself iterable, so the default iterator
-    // is the same function rather than a second implementation of it.
-    ("@@iterator", entries),
+    ("keys", keys_iter),
+    ("values", values_iter),
+    ("entries", entries_iter),
+    // `[...params]` iterates in `entries()` order per WHATWG, so the default
+    // iterator is the same function rather than a second implementation of it.
+    ("@@iterator", entries_iter),
 ];
 
 /// Builds the `URLSearchParams` class and returns the constructor.
@@ -92,6 +91,11 @@ fn pairs_from(init: u64) -> Vec<(String, String)> {
                 Some((name, value))
             })
             .collect();
+    }
+    // Another `URLSearchParams` — copied from its own pairs, not walked as a
+    // record (which would read back `__spId` and `size`).
+    if let Some(pairs) = read(init, <[(String, String)]>::to_vec) {
+        return pairs;
     }
     // A plain `Record<string, string | string[]>` — walked the same way
     // `querystring.rs::stringify` walks an options object.
@@ -282,6 +286,26 @@ extern "C" fn for_each(_e: u64, this: u64, callback: u64, this_arg: u64, _c: u64
         entry::call(callback, receiver, value_value, name_value, this, entry::undefined_value());
     }
     entry::undefined_value()
+}
+
+/// Turns the array a snapshot method built into a real iterator (one with
+/// `next()`), which is what `[...params]`, `for…of` and `Array.from` drive:
+/// a bare array has no `next`, so handing it back as the iterator threw.
+fn iterator_over(array: u64) -> u64 {
+    let method = entry::with_runtime(|context| entry::get_member(context, array, "@@iterator"));
+    entry::call(method, array, entry::undefined_value(), entry::undefined_value(), entry::undefined_value(), entry::undefined_value())
+}
+
+extern "C" fn keys_iter(e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    iterator_over(keys(e, this, a0, a1, a2, a3))
+}
+
+extern "C" fn values_iter(e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    iterator_over(values(e, this, a0, a1, a2, a3))
+}
+
+extern "C" fn entries_iter(e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    iterator_over(entries(e, this, a0, a1, a2, a3))
 }
 
 /// `params.keys()` — a plain array, not an `IterableIterator`; see the

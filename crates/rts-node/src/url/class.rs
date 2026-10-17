@@ -90,20 +90,38 @@ fn prototype() -> u64 {
     prototype
 }
 
-/// `new URL(input, base?)`. Malformed input answers an INERT instance — one
-/// carrying no `__urlId` — rather than throwing; see the module doc.
+/// `new URL(input, base?)`. Malformed input throws Node's
+/// `TypeError { code: "ERR_INVALID_URL", input }`; see [`throw_invalid_url`].
 extern "C" fn construct(_e: u64, this: u64, input: u64, base: u64, _c: u64, _d: u64) -> u64 {
     let prototype = prototype();
     let Some(text) = super::required_text(input) else {
-        return entry::with_runtime(|context| super::self_or_new(context, this, prototype));
+        throw_invalid_url("");
+        return entry::undefined_value();
     };
     let base_text = base_text_of(base);
-    let parsed = parse_with_base(&text, base_text.as_deref());
+    let Some(parsed) = parse_with_base(&text, base_text.as_deref()) else {
+        throw_invalid_url(&text);
+        return entry::undefined_value();
+    };
     let instance = entry::with_runtime(|context| super::self_or_new(context, this, prototype));
-    if let Some(parsed) = parsed {
-        install_instance(instance, parsed);
-    }
+    install_instance(instance, parsed);
     instance
+}
+
+/// Raises `TypeError: Invalid URL` carrying `code` and `input`, the shape Node
+/// gives an unparseable constructor argument.
+fn throw_invalid_url(input: &str) {
+    let Some(error) = entry::make_named_error("TypeError", "Invalid URL") else {
+        entry::throw_type_error("Invalid URL");
+        return;
+    };
+    entry::with_runtime(|context| {
+        let code = entry::make_string(context, "ERR_INVALID_URL");
+        entry::put_member(context, error, "code", code);
+        let held = entry::make_string(context, input);
+        entry::put_member(context, error, "input", held);
+    });
+    entry::throw_value(error);
 }
 
 /// `base`, as text — either a plain string argument or a `URL` instance, whose
@@ -162,10 +180,17 @@ pub(super) fn host_with_port(parsed: &url::Url, host: &str) -> String {
 /// for an opaque-origin scheme (`file:`, `data:`, …), matching the WHATWG
 /// origin-serialization rule for the cases this crate can tell apart.
 fn origin_of(parsed: &url::Url) -> String {
-    match parsed.host_str() {
-        Some(host) if parsed.scheme() != "file" => {
-            format!("{}://{}", parsed.scheme(), host_with_port(parsed, host))
-        }
+    match parsed.scheme() {
+        // Only the special network schemes have a tuple origin; `foo://host` is opaque.
+        "http" | "https" | "ws" | "wss" | "ftp" => match parsed.host_str() {
+            Some(host) => format!("{}://{}", parsed.scheme(), host_with_port(parsed, host)),
+            None => "null".to_owned(),
+        },
+        // `blob:` borrows the origin of the URL it wraps, when that is http(s).
+        "blob" => match url::Url::parse(parsed.path()) {
+            Ok(inner) if matches!(inner.scheme(), "http" | "https") => origin_of(&inner),
+            _ => "null".to_owned(),
+        },
         _ => "null".to_owned(),
     }
 }
