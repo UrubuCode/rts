@@ -37,6 +37,8 @@ pub(in crate::entry::json) enum Shape {
     Array(u32),
     /// Anything else with properties.
     Object(u32),
+    /// A `JSON.rawJSON` object, by cell: its text is written verbatim.
+    Raw(u32),
     /// A bigint, which the language refuses to serialise rather than
     /// approximating. Its own variant because it is the one shape here that
     /// answers with a `TypeError` instead of with text.
@@ -80,6 +82,9 @@ pub(in crate::entry::json) fn shape_of(context: &Context, value: u64) -> Shape {
         }
         if context.elements_at(cell).is_some() {
             return Shape::Array(cell);
+        }
+        if super::super::raw::branded(context, value.bits()) {
+            return Shape::Raw(cell);
         }
         return Shape::Object(cell);
     }
