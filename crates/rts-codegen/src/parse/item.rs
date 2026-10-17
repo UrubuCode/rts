@@ -691,56 +691,189 @@ fn parameter_of(cx: &mut Cx, pattern: &swc::Pat) -> Result<Parameter> {
 /// puts the binding in the enclosing function. A `let` would make the enum
 /// invisible one line after it was written.
 ///
-/// # What is refused, and why by name
+/// # What folds, what runs, what is refused
 ///
-/// A member whose value is neither a numeric nor a string literal — `A = 1 << 2`
-/// or `A = B`. TypeScript settles those at compile time through constant
-/// folding this parser does not do, and emitting the expression instead would
-/// be right for the forward direction and wrong for the reverse one, which
-/// needs the VALUE to index by. A member that is right in one direction and
-/// missing in the other is the shape a program finds out about late.
+/// `fold_enum` evaluates a constant initializer the way TypeScript does (see
+/// there for the forms). Every member known now and a first declaration: the
+/// object literal above. A computed member (`F = "abc".length`) or a block
+/// merging into an enum already declared: TypeScript's own IIFE emit over
+/// `E || {}`, which `enum_run_time` builds. Refused: a `const enum` member that
+/// does not fold (TS2474), and a member with no initializer after a computed one.
 pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Result<Stmt> {
     let at = position(declaration.span);
     let name = cx.names.intern(declaration.id.sym.as_ref());
-    let mut properties: Vec<crate::syntax::Property> = Vec::new();
-    let mut next = 0.0;
+    let enum_name = declaration.id.sym.to_string();
+
+    // The constant folding TypeScript does, member by member. A member is either
+    // a value known now or `None`, which is a run-time initializer.
+    let mut folded: Vec<(String, Option<Folded>)> = Vec::new();
+    let mut next: Option<f64> = Some(0.0);
     for member in &declaration.members {
         let member_name = match &member.id {
             swc::TsEnumMemberId::Ident(id) => id.sym.to_string(),
             swc::TsEnumMemberId::Str(text) => text.value.to_string_lossy().to_string(),
         };
-        let (value, numeric) = match &member.init {
-            None => (Literal::Number(next), Some(next)),
-            Some(init) => match &**init {
-                swc::Expr::Lit(swc::Lit::Num(number)) => {
-                    (Literal::Number(number.value), Some(number.value))
-                }
-                swc::Expr::Lit(swc::Lit::Str(text)) => (
-                    // Units, for the reason `parse::expr::text` states: an enum
-                    // member's value is a string literal like any other, and a
-                    // lossy conversion here would make `E.A` a different string
-                    // from the one written.
-                    Literal::String(
-                        text.value
-                            .as_wtf8()
-                            .to_ill_formed_utf16()
-                            .collect::<Vec<u16>>()
-                            .into(),
-                    ),
-                    None,
-                ),
-                _ => {
-                    return unsupported("an enum member that is not a literal", at);
+        let value = match &member.init {
+            None => match next {
+                Some(held) => Some(Folded::Number(held)),
+                None => {
+                    return unsupported("an enum member with no initializer after a computed one", at);
                 }
             },
+            Some(init) => fold_enum(init, &enum_name, &folded),
         };
-        if let Some(held) = numeric {
-            next = held + 1.0;
+        if declaration.is_const && value.is_none() {
+            // TypeScript refuses it too (TS2474): a const enum is erased, so its
+            // members must all be known while compiling.
+            return unsupported("a const enum member that is not a constant expression", at);
         }
+        next = match &value {
+            Some(Folded::Number(held)) => Some(held + 1.0),
+            _ => None,
+        };
+        folded.push((member_name, value));
+    }
+
+    let first = cx.declared_namespaces.insert(name);
+    if first && folded.iter().all(|(_, value)| value.is_some()) {
+        return Ok(enum_object_literal(cx, name, &folded, at));
+    }
+    enum_run_time(cx, name, declaration, &folded, at)
+}
+
+/// A value an enum member's initializer folded to.
+#[derive(Clone)]
+enum Folded {
+    Number(f64),
+    Text(Vec<u16>),
+}
+
+/// Folds an enum initializer to the value TypeScript's own constant evaluation
+/// gives it, or `None` where it does not fold and is left to run time.
+///
+/// What folds: numeric and string literals, a template with no substitutions,
+/// parentheses, unary `+ - ~`, binary `+ - * / % << >> >>> & | ^ **` (and `+`
+/// joining text), and a reference to an EARLIER member of this block, bare or
+/// as `E.A` / `E["A"]`. A result that is not finite is left to run time, which
+/// is what TypeScript does with it.
+fn fold_enum(node: &swc::Expr, enum_name: &str, earlier: &[(String, Option<Folded>)]) -> Option<Folded> {
+    let lookup = |wanted: &str| -> Option<Folded> {
+        earlier
+            .iter()
+            .rev()
+            .find(|(held, _)| held == wanted)
+            .and_then(|(_, value)| value.clone())
+    };
+    let folded = match node {
+        swc::Expr::Lit(swc::Lit::Num(number)) => Folded::Number(number.value),
+        swc::Expr::Lit(swc::Lit::Str(text)) => Folded::Text(
+            text.value.as_wtf8().to_ill_formed_utf16().collect::<Vec<u16>>(),
+        ),
+        swc::Expr::Tpl(template) if template.exprs.is_empty() && template.quasis.len() == 1 => {
+            let cooked = template.quasis[0].cooked.as_ref()?;
+            Folded::Text(cooked.as_wtf8().to_ill_formed_utf16().collect::<Vec<u16>>())
+        }
+        swc::Expr::Paren(inner) => fold_enum(&inner.expr, enum_name, earlier)?,
+        swc::Expr::Ident(id) => lookup(id.sym.as_ref())?,
+        swc::Expr::Member(member) => {
+            let swc::Expr::Ident(object) = &*member.obj else {
+                return None;
+            };
+            if object.sym.as_ref() != enum_name {
+                return None;
+            }
+            match &member.prop {
+                swc::MemberProp::Ident(prop) => lookup(prop.sym.as_ref())?,
+                swc::MemberProp::Computed(computed) => match &*computed.expr {
+                    swc::Expr::Lit(swc::Lit::Str(text)) => lookup(&text.value.to_string_lossy())?,
+                    _ => return None,
+                },
+                _ => return None,
+            }
+        }
+        swc::Expr::Unary(unary) => {
+            let Folded::Number(operand) = fold_enum(&unary.arg, enum_name, earlier)? else {
+                return None;
+            };
+            Folded::Number(match unary.op {
+                swc::UnaryOp::Plus => operand,
+                swc::UnaryOp::Minus => -operand,
+                swc::UnaryOp::Tilde => f64::from(!to_int32(operand)),
+                _ => return None,
+            })
+        }
+        swc::Expr::Bin(binary) => {
+            let left = fold_enum(&binary.left, enum_name, earlier)?;
+            let right = fold_enum(&binary.right, enum_name, earlier)?;
+            match (left, right) {
+                (Folded::Number(a), Folded::Number(b)) => Folded::Number(match binary.op {
+                    swc::BinaryOp::Add => a + b,
+                    swc::BinaryOp::Sub => a - b,
+                    swc::BinaryOp::Mul => a * b,
+                    swc::BinaryOp::Div => a / b,
+                    swc::BinaryOp::Mod => a % b,
+                    swc::BinaryOp::LShift => f64::from(to_int32(a).wrapping_shl(to_int32(b) as u32 & 31)),
+                    swc::BinaryOp::RShift => f64::from(to_int32(a) >> (to_int32(b) as u32 & 31)),
+                    swc::BinaryOp::ZeroFillRShift => {
+                        f64::from((to_int32(a) as u32) >> (to_int32(b) as u32 & 31))
+                    }
+                    swc::BinaryOp::BitAnd => f64::from(to_int32(a) & to_int32(b)),
+                    swc::BinaryOp::BitOr => f64::from(to_int32(a) | to_int32(b)),
+                    swc::BinaryOp::BitXor => f64::from(to_int32(a) ^ to_int32(b)),
+                    swc::BinaryOp::Exp => {
+                        // `powf` answers 1 for `1 ** Infinity` and for a NaN
+                        // exponent where JavaScript answers NaN.
+                        if b.is_nan() || (a.abs() == 1.0 && b.is_infinite()) {
+                            f64::NAN
+                        } else {
+                            a.powf(b)
+                        }
+                    }
+                    _ => return None,
+                }),
+                (Folded::Text(a), Folded::Text(b)) if matches!(binary.op, swc::BinaryOp::Add) => {
+                    Folded::Text([a, b].concat())
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    match folded {
+        Folded::Number(held) if !held.is_finite() => None,
+        other => Some(other),
+    }
+}
+
+/// `ToInt32`: the number modulo 2^32, as a signed 32-bit integer.
+fn to_int32(value: f64) -> i32 {
+    if !value.is_finite() {
+        return 0;
+    }
+    (value.trunc().rem_euclid(4294967296.0) as u32) as i32
+}
+
+fn folded_literal(value: &Folded) -> Literal {
+    match value {
+        Folded::Number(held) => Literal::Number(*held),
+        Folded::Text(units) => Literal::String(units.clone().into()),
+    }
+}
+
+/// Every member known now: the enum is one object literal.
+fn enum_object_literal(
+    cx: &mut Cx,
+    name: crate::names::Name,
+    members: &[(String, Option<Folded>)],
+    at: rts_cranelift::fault::Position,
+) -> Stmt {
+    let mut properties: Vec<crate::syntax::Property> = Vec::new();
+    for (member_name, value) in members {
+        let Some(value) = value else { continue };
         properties.push(crate::syntax::Property::Value {
-            key: crate::syntax::PropertyKey::Named(cx.names.intern(&member_name)),
+            key: crate::syntax::PropertyKey::Named(cx.names.intern(member_name)),
             value: Expr {
-                kind: ExprKind::Literal(value),
+                kind: ExprKind::Literal(folded_literal(value)),
                 at,
             },
             shorthand: false,
@@ -752,13 +885,13 @@ pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Re
         // The key is the number as text because that is what a property key is:
         // `E[0]` and `E["0"]` are the same lookup, and writing the digits keeps
         // this a plain object rather than something with elements.
-        if let Some(held) = numeric {
+        if let Folded::Number(held) = value {
             properties.push(crate::syntax::Property::Value {
                 key: crate::syntax::PropertyKey::Named(
-                    cx.names.intern(&crate::syntax::number_to_key(held)),
+                    cx.names.intern(&crate::syntax::number_to_key(*held)),
                 ),
                 value: Expr {
-                    kind: ExprKind::Literal(Literal::String(member_name.into())),
+                    kind: ExprKind::Literal(Literal::String(member_name.as_str().into())),
                     at,
                 },
                 shorthand: false,
@@ -767,15 +900,169 @@ pub(super) fn enum_declaration(cx: &mut Cx, declaration: &swc::TsEnumDecl) -> Re
     }
     // ONE statement, and a `var` rather than a block of assignments: a block is
     // a scope here, and a `var` inside one did not reach past it — the enum was
-    // unbound on the next line. Every value is a literal, so the whole thing is
-    // an object literal and the question does not arise.
-    Ok(Stmt {
+    // unbound on the next line.
+    Stmt {
         kind: StmtKind::Declare {
             kind: BindingKind::Var,
             bindings: vec![Binding {
                 target: Pattern::Name(name),
                 value: Some(Expr {
                     kind: ExprKind::Object { properties },
+                    at,
+                }),
+                claim: None,
+            }],
+        },
+        at,
+    }
+}
+
+/// A computed member, or a block merging into an enum already declared: TypeScript's
+/// own emit,
+///
+/// ```text
+/// var E = (function (E) { ...; return E; })(E || {});
+/// ```
+///
+/// where each member is `var A = v; E["A"] = A; E[A] = "A";`. The local `var`
+/// is what lets a later initializer name an earlier member bare, as the source
+/// does. A known string member gets no reverse entry; a computed one always does,
+/// because its type is not known until it runs.
+fn enum_run_time(
+    cx: &mut Cx,
+    name: crate::names::Name,
+    declaration: &swc::TsEnumDecl,
+    members: &[(String, Option<Folded>)],
+    at: rts_cranelift::fault::Position,
+) -> Result<Stmt> {
+    let ident = |name| Expr {
+        kind: ExprKind::Ident(name),
+        at,
+    };
+    let string = |text: &str| Expr {
+        kind: ExprKind::Literal(Literal::String(text.into())),
+        at,
+    };
+    let assign = |target: Expr, value: Expr| Expr {
+        kind: ExprKind::Assign {
+            target: AssignTarget::Place(Box::new(target)),
+            value: Box::new(value),
+            op: AssignOp::Plain,
+        },
+        at,
+    };
+    let index = |object: Expr, key: Expr| Expr {
+        kind: ExprKind::Index {
+            object: Box::new(object),
+            index: Box::new(key),
+            optional: false,
+        },
+        at,
+    };
+    let mut body = Vec::new();
+    for (member, (member_name, value)) in declaration.members.iter().zip(members) {
+        // A local only where the member is a plain identifier and cannot shadow
+        // the enum object itself.
+        let local = match &member.id {
+            swc::TsEnumMemberId::Ident(id) if id.sym.as_ref() != declaration.id.sym.as_ref() => {
+                Some(cx.names.intern(id.sym.as_ref()))
+            }
+            _ => None,
+        };
+        let initial = match value {
+            Some(value) => Expr {
+                kind: ExprKind::Literal(folded_literal(value)),
+                at,
+            },
+            None => match &member.init {
+                Some(init) => expr(cx, init)?,
+                None => return unsupported("an enum member with no initializer", at),
+            },
+        };
+        let held = match local {
+            Some(local) => {
+                body.push(Stmt::new(
+                    StmtKind::Declare {
+                        kind: BindingKind::Var,
+                        bindings: vec![Binding {
+                            target: Pattern::Name(local),
+                            value: Some(initial),
+                            claim: None,
+                        }],
+                    },
+                    at,
+                ));
+                ident(local)
+            }
+            None => {
+                // No local to hold it: assign the object slot and read it back.
+                let slot = assign(index(ident(name), string(member_name)), initial);
+                body.push(Stmt::new(StmtKind::Expr(slot), at));
+                index(ident(name), string(member_name))
+            }
+        };
+        if local.is_some() {
+            body.push(Stmt::new(
+                StmtKind::Expr(assign(index(ident(name), string(member_name)), held)),
+                at,
+            ));
+        }
+        if !matches!(value, Some(Folded::Text(_))) {
+            let key = index(ident(name), string(member_name));
+            body.push(Stmt::new(
+                StmtKind::Expr(assign(index(ident(name), key), string(member_name))),
+                at,
+            ));
+        }
+    }
+    body.push(Stmt::new(StmtKind::Return(Some(ident(name))), at));
+    let function = Expr {
+        kind: ExprKind::Function(Box::new(Function {
+            name: None,
+            parameters: vec![Parameter {
+                target: Pattern::Name(name),
+                default: None,
+                claim: None,
+                repr_i32: false,
+            }],
+            rest_parameter: None,
+            directives: Vec::new(),
+            body: FunctionBody::Block(body),
+            returns: None,
+            captures_this: false,
+            is_async: false,
+            advertised_length: None,
+            intrinsic: None,
+            inline: false,
+            is_generator: false,
+            at,
+        })),
+        at,
+    };
+    let argument = Expr {
+        kind: ExprKind::Logical {
+            op: LogicalOp::Or,
+            left: Box::new(ident(name)),
+            right: Box::new(Expr {
+                kind: ExprKind::Object {
+                    properties: Vec::new(),
+                },
+                at,
+            }),
+        },
+        at,
+    };
+    Ok(Stmt {
+        kind: StmtKind::Declare {
+            kind: BindingKind::Var,
+            bindings: vec![Binding {
+                target: Pattern::Name(name),
+                value: Some(Expr {
+                    kind: ExprKind::Call {
+                        callee: Box::new(function),
+                        arguments: vec![Spreadable::Single(argument)],
+                        optional: false,
+                    },
                     at,
                 }),
                 claim: None,
