@@ -152,7 +152,7 @@ pub(in crate::layout) fn measure_item_ascent(
     } else {
         last_b.or(first_b).unwrap_or(border_h)
     };
-    mt + inner.min(border_h)
+    mt + inner
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -195,7 +195,7 @@ pub(in crate::layout) fn compute_row_baselines(
             continue;
         }
         let align = css.align_self.unwrap_or(container_align);
-        if !matches!(align, AlignItems::Baseline | AlignItems::LastBaseline) {
+        if !matches!(align, AlignItems::Baseline | AlignItems::LastBaseline) || super::distribute::has_pct(css.height) {
             continue;
         }
         let first = align == AlignItems::Baseline;

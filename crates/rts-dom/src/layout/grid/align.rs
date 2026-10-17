@@ -152,11 +152,15 @@ pub(super) fn resolve_item_offsets(
                 let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
                 tb.align_offset(justify, ascent, cell_w)
                     .map_or_else(|| cell_x + cell_align_offset(justify, cell_w, iw), |o| cell_x + o)
+            } else if child_wm == crate::style::WritingMode::VerticalRl || child_wm == crate::style::WritingMode::SidewaysRl {
+                cell_x + cell_w - iw
             } else {
-                cell_x + cell_align_offset(justify, cell_w, iw)
+                cell_x
             }
+        } else if is_rtl {
+            cell_x + cell_w - iw
         } else {
-            cell_x + cell_align_offset(justify, cell_w, iw)
+            cell_x
         }
     } else {
         match justify {
@@ -175,6 +179,7 @@ pub(super) fn resolve_item_offsets(
     } else if matches!(align, crate::style::AlignItems::Stretch) {
         cell_y
     } else if !is_item_ortho
+        && !super::distribute::has_pct(item_css.height)
         && let Some(tb) = row_baselines
             .get(if align == crate::style::AlignItems::Baseline { cell.r0 } else { cell.r1.saturating_sub(1) })
             .and_then(|t| t.as_ref())
