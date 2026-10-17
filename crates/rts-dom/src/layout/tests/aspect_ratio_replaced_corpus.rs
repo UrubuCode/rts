@@ -60,3 +60,24 @@ fn img_com_padding_deriva_a_razao_do_content_box_nao_do_border_box() {
         "200×100 de conteúdo (razão 2:1 sobre a largura de conteúdo 200) + 20px de padding por lado"
     );
 }
+
+/// `aspect-ratio` with a DEFINITE height derives the width in a shrink-to-fit
+/// box (inline-block/float/abspos): CSS Sizing 4 §5 transfers the known height
+/// through the ratio. Before the fix the shrink-to-fit width came from the
+/// (empty) content and collapsed to 0 (WPT `css-sizing/block-aspect-ratio-036`:
+/// `display:inline-block; height:100px; aspect-ratio:0.7` → 70 wide).
+#[test]
+fn aspect_ratio_derives_width_from_definite_height_in_shrink_to_fit() {
+    use crate::table::tests::geometria;
+    let ib = r#"<body style="margin:0"><div id="t" style="display:inline-block;height:100px;aspect-ratio:0.7"></div></body>"#;
+    let (dom, list) = geometria(ib, 800.0);
+    let r = rect(&dom, &list, "#t", 0);
+    assert_eq!((r.w, r.h), (70.0, 100.0), "inline-block height×ratio");
+    let flt = r#"<body style="margin:0"><div id="t" style="float:left;height:100px;aspect-ratio:1/2"></div></body>"#;
+    let (dom, list) = geometria(flt, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 50.0, "float height×ratio");
+    // A plain block keeps width:auto = stretch (aspect-ratio does not override).
+    let blk = r#"<body style="margin:0"><div id="t" style="height:100px;aspect-ratio:0.7"></div></body>"#;
+    let (dom, list) = geometria(blk, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 800.0, "bloco: width:auto continua stretch");
+}

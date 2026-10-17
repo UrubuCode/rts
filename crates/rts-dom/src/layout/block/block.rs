@@ -422,25 +422,63 @@ pub(crate) fn layout_block(
                 // `None` em qualquer outro caso, e cai no shrink-to-fit de
                 // sempre.
                 None if shrink_to_fit => {
-                    let h = forced_outer_h
-                        .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
-                    crate::layout::replaced::transferred_size::transferred_intrinsic_width(
-                        dom,
-                        id,
-                        font_for_content,
-                        h,
-                        ctx,
-                    )
-                    .unwrap_or_else(|| {
-                        crate::layout::flex::limits::shrink_to_fit_width(
+                    let frame_v_local = pad_top + pad_bottom + border_top + border_bottom;
+                    let h = forced_outer_h.map(|h| (h - frame_v_local).max(0.0));
+                    let content_based =
+                        crate::layout::replaced::transferred_size::transferred_intrinsic_width(
                             dom,
                             id,
-                            (avail_w - frame).max(0.0),
-                            frame,
                             font_for_content,
+                            h,
                             ctx,
                         )
-                    })
+                        .unwrap_or_else(|| {
+                            crate::layout::flex::limits::shrink_to_fit_width(
+                                dom,
+                                id,
+                                (avail_w - frame).max(0.0),
+                                frame,
+                                font_for_content,
+                                ctx,
+                            )
+                        });
+                    // `aspect-ratio` with a DEFINITE height derives the width in a
+                    // shrink-to-fit box (CSS Sizing 4 §5): `display:inline-block;
+                    // height:100px; aspect-ratio:0.7` is 70 wide, not shrunk to
+                    // its (empty) content's 0 (WPT `block-aspect-ratio-036`). But
+                    // the content's min-content is still a FLOOR (min-width:auto):
+                    // an abspos `height:100; aspect-ratio:1/2` with a `width:100`
+                    // child is 100 wide, not the ratio's 50 (WPT `abspos-013`) —
+                    // hence `max(ratio, content_based)`. Horizontal only: in a
+                    // vertical writing mode the ratio maps to the swapped axes,
+                    // which this physical path does not model (WPT
+                    // `block-aspect-ratio-017`, left to the content as before).
+                    let horizontal = css.writing_mode.is_none_or(|w| w.is_horizontal());
+                    let def_h = h.or_else(|| {
+                        resolve_height(css.height, avail_h, &resolve).map(|hv| {
+                            if border_box {
+                                (hv - frame_v_local).max(0.0)
+                            } else {
+                                hv
+                            }
+                        })
+                    });
+                    let ratio_w = if horizontal {
+                        def_h.and_then(|hc| {
+                            crate::layout::measure::aspect_ratio::width_for_height(
+                                &css,
+                                hc,
+                                padding_h + border_h,
+                                frame_v_local,
+                            )
+                        })
+                    } else {
+                        None
+                    };
+                    match ratio_w {
+                        Some(rw) => rw.max(content_based),
+                        None => content_based,
+                    }
                 }
                 None => (avail_w - frame).max(0.0),
             }
