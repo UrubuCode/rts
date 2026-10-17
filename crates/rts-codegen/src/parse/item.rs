@@ -90,7 +90,26 @@ pub(crate) fn function(cx: &mut Cx, function: &swc::Function) -> Result<Function
 }
 
 pub(super) fn function_parts(cx: &mut Cx, function: &swc::Function) -> Result<Function> {
-    let (parameters, rest_parameter) = parameters(cx, function.params.iter().map(|p| &p.pat))?;
+    let (mut parameters, rest_parameter) = parameters(cx, function.params.iter().map(|p| &p.pat))?;
+    // `@repr(i32)` ON A PARAMETER: `function f(@repr(i32) x: number)`. A parameter decorator
+    // is the spelling the parser carries cleanly -- swc keeps it on `Param`, beside the
+    // pattern -- and it names the one value it applies to, where a function decorator
+    // would have to name parameters by string. `parameters` skips a `this` receiver and a
+    // rest element, so the flags are matched to the survivors in the same order.
+    let mut declared = function
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(position, p)| {
+            !(*position == 0 && is_receiver_annotation(&p.pat)) && !matches!(p.pat, swc::Pat::Rest(_))
+        })
+        .map(|(_, p)| p);
+    for parameter in parameters.iter_mut() {
+        let Some(param) = declared.next() else {
+            break;
+        };
+        parameter.repr_i32 = repr_i32_of(&param.decorators)?;
+    }
     let (directives, body) = block_body(cx, function.body.as_ref())?;
 
     Ok(Function {
@@ -110,6 +129,51 @@ pub(super) fn function_parts(cx: &mut Cx, function: &swc::Function) -> Result<Fu
         is_generator: function.is_generator,
         at: position(function.span),
     })
+}
+
+/// Whether a parameter carries `@repr(i32)` (the argument may also be the string `"i32"`).
+///
+/// Any other decorator is left alone, as `intrinsic_of` leaves them. A `@repr(...)` naming
+/// a representation this compiler does not have is a parse error, never a silent drop: a
+/// misspelt `@repr(i23)` would otherwise compile to ordinary f64 arithmetic while the
+/// author believed it wraps.
+fn repr_i32_of(decorators: &[swc::Decorator]) -> Result<bool> {
+    let mut found = false;
+    for decorator in decorators {
+        let swc::Expr::Call(call) = &*decorator.expr else {
+            continue;
+        };
+        let swc::Callee::Expr(callee) = &call.callee else {
+            continue;
+        };
+        let swc::Expr::Ident(ident) = &**callee else {
+            continue;
+        };
+        if &*ident.sym != "repr" {
+            continue;
+        }
+        let malformed = || {
+            super::ParseError::Syntax(
+                "@repr takes exactly one argument naming a representation, e.g. @repr(i32)".into(),
+            )
+        };
+        let [argument] = call.args.as_slice() else {
+            return Err(malformed());
+        };
+        if argument.spread.is_some() {
+            return Err(malformed());
+        }
+        let named = match &*argument.expr {
+            swc::Expr::Ident(name) => name.sym.to_string(),
+            swc::Expr::Lit(swc::Lit::Str(name)) => name.value.to_string_lossy().into_owned(),
+            _ => return Err(malformed()),
+        };
+        if named != "i32" {
+            return Err(super::ParseError::Syntax(format!("@repr({named}) names no representation (only i32)")));
+        }
+        found = true;
+    }
+    Ok(found)
 }
 
 /// An arrow, whose one real difference is where `this` comes from.
@@ -534,6 +598,7 @@ fn parameter_of(cx: &mut Cx, pattern: &swc::Pat) -> Result<Parameter> {
         target: element.pattern,
         default: element.default,
         claim,
+        repr_i32: false,
     })
 }
 
@@ -751,6 +816,7 @@ pub(super) fn namespace_declaration(
                         target: Pattern::Name(name),
                         default: None,
                         claim: None,
+                        repr_i32: false,
                     }],
                     rest_parameter: None,
                     directives: Vec::new(),

@@ -835,6 +835,7 @@ fn default_constructor(ctx: &mut Ctx, class: &Class) -> Function {
                 target: crate::syntax::Pattern::Name(name),
                 default: None,
                 claim: None,
+                repr_i32: false,
             })
             .collect(),
         rest_parameter: None,

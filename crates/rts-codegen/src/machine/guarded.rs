@@ -281,6 +281,24 @@ impl JsMachine<'_> {
         let answered = self
             .generic(into, which, &[*a, *b])?
             .ok_or_else(|| format!("{which:?} is a guarded row with no generic form"))?;
+        // A BITWISE ROW OVER AT LEAST ONE PROVED NUMBER ANSWERS AN INT32, on the slow arm as
+        // on the fast one: the other operand cannot be a BigInt (mixing the two throws before
+        // this join), so the runtime's answer is a Number holding an int32. Narrowing it
+        // here, losslessly, joins the two arms as an `I32` instead of a Tagged phi -- which is
+        // what lets `x | 0` hand a following `+` an integer register rather than a value to
+        // guard again, the boundary `@repr(i32)` exists to remove. `>>>` is excluded: its
+        // answer is a uint32 and does not fit an `I32`.
+        let int32_row = matches!(
+            which,
+            JsPrim::BitAnd | JsPrim::BitOr | JsPrim::BitXor | JsPrim::ShiftLeft | JsPrim::ShiftRight
+        ) && (a_proven || b_proven);
+        let answered = match int32_row && into.repr_of(answered) == Repr::Tagged {
+            true => {
+                let double = super::unbox_number(into, answered)?;
+                into.to_int32(double).map_err(machine)?
+            }
+            false => answered,
+        };
         let joined = into.repr_of(answered);
         let join = into.create_block();
         let result = into.add_block_param(join, joined);

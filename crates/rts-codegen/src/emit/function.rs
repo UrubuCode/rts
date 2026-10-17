@@ -331,6 +331,15 @@ fn emit_function(
 ) -> EmitResult<FuncId> {
     // TAKEN FIRST, before anything nested can be emitted and read it.
     let candidate = std::mem::take(&mut ctx.mir_candidate);
+    // `@repr(i32)` IS STD-ONLY, refused here exactly as `@intrinsic` is: it makes `+ - *`
+    // on the parameter WRAP, so the same `a + b` answers a different number than the
+    // language's (an f64 sum) once it overflows. The std author opts into that on purpose;
+    // user code must never get it by writing a decorator, so it is an error and not an
+    // ignored decoration.
+    let reprs = function.parameters.iter().any(|parameter| parameter.repr_i32);
+    if reprs && ctx.origin != super::Origin::Std {
+        return Err(super::module::refuse("@repr(i32) is std-only"));
+    }
     // Two refusals and not one, because they are two constructs and the
     // measurement that ranks this crate's gaps counts by this string. Merged,
     // they were the largest single entry in that ranking and it was impossible
@@ -468,6 +477,13 @@ fn emit_function(
     };
     let emitted = match through {
         Some(machine) => Ok(machine),
+        // ONLY THE MIR STAGE KNOWS `@repr(i32)`. The running emitter would compile the
+        // parameter as an ordinary number whose `+` does not wrap -- the std author
+        // would believe the value is a raw int32 and get f64 arithmetic -- so a function
+        // that stage declines is refused rather than compiled to the wrong semantics.
+        None if reprs => Err(super::module::refuse(
+            "an @repr(i32) function the MIR stage declines",
+        )),
         None => emit_body(
             ctx,
             enclosing,

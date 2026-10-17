@@ -2673,6 +2673,33 @@ g(1);
         assert!(format!("{shadow:?}").contains("declared more than once"), "{shadow:?}");
     }
 
+    #[test]
+    fn a_repr_i32_parameter_wraps_in_std_and_is_refused_in_user_code() {
+        let repr = "function mix(@repr(i32) h: number, @repr(i32) c: number) { return h * 31 + c; }
+mix(1, 2);
+";
+        let plain = "function mix(h: number, c: number) { return h * 31 + c; }
+mix(1, 2);
+";
+        let std = ir_of(repr, Origin::Std).expect("std honours it");
+        // WRAPPING INTEGER ARITHMETIC: the result is an `IntArith` over two I32 registers (the
+        // entry coercions join as I32, not as a Tagged phi). The multiply stays the f64 one
+        // (`ToInt32` of a rounded product is what the `|0` oracle does) and is truncated back
+        // to an int32 at once. The f64 add the fold replaced is left dead in the text.
+        assert!(std.contains("I32 = IntArith(Add"), "the sum must be an integer add:\n{std}");
+        // Control: the same source without the decorator is the language's f64 sum.
+        let ordinary = ir_of(plain, Origin::Std).expect("emits");
+        assert!(!ordinary.contains("IntArith(Add"), "control must not wrap:\n{ordinary}");
+        assert!(ordinary.contains("FloatArith(Add"), "control keeps the f64 add:\n{ordinary}");
+        // The decorator is std-only, as `@intrinsic` is.
+        let refused = ir_of(repr, Origin::User).expect_err("user code is refused");
+        assert!(format!("{refused:?}").contains("@repr(i32) is std-only"), "{refused:?}");
+        // A misspelt representation is a parse error, never a silent drop.
+        let mut names = Names::default();
+        let misspelt = "function f(@repr(i23) x: number) { return x; }";
+        assert!(crate::parse::parse_module(misspelt, &mut names).is_err());
+    }
+
     /// The printed IR of a whole graph (`(specifier, origin, source)`, dependencies first).
     fn graph_ir(units: &[(&str, Origin, &str)]) -> EmitResult<String> {
         let mut names = Names::default();

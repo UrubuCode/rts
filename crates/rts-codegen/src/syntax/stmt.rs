@@ -513,6 +513,13 @@ pub struct Parameter {
     pub default: Option<Expr>,
     /// What the program claimed it holds.
     pub claim: Option<Claim>,
+    /// Whether the program wrote `@repr(i32)` on it: the value is a raw int32, and its
+    /// arithmetic WRAPS (asm.js semantics) as if `|0` followed every operation.
+    ///
+    /// Std-only -- `emit/function.rs` refuses it in user code, because wrapping where the
+    /// program wrote `+` is a different answer, and only the std author may opt a value
+    /// into it. Read by `lower/` and by nothing else.
+    pub repr_i32: bool,
 }
 
 impl Function {
