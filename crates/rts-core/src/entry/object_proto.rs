@@ -181,7 +181,18 @@ impl ObjectPrototype {
         let key = with_current(|context| {
             context.well_known_text(&format!("{}toStringTag", super::symbol::PREFIX))
         });
-        let declared = super::computed::get_indexed(this, key);
+        // `null` and `undefined` have no properties to read: the specification
+        // answers their fixed tags before `@@toStringTag` is ever asked, and
+        // reading it threw "Cannot read properties of null".
+        let nullish = with_current(|context| {
+            this == Value::from_singleton(context.singletons.undefined).bits()
+                || this == Value::from_singleton(context.singletons.null).bits()
+        });
+        let declared = if nullish {
+            with_current(|context| undefined_of(context))
+        } else {
+            super::computed::get_indexed(this, key)
+        };
         if super::throw::in_flight() {
             return with_current(|context| undefined_of(context));
         }
