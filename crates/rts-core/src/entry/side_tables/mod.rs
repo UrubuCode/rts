@@ -187,7 +187,8 @@ mod edges;
 mod release;
 
 pub(super) use edges::edges;
-pub(super) use release::{release_tables, table_bound};
+#[allow(unused_imports)]
+pub(super) use release::{Active, active_tables, release_active, release_tables, table_bound};
 
 #[cfg(test)]
 mod tests {

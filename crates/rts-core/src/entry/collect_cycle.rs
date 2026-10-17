@@ -199,17 +199,12 @@ fn sweep(
     let fast = *FAST.get_or_init(|| {
         std::env::var_os("RTS_FAST_SWEEP").is_none_or(|value| value != "0")
     });
-    let (watch_free, table_bound) = match fast {
-        true => (
-            context.weak.is_empty() && context.deaths.is_empty(),
-            super::side_tables::table_bound(context),
-        ),
-        false => (false, u64::MAX),
-    };
+    let watch_free = fast && context.weak.is_empty() && context.deaths.is_empty();
+    let active = super::side_tables::active_tables(context, !fast);
 
     let release_started = std::time::Instant::now();
     for cell in &doomed {
-        release(context, *cell, watch_free, table_bound);
+        release(context, *cell, watch_free, &active);
     }
     let release_time = release_started.elapsed();
     let swept = doomed.len();
@@ -232,15 +227,20 @@ fn sweep(
 ///
 /// # The sweep-wide facts
 ///
-/// `watch_free` and `table_bound` are read ONCE per sweep (see [`sweep`]) and say,
+/// `watch_free` and `active` are read ONCE per sweep (see [`sweep`]) and say,
 /// conservatively, when a table cannot possibly hold anything for this cell:
 /// `watch_free` is "no watch and no death registration exists at all", and
-/// `table_bound` is a reference below which a side table MIGHT hold an entry
-/// (`u64::MAX` when the fast path is off). Neither can become stale during the
+/// `active` lists the side tables that MIGHT hold an entry and how far each
+/// reaches (every table, unbounded, when the fast path is off). Neither can become stale during the
 /// sweep, because nothing the sweep runs inserts into those tables — it only
 /// removes. A cell that fails either test takes exactly the path it always did.
 #[inline]
-fn release(context: &mut Context, cell: u32, watch_free: bool, table_bound: u64) {
+fn release(
+    context: &mut Context,
+    cell: u32,
+    watch_free: bool,
+    active: &super::side_tables::Active,
+) {
     // Every watch on this cell, cleared before the cell goes back — a watcher
     // reading a reused cell would read somebody else's object and every
     // question would answer plausibly. See `super::weak`.
@@ -269,11 +269,12 @@ fn release(context: &mut Context, cell: u32, watch_free: bool, table_bound: u64)
     // tracer walks. See `side_tables::release` for what a missed table does and
     // for the two occasions this crate paid for one.
     //
-    // Skipped only when EVERY table is provably without an entry at or past this
-    // cell's index (`table_bound`), which is what each `Aside::remove` would
-    // have answered one table at a time.
-    if u64::from(cell) < table_bound {
-        super::side_tables::release_tables(context, cell);
+    // Visits only the tables that might hold something for this cell (`active`,
+    // built once per sweep from the same exhaustive list as the full pass): a
+    // table that is empty, or whose reach ends below this cell, is exactly one
+    // whose `Aside::remove` would have answered `None`. See `side_tables::Active`.
+    if !active.is_empty() {
+        super::side_tables::release_active(context, cell, active);
     }
     // Whatever asked to be told about this death, moved to the run queue. NOT
     // called: this runs with the borrow held, and a finalizer calls out. See
