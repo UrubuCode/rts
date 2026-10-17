@@ -913,18 +913,12 @@ pub struct Context {
     /// an array, so allocating it reaches `array::allocate_array_cell`, which
     /// would otherwise ask for the prototype it is in the middle of making.
     array_prototype_building: bool,
-    /// What the `{ value, done }` of every iterator step inherits from.
+    /// What a generator OBJECT inherits from (`generator::made`).
     ///
-    /// Remembered because `generator::result` asked for it by NAME once per
-    /// step, and `class_support::prototype` answers a name by walking `classes`
-    /// and comparing strings — so every element of every `for`-`of`, every
-    /// destructuring position, and every `Map` or `Set` walk paid a linear scan
-    /// with a `str` compare per entry to find a registration that cannot move.
-    ///
-    /// Needs no root of its own, and that is worth stating rather than assuming:
-    /// what it holds is `Registered::prototype`, and `classes` is already
-    /// enumerated by [`roots`] — nothing ever removes a registration, so the
-    /// memo cannot outlive what it names.
+    /// Remembered because `class_support::prototype` answers a name by walking
+    /// `classes` and comparing strings. Needs no root of its own: what it holds
+    /// is `Registered::prototype`, and `classes` is already enumerated by
+    /// [`roots`] — nothing ever removes a registration.
     generator_result_prototype: Option<u64>,
     /// `Array.prototype[Symbol.iterator]` as it was INSTALLED.
     ///

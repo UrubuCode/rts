@@ -422,7 +422,10 @@ impl Generator {
 /// spellings of one object is how the two would come to disagree about whether
 /// an exhausted iterator carries `undefined` or nothing at all.
 pub(in crate::entry) fn result(context: &mut Context, value: u64, done: bool) -> u64 {
-    let Some(cell) = made(context) else {
+    // An ORDINARY object, no prototype of its own to set: the record is
+    // `{ value, done }` written literally, so it inherits `Object.prototype` and
+    // prints as one — not as a `Generator`, which `made` would have made it.
+    let Some(cell) = super::native::plain(context) else {
         return super::objects::undefined_of(context);
     };
     let key = context.well_known("value");
