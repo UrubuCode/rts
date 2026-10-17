@@ -292,17 +292,23 @@ pub(super) fn binary(
     let (a, b) = match (a, b) {
         (Some(a), Some(b)) => (a, b),
         (a, b) if matches!(op, Op::Compare(_)) => {
-            let across = |held: Option<BigInt>, value: u64| match held {
-                Some(held) => Some(held),
-                None => BigInt::from_f64(super::operators::as_number(context, Value(value))?),
+            let Op::Compare(want) = op else { unreachable!() };
+            // The number side is compared by its EXACT value, so a fraction
+            // or an infinity still orders: `2n > 1.5` and `1n < Infinity` are
+            // true. Only `NaN` is unordered, and every relational operator
+            // answers false for that.
+            let ordering = match (a, b) {
+                (Some(big), None) => {
+                    let number = super::operators::as_number(context, Value(right))?;
+                    big_against_number(&big, number)
+                }
+                (None, Some(big)) => {
+                    let number = super::operators::as_number(context, Value(left))?;
+                    big_against_number(&big, number).map(core::cmp::Ordering::reverse)
+                }
+                _ => None,
             };
-            match (across(a, left), across(b, right)) {
-                (Some(a), Some(b)) => (a, b),
-                // A fraction, a `NaN` or an infinity: no bigint says the same
-                // thing, and every relational operator answers false for an
-                // unordered pair — which is what `NaN` already produces.
-                _ => return Some(Ok(Value::from_bool(false).bits())),
-            }
+            return Some(Ok(Value::from_bool(ordering.is_some_and(|o| want.holds(o))).bits()));
         }
         // Arithmetic with one side only. The language does not coerce ACROSS the
         // boundary and does not answer either — it **refuses**, and the refusal
@@ -362,6 +368,35 @@ pub(super) fn binary(
         }
     };
     Some(Ok(context.bigint_value(produced)))
+}
+
+/// Where a bigint sits against a number, by the number's exact mathematical
+/// value — never by converting the bigint to a double, which would round every
+/// bigint past 2^53. `None` is *unordered*, which only `NaN` is.
+fn big_against_number(big: &BigInt, number: f64) -> Option<core::cmp::Ordering> {
+    use core::cmp::Ordering;
+    if number.is_nan() {
+        return None;
+    }
+    // An infinity decides at once: every bigint is below `+Infinity`.
+    if number.is_infinite() {
+        return Some(if number > 0.0 { Ordering::Less } else { Ordering::Greater });
+    }
+    // The integer part is exactly a bigint; the fraction only breaks a tie.
+    let whole = BigInt::from_f64(number.trunc())?;
+    match big.cmp(&whole) {
+        Ordering::Equal => {
+            let fraction = number - number.trunc();
+            Some(if fraction > 0.0 {
+                Ordering::Less
+            } else if fraction < 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            })
+        }
+        other => Some(other),
+    }
 }
 
 /// How large a result these operations will build before refusing.

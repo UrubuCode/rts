@@ -98,10 +98,11 @@
 //! `t.constructor` that cannot build a scheduled timer, and Node's
 //! underscore-prefixed internals.
 //!
-//! Trailing `...args` forwarding
-//! beyond one value — this module's four-slot calling convention leaves one
-//! argument slot once the callback and delay are read; `setTimeout(cb, 10, a,
-//! b, c)` forwards only `a`. Delay clamping/`NaN` handling beyond a floor of
+//! Trailing `...args` are forwarded whole (packed with `arguments_at`, which reads
+//! the spilled vector past four slots) and the callback's `this` is the handle,
+//! as in Node; the divergence is `arguments_at`'s — a trailing `undefined`
+//! argument is dropped. The packed array and the handle are held by raw word in
+//! [`TIMERS`] like the callback always was, not through `entry::external`. Delay clamping/`NaN` handling beyond a floor of
 //! `1` — an out-of-range or non-numeric delay reads as `1`ms rather than
 //! being separately validated against the documented `2147483647` ceiling.
 
@@ -126,8 +127,18 @@ pub use surface::namespace;
 /// `setTimeout(cb, 5)` with `await sleep(5)` would have two queues disagreeing
 /// about which fires first. One table with two deliveries has one order.
 enum Deliver {
-    /// A JavaScript function, called with one argument.
-    Call { callback: u64, arg: u64 },
+    /// A JavaScript function, called with `this` = the `Timeout`/`Immediate` the
+    /// scheduling call returned (as Node does) and with every trailing argument.
+    ///
+    /// `arg` is an ARRAY of those arguments, or `undefined` when there were none,
+    /// so a call past the four slots is forwarded whole — see `surface::pack`.
+    /// `handle` starts `undefined` and is written once the object exists
+    /// ([`bind`]), because the object needs the id this entry is registered under.
+    Call {
+        callback: u64,
+        arg: u64,
+        handle: u64,
+    },
     /// A promise, fulfilled with a value when the deadline arrives — or
     /// REJECTED before it, if `signal` is one a program aborted.
     ///
@@ -231,7 +242,15 @@ pub fn pump() {
             .filter_map(|id| {
                 let timer = table.get_mut(&id)?;
                 let fire = match timer.deliver {
-                    Deliver::Call { callback, arg } => Deliver::Call { callback, arg },
+                    Deliver::Call {
+                        callback,
+                        arg,
+                        handle,
+                    } => Deliver::Call {
+                        callback,
+                        arg,
+                        handle,
+                    },
                     Deliver::Settle {
                         promise,
                         value,
@@ -255,8 +274,17 @@ pub fn pump() {
     let absent = entry::undefined_value();
     for fire in due {
         match fire {
-            Deliver::Call { callback, arg } => {
-                entry::call(callback, absent, arg, absent, absent, absent);
+            Deliver::Call {
+                callback,
+                arg,
+                handle,
+            } => {
+                // No arguments is the plain call; otherwise the packed array is
+                // spread, which is what lets more than four reach the callback.
+                match arg == absent {
+                    true => entry::call(callback, handle, absent, absent, absent, absent),
+                    false => entry::call_with_args(callback, handle, arg, entry::NO_CALL_NAME),
+                };
             }
             // Fulfilment, not rejection: the `0` is the `rejected` flag, an
             // `i64` because that is what the lowering passes and what
@@ -383,6 +411,19 @@ fn registered(
     id
 }
 
+/// Records the `Timeout`/`Immediate` a callback will be called on, once it exists.
+fn bind(id: u64, object: u64) {
+    with_timers(|table| {
+        if let Some(Timer {
+            deliver: Deliver::Call { handle, .. },
+            ..
+        }) = table.get_mut(&id)
+        {
+            *handle = object;
+        }
+    });
+}
+
 /// Writes a timer's ref flag, if it is still scheduled.
 ///
 /// Silent about an id the table does not hold, because the common case for that
@@ -402,11 +443,23 @@ fn set_refed(id: u64, refed: bool) {
 /// `Number(t)` stable across a refresh, so a program that kept the primitive to
 /// cancel with still names this timer afterwards. Minting a fresh id would leave
 /// that number pointing at nothing.
-fn rearm(id: u64, callback: u64, arg: u64, delay_ms: u64, periodic: bool, refed: bool) {
+fn rearm(
+    id: u64,
+    callback: u64,
+    arg: u64,
+    handle: u64,
+    delay_ms: u64,
+    periodic: bool,
+    refed: bool,
+) {
     let period = Duration::from_millis(delay_ms);
     with_timers(|table| {
         table.insert(id, Timer {
-            deliver: Deliver::Call { callback, arg },
+            deliver: Deliver::Call {
+                callback,
+                arg,
+                handle,
+            },
             deadline: Instant::now() + period,
             period: periodic.then_some(period),
             immediate: false,
