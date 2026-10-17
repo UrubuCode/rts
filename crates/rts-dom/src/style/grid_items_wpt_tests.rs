@@ -470,3 +470,15 @@ fn test_subgrid_item_margin_left_auto() {
     assert_eq!((content.w, content.h), (ref_div.w, ref_div.h));
     assert_eq!((subgrid.w, subgrid.h), (ref_div.w, ref_div.h));
 }
+
+#[test]
+fn test_flex_sizing_rows_indefinite_height_002() {
+    let html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\layout-algorithm\flex-sizing-rows-indefinite-height-002.html").unwrap();
+    let (dom, list) = crate::table::tests::geometria(&html, 800.0);
+    let grid = crate::table::tests::rect(&dom, &list, ".grid", 0);
+    let item = crate::table::tests::rect(&dom, &list, ".item", 0);
+    println!("GRID: {:?}", (grid.x, grid.y, grid.w, grid.h));
+    println!("ITEM: {:?}", (item.x, item.y, item.w, item.h));
+    assert_eq!(grid.w, 100.0);
+}
+

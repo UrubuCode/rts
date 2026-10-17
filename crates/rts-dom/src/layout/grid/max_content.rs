@@ -240,7 +240,7 @@ fn grid_content_width(
                 } else {
                     wmax.get(i).copied().unwrap_or(0.0)
                 };
-                max_fr_share = max_fr_share.max(w / f);
+                max_fr_share = max_fr_share.max(w / f.max(1.0));
             }
         }
     }

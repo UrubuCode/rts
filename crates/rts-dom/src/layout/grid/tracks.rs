@@ -184,9 +184,10 @@ pub(in crate::layout) fn resolve_tracks(
     // unidade significa —, e nesse caso uma trilha limitada ou intrínseca fica
     // pela sua base.
     if sum_fr > 0.0 {
+        let flex_sum = sum_fr.max(1.0);
         for (i, t) in tracks.iter().enumerate() {
             if let T::Fr(f) = t {
-                sizes[i] = free * f.max(0.0) / sum_fr;
+                sizes[i] = free * f.max(0.0) / flex_sum;
             }
         }
         return sizes;
@@ -395,6 +396,7 @@ pub(in crate::layout) fn resolve_row_tracks(
                     let base = mn;
                     ch.max(base).min(mx.max(base))
                 }
+                Some(T::Fr(_)) => 0.0,
                 _ => ch,
             }
         })
@@ -407,8 +409,9 @@ pub(in crate::layout) fn resolve_row_tracks(
             if sum_fr > 0.0 {
                 let non_fr: f32 = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fr(_)))).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
                 let free = (ch - non_fr).max(0.0);
+                let flex_sum = sum_fr.max(1.0);
                 for r in 0..nrows {
-                    if let Some(T::Fr(f)) = row_track(r) { row_sizes[r] = free * f.max(0.0) / sum_fr; }
+                    if let Some(T::Fr(f)) = row_track(r) { row_sizes[r] = free * f.max(0.0) / flex_sum; }
                 }
             } else {
                 let min_of_row = |r: usize| match row_track(r) {
@@ -453,7 +456,7 @@ pub(in crate::layout) fn resolve_row_tracks(
                 if let Some(T::Fr(f)) = row_track(r) {
                     if *f > 0.0 {
                         let ch = content_row_h.get(r).copied().unwrap_or(0.0);
-                        max_fr_share = max_fr_share.max(ch / f);
+                        max_fr_share = max_fr_share.max(ch / f.max(1.0));
                     }
                 }
             }
@@ -461,6 +464,17 @@ pub(in crate::layout) fn resolve_row_tracks(
                 for r in 0..nrows {
                     if let Some(T::Fr(f)) = row_track(r) {
                         row_sizes[r] = row_sizes[r].max(max_fr_share * f);
+                    }
+                }
+                let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+                let container_fixed_h = row_sizes.iter().sum::<f32>() + total_gap;
+                let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
+                let non_fr: f32 = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fr(_)))).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
+                let free = (container_fixed_h - non_fr).max(0.0);
+                let flex_sum = sum_fr.max(1.0);
+                for r in 0..nrows {
+                    if let Some(T::Fr(f)) = row_track(r) {
+                        row_sizes[r] = free * f.max(0.0) / flex_sum;
                     }
                 }
             }
