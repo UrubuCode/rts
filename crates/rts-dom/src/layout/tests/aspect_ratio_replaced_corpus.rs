@@ -109,3 +109,17 @@ fn abspos_stretches_a_both_inset_axis_then_the_ratio_sizes_the_other() {
     let (dom, list) = geometria(w, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (80.0, 40.0));
 }
+
+/// An out-of-flow box with `aspect-ratio`, auto height and a height NOT
+/// stretched between insets takes the height from its (shrink-to-fit) width
+/// through the ratio (CSS Sizing 4 §5.1): abspos `aspect-ratio:1/1` around a
+/// `width:100` child is 100 wide AND 100 tall, where the general shrink-to-fit
+/// path leaves it 0 tall (WPT `css-sizing/aspect-ratio/abspos-007`).
+#[test]
+fn abspos_aspect_ratio_transfers_width_to_height() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="position:relative;width:200px;height:200px">
+      <div id="t" style="position:absolute;aspect-ratio:1/1"><div style="width:100px"></div></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}

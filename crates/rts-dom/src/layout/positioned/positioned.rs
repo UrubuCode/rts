@@ -224,6 +224,37 @@ pub(in crate::layout) fn layout_out_of_flow(
         true,
         ctx,
     );
+    // An out-of-flow box with an `aspect-ratio`, auto height, and a height NOT
+    // stretched between insets takes its height from the resolved width through
+    // the ratio (CSS Sizing 4 §5.1): an abspos `aspect-ratio:1/1` with a
+    // `width:100` child is 100 wide AND 100 tall, where the general
+    // shrink-to-fit path leaves it 0 tall (WPT `css-sizing/aspect-ratio/
+    // abspos-007`). Scoped to the abspos path on purpose — a flex/grid item's
+    // height is governed by its container, not by this transfer, and that path
+    // never reaches here.
+    let (h, forced_outer_h) = if css.aspect_ratio.is_some()
+        && css.height.is_none()
+        && !stretch_h
+        && forced_outer_h.is_none()
+    {
+        let [bt, brd_r, bb_b, brd_l] = crate::style::borders::used_widths(&css);
+        let frame_h = css.padding.resolve_h(&resolve) + brd_l + brd_r;
+        let frame_v = css.padding.resolve_v(&resolve) + bt + bb_b;
+        let content_w = (w - frame_h).max(0.0);
+        match crate::layout::measure::aspect_ratio::height_for_width(
+            &css, content_w, frame_h, frame_v,
+        ) {
+            // border-box height for positioning; outer (incl. margin) forced
+            // into the real layout below so the painted height matches.
+            Some(content_h) => {
+                let margin_v = css.margin.resolve_v(&resolve);
+                (content_h + frame_v, Some(content_h + frame_v + margin_v))
+            }
+            None => (h, forced_outer_h),
+        }
+    } else {
+        (h, forced_outer_h)
+    };
     // Os offsets são RELATIVOS ao container: soma a origem do containing block.
     // Sem NENHUM dos dois insets de um eixo, a posição não é a origem do
     // containing block — é a STATIC POSITION (CSS 2.1 §10.3.7/§10.6.4): onde
