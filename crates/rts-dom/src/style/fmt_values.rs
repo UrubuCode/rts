@@ -183,6 +183,7 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
         JustifyContent::Right => "right",
         JustifyContent::Start => "start",
         JustifyContent::End => "end",
+        JustifyContent::Stretch => "stretch",
     }
     .into()
 }

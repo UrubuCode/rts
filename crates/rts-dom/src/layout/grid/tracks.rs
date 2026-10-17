@@ -399,7 +399,7 @@ pub(in crate::layout) fn resolve_row_tracks(
         })
         .collect();
 
-    if align_content.is_none() {
+    if align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch)) {
         if let Some(ch) = container_h {
             let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
             let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
@@ -423,7 +423,9 @@ pub(in crate::layout) fn resolve_row_tracks(
                 };
                 let current_used: f32 = row_sizes.iter().sum::<f32>() + total_gap;
                 if ch > current_used {
-                    let auto_rows: Vec<usize> = (0..nrows).filter(|&r| matches!(row_track(r), None | Some(T::Auto))).collect();
+                    let auto_rows: Vec<usize> = (0..nrows)
+                        .filter(|&r| !row_collapsed.get(r).copied().unwrap_or(false) && matches!(row_track(r), None | Some(T::Auto | T::Intrinsic { max: B::Auto, .. })))
+                        .collect();
                     if !auto_rows.is_empty() {
                         let each = (ch - current_used) / auto_rows.len() as f32;
                         for r in auto_rows { row_sizes[r] += each; }

@@ -32,12 +32,13 @@ pub(in crate::layout) fn justify_offsets(
             | J::SpaceAround
             | J::SpaceEvenly
             | J::Left
-            | J::Start => (0.0, 0.0),
+            | J::Start
+            | J::Stretch => (0.0, 0.0),
             J::Right => (free, 0.0),
         };
     }
     match j {
-        J::FlexStart | J::Left | J::Start => (0.0, 0.0),
+        J::FlexStart | J::Left | J::Start | J::Stretch => (0.0, 0.0),
         J::FlexEnd | J::Right | J::End => (free, 0.0),
         J::Center => (free / 2.0, 0.0),
         J::SpaceBetween => {

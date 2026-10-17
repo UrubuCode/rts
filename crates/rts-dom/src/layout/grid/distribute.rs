@@ -412,7 +412,7 @@ pub(in crate::layout) fn re_resolve_columns_with_rows(
             collapse::gutters(ncols, col_collapsed, col_gap),
             Some(wmax),
             content_min.as_deref(),
-            css.justify.is_none(),
+            css.justify.map_or(true, |j| matches!(j, crate::style::JustifyContent::Stretch)),
             resolve,
         );
     }

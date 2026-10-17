@@ -189,6 +189,55 @@ pub(super) fn resolve_item_offsets(
     (x, y)
 }
 
+pub(in crate::layout) fn resolve_gap(
+    d: Option<crate::style::Dimension>,
+    axis_size: Option<f32>,
+    resolve: &crate::layout::ResolveCtx,
+) -> f32 {
+    let Some(d) = d else { return 0.0; };
+    match d {
+        crate::style::Dimension::Px(px) => px.max(0.0),
+        crate::style::Dimension::Percent(pct) => {
+            axis_size.map_or(0.0, |sz| (sz * pct / 100.0).max(0.0))
+        }
+        crate::style::Dimension::Calc(c) => {
+            let basis = axis_size.unwrap_or(0.0);
+            let pct_val = basis * c.pct / 100.0;
+            let v = c.px
+                + pct_val
+                + resolve.node_font_size * c.em
+                + resolve.root_font_size * c.rem
+                + resolve.viewport_w * c.vw / 100.0
+                + resolve.viewport_h * c.vh / 100.0;
+            v.max(0.0)
+        }
+        other => other.resolve(resolve).unwrap_or(0.0).max(0.0),
+    }
+}
+
+pub(in crate::layout) fn definite_track_sum(
+    tl: Option<&crate::style::GridTemplate>,
+    gap_dim: Option<crate::style::Dimension>,
+) -> Option<f32> {
+    let tl = match tl? {
+        crate::style::GridTemplate::Tracks(t) => t,
+        _ => return None,
+    };
+    if tl.entries.is_empty() { return None; }
+    let mut sum = 0.0;
+    for (_, t) in &tl.entries {
+        match t {
+            crate::style::GridTrack::Fixed(crate::style::Dimension::Px(p)) => sum += p,
+            _ => return None,
+        }
+    }
+    let extra = match gap_dim {
+        Some(crate::style::Dimension::Calc(c)) => c.px,
+        _ => 0.0,
+    };
+    Some(sum + extra)
+}
+
 #[cfg(test)]
 mod tests {
     use super::cell_align_offset;

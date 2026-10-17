@@ -41,8 +41,10 @@ pub(in crate::layout) fn layout_children_grid(
     let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
     let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
 
-    let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| css.gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
-    let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
+    let col_basis = if content_w > 0.0 { Some(content_w) } else { align::definite_track_sum(css.grid_template_columns.as_deref(), css.gap) };
+    let row_basis = container_content_h.or_else(|| align::definite_track_sum(css.grid_template_rows.as_deref(), css.row_gap));
+    let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, col_basis, &resolve));
+    let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.row_gap, row_basis, &resolve));
 
     let areas = css.grid_template_areas.clone();
     let is_flex_child = parent_css.as_ref().map_or(false, |p| {
@@ -164,7 +166,7 @@ pub(in crate::layout) fn layout_children_grid(
             collapse::gutters(ncols, &col_collapsed, col_gap),
             content_max.as_deref(),
             content_min.as_deref(),
-            css.justify.is_none(),
+            css.justify.map_or(true, |j| matches!(j, crate::style::JustifyContent::Stretch)),
             &resolve,
         )
     };

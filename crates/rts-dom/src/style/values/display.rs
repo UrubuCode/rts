@@ -270,6 +270,8 @@ pub enum JustifyContent {
     /// `getComputedStyle` tem de responder o keyword usado.
     Start,
     End,
+    /// `stretch` (CSS Box Alignment Level 3 §5): estica as trilhas/linhas para preencher o contentor.
+    Stretch,
 }
 
 impl JustifyContent {
@@ -293,6 +295,7 @@ impl JustifyContent {
             "space-between" => JustifyContent::SpaceBetween,
             "space-around" => JustifyContent::SpaceAround,
             "space-evenly" => JustifyContent::SpaceEvenly,
+            "stretch" => JustifyContent::Stretch,
             _ => return None,
         })
     }
