@@ -71,3 +71,96 @@ fn test_min_content_width_percent_height_aspect_ratio_001() {
     assert_eq!(grid_rect.w, 100.0);
     assert_eq!(grid_rect.h, 100.0);
 }
+
+#[test]
+fn test_fit_content_columns() {
+    let test_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-columns-fit-content-001.html"#;
+    let ref_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-columns-fit-content-001-ref.html"#;
+    let grid_css_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css"#;
+
+    let grid_css = std::fs::read_to_string(grid_css_path).unwrap();
+    let test_html = std::fs::read_to_string(test_path).unwrap();
+    let ref_html = std::fs::read_to_string(ref_path).unwrap();
+
+    let mut dom_t = crate::parse_html_to_dom(&test_html);
+    dom_t.add_stylesheet(&grid_css);
+
+    let mut dom_r = crate::parse_html_to_dom(&ref_html);
+    dom_r.add_stylesheet(&grid_css);
+
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+
+    let grids_t = dom_t.query_all(".grid");
+    let grids_r = dom_r.query_all(".grid");
+
+    assert_eq!(grids_t.len(), grids_r.len(), "grid count mismatch");
+    for i in 0..grids_t.len() {
+        let nt = dom_t.resolve(grids_t[i]).unwrap();
+        let nr = dom_r.resolve(grids_r[i]).unwrap();
+        let ct = list_t.grid_column_tracks.get(&nt).cloned().unwrap_or_default();
+        let cr = list_r.grid_column_tracks.get(&nr).cloned().unwrap_or_default();
+        if ct != cr {
+            let class_t = dom_t.node(nt).attr("class").unwrap_or("");
+            let style_t = dom_t.node(nt).attr("style").unwrap_or("");
+            let style_r = dom_r.node(nr).attr("style").unwrap_or("");
+            eprintln!("MISMATCH Grid[{i}] class={class_t} style={style_t} vs ref style={style_r}");
+            eprintln!("  test cols: {:?}", ct);
+            eprintln!("  ref  cols: {:?}", cr);
+        }
+    }
+}
+
+#[test]
+fn test_fit_content_rows() {
+    let test_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-rows-fit-content-001.html"#;
+    let ref_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-rows-fit-content-001-ref.html"#;
+    let grid_css_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css"#;
+
+    let grid_css = std::fs::read_to_string(grid_css_path).unwrap();
+    let test_html = std::fs::read_to_string(test_path).unwrap();
+    let ref_html = std::fs::read_to_string(ref_path).unwrap();
+
+    let mut dom_t = crate::parse_html_to_dom(&test_html);
+    dom_t.add_stylesheet(&grid_css);
+
+    let mut dom_r = crate::parse_html_to_dom(&ref_html);
+    dom_r.add_stylesheet(&grid_css);
+
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+
+    let grids_t = dom_t.query_all(".grid");
+    let grids_r = dom_r.query_all(".grid");
+
+    assert_eq!(grids_t.len(), grids_r.len(), "grid count mismatch");
+    for i in 0..grids_t.len() {
+        let nt = dom_t.resolve(grids_t[i]).unwrap();
+        let nr = dom_r.resolve(grids_r[i]).unwrap();
+        let rt = list_t.grid_row_tracks.get(&nt).cloned().unwrap_or_default();
+        let rr = list_r.grid_row_tracks.get(&nr).cloned().unwrap_or_default();
+        if rt != rr {
+            let class_t = dom_t.node(nt).attr("class").unwrap_or("");
+            let style_t = dom_t.node(nt).attr("style").unwrap_or("");
+            let style_r = dom_r.node(nr).attr("style").unwrap_or("");
+            eprintln!("MISMATCH ROW Grid[{i}] class={class_t} style={style_t} vs ref style={style_r}");
+            eprintln!("  test rows: {:?}", rt);
+            eprintln!("  ref  rows: {:?}", rr);
+        }
+    }
+}
+
+
+

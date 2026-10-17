@@ -293,7 +293,17 @@ pub(crate) fn fmt_track(track: &crate::style::GridTrack) -> String {
             format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))
         }
         crate::style::GridTrack::Intrinsic { min, max } => {
-            format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+            if min == max {
+                fmt_track_bound(min)
+            } else if let crate::style::TrackBound::FitContent(d) = max {
+                if matches!(min, crate::style::TrackBound::Auto) {
+                    format!("fit-content({})", fmt_dim(*d))
+                } else {
+                    format!("minmax({}, fit-content({}))", fmt_track_bound(min), fmt_dim(*d))
+                }
+            } else {
+                format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+            }
         }
         crate::style::GridTrack::AutoRepeat { tracks, fit, .. } => {
             let kw = if *fit { "auto-fit" } else { "auto-fill" };

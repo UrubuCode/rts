@@ -128,7 +128,10 @@ fn grid_auto_columns_usa_o_mesmo_tipo_de_trilha_que_a_irma() {
     );
     assert_eq!(
         parse_inline("grid-auto-columns: min-content").grid_auto_columns,
-        Some(GridTrack::Auto)
+        Some(GridTrack::Intrinsic {
+            min: TrackBound::MinContent,
+            max: TrackBound::MinContent,
+        })
     );
     // e a irmã continua a responder o que respondia.
     assert!(parse_inline("grid-auto-rows: 1fr").grid_auto_rows.is_some());
