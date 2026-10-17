@@ -51,9 +51,25 @@ pub(in crate::layout) fn line_envelope(
         .iter()
         .filter(|s| s.atomic.is_none() && !s.text.is_empty())
         .filter_map(|s| {
-            super::run_font::of_segment(dom, &s.owners, family, font_size, ctx.measurer)
+            let va = s
+                .owners
+                .iter()
+                .rev()
+                .find_map(|&o| dom.computed_style_idx(o).and_then(|c| c.vertical_align))
+                .unwrap_or(VerticalAlign::Baseline);
+            if let Some(f) =
+                super::run_font::of_segment(dom, &s.owners, family, font_size, ctx.measurer)
+            {
+                Some((f.box_height, f.box_ascent, va))
+            } else if va != VerticalAlign::Baseline {
+                let content =
+                    crate::inline_box::altura_do_conteudo(font_size, family, ctx.measurer);
+                let ascent = ctx.measurer.font_ascent_family(font_size, family);
+                Some((content, ascent, va))
+            } else {
+                None
+            }
         })
-        .map(|f| (f.box_height, f.box_ascent, VerticalAlign::Baseline))
         .collect();
     if own_fonts.is_empty() && !line.iter().any(|s| is_inline_block_atom(s)) {
         return None;

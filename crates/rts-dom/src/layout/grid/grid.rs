@@ -45,7 +45,10 @@ pub(in crate::layout) fn layout_children_grid(
     let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| css.row_gap.and_then(|d| d.resolve(&resolve)).unwrap_or(0.0).max(0.0));
 
     let areas = css.grid_template_areas.clone();
-    let container_content_h = css.height.is_some().then_some(container_content_h).flatten();
+    let is_flex_child = parent_css.as_ref().map_or(false, |p| {
+        matches!(p.effective_display(), Some(crate::style::DisplayKind::Flex | crate::style::DisplayKind::FlexWrap | crate::style::DisplayKind::InlineFlex | crate::style::DisplayKind::InlineFlexWrap))
+    });
+    let container_content_h = (css.height.is_some() || css.aspect_ratio.is_some() || is_flex_child).then_some(container_content_h).flatten();
     let is_p_grid = subgrid::is_parent_grid(dom, id);
     let (col_tracks, col_collapsible, col_lines) =
         subgrid::init_col_tracks(col_sub, css, areas.as_deref(), content_w, col_gap, container_content_h, &resolve, is_p_grid, is_ortho);
@@ -406,7 +409,7 @@ pub(in crate::layout) fn layout_children_grid(
         } else if block_sz.is_some() && (!is_auto_y || !distribute::has_pct(block_sz)) {
             nat_h
         } else if block_min.is_none() && overflow_visible {
-            let unc = if is_in_frame {
+            let unc = if is_in_frame && crate::layout::block::rotated::is_ortho_in_frame(child) {
                 crate::table::min_content_with_floor(dom, child, font_size, ctx)
             } else {
                 measure_block(dom, child, cell.box_id, cell_w, None, ratio_w, None, true, ctx).1

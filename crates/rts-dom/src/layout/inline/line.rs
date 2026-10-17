@@ -376,15 +376,28 @@ pub(in crate::layout) fn layout_inline_flow(
             // Its OWN font on the shared baseline (`run_font.rs`), shifted with a relative inline.
             let own_font =
                 super::run_font::of_segment(dom, &seg.owners, family, font_size, ctx.measurer);
-            let (seg_y, seg_size, seg_mono, seg_ahem) = match &own_font {
-                Some(f) => (
-                    text_top + ascent - f.ascent,
-                    f.font.size,
-                    f.font.mono,
-                    f.ahem,
-                ),
-                None => (text_top, font_size, mono, ahem),
+            let (f_size, f_mono, f_ahem) = match &own_font {
+                Some(f) => (f.font.size, f.font.mono, f.ahem),
+                None => (font_size, mono, ahem),
             };
+            let va = seg
+                .owners
+                .iter()
+                .rev()
+                .find_map(|&o| dom.computed_style_idx(o).and_then(|c| c.vertical_align))
+                .unwrap_or(crate::style::VerticalAlign::Baseline);
+            let seg_y = match va {
+                crate::style::VerticalAlign::Top => cy,
+                crate::style::VerticalAlign::Bottom => {
+                    let h = own_font.as_ref().map_or(content, |f| f.box_height);
+                    cy + line_advance - h
+                }
+                _ => match &own_font {
+                    Some(f) => text_top + ascent - f.ascent,
+                    None => text_top,
+                },
+            };
+            let (seg_size, seg_mono, seg_ahem) = (f_size, f_mono, f_ahem);
             let (rx, ry) = crate::layout::positioned::relative::inline_offset(
                 dom,
                 seg.owners.last().copied(),
