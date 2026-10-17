@@ -107,7 +107,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.9%   4525/4528 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   168/170 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71.5%   622/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71.8%   625/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -130,7 +130,7 @@ subfolders of css-flexbox
 the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.5%   132/160   outros
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.3%   58/77     item
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  86.2%   50/58     align
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  91.4%   53/58     align
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  87.0%   40/46     gap
   [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  53.8%   21/39     percentage
