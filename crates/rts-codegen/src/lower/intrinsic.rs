@@ -145,6 +145,31 @@ impl Lowering<'_> {
                 return Ok(Some(self.entry(op, vec![selector], at)));
             }
         };
+        // The library-call members take the door `Math.<name>` takes, selector first.
+        if let Some(name) = primitive.math_direct_name() {
+            let (door, which, arity) = match crate::runtime::math_direct::unary_index(name) {
+                Some(which) => (crate::runtime::RuntimeOp::MathDirect1, which, 1),
+                None => (
+                    crate::runtime::RuntimeOp::MathDirect2,
+                    crate::runtime::math_direct::binary_index(name).expect("a direct member"),
+                    2,
+                ),
+            };
+            if arguments.len() != arity {
+                return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+            }
+            let mut args = Vec::with_capacity(arity + 1);
+            let selector = self.domain.constant(JsConst::Count(which as u32));
+            args.push(self.declared(selector, at));
+            for argument in arguments {
+                let Spreadable::Single(argument) = argument else {
+                    return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+                };
+                let value = self.expression(argument)?;
+                args.push(self.prim(JsPrim::ToNumber, vec![value], at));
+            }
+            return Ok(Some(self.entry(door, args, at)));
+        }
         let (op, arity) = match primitive {
             rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
             rts_corelib::CorePrimitive::Clz32 => (JsPrim::MathClz32, 1),
@@ -155,6 +180,7 @@ impl Lowering<'_> {
             rts_corelib::CorePrimitive::Trunc => (JsPrim::MathTrunc, 1),
             rts_corelib::CorePrimitive::Abs => (JsPrim::MathAbs, 1),
             rts_corelib::CorePrimitive::Sign => (JsPrim::MathSign, 1),
+            rts_corelib::CorePrimitive::Round => (JsPrim::MathRound, 1),
             rts_corelib::CorePrimitive::Min => (JsPrim::MathMin, 2),
             rts_corelib::CorePrimitive::Max => (JsPrim::MathMax, 2),
             _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),

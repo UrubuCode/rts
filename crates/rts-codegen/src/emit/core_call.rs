@@ -64,7 +64,11 @@ pub(super) fn emit(
         | CorePrimitive::Ceil
         | CorePrimitive::Trunc
         | CorePrimitive::Abs
-        | CorePrimitive::Sign => 1,
+        | CorePrimitive::Sign
+        | CorePrimitive::Round => 1,
+        // The library-call members: the same door `Math.<name>` takes (`math_direct`).
+        other if other.math_direct_name().is_some_and(|name| crate::runtime::math_direct::binary_index(name).is_some()) => 2,
+        other if other.math_direct_name().is_some() => 1,
         _ => return Err(super::module::refuse("an rts:core primitive with no lowering")),
     };
     if arguments.len() != arity {
@@ -91,9 +95,25 @@ pub(super) fn emit(
         CorePrimitive::Trunc => builder.float_unary(rts_cranelift::ir::FloatOp::Trunc, doubles[0])?,
         CorePrimitive::Abs => builder.float_unary(rts_cranelift::ir::FloatOp::Abs, doubles[0])?,
         CorePrimitive::Sign => super::math::sequence::sign(builder, doubles[0])?,
+        CorePrimitive::Round => super::math::sequence::round(builder, doubles[0])?,
         CorePrimitive::Min => builder.arith(rts_cranelift::ir::NumOp::Min, doubles[0], doubles[1])?,
         CorePrimitive::Max => builder.arith(rts_cranelift::ir::NumOp::Max, doubles[0], doubles[1])?,
-        _ => unreachable!("arity match above refused the rest"),
+        other => {
+            // `Math.f(…)` over doubles: `MathDirect1`/`2` with the member's number.
+            let name = other.math_direct_name().expect("arity match above refused the rest");
+            let (op, which, count) = match crate::runtime::math_direct::unary_index(name) {
+                Some(which) => (RuntimeOp::MathDirect1, which, 1),
+                None => (RuntimeOp::MathDirect2, crate::runtime::math_direct::binary_index(name).expect("a direct member"), 2),
+            };
+            let id = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+                repr: Repr::I64,
+                bits: rts_cranelift::ir::ScalarBits(which as u64),
+            });
+            let which = builder.use_const(id);
+            let mut args = vec![which];
+            args.extend_from_slice(&doubles[..count]);
+            super::expr::call(builder, ctx, op, &args)?[0]
+        }
     };
     Ok(Some(tagged(builder, answered)))
 }

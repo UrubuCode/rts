@@ -85,6 +85,50 @@ pub enum CorePrimitive {
     Min,
     /// The greater of two doubles (`Math.max` semantics: NaN wins, +0 > -0). Safe.
     Max,
+    /// `Math.round`. Safe.
+    Round,
+    /// `Math.cbrt`. Safe.
+    Cbrt,
+    /// `Math.exp`. Safe.
+    Exp,
+    /// `Math.expm1`. Safe.
+    Expm1,
+    /// `Math.log`. Safe.
+    Log,
+    /// `Math.log2`. Safe.
+    Log2,
+    /// `Math.log10`. Safe.
+    Log10,
+    /// `Math.log1p`. Safe.
+    Log1p,
+    /// `Math.sin`. Safe.
+    Sin,
+    /// `Math.cos`. Safe.
+    Cos,
+    /// `Math.tan`. Safe.
+    Tan,
+    /// `Math.asin`. Safe.
+    Asin,
+    /// `Math.acos`. Safe.
+    Acos,
+    /// `Math.atan`. Safe.
+    Atan,
+    /// `Math.sinh`. Safe.
+    Sinh,
+    /// `Math.cosh`. Safe.
+    Cosh,
+    /// `Math.tanh`. Safe.
+    Tanh,
+    /// `Math.asinh`. Safe.
+    Asinh,
+    /// `Math.acosh`. Safe.
+    Acosh,
+    /// `Math.atanh`. Safe.
+    Atanh,
+    /// `Math.pow`. Safe.
+    Pow,
+    /// `Math.atan2`. Safe.
+    Atan2,
     /// IEEE-754 bit pattern of a number. Safe.
     F64ToBits,
     /// A number from its IEEE-754 bit pattern. Safe.
@@ -92,6 +136,35 @@ pub enum CorePrimitive {
 }
 
 impl CorePrimitive {
+    /// The `Math` member a library-call primitive is, for the `MathDirect1`/`2`
+    /// door (`runtime::math_direct` numbers it); `None` for every other.
+    pub fn math_direct_name(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Cbrt => "cbrt",
+            Self::Exp => "exp",
+            Self::Expm1 => "expm1",
+            Self::Log => "log",
+            Self::Log2 => "log2",
+            Self::Log10 => "log10",
+            Self::Log1p => "log1p",
+            Self::Sin => "sin",
+            Self::Cos => "cos",
+            Self::Tan => "tan",
+            Self::Asin => "asin",
+            Self::Acos => "acos",
+            Self::Atan => "atan",
+            Self::Sinh => "sinh",
+            Self::Cosh => "cosh",
+            Self::Tanh => "tanh",
+            Self::Asinh => "asinh",
+            Self::Acosh => "acosh",
+            Self::Atanh => "atanh",
+            Self::Pow => "pow",
+            Self::Atan2 => "atan2",
+            _ => return None,
+        })
+    }
+
     /// Whether a front end may expose this to user code, or keep it internal to
     /// the standard library. The `unsafe` primitives touch raw memory, which the
     /// conservative-scan GC cannot be handed to arbitrary programs.
@@ -111,6 +184,28 @@ impl CorePrimitive {
                 | Self::Sign
                 | Self::Min
                 | Self::Max
+                | Self::Round
+                | Self::Cbrt
+                | Self::Exp
+                | Self::Expm1
+                | Self::Log
+                | Self::Log2
+                | Self::Log10
+                | Self::Log1p
+                | Self::Sin
+                | Self::Cos
+                | Self::Tan
+                | Self::Asin
+                | Self::Acos
+                | Self::Atan
+                | Self::Sinh
+                | Self::Cosh
+                | Self::Tanh
+                | Self::Asinh
+                | Self::Acosh
+                | Self::Atanh
+                | Self::Pow
+                | Self::Atan2
                 | Self::F64ToBits
                 | Self::F64FromBits
         )
