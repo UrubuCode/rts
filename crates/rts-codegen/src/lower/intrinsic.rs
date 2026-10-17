@@ -149,6 +149,14 @@ impl Lowering<'_> {
             rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
             rts_corelib::CorePrimitive::Clz32 => (JsPrim::MathClz32, 1),
             rts_corelib::CorePrimitive::Fround => (JsPrim::MathFround, 1),
+            rts_corelib::CorePrimitive::Sqrt => (JsPrim::MathSqrt, 1),
+            rts_corelib::CorePrimitive::Floor => (JsPrim::MathFloor, 1),
+            rts_corelib::CorePrimitive::Ceil => (JsPrim::MathCeil, 1),
+            rts_corelib::CorePrimitive::Trunc => (JsPrim::MathTrunc, 1),
+            rts_corelib::CorePrimitive::Abs => (JsPrim::MathAbs, 1),
+            rts_corelib::CorePrimitive::Sign => (JsPrim::MathSign, 1),
+            rts_corelib::CorePrimitive::Min => (JsPrim::MathMin, 2),
+            rts_corelib::CorePrimitive::Max => (JsPrim::MathMax, 2),
             _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),
         };
         if arguments.len() != arity {

@@ -69,6 +69,22 @@ pub enum CorePrimitive {
     ///
     /// The float32 primitive std needs without reaching for the `Math` object.
     Fround,
+    /// Square root of a double (`Math.sqrt`). Safe.
+    Sqrt,
+    /// Round toward negative infinity (`Math.floor`). Safe.
+    Floor,
+    /// Round toward positive infinity (`Math.ceil`). Safe.
+    Ceil,
+    /// Round toward zero (`Math.trunc`). Safe.
+    Trunc,
+    /// Absolute value (`Math.abs`). Safe.
+    Abs,
+    /// -1, -0, +0, +1 or NaN by sign (`Math.sign`). Safe.
+    Sign,
+    /// The lesser of two doubles (`Math.min` semantics: NaN wins, -0 < +0). Safe.
+    Min,
+    /// The greater of two doubles (`Math.max` semantics: NaN wins, +0 > -0). Safe.
+    Max,
     /// IEEE-754 bit pattern of a number. Safe.
     F64ToBits,
     /// A number from its IEEE-754 bit pattern. Safe.
@@ -87,6 +103,14 @@ impl CorePrimitive {
                 | Self::I32Mul
                 | Self::Clz32
                 | Self::Fround
+                | Self::Sqrt
+                | Self::Floor
+                | Self::Ceil
+                | Self::Trunc
+                | Self::Abs
+                | Self::Sign
+                | Self::Min
+                | Self::Max
                 | Self::F64ToBits
                 | Self::F64FromBits
         )

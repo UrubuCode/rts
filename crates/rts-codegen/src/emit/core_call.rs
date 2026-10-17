@@ -56,8 +56,15 @@ pub(super) fn emit(
         }
     };
     let arity = match primitive {
-        CorePrimitive::I32Mul => 2,
-        CorePrimitive::Clz32 | CorePrimitive::Fround => 1,
+        CorePrimitive::I32Mul | CorePrimitive::Min | CorePrimitive::Max => 2,
+        CorePrimitive::Clz32
+        | CorePrimitive::Fround
+        | CorePrimitive::Sqrt
+        | CorePrimitive::Floor
+        | CorePrimitive::Ceil
+        | CorePrimitive::Trunc
+        | CorePrimitive::Abs
+        | CorePrimitive::Sign => 1,
         _ => return Err(super::module::refuse("an rts:core primitive with no lowering")),
     };
     if arguments.len() != arity {
@@ -77,6 +84,15 @@ pub(super) fn emit(
         CorePrimitive::I32Mul => super::math::sequence::imul(builder, doubles[0], doubles[1])?,
         CorePrimitive::Clz32 => super::math::sequence::clz32(builder, doubles[0])?,
         CorePrimitive::Fround => builder.float_unary(rts_cranelift::ir::FloatOp::RoundToSingle, doubles[0])?,
+        // The same instructions `emit/math/body.rs::shape_of` picks for `Math.<name>`.
+        CorePrimitive::Sqrt => builder.float_unary(rts_cranelift::ir::FloatOp::Sqrt, doubles[0])?,
+        CorePrimitive::Floor => builder.float_unary(rts_cranelift::ir::FloatOp::Floor, doubles[0])?,
+        CorePrimitive::Ceil => builder.float_unary(rts_cranelift::ir::FloatOp::Ceil, doubles[0])?,
+        CorePrimitive::Trunc => builder.float_unary(rts_cranelift::ir::FloatOp::Trunc, doubles[0])?,
+        CorePrimitive::Abs => builder.float_unary(rts_cranelift::ir::FloatOp::Abs, doubles[0])?,
+        CorePrimitive::Sign => super::math::sequence::sign(builder, doubles[0])?,
+        CorePrimitive::Min => builder.arith(rts_cranelift::ir::NumOp::Min, doubles[0], doubles[1])?,
+        CorePrimitive::Max => builder.arith(rts_cranelift::ir::NumOp::Max, doubles[0], doubles[1])?,
         _ => unreachable!("arity match above refused the rest"),
     };
     Ok(Some(tagged(builder, answered)))

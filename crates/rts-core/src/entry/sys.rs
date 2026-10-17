@@ -127,9 +127,9 @@ fn memory() -> Option<(f64, f64)> {
 }
 
 /// A textual host query: `which` 0 is `os.hostname()`, 1 `os.homedir()`, 2
-/// `os.tmpdir()`. Returns an interned string; any other selector (and any
-/// failed read) answers the empty string, and the compiler only emits those
-/// three. Unlike [`sys_memory`] it allocates, so it is NOT in the codegen's
+/// `os.tmpdir()`, 3 `process.cwd()`. Returns an interned string; any other
+/// selector (and any failed read) answers the empty string, and the compiler
+/// only emits those four. Unlike [`sys_memory`] it allocates, so it is NOT in the codegen's
 /// `CANNOT_RAISE` set.
 #[rtse::entry]
 pub fn sys_text(which: i64) -> u64 {
@@ -137,6 +137,7 @@ pub fn sys_text(which: i64) -> u64 {
         0 => hostname(),
         1 => homedir(),
         2 => Some(tmpdir()),
+        3 => std::env::current_dir().ok().map(|path| path.to_string_lossy().into_owned()),
         _ => None,
     }
     .unwrap_or_default();

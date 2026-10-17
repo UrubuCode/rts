@@ -72,13 +72,15 @@ pub enum Sys {
     Homedir,
     /// `os.tmpdir()`: a runtime string.
     Tmpdir,
+    /// `process.cwd()`: a runtime string.
+    Cwd,
 }
 
 impl Sys {
     /// Whether the answer is a runtime STRING (`RuntimeOp::SysText`) rather than
     /// a number (`RuntimeOp::SysMemory`).
     pub fn is_text(self) -> bool {
-        matches!(self, Sys::Hostname | Sys::Homedir | Sys::Tmpdir)
+        matches!(self, Sys::Hostname | Sys::Homedir | Sys::Tmpdir | Sys::Cwd)
     }
 
     /// The selector `RuntimeOp::SysMemory` (or `SysText`, see [`Sys::is_text`])
@@ -92,6 +94,7 @@ impl Sys {
             Sys::Hostname => 0,
             Sys::Homedir => 1,
             Sys::Tmpdir => 2,
+            Sys::Cwd => 3,
             Sys::Platform | Sys::Arch | Sys::Endianness => unreachable!("a constant has no entry"),
         }
     }
@@ -156,6 +159,7 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
         "hostname" => Some(Sys::Hostname),
         "homedir" => Some(Sys::Homedir),
         "tmpdir" => Some(Sys::Tmpdir),
+        "cwd" => Some(Sys::Cwd),
         _ => None,
     }
 }
@@ -166,6 +170,14 @@ pub fn lookup(name: &str) -> Option<CoreName> {
         "imul" => (CorePrimitive::I32Mul, 2),
         "clz32" => (CorePrimitive::Clz32, 1),
         "fround" => (CorePrimitive::Fround, 1),
+        "sqrt" => (CorePrimitive::Sqrt, 1),
+        "floor" => (CorePrimitive::Floor, 1),
+        "ceil" => (CorePrimitive::Ceil, 1),
+        "trunc" => (CorePrimitive::Trunc, 1),
+        "abs" => (CorePrimitive::Abs, 1),
+        "sign" => (CorePrimitive::Sign, 1),
+        "min" => (CorePrimitive::Min, 2),
+        "max" => (CorePrimitive::Max, 2),
         _ => return None,
     };
     Some(CoreName {
