@@ -41,8 +41,8 @@ pub(in crate::layout) fn layout_children_grid(
     let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
     let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
 
-    let col_basis = if content_w > 0.0 { Some(content_w) } else { align::definite_track_sum(css.grid_template_columns.as_deref(), css.gap) };
-    let row_basis = container_content_h.or_else(|| align::definite_track_sum(css.grid_template_rows.as_deref(), css.row_gap));
+    let col_basis = (content_w > 0.0).then_some(content_w);
+    let row_basis = container_content_h;
     let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, col_basis, &resolve));
     let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.row_gap, row_basis, &resolve));
 
@@ -311,21 +311,20 @@ pub(in crate::layout) fn layout_children_grid(
     } else {
         col_collapsed
     };
+    let col_gutter = col_gap;
+    let row_gutter = row_gap;
+    let container_w = if content_w > 0.0 { content_w } else { col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gutter) };
+    let container_h = container_content_h.unwrap_or_else(|| row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gutter));
+    let col_gap = if content_w > 0.0 { col_gap } else { col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, Some(container_w), &resolve)) };
+    let row_gap = if container_content_h.is_some() { row_gap } else { row_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.row_gap, Some(container_h), &resolve)) };
     let is_rtl = css.direction == Some(crate::style::Direction::Rtl);
     let mut col_x = if col_sub.is_none() {
-        collapse::starts(
-            &col_sizes,
-            &col_collapsed,
-            content_x,
-            col_gap,
-            css.justify.map(|j| (j, content_w)),
-        )
+        collapse::starts(&col_sizes, &col_collapsed, content_x, col_gap, css.justify.map(|j| (j, content_w)))
     } else {
         Vec::new()
     };
     if col_sub.is_none() && is_rtl {
-        let used =
-            col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gap);
+        let used = col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gap);
         let right_edge = content_x + if content_w > 0.0 { content_w } else { used };
         for (i, x) in col_x.iter_mut().enumerate().take(col_sizes.len()) {
             let orig_offset = *x - content_x;
@@ -333,13 +332,7 @@ pub(in crate::layout) fn layout_children_grid(
         }
     }
     let row_y = if row_sub.is_none() {
-        collapse::starts(
-            &row_sizes,
-            &row_collapsed,
-            content_y,
-            row_gap,
-            css.align_content.zip(container_content_h),
-        )
+        collapse::starts(&row_sizes, &row_collapsed, content_y, row_gap, css.align_content.zip(container_content_h))
     } else {
         Vec::new()
     };
@@ -479,7 +472,7 @@ pub(in crate::layout) fn layout_children_grid(
     baseline::cleanup_baselines(&cells);
     let (total_w, total_h) = align::subgrid_total_dims(
         is_ortho, col_sub, row_sub, &col_sizes, &row_sizes, ncols, nrows,
-        &col_collapsed, &row_collapsed, col_gap, row_gap,
+        &col_collapsed, &row_collapsed, col_gutter, row_gutter,
     );
 
     let establishes_cb = css.position.map_or(false, |p| p != crate::style::Position::Static) || css.transform.is_some();

@@ -93,20 +93,20 @@ pub(super) fn subgrid_total_dims(
     nrows: usize,
     col_collapsed: &[bool],
     row_collapsed: &[bool],
-    col_gap: f32,
-    row_gap: f32,
+    col_gutter_gap: f32,
+    row_gutter_gap: f32,
 ) -> (f32, f32) {
     let tw = col_sub
         .map(|cs| cs.content_span())
         .unwrap_or_else(|| {
-            col_sizes.iter().sum::<f32>() + super::collapse::gutters(ncols, col_collapsed, col_gap)
+            col_sizes.iter().sum::<f32>() + super::collapse::gutters(ncols, col_collapsed, col_gutter_gap)
         })
         .max(0.0);
 
     let th = row_sub
         .map(|rs| rs.content_span())
         .unwrap_or_else(|| {
-            row_sizes.iter().sum::<f32>() + super::collapse::gutters(nrows, row_collapsed, row_gap)
+            row_sizes.iter().sum::<f32>() + super::collapse::gutters(nrows, row_collapsed, row_gutter_gap)
         })
         .max(0.0);
 
@@ -213,29 +213,6 @@ pub(in crate::layout) fn resolve_gap(
         }
         other => other.resolve(resolve).unwrap_or(0.0).max(0.0),
     }
-}
-
-pub(in crate::layout) fn definite_track_sum(
-    tl: Option<&crate::style::GridTemplate>,
-    gap_dim: Option<crate::style::Dimension>,
-) -> Option<f32> {
-    let tl = match tl? {
-        crate::style::GridTemplate::Tracks(t) => t,
-        _ => return None,
-    };
-    if tl.entries.is_empty() { return None; }
-    let mut sum = 0.0;
-    for (_, t) in &tl.entries {
-        match t {
-            crate::style::GridTrack::Fixed(crate::style::Dimension::Px(p)) => sum += p,
-            _ => return None,
-        }
-    }
-    let extra = match gap_dim {
-        Some(crate::style::Dimension::Calc(c)) => c.px,
-        _ => 0.0,
-    };
-    Some(sum + extra)
 }
 
 #[cfg(test)]
