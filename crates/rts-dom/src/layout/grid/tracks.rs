@@ -49,7 +49,7 @@ pub(in crate::layout) fn resolve_tracks(
             B::Fixed(d) => dim(d),
             B::MinContent => min_of(i),
             B::MaxContent | B::Auto => max_of(i),
-            B::FitContent(d) => dim(d).min(max_of(i)),
+            B::FitContent(d) => dim(d).max(min_of(i)).min(max_of(i).max(min_of(i))),
         }
     };
 
@@ -61,8 +61,11 @@ pub(in crate::layout) fn resolve_tracks(
             T::Fixed(d) => dim(d),
             T::Bounded { min, .. } => dim(min),
             T::Auto => max_of(i),
-            T::Intrinsic { min, .. } => match min {
-                B::Auto => min_of(i),
+            T::Intrinsic { min, max } => match min {
+                B::Auto => match max {
+                    B::FitContent(_) => eval_bound(max, i),
+                    _ => min_of(i),
+                },
                 other => eval_bound(other, i),
             },
 
@@ -88,7 +91,7 @@ pub(in crate::layout) fn resolve_tracks(
         let auto_tracks: Vec<usize> = tracks
             .iter()
             .enumerate()
-            .filter(|(_, t)| matches!(t, T::Auto))
+            .filter(|(_, t)| matches!(t, T::Auto | T::Intrinsic { max: B::FitContent(_), .. }))
             .map(|(i, _)| i)
             .collect();
         if !auto_tracks.is_empty() {

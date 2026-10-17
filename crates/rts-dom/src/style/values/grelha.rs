@@ -147,8 +147,20 @@ impl GridTrack {
     pub fn parse_one(v: &str) -> Option<GridTrack> {
         let v = v.trim();
         let low = v.to_ascii_lowercase();
-        if low == "auto" || low == "min-content" || low == "max-content" {
+        if low == "auto" {
             return Some(GridTrack::Auto);
+        }
+        if low == "min-content" {
+            return Some(GridTrack::Intrinsic {
+                min: TrackBound::MinContent,
+                max: TrackBound::MinContent,
+            });
+        }
+        if low == "max-content" {
+            return Some(GridTrack::Intrinsic {
+                min: TrackBound::MaxContent,
+                max: TrackBound::MaxContent,
+            });
         }
         if let Some(n) = low.strip_suffix("fr") {
             return n.trim().parse::<f32>().ok().map(GridTrack::Fr);
