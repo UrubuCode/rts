@@ -852,6 +852,7 @@ fn default_constructor(ctx: &mut Ctx, class: &Class) -> Function {
         // `C.length === 4`.
         advertised_length: Some(0),
         intrinsic: None,
+        inline: false,
         at: class.at,
     }
 }

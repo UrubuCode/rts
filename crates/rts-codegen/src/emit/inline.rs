@@ -810,7 +810,17 @@ pub(super) fn shape_of(
     }
 
     let (statements, answered) = body_shape(function)?;
-    if statements.len() > STATEMENT_BUDGET {
+    // `@inline` lifts THIS check and no other. The budget is a code-size
+    // decision, not a correctness one (see `STATEMENT_BUDGET`): a longer
+    // straight-line body splices exactly as a short one does. Every capability
+    // check in this function (async/generator, rest, patterns, `body_shape`'s
+    // straight-line rule, tagged templates, duplicate locals, recursion,
+    // `closed_over`) and every whole-program proof in `candidates` still runs,
+    // so an `@inline` function that fails one simply stays an ordinary call.
+    // Read from the `Function` so both callers (`candidates` and
+    // `local_candidate`) honour it without a signature change. Available to
+    // user code: it can only grow code, never change what a program computes.
+    if statements.len() > STATEMENT_BUDGET && !function.inline {
         return None;
     }
 

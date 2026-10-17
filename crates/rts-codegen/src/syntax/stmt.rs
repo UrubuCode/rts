@@ -437,6 +437,9 @@ pub struct Function {
     /// (`emit::register_intrinsics`). The body still exists and emits: a value
     /// use of the name reads the real function.
     pub intrinsic: Option<rts_corelib::CorePrimitive>,
+    /// Written `@inline`: lift the inliner's statement budget for this function.
+    /// It lifts that budget ONLY; see `emit::inline::shape_of`.
+    pub inline: bool,
     /// Where it was written.
     pub at: Position,
 }

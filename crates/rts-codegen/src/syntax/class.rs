@@ -255,6 +255,7 @@ mod tests {
             is_async: false,
             advertised_length: None,
             intrinsic: None,
+            inline: false,
             is_generator: false,
             at,
         })

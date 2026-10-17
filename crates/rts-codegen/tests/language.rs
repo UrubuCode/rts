@@ -271,6 +271,7 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
         is_async: false,
         advertised_length: None,
         intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     };
@@ -463,6 +464,7 @@ fn a_method_is_not_a_function_stored_under_a_key() {
         is_async: false,
         advertised_length: None,
         intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     });
@@ -875,6 +877,7 @@ fn an_arrow_and_a_function_differ_in_one_recorded_fact() {
         is_async: false,
         advertised_length: None,
         intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     };
@@ -951,6 +954,7 @@ fn a_whole_small_program_is_expressible() {
                 is_async: false,
                 advertised_length: None,
                 intrinsic: None,
+                inline: false,
                 is_generator: false,
                 at: at(),
             })),

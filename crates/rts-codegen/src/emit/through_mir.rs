@@ -1050,6 +1050,7 @@ fn helper_of(value: crate::syntax::Expr) -> Function {
         is_generator: false,
         advertised_length: None,
         intrinsic: None,
+        inline: false,
         at,
     }
 }

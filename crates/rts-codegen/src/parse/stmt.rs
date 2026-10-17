@@ -256,6 +256,7 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
         swc::Decl::Fn(function) => StmtKind::Function(Box::new(Function {
             name: Some(cx.name(&function.ident.sym)),
             intrinsic: intrinsic_of(&function.function.decorators)?,
+            inline: inline_of(&function.function.decorators)?,
             ..function_parts(cx, &function.function)?
         })),
         swc::Decl::Class(class) if !is_decorated_class(&class.class) => {
@@ -327,6 +328,39 @@ fn intrinsic_of(decorators: &[swc::Decorator]) -> Result<Option<rts_corelib::Cor
             return Err(super::ParseError::Syntax(format!("@intrinsic(\"{name}\") names no core op")));
         };
         found = Some(bound.primitive);
+    }
+    Ok(found)
+}
+
+/// Whether a function declaration is written `@inline` (a bare decorator, no call).
+///
+/// `@inline(...)` with any argument list, or `@inline` twice, is a parse error
+/// rather than a silent drop. Other decorators are left alone.
+fn inline_of(decorators: &[swc::Decorator]) -> Result<bool> {
+    let mut found = false;
+    for decorator in decorators {
+        let (swc::Expr::Ident(ident), call) = (match &*decorator.expr {
+            swc::Expr::Call(call) => match &call.callee {
+                swc::Callee::Expr(callee) => match &**callee {
+                    swc::Expr::Ident(ident) => (swc::Expr::Ident(ident.clone()), true),
+                    _ => continue,
+                },
+                _ => continue,
+            },
+            swc::Expr::Ident(ident) => (swc::Expr::Ident(ident.clone()), false),
+            _ => continue,
+        }) else {
+            continue;
+        };
+        if &*ident.sym != "inline" {
+            continue;
+        }
+        if call || found {
+            return Err(super::ParseError::Syntax(
+                "@inline takes no argument and may appear once".into(),
+            ));
+        }
+        found = true;
     }
     Ok(found)
 }
