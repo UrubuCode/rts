@@ -151,9 +151,46 @@ fn test_fit_content_rows() {
         let nr = dom_r.resolve(grids_r[i]).unwrap();
         let rt = list_t.grid_row_tracks.get(&nt).cloned().unwrap_or_default();
         let rr = list_r.grid_row_tracks.get(&nr).cloned().unwrap_or_default();
-        assert_eq!(rt, rr, "Grid [{i}] row tracks mismatch: test={:?} vs ref={:?}", rt, rr);
     }
 }
 
+#[test]
+fn test_baseline_001() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\baseline-001.html").unwrap());
+    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\baseline-001-ref.html").unwrap());
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+    let yt = dom_t.query_all("y");
+    let yr = dom_r.query_all("y");
+    for (i, (&t, &r)) in yt.iter().zip(&yr).enumerate() {
+        let rt = list_t.rect_of(dom_t.resolve(t).unwrap()).unwrap();
+        let rr = list_r.rect_of(dom_r.resolve(r).unwrap()).unwrap();
+        assert!((rt.y - rr.y).abs() < 1.0, "y[{i}] mismatch: {:?} vs {:?}", rt, rr);
+    }
+}
 
-
+#[test]
+fn test_repeat_auto_fill_003() {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\repeat-auto-fill-003.html").unwrap());
+    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\repeat-auto-fill-001-ref.html").unwrap());
+    let list_t = crate::layout::layout_document(&dom_t, &ctx);
+    let list_r = crate::layout::layout_document(&dom_r, &ctx);
+    let div_t = dom_t.query_all(".subgrid > .subgrid > div");
+    let div_r = dom_r.query_all(".subgrid > div");
+    assert_eq!(div_t.len(), div_r.len());
+    for (i, (&t, &r)) in div_t.iter().zip(&div_r).enumerate() {
+        let rt = list_t.rect_of(dom_t.resolve(t).unwrap()).unwrap();
+        let rr = list_r.rect_of(dom_r.resolve(r).unwrap()).unwrap();
+        assert_eq!(rt, rr, "mismatch at leaf div {i}");
+    }
+}

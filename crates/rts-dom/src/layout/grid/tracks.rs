@@ -193,6 +193,7 @@ pub(in crate::layout) fn measure_content_rows(
     container_content_h: Option<f32>,
     resolve: &ResolveCtx,
     wm: crate::style::WritingMode,
+    row_baselines: &[Option<super::baseline::TrackBaseline>],
     ctx: &LayoutCtx,
 ) -> (Vec<f32>, Vec<f32>) {
     let mut content_row_h = vec![0.0f32; nrows];
@@ -267,6 +268,7 @@ pub(in crate::layout) fn measure_content_rows(
         })
         .collect();
     multi_row_items.sort_by_key(|i| i.end - i.start);
+    super::baseline::apply_baseline_sizes(&mut content_row_h, row_baselines);
     super::spanning::distribute_spanning_tracks(
         &row_tracks,
         &multi_row_items,
