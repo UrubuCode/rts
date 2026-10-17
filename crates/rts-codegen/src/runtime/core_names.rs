@@ -10,9 +10,9 @@
 //! Scaffolding: `imul` duplicates `Math.imul`. The point is the mechanism, which
 //! later (unsafe) primitives reuse.
 //!
-//! TODO: each entry carries `public`, from `CorePrimitive::is_public`. When an
-//! unsafe primitive is added, gate it by module path (std only) here; no path
-//! gate exists yet because every entry is public.
+//! Each entry carries `public`, from `CorePrimitive::is_public`. The path gate
+//! exists: `emit/module.rs` refuses a non-public entry unless `ctx.origin` is
+//! `Origin::Std` (alloc/slotLoad/slotStore are the unsafe ones, reserved here).
 
 use rts_corelib::CorePrimitive;
 
@@ -167,6 +167,12 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
 /// The primitive a `rts:core` export name means, or `None` for an unknown name.
 pub fn lookup(name: &str) -> Option<CoreName> {
     let (primitive, arity) = match name {
+        // UNSAFE (raw memory): reserved so the std-only gate is non-vacuous. No
+        // lowering yet, so a CALL still hits the "no lowering" refusal; arity is a
+        // placeholder.
+        "alloc" => (CorePrimitive::Alloc, 1),
+        "slotLoad" => (CorePrimitive::SlotLoad, 2),
+        "slotStore" => (CorePrimitive::SlotStore, 3),
         "imul" => (CorePrimitive::I32Mul, 2),
         "clz32" => (CorePrimitive::Clz32, 1),
         "fround" => (CorePrimitive::Fround, 1),

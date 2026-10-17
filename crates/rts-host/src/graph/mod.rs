@@ -73,6 +73,9 @@ use crate::link::HostError;
 /// and the walk's table is not the compilation's — a tree carried out of here
 /// would name locals by numbers nothing else has issued.
 pub struct Loaded {
+    /// Embedded std (`rts-node`) or the user's own file: the `rts:core`
+    /// unsafe-primitive gate reads it.
+    pub origin: rts_codegen::emit::Origin,
     /// What an import of it names — the resolved path, as text.
     pub specifier: String,
     /// Where it came from, for resolving ITS imports.
@@ -280,6 +283,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         .iter()
         .zip(&parsed)
         .map(|(file, program)| rts_codegen::emit::Unit {
+            origin: file.origin,
             specifier: file.specifier.clone(),
             items: &program.body,
             // `__filename` and `__dirname`, decided HERE because where a file

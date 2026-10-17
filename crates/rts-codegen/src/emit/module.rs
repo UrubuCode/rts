@@ -115,6 +115,11 @@ pub fn emit_import(
             let Some(found) = crate::runtime::core_names::lookup(exported) else {
                 return Err(refuse("an unknown name imported from rts:core"));
             };
+            // The path gate: an unsafe primitive (raw memory) is std-only. Refused
+            // at the IMPORT, so user code cannot even bind the name.
+            if !found.public && ctx.origin != super::Origin::Std {
+                return Err(refuse("an unsafe rts:core primitive outside std"));
+            }
             ctx.core_imports
                 .insert(*local, crate::runtime::core_names::Bound::Core(found.primitive));
         }

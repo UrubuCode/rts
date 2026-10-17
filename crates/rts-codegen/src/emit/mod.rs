@@ -637,6 +637,10 @@ pub struct Ctx<'a> {
     /// expressions and may sit inside any nested function, several emissions
     /// below the one place that knows which file is being compiled.
     pub module_specifier: Option<String>,
+    /// Whose code is being compiled: the embedded standard library or the user's.
+    /// Set per unit by `emit_modules`; read where an `rts:core` import is bound,
+    /// to refuse the unsafe primitives outside std. Defaults to `User`.
+    pub origin: Origin,
     /// For each name this module exports FROM A BINDING OF ITS OWN, the names
     /// the outside sees it under.
     ///
@@ -824,6 +828,7 @@ impl<'a> Ctx<'a> {
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
             module_specifier: None,
+            origin: Origin::User,
             exported_locals: std::collections::BTreeMap::new(),
             live_imports: true,
             module_paths: None,
@@ -1377,8 +1382,21 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
     }
 }
 
+/// Whose source a unit is. Fail-closed: the default is `User`, so a caller that
+/// says nothing gets the unsafe `rts:core` primitives refused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Origin {
+    /// The embedded standard library: may import the unsafe primitives.
+    Std,
+    /// A program's own code (and everything not known to be std).
+    #[default]
+    User,
+}
+
 /// One module of a multi-module compilation: its specifier and its items.
 pub struct Unit<'a> {
+    /// Whether this is std or user code (the `rts:core` unsafe-primitive gate).
+    pub origin: Origin,
     /// What an `import` of it names. The host resolved it.
     pub specifier: String,
     /// Its parsed body.
@@ -1646,6 +1664,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     for (unit, imports, body, publications) in &lowered {
         let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
+        ctx.origin = unit.origin;
         // The entry is the LAST unit — dependencies first — and every key is
         // relative to it, so the same program compiled elsewhere names its
         // classes the same way.
@@ -2371,5 +2390,38 @@ mod tests {
     fn nested_loops_break_out_of_the_innermost_one() {
         emit_body_of("let i = 0; while (i) { while (i) { break; } i = 1; } return i;")
             .expect("emits");
+    }
+
+    /// Emits a module under the given origin, for the `rts:core` path gate.
+    fn emit_module_from(source: &str, origin: Origin) -> EmitResult<()> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let program = crate::parse::parse_module(source, &mut names).expect("parses");
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        ctx.origin = origin;
+        emit_module(&program.body, &mut ctx).map(|_| ())
+    }
+
+    #[test]
+    fn an_unsafe_core_primitive_is_refused_from_user_code_and_accepted_from_std() {
+        let source = r#"import { alloc } from "rts:core";"#;
+        // The default origin is `User`, and an explicit one agrees.
+        assert_eq!(Origin::default(), Origin::User);
+        let refused = emit_module_from(source, Origin::User).expect_err("user code is refused");
+        assert!(
+            format!("{refused:?}").contains("an unsafe rts:core primitive outside std"),
+            "{refused:?}"
+        );
+        // Std passes the gate; nothing is CALLED, so no lowering is needed.
+        emit_module_from(source, Origin::Std).expect("std may import an unsafe primitive");
+        // A PUBLIC primitive is unaffected in both directions.
+        let public = r#"import { sqrt, min } from "rts:core";"#;
+        emit_module_from(public, Origin::User).expect("user code may import a public one");
+        emit_module_from(public, Origin::Std).expect("so may std");
     }
 }

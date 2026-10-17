@@ -337,6 +337,7 @@ fn visit(
     if path.extension().is_some_and(|kind| kind == "node") {
         state.insert(path.to_owned(), Mark::Done);
         ordered.push(Loaded {
+            origin: rts_codegen::emit::Origin::User,
             specifier: path.display().to_string(),
             path: path.to_owned(),
             resolutions: Vec::new(),
@@ -380,6 +381,7 @@ fn visit(
     if path.extension().is_some_and(|kind| kind == "json") {
         state.insert(path.to_owned(), Mark::Done);
         ordered.push(Loaded {
+            origin: rts_codegen::emit::Origin::User,
             specifier: path.display().to_string(),
             path: path.to_owned(),
             resolutions: Vec::new(),
@@ -406,6 +408,13 @@ fn visit(
 
     state.insert(path.to_owned(), Mark::Done);
     ordered.push(Loaded {
+        // Embedded std may import the unsafe `rts:core` primitives; files on disk
+        // may not.
+        origin: if embedded.is_some() {
+            rts_codegen::emit::Origin::Std
+        } else {
+            rts_codegen::emit::Origin::User
+        },
         specifier: path.display().to_string(),
         path: path.to_owned(),
         resolutions,
