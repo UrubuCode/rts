@@ -12,12 +12,12 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 614,
+    "passing": 622,
     "total": 870,
-    "pct": 70.6,
+    "pct": 71.5,
     "by_subfolder": {
       "balance": {
-        "passing": 15,
+        "passing": 22,
         "total": 39
       },
       "intrinsic-size": {
@@ -47,11 +47,11 @@
         "total": 160
       },
       "item": {
-        "passing": 56,
+        "passing": 58,
         "total": 77
       },
       "align": {
-        "passing": 53,
+        "passing": 50,
         "total": 58
       },
       "aspect-ratio": {
@@ -67,7 +67,7 @@
         "total": 39
       },
       "baseline": {
-        "passing": 21,
+        "passing": 23,
         "total": 37
       },
       "shrink": {

@@ -41,7 +41,7 @@ JS spec compatibility validated against **Bun** and **Node** over 1517 standalon
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1517 |
 
-_Updated: 2026-10-16 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-10-17 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 
@@ -107,7 +107,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.9%   4525/4528 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   168/170 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 70.6%   614/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71.5%   622/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -120,7 +120,7 @@ The total alone says nothing about where the work is — it does not tell a bran
 
 ```
 subfolders of css-flexbox
-  [▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱]  38.5%   15/39     balance
+  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  56.4%   22/39     balance
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   12/24     intrinsic-size
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.9%   15/19     abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
@@ -129,12 +129,12 @@ subfolders of css-flexbox
 
 the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  82.5%   132/160   outros
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  72.7%   56/77     item
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  91.4%   53/58     align
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.3%   58/77     item
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  86.2%   50/58     align
   [▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱]  43.4%   23/53     aspect-ratio
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱]  87.0%   40/46     gap
   [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  53.8%   21/39     percentage
-  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  56.8%   21/37     baseline
+  [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  62.2%   23/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  70.6%   24/34     min-
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
@@ -221,7 +221,7 @@ Two paths, same codegen:
 <!-- BENCH_STATS_START -->
 ### 📊 Measured benchmarks (auto-updated by CI)
 
-End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `a8a3bd3`.
+End-to-end process time (includes startup/JIT compile), median of 20 runs after 3 warmups, GitHub Actions `windows-latest` — commit `b80390b`.
 
 | Bench | Bun | Node | Deno | RTS JIT | **RTS AOT** | AOT vs Bun | AOT vs Node |
 |---|---|---|---|---|---|---:|---:|
