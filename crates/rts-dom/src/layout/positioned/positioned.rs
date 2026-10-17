@@ -173,8 +173,23 @@ pub(in crate::layout) fn layout_out_of_flow(
     // spec chama de "auto" no §10.6.4 — testar o resolvido re-abriria a
     // pergunta que o `is_none()` já fecha.
     let stretch_w = left.is_some() && right.is_some() && css.width.is_none();
-    let stretch_h =
-        top.is_some() && bottom.is_some() && css.height.is_none() && css.aspect_ratio.is_none();
+    // Both insets of an axis + auto size => that axis is stretched between the
+    // insets (CSS 2.1 §10.6.4). With an `aspect-ratio`, the height still
+    // stretches UNLESS the width is already definite — then the ratio derives
+    // the height from that width and wins over the inset stretch (CSS Sizing 4
+    // §5.1). So:
+    //   - width auto  (`top:0;bottom:0;left:0;aspect-ratio:2/1`): the inset
+    //     height is used and the ratio sizes the auto width from it (WPT
+    //     `abspos-004`); the old `aspect_ratio.is_none()` guard left it 0 tall.
+    //   - width definite (`width:100;aspect-ratio:1/1;top:0;bottom:0;...`): the
+    //     ratio gives the height (100), not the inset stretch (WPT `abspos-005`),
+    //     which is exactly what that guard protected — kept here by the
+    //     `!width_is_definite` arm.
+    let width_is_definite = css.width.is_some() || stretch_w;
+    let stretch_h = top.is_some()
+        && bottom.is_some()
+        && css.height.is_none()
+        && (css.aspect_ratio.is_none() || !width_is_definite);
     let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
     let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
     let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());

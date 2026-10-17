@@ -81,3 +81,31 @@ fn aspect_ratio_derives_width_from_definite_height_in_shrink_to_fit() {
     let (dom, list) = geometria(blk, 800.0);
     assert_eq!(rect(&dom, &list, "#t", 0).w, 800.0, "bloco: width:auto continua stretch");
 }
+
+/// An out-of-flow box with BOTH insets of one axis set and that size `auto` is
+/// stretched between the insets even when an `aspect-ratio` is present — the
+/// ratio then sizes the OTHER (auto) axis from it (CSS 2.1 §10.6.4 + Sizing 4
+/// §5.1). `top:0;bottom:0;left:0;aspect-ratio:2/1` in a 300×50 block is 50 tall
+/// (the inset height) and 100 wide (height×ratio); before, a ratio guard on the
+/// height's stretch left it 0 tall / 0 wide (WPT `css-sizing/aspect-ratio/
+/// abspos-004`).
+#[test]
+fn abspos_stretches_a_both_inset_axis_then_the_ratio_sizes_the_other() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="width:300px;height:50px;position:relative">
+      <div id="t" style="aspect-ratio:2/1;position:absolute;left:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!(
+        { let r = rect(&dom, &list, "#t", 0); (r.w, r.h) },
+        (100.0, 50.0),
+        "altura dos insets, largura pela razão"
+    );
+    // With a DEFINITE width, the ratio derives the height from it (CSS Sizing 4
+    // §5.1) and wins over the inset stretch — `width:80;aspect-ratio:2/1` is 40
+    // tall, not the 50 between `top:0`/`bottom:0` (the same rule as WPT
+    // `abspos-005`, which this keeps green).
+    let w = r#"<body style="margin:0"><div style="width:300px;height:50px;position:relative">
+      <div id="t" style="width:80px;aspect-ratio:2/1;position:absolute;left:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(w, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (80.0, 40.0));
+}
