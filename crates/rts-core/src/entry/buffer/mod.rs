@@ -46,6 +46,7 @@
 //! that decides their shape.
 pub(in crate::entry) mod bigint;
 pub(in crate::entry) mod codec;
+pub(in crate::entry) mod fill;
 pub(in crate::entry) mod ops;
 pub(in crate::entry) mod search;
 pub(in crate::entry) mod statics;
@@ -183,7 +184,7 @@ impl Buffer {
 
     /// `buf.fill(value, begin?, end?, encoding?)`.
     fn fill(this: u64, value: u64, begin: u64, end: u64, encoding: u64) -> u64 {
-        ops::fill(this, value, begin, end, encoding)
+        fill::fill(this, value, begin, end, encoding)
     }
 
     /// `buf.indexOf(value, byteOffset?, encoding?)`.

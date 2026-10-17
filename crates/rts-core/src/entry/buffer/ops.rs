@@ -122,21 +122,14 @@ pub(in crate::entry) fn source_bytes(context: &Context, value: u64, encoding: &s
         return Some(
             elements
                 .iter()
-                .map(|element| super::super::operators::as_number(context, Value(*element)).unwrap_or(0.0) as u8)
+                .map(|element| {
+                    let number = super::super::operators::as_number(context, Value(*element)).unwrap_or(0.0);
+                    if number.is_finite() { number.trunc().rem_euclid(256.0) as u8 } else { 0 }
+                })
                 .collect(),
         );
     }
     None
-}
-
-/// An `encoding` argument, defaulting to `"utf8"` for `undefined`.
-fn encoding_arg(context: &Context, value: u64) -> String {
-    if value == undefined_of(context) {
-        return "utf8".to_owned();
-    }
-    super::super::text::to_text(context, Value(value))
-        .and_then(|text| text.to_rust())
-        .unwrap_or_else(|| "utf8".to_owned())
 }
 
 /// Encoding validation for search methods, whose optional trailing slot is null
@@ -268,26 +261,6 @@ pub(in crate::entry) fn copy(this: u64, target: u64, target_start: u64, source_s
             into[start..start + count].copy_from_slice(&taken[..count]);
         }
         count as f64
-    })
-}
-
-/// `buf.fill(value, begin?, end?, encoding?)`.
-pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64, encoding: u64) -> u64 {
-    let begin = optional_number(begin);
-    let end = optional_number(end);
-    with_current(|context| {
-        let Some(view) = view_of(context, this) else { return this };
-        let (first, last) = range(view.count(), begin, end);
-        let enc = encoding_arg(context, encoding);
-        let pattern = pattern_of(context, value, &enc);
-        if !pattern.is_empty()
-            && let Some(bytes) = window_mut(context, &view)
-        {
-            for (offset, at) in (first..last).enumerate() {
-                bytes[at] = pattern[offset % pattern.len()];
-            }
-        }
-        this
     })
 }
 
