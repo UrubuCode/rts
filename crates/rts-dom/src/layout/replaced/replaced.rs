@@ -25,21 +25,30 @@ fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
     let value = &value[..value.find(quote as char)?];
     crate::style::parse_color(value)
 }
-/// Layout de um `<input>`/`<textarea>` editável: emite a CAIXA (fundo+borda), o
-/// TEXTO (o valor digitado, ou o `placeholder` apagado se vazio) e, se o campo tem
-/// o FOCO, um CURSOR (barrinha) após o texto. Void (sem filhos) — o egui só recebe
-/// SolidRect+Text+SolidRect e pinta burramente. Retorna `(outer_w, outer_h)`.
-#[allow(clippy::too_many_arguments)]
-/// Layout de um `<img>` com pixels já decodificados: emite `DisplayItem::Image` no
-/// rect. Tamanho: `width`/`height` do CSS se houver; senão o natural da imagem (mas
-/// limitado à largura disponível, preservando a proporção). `None` se o `<img>` ainda
-/// não tem imagem setada (nada a pintar). Retorna `(outer_w, outer_h)`.
-#[allow(clippy::too_many_arguments)]
-/// Reserva a CAIXA de um `<svg>` (replaced element) sem desenhar o vetor: usa
-/// `width`/`height` do CSS ou dos atributos; se só um lado é dado e há `viewBox`,
-/// deriva o outro pela razão de aspecto; se nada, cai numa proporção do viewBox
-/// ou num tamanho default. Pinta um placeholder cinza-claro (a "caixa" do ícone/
-/// logo) no rect. `None` se não dá pra dimensionar (colapsa como antes).
+
+thread_local! {
+    static FORCED_REPLACED_SIZE: std::cell::Cell<Option<(Option<f32>, Option<f32>)>> = const { std::cell::Cell::new(None) };
+}
+
+pub(in crate::layout) struct ForcedReplacedScope(Option<(Option<f32>, Option<f32>)>);
+
+impl ForcedReplacedScope {
+    pub fn enter(w: Option<f32>, h: Option<f32>) -> Self {
+        let prev = FORCED_REPLACED_SIZE.with(|c| c.replace(Some((w, h))));
+        Self(prev)
+    }
+}
+
+impl Drop for ForcedReplacedScope {
+    fn drop(&mut self) {
+        FORCED_REPLACED_SIZE.with(|c| c.set(self.0));
+    }
+}
+
+pub(in crate::layout) fn current_forced_replaced_size() -> (Option<f32>, Option<f32>) {
+    FORCED_REPLACED_SIZE.with(|c| c.get()).unwrap_or((None, None))
+}
+
 pub(in crate::layout) fn layout_svg_placeholder(
     dom: &Dom,
     id: NodeIdx,
@@ -87,34 +96,7 @@ pub(in crate::layout) fn layout_svg_placeholder(
             None
         }
     });
-    let css_w = css
-        .width
-        .and_then(|d| d.resolve(&resolve))
-        .filter(|w| *w > 0.0);
-    let css_h = css
-        .height
-        .and_then(|d| resolve_height(Some(d), None, &resolve))
-        .filter(|h| *h > 0.0);
-    let w0 = css_w.or_else(|| attr_px("width"));
-    let h0 = css_h.or_else(|| attr_px("height"));
-    // resolve (w, h): ambos dados usa-os; só um + viewBox deriva o outro; nada →
-    // um ícone default (24×24) ou o viewBox escalado a 24 de altura.
-    let (w, h) = match (w0, h0) {
-        (Some(w), Some(h)) => (w, h),
-        (Some(w), None) => (w, vb_ratio.map(|r| w / r).unwrap_or(w)),
-        (None, Some(h)) => (vb_ratio.map(|r| h * r).unwrap_or(h), h),
-        (None, None) => {
-            let h = 24.0;
-            (vb_ratio.map(|r| h * r).unwrap_or(h), h)
-        }
-    };
-    let w = w.min(avail_w.max(1.0));
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    // As margens, como o `<img>` (`layout_image`): a caixa fica dentro delas e
-    // o outer devolvido conta-as — sem isto um `svg{margin-bottom:4px}` não
-    // empurrava o irmão seguinte (`claude-svg-atributo-em`, y=16 vs 20).
+    let (forced_outer_w, forced_outer_h) = current_forced_replaced_size();
     let m = &css.margin;
     let (ml, mr) = (
         m.left.resolve(&resolve).unwrap_or(0.0),
@@ -124,6 +106,52 @@ pub(in crate::layout) fn layout_svg_placeholder(
         m.top.resolve(&resolve).unwrap_or(0.0),
         m.bottom.resolve(&resolve).unwrap_or(0.0),
     );
+    let [border_top, border_right, border_bottom, border_left] =
+        crate::style::borders::used_widths(css);
+    let p = &css.padding;
+    let (pad_left, pad_right) = (
+        p.left.resolve(&resolve).unwrap_or(0.0),
+        p.right.resolve(&resolve).unwrap_or(0.0),
+    );
+    let (pad_top, pad_bottom) = (
+        p.top.resolve(&resolve).unwrap_or(0.0),
+        p.bottom.resolve(&resolve).unwrap_or(0.0),
+    );
+
+    let forced_w = forced_outer_w.map(|w| {
+        (w - ml - mr - border_left - border_right - pad_left - pad_right).max(0.0)
+    });
+    let forced_h = forced_outer_h.map(|h| {
+        (h - mt - mb - border_top - border_bottom - pad_top - pad_bottom).max(0.0)
+    });
+
+    let css_w = css
+        .width
+        .and_then(|d| d.resolve(&resolve))
+        .filter(|w| *w > 0.0);
+    let css_h = css
+        .height
+        .and_then(|d| resolve_height(Some(d), None, &resolve))
+        .filter(|h| *h > 0.0);
+    let w0 = forced_w.or(css_w).or_else(|| attr_px("width"));
+    let h0 = forced_h.or(css_h).or_else(|| attr_px("height"));
+    let (w, h) = match (w0, h0) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, vb_ratio.map(|r| w / r).unwrap_or(w)),
+        (None, Some(h)) => (vb_ratio.map(|r| h * r).unwrap_or(h), h),
+        (None, None) => {
+            let h = 24.0;
+            (vb_ratio.map(|r| h * r).unwrap_or(h), h)
+        }
+    };
+    let w = if forced_outer_w.is_some() {
+        w
+    } else {
+        w.min(avail_w.max(1.0))
+    };
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
     let rect = Rect::new(x + ml, y + mt, w, h);
     let (color, radius) = if let Some(color) = css
         .bg
@@ -199,6 +227,8 @@ pub(in crate::layout) fn layout_image(
         p.top.resolve(&resolve).unwrap_or(0.0),
         p.bottom.resolve(&resolve).unwrap_or(0.0),
     );
+    let forced_outer_w = forced_outer_w.or_else(|| current_forced_replaced_size().0);
+    let forced_outer_h = forced_outer_h.or_else(|| current_forced_replaced_size().1);
     let forced_w = forced_outer_w.map(|w| {
         (w - margin_left - margin_right - border_left - border_right - pad_left - pad_right)
             .max(0.0)
@@ -350,9 +380,29 @@ pub(in crate::layout) fn layout_canvas(
     let margin_right = m.right.resolve(&resolve).unwrap_or(0.0);
     let margin_top = m.top.resolve(&resolve).unwrap_or(0.0);
     let margin_bottom = m.bottom.resolve(&resolve).unwrap_or(0.0);
+    let (forced_outer_w, forced_outer_h) = current_forced_replaced_size();
+    let [border_top, border_right, border_bottom, border_left] =
+        crate::style::borders::used_widths(css);
+    let p = &css.padding;
+    let (pad_left, pad_right) = (
+        p.left.resolve(&resolve).unwrap_or(0.0),
+        p.right.resolve(&resolve).unwrap_or(0.0),
+    );
+    let (pad_top, pad_bottom) = (
+        p.top.resolve(&resolve).unwrap_or(0.0),
+        p.bottom.resolve(&resolve).unwrap_or(0.0),
+    );
+    let forced_w = forced_outer_w.map(|w| {
+        (w - margin_left - margin_right - border_left - border_right - pad_left - pad_right)
+            .max(0.0)
+    });
+    let forced_h = forced_outer_h.map(|h| {
+        (h - margin_top - margin_bottom - border_top - border_bottom - pad_top - pad_bottom)
+            .max(0.0)
+    });
     // A caixa devolvida é a BORDER-BOX, como no `<img>`.
     let (w, h) =
-        crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (None, None), ctx)?;
+        crate::inline_box::replaced_inline_size(dom, id, css, avail_w, cb_h, (forced_w, forced_h), ctx)?;
     let rect = Rect::new(x + margin_left, y + margin_top, w, h);
     record_box_rect(list, box_id, rect);
     if let Some(color) = css.bg {

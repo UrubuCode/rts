@@ -374,14 +374,17 @@ pub(in crate::layout) fn layout_children_grid(
             (item_css.width, item_css.height, item_css.min_width, item_css.max_width, item_css.min_height, item_css.max_height)
         };
         let is_stretch = |a: crate::style::AlignItems| matches!(a, crate::style::AlignItems::Stretch);
-        let stretch_x = (is_col_sub && !is_ortho) || (is_stretch(justify) && inline_sz.is_none());
+        let (m_l, m_r, m_t, m_b) = (item_css.margin.left.is_auto(), item_css.margin.right.is_auto(), item_css.margin.top.is_auto(), item_css.margin.bottom.is_auto());
+        let is_auto_sz = |d: Option<crate::style::Dimension>| d.is_none() || matches!(d, Some(crate::style::Dimension::Auto));
+        let stretch_x = (is_col_sub && !is_ortho) || (is_stretch(justify) && is_auto_sz(inline_sz) && !m_l && !m_r);
         let ratio_w = ratio_w.filter(|_| !stretch_x);
-        let stretch_y = (is_row_sub && !is_ortho) || (is_stretch(align) && block_sz.is_none());
+        let stretch_y = (is_row_sub && !is_ortho) || (is_stretch(align) && is_auto_sz(block_sz) && !m_t && !m_b);
 
         let use_area_h = area_h.or(Some(cell_h));
-        let (nat_w, nat_h) = measure_block(
-            dom, child, cell.box_id, cell_w, use_area_h, ratio_w, None, true, ctx,
-        );
+        let (nat_w, nat_h) = {
+            let _guard = crate::layout::replaced::ForcedReplacedScope::enter(ratio_w, None);
+            measure_block(dom, child, cell.box_id, cell_w, use_area_h, ratio_w, None, true, ctx)
+        };
 
         use crate::scrollbar::Overflow::{Clip, Visible};
         let axis_vis = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
@@ -423,18 +426,22 @@ pub(in crate::layout) fn layout_children_grid(
             cell, child, dom, &item_css, is_rtl, cell_x, cell_w, cell_y, cell_h,
             justify, align, iw, ih, &row_baselines, &col_baselines, ctx,
         );
+        let is_tbl = matches!(item_css.display, Some(crate::style::DisplayKind::Table | crate::style::DisplayKind::InlineTable))
+            || matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if tag == "table");
+        let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
         let forced_w = if is_col_sub {
             Some(cell_w)
         } else if stretch_x {
-            let is_tbl = matches!(item_css.display, Some(crate::style::DisplayKind::Table | crate::style::DisplayKind::InlineTable))
-                || matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if tag == "table");
-            let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
             (rep || is_tbl || crate::layout::block::rotated::opens_frame(dom, child, &item_css) || crate::layout::block::rotated::is_ortho_in_frame(child)).then_some(cell_w)
+        } else if rep {
+            None
         } else {
             Some(iw)
         };
         let forced_h = if is_row_sub || stretch_y {
             Some(cell_h)
+        } else if rep {
+            None
         } else {
             Some(ih)
         };
@@ -460,22 +467,10 @@ pub(in crate::layout) fn layout_children_grid(
                 baseline::register_subgrid_baselines(cell.box_id, &row_baselines[cell.r0..end], smbp_y, embp_y);
             }
         }
+        let _guard = crate::layout::replaced::ForcedReplacedScope::enter(forced_w, forced_h);
         layout_block_reusing(
-            dom,
-            child,
-            cell.box_id,
-            x,
-            y,
-            cell_w,
-            use_area_h,
-            || (0.0, 0.0),
-            forced_w,
-            forced_h,
-            is_row_sub,
-            !stretch_x,
-            &BlockFormattingContext::new(),
-            ctx,
-            list,
+            dom, child, cell.box_id, x, y, cell_w, use_area_h, || (0.0, 0.0),
+            forced_w, forced_h, is_row_sub, !stretch_x, &BlockFormattingContext::new(), ctx, list,
         );
     }
     subgrid::cleanup_subgrids(&cells);

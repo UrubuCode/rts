@@ -288,14 +288,18 @@ pub(in crate::layout) fn measure_content_rows(
                 crate::style::AlignItems::Normal => !is_rep,
                 _ => false,
             };
-            s && c.width.is_none()
+            let is_auto_w = c.width.is_none() || matches!(c.width, Some(crate::style::Dimension::Auto));
+            s && is_auto_w && !c.margin.left.is_auto() && !c.margin.right.is_auto()
         });
         let forced_w = if stretch_x { Some(cw) } else { None };
         let area_h = if is_ortho_frame { Some(cw) } else {
             super::aspect::definite_area_height(explicit_rows, auto_row, (cell.r0, cell.r1), row_gap, container_content_h, resolve)
         };
         let avail_w = if is_ortho_frame { f32::INFINITY } else { cw };
-        let (bw, bh) = measure_block(dom, cell.child, cell.box_id, avail_w, area_h, forced_w, None, !stretch_x, ctx);
+        let (_bw, bh) = {
+            let _guard = crate::layout::replaced::ForcedReplacedScope::enter(forced_w, None);
+            measure_block(dom, cell.child, cell.box_id, avail_w, area_h, forced_w, None, !stretch_x, ctx)
+        };
         let h = bh;
         if cell.rows() == 1 && cell.r0 < nrows {
             content_row_h[cell.r0] = content_row_h[cell.r0].max(h);
