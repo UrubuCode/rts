@@ -645,7 +645,19 @@ pub(crate) fn layout_block(
     // é, o mesmo corte que `mxh_pre` já fazia ao lado. Sem isto, `#item h=0`
     // e `#neto h=0` (`claude-flex-definite-min-height`) — o `avail_children`
     // nunca incluía `mnh_pre`, calculado três linhas acima e descartado.
-    let avail_children = explicit_content_h.or(mxh_pre).or(mnh_pre);
+    //
+    // MAS só num contentor FLEX/GRID: a §4.1 citada acima é regra de flex/grid,
+    // não de bloco. Num BLOCO comum, `min-height` é só um piso e NÃO torna a
+    // altura definida — um `height:%`/inset relativo do filho resolve contra
+    // ela como `auto` (CSS 2.1 §10.5). Aplicá-la a blocos fazia `top:-10000%`
+    // resolver contra os 100px do pai (WPT `position-relative-006`/`-007`) e
+    // `height:50%` sob um pai só-`min-height` dar 50 em vez de auto.
+    let min_height_is_definite = css
+        .effective_display()
+        .is_some_and(|d| d.is_flex_container() || d.is_grid_container());
+    let avail_children = explicit_content_h
+        .or(mxh_pre)
+        .or(if min_height_is_definite { mnh_pre } else { None });
     // O limiar de QUEBRA do `flex-wrap` numa coluna é uma pergunta MAIS
     // ESTREITA do que `avail_children`: precisa de um main size que o
     // CONTEÚDO não vai alargar — `height`/`max-height` são isso (um deles
