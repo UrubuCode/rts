@@ -819,6 +819,18 @@ pub fn declare_global(context: &mut Context, name: &str, value: u64) {
     };
     let key = context.well_known(name);
     super::objects::put(context, object, key, value);
+    // Node lists only these among the global object's own keys. Every other
+    // global it installs — `Buffer`, `process`, `console`, `URL`, `Event` — is
+    // non-enumerable, so `Object.keys(globalThis)` and `for`-`in` over it must
+    // not walk the engine's own names (`EventEmitter`, `DomTimers`, `dom`).
+    const ENUMERABLE: &[&str] = &[
+        "global", "clearImmediate", "setImmediate", "clearInterval", "clearTimeout",
+        "setInterval", "setTimeout", "queueMicrotask", "structuredClone", "atob", "btoa",
+        "performance", "fetch", "crypto", "navigator", "localStorage", "sessionStorage",
+    ];
+    if !ENUMERABLE.contains(&name) {
+        super::native::hidden(context, object, key);
+    }
 }
 
 /// A number value.
