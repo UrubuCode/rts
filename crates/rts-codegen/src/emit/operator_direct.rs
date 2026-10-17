@@ -1,4 +1,4 @@
-//! `a + b` between two instances of one operator class, as a direct method call.
+//! `a OP b` between two instances of one operator class, as a direct method call.
 //!
 //! # The claim
 //!
@@ -10,6 +10,14 @@
 //! the left always has it, so that whole protocol is the one expression
 //! `a[add](b, false)` — and this pass emits exactly that, as an ordinary method
 //! call, dropping the `__rts_add` crossing, the operand classification and the probe.
+//!
+//! The same protocol serves every operator whose answer is the method's RAW result
+//! (`overload::binary` is one function over the operator): `+ - * / % **`, the
+//! symbols `add sub mul div mod pow`. Each is proven independently per class — a
+//! class may define several, and `a - b` needs `sub`, not `add`. The relational and
+//! equality operators (`< <= > >= ==`, whose answer goes through ToBoolean and `==`
+//! through an extra both-objects gate) and unary `-` (`neg`) are NOT handled here;
+//! they stay on the runtime path.
 //!
 //! # Why the direct call is the runtime's answer, clause by clause
 //!
@@ -30,8 +38,8 @@
 //!   `Reflect` only as bases, no `setPrototypeOf`/`__proto__`/`defineProperty`
 //!   spelling anywhere. So the chain of a `C` instance is `C.prototype`,
 //!   `Object.prototype`, and the former holds the method for the program's life.
-//! - **Nothing can shadow or replace the method.** Every spelling of the add symbol
-//!   in the program is the key of a non-static method of a class declaration
+//! - **Nothing can shadow or replace the method.** Every spelling of a handled
+//!   symbol (`add sub mul div mod pow`) in the program is the key of a non-static method of a class declaration
 //!   (`operators.add` anywhere else — a store, an alias, a field key, a getter —
 //!   disables the pass), `operators` itself is only ever the base of a member read
 //!   (never `operators[k]`, never aliased or passed on), no other import of `rts`
@@ -40,7 +48,8 @@
 //!   symbol is therefore unobtainable by any code that could write it, so the
 //!   property `C.prototype[add]` is the method's own function, a data property, with
 //!   no instance shadow and no getter: the Get `a[add]` is the runtime's `resolve`.
-//! - **`C` defines it exactly once.** One non-static `Normal` method with that key, no
+//! - **`C` defines it exactly once.** One non-static `Normal` method with that key
+//!   (per operator: a class that defines `add` twice loses `add`, not `sub`), no
 //!   static block in the class (arbitrary code with `this = C`).
 //! - **Same call.** `this = a` and `(b, false)` are the runtime's receiver and first
 //!   two arguments. The runtime also passes two more `undefined` slots, which no
@@ -57,8 +66,8 @@
 //! The method is reached by an ordinary computed-key call, so the function called is
 //! whatever the class definition stored under the symbol — the one the runtime finds.
 //!
-//! Scope: `+` only, both operands the same class, one module (the whole-program
-//! graph path leaves the pass off). The `@operator("+")` spelling is not parsed.
+//! Scope: `+ - * / % **`, both operands the same class, and that class defines THAT
+//! operator's symbol. The `@operator("+")` spelling is not parsed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -68,34 +77,58 @@ use super::primordial::Disturbed;
 use super::scope::{Binding, Scope};
 use crate::names::{Name, Names};
 use crate::syntax::{
-    Class, ClassElement, ClassKey, Expr, ExprKind, ForEachTarget, Function, FunctionBody, Import,
+    BinaryOp, Class, ClassElement, ClassKey, Expr, ExprKind, ForEachTarget, Function, FunctionBody, Import,
     ImportBinding, Literal, MethodKind, Pattern, PropertyKey, Spreadable, Stmt, StmtKind,
 };
 
-/// What the pass knows: the `operators` local, the key expression to reuse, and the
-/// proven classes with the bindings that hold a fresh instance of one.
+/// The operators handled, by the name of their `rts` symbol.
+const OPS: [&str; 6] = ["add", "sub", "mul", "div", "mod", "pow"];
+
+/// The symbol name of a binary operator this pass handles, or `None` for every other
+/// (relational, equality, bitwise, … — those stay on the runtime path).
+pub(in crate::emit) fn symbol_of(op: BinaryOp) -> Option<&'static str> {
+    match op {
+        BinaryOp::Add => Some("add"),
+        BinaryOp::Sub => Some("sub"),
+        BinaryOp::Mul => Some("mul"),
+        BinaryOp::Div => Some("div"),
+        BinaryOp::Rem => Some("mod"),
+        BinaryOp::Exponent => Some("pow"),
+        _ => None,
+    }
+}
+
+/// What the pass knows: the `operators` local, the key expression to reuse per
+/// operator, and the proven classes with the bindings that hold a fresh instance of one.
 #[derive(Default)]
-pub(in crate::emit) struct DirectAdd {
+pub(in crate::emit) struct Direct {
     /// The local bound by `import { operators } from "rts"`.
     local: Option<Name>,
-    /// `operators.add`, as the class writes it — cloned into the call.
-    key: Option<Expr>,
-    /// The classes whose `[operators.add]` is proven stable.
-    classes: BTreeSet<Name>,
+    /// `operators.<name>`, as a class writes it — cloned into the call.
+    keys: BTreeMap<&'static str, Expr>,
+    /// Per class, the operators whose `[operators.<name>]` is proven stable.
+    classes: BTreeMap<Name, BTreeSet<&'static str>>,
     /// `d` -> `C` for `const|let d = new C(…)` declared once and never written.
     bound: BTreeMap<Name, Name>,
 }
 
-impl DirectAdd {
-    /// The direct call `left[operators.add](right, false)` for `left + right`, or `None`
-    /// where the runtime's `+` must run.
-    pub(in crate::emit) fn call(&self, left: &Expr, right: &Expr, scope: &Scope) -> Option<Expr> {
-        let (local, key) = (self.local?, self.key.as_ref()?);
+impl Direct {
+    /// The direct call `left[operators.<op>](right, false)` for `left OP right`, or `None`
+    /// where the runtime's operator must run.
+    pub(in crate::emit) fn call(
+        &self,
+        op: BinaryOp,
+        left: &Expr,
+        right: &Expr,
+        scope: &Scope,
+    ) -> Option<Expr> {
+        let symbol = symbol_of(op)?;
+        let (local, key) = (self.local?, self.keys.get(symbol)?);
         // The key reads `operators` at the site: it must resolve here (a closure that
         // did not capture it cannot, and then the runtime path stays).
         scope.lookup(local)?;
-        let class = self.class_of(left, scope)?;
-        (self.class_of(right, scope)? == class).then_some(())?;
+        let class = self.class_of(left, scope, symbol)?;
+        (self.class_of(right, scope, symbol)? == class).then_some(())?;
         let at = left.at;
         Some(Expr::new(
             ExprKind::Call {
@@ -117,10 +150,12 @@ impl DirectAdd {
         ))
     }
 
-    fn class_of(&self, expr: &Expr, scope: &Scope) -> Option<Name> {
+    /// The class `expr` is a fresh instance of, if that class's `symbol` is proven.
+    fn class_of(&self, expr: &Expr, scope: &Scope, symbol: &str) -> Option<Name> {
+        let proven = |class: &Name| self.classes.get(class).is_some_and(|ops| ops.contains(symbol));
         match &bare(expr).kind {
             ExprKind::New { callee, .. } => match &bare(callee).kind {
-                ExprKind::Ident(class) if self.classes.contains(class) => Some(*class),
+                ExprKind::Ident(class) if proven(class) => Some(*class),
                 _ => None,
             },
             // A binding is trusted only as a register of THIS activation, already
@@ -128,6 +163,7 @@ impl DirectAdd {
             // engine answers `undefined` for) is left to the runtime.
             ExprKind::Ident(binding) => {
                 let class = *self.bound.get(binding)?;
+                proven(&class).then_some(())?;
                 matches!(scope.lookup(*binding), Some(Binding::Value(_)))
                     .then_some(())
                     .filter(|_| !scope.in_dead_zone(*binding))?;
@@ -150,8 +186,8 @@ pub(in crate::emit) fn facts(
     global_this: Name,
     handed_over: &BTreeSet<Name>,
     primordial_ok: impl FnOnce(&mut Names) -> bool,
-) -> DirectAdd {
-    let none = DirectAdd::default();
+) -> Direct {
+    let none = Direct::default();
     if !layouts_allowed {
         return none;
     }
@@ -206,28 +242,32 @@ pub(in crate::emit) fn facts(
         audit.stmt(statement);
     }
     // Every appearance of `operators` is the base of a non-optional member read, and
-    // the add symbol is spelled only as a method key.
+    // the handled symbols are spelled only as method keys.
     if audit.leaks || audit.idents != audit.bases || audit.stray != 0 {
         return none;
     }
     let found = std::mem::take(&mut audit.found);
     let sanctioned = std::mem::take(&mut audit.sanctioned);
     let names: &Names = audit.names;
-    let mut classes = BTreeSet::new();
-    let mut key = None;
+    let mut classes: BTreeMap<Name, BTreeSet<&'static str>> = BTreeMap::new();
+    let mut keys: BTreeMap<&'static str, Expr> = BTreeMap::new();
     for class in found {
         let Some(name) = class.name else { continue };
-        let Some(add) = sanctioned.iter().find(|(owner, _, _)| std::ptr::eq(*owner, class)) else {
-            continue;
-        };
-        if sanctioned.iter().filter(|(owner, _, _)| std::ptr::eq(*owner, class)).count() != 1
-            || excluded.contains(&name)
-            || !stable(class, name, add.1, names, &declared, &writes, handed_over)
-        {
+        if excluded.contains(&name) || !class_stable(class, name, names, &declared, &writes, handed_over) {
             continue;
         }
-        classes.insert(name);
-        key.get_or_insert_with(|| add.2.clone());
+        // Per operator: defined exactly once, and its method observes no extra slot.
+        for symbol in OPS {
+            let mut defs = sanctioned
+                .iter()
+                .filter(|(owner, op, _, _)| std::ptr::eq(*owner, class) && *op == symbol);
+            let (Some(def), None) = (defs.next(), defs.next()) else { continue };
+            if !method_plain(def.2, names) {
+                continue;
+            }
+            classes.entry(name).or_default().insert(symbol);
+            keys.entry(symbol).or_insert_with(|| def.3.clone());
+        }
     }
     if classes.is_empty() {
         return none;
@@ -236,15 +276,13 @@ pub(in crate::emit) fn facts(
     for statement in program {
         bindings_in(statement, &classes, &declared, &writes, excluded, &mut bound);
     }
-    DirectAdd { local: Some(local), key, classes, bound }
+    Direct { local: Some(local), keys, classes, bound }
 }
 
-/// Whether `class` (named `name`, whose add method is `method`) meets the per-class
-/// clauses of the module doc.
-fn stable(
+/// Whether `class` (named `name`) meets the per-class clauses of the module doc.
+fn class_stable(
     class: &Class,
     name: Name,
-    method: &Function,
     names: &Names,
     declared: &Declarations,
     writes: &Disturbed,
@@ -255,14 +293,7 @@ fn stable(
         || !writes.untouched(name)
         || handed_over.contains(&name)
         || class.body.iter().any(|element| matches!(element, ClassElement::StaticBlock(_)))
-        || method.rest_parameter.is_some()
     {
-        return false;
-    }
-    // The method must not observe the two extra `undefined` argument slots.
-    let mut mentioned = BTreeSet::new();
-    names_in_function(method, &mut mentioned);
-    if mentioned.iter().any(|seen| names.text(*seen) == "arguments") {
         return false;
     }
     // A constructor that returns a value can hand back something that is not a `C`.
@@ -273,6 +304,17 @@ fn stable(
         return false;
     }
     true
+}
+
+/// Whether an operator method cannot observe the two extra `undefined` argument slots
+/// the runtime passes: no rest parameter and no mention of `arguments`.
+fn method_plain(method: &Function, names: &Names) -> bool {
+    if method.rest_parameter.is_some() {
+        return false;
+    }
+    let mut mentioned = BTreeSet::new();
+    names_in_function(method, &mut mentioned);
+    !mentioned.iter().any(|seen| names.text(*seen) == "arguments")
 }
 
 /// Whether a statement (not entering nested functions) is `return <expr>`.
@@ -293,7 +335,7 @@ fn returns_a_value(statement: &Stmt) -> bool {
 /// (where a read can run before the declaration without leaving the scope).
 fn bindings_in(
     statement: &Stmt,
-    classes: &BTreeSet<Name>,
+    classes: &BTreeMap<Name, BTreeSet<&'static str>>,
     declared: &Declarations,
     writes: &Disturbed,
     excluded: &BTreeSet<Name>,
@@ -309,7 +351,7 @@ fn bindings_in(
             if let (Pattern::Name(name), Some(value)) = (&binding.target, &binding.value)
                 && let ExprKind::New { callee, .. } = &bare(value).kind
                 && let ExprKind::Ident(class) = &bare(callee).kind
-                && classes.contains(class)
+                && classes.contains_key(class)
                 && declared.count(*name) == 1
                 && writes.untouched(*name)
                 && !excluded.contains(name)
@@ -347,27 +389,27 @@ struct Audit<'a, 'n> {
     idents: u32,
     /// Those that are the object of a non-optional member read.
     bases: u32,
-    /// `operators.add` read anywhere but as a sanctioned method key.
+    /// `operators.<handled>` read anywhere but as a sanctioned method key.
     stray: u32,
     /// A way to obtain the symbol that does not go through `operators`.
     leaks: bool,
     /// Every class declaration, in order.
     found: Vec<&'a Class>,
-    /// (class, its add method's function, the key expression) per sanctioned key.
-    sanctioned: Vec<(&'a Class, &'a Function, &'a Expr)>,
+    /// (class, symbol name, its method's function, the key expression) per sanctioned key.
+    sanctioned: Vec<(&'a Class, &'static str, &'a Function, &'a Expr)>,
 }
 
 impl<'a, 'n> Audit<'a, 'n> {
-    fn is_add_key(&self, key: &'a ClassKey) -> Option<&'a Expr> {
+    fn handled_key(&self, key: &'a ClassKey) -> Option<(&'static str, &'a Expr)> {
         let ClassKey::Public(PropertyKey::Computed(expr)) = key else {
             return None;
         };
         match &expr.kind {
             ExprKind::Member { object, property, optional: false }
                 if matches!(&object.kind, ExprKind::Ident(base) if *base == self.local)
-                    && self.names.text(*property) == "add" =>
+                    && let Some(symbol) = OPS.iter().find(|op| **op == self.names.text(*property)) =>
             {
-                Some(expr)
+                Some((*symbol, expr))
             }
             _ => None,
         }
@@ -425,7 +467,7 @@ impl<'a, 'n> Audit<'a, 'n> {
                     if !*optional {
                         self.bases += 1;
                     }
-                    if self.names.text(*property) == "add" {
+                    if OPS.contains(&self.names.text(*property)) {
                         self.stray += 1;
                     }
                 }
@@ -475,14 +517,14 @@ impl<'a, 'n> Audit<'a, 'n> {
         for element in &class.body {
             match element {
                 ClassElement::Method(method) => {
-                    match self.is_add_key(&method.key) {
-                        // The one place `operators.add` may appear: it is a
+                    match self.handled_key(&method.key) {
+                        // The one place a handled symbol may appear: it is a
                         // DEFINITION, and its `operators` is the import (both counted
                         // here so the base/ident tally stays whole).
-                        Some(key) if !method.is_static && method.kind == MethodKind::Normal => {
+                        Some((symbol, key)) if !method.is_static && method.kind == MethodKind::Normal => {
                             self.idents += 1;
                             self.bases += 1;
-                            self.sanctioned.push((class, &method.function, key));
+                            self.sanctioned.push((class, symbol, &method.function, key));
                         }
                         _ => self.key(&method.key),
                     }

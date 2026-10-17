@@ -736,9 +736,9 @@ pub struct Ctx<'a> {
     /// What `x instanceof R` can be answered from at compile time — see
     /// `class_layout::fold`. Empty wherever `layouts_allowed` is false.
     instance_fold: class_layout::Fold,
-    /// `a + b` between two proven instances of one `[operators.add]` class, as a
+    /// `a OP b` (`+ - * / % **`) between two proven instances of one `[operators.<op>]` class, as a
     /// direct method call — see `operator_direct`. Inert unless the module proves it.
-    operator_add: operator_direct::DirectAdd,
+    operator_direct: operator_direct::Direct,
     /// Every name the whole program reads as a value — `receiver::handed_over`,
     /// folded over every unit. What a function handed to anything may have had
     /// done to it is unknown, so `f.call` on one is left as written.
@@ -862,7 +862,7 @@ impl<'a> Ctx<'a> {
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
             instance_fold: class_layout::Fold::default(),
-            operator_add: operator_direct::DirectAdd::default(),
+            operator_direct: operator_direct::Direct::default(),
             handed_over: std::collections::BTreeSet::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
@@ -1353,7 +1353,7 @@ pub(super) fn emit_program_into(
     // either reaches a relink or a symbol recovery through a key built at run time.
     let layouts_allowed = ctx.layouts_allowed;
     let handed_over = ctx.handed_over.clone();
-    ctx.operator_add = operator_direct::facts(
+    ctx.operator_direct = operator_direct::facts(
         body,
         &imports.iter().collect::<Vec<_>>(),
         &std::collections::BTreeSet::new(),
@@ -1750,7 +1750,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             lowered.iter().flat_map(|(_, imports, _, _)| imports.iter()).collect();
         let layouts_allowed = ctx.layouts_allowed;
         let handed_over = ctx.handed_over.clone();
-        ctx.operator_add = operator_direct::facts(
+        ctx.operator_direct = operator_direct::facts(
             &program,
             &all_imports,
             &unfoldable,
