@@ -964,7 +964,7 @@ pub(super) fn emit_body(
         captured = capture::captured(body, &candidates, &omission.uncaptured);
     }
     let builds_environment = !captured.is_empty();
-    let mut numeric = super::analyse(body, &flattened);
+    let mut numeric = super::analyse(body, &flattened, &captured);
     // The properties are proved as `(object, key)` pairs, because `proven` has
     // no `Ctx` to mint a name from. Minting them here rather than there keeps
     // the interning out of a loop that runs to convergence.

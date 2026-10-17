@@ -62,7 +62,7 @@
 //! locals, because every operator on a replaced property was widened at its
 //! store and fell back to the generic call. With this, 7.11 ms.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use super::capture::{self, Child, StmtChild};
 use super::escape::Flattened;
@@ -165,7 +165,33 @@ impl Numeric {
 /// as its properties rather than as itself: `let o = {a: 1}` puts `(o, a)` in
 /// and never `o`, because after replacement there is no binding called `o` for
 /// a proof about it to describe.
-pub(super) fn analyse(body: &[Stmt], flattened: &Flattened) -> Numeric {
+///
+/// # Why a captured name is never a candidate
+///
+/// A captured local lives in an environment OBJECT, whose properties hold tagged
+/// values, so every READ of it is `Repr::Tagged` however numeric its stores
+/// were. Proving it numeric therefore made a claim the machine could not keep:
+/// `acc = acc + n` with `n` captured was "numeric" here, `stored` trusted the
+/// proof and skipped the widening, and the Tagged result met a loop header whose
+/// parameter had the entry value's `F64` (or `I32`) — `ImplicitNarrowing`, a
+/// valid program refused. No closure needs to use the name for itself: the
+/// capture walk is deliberately crude (`capture::captured`), so a nested
+/// function that merely declares its own `i` captures an outer `i` too.
+///
+/// This is not a block-parameter merge to reconcile: the header's parameter is
+/// created from the ENTRY value before the back edge exists, so there is no
+/// second predecessor to join with yet. The disagreement is between this proof
+/// and the emission, and it is removed at the proof. Removed BEFORE the fixpoint
+/// so a local that depended on a captured one (`acc` above) falls with it;
+/// `int32::analyse` already drops captured names for the reason that sits next
+/// to this one. Nothing is lost that was ever fast — a read of the name was
+/// Tagged either way — and the refusals named in this module's other comments
+/// (a `var`, a `%`, a `?:`) are different disagreements and are untouched.
+pub(super) fn analyse(
+    body: &[Stmt],
+    flattened: &Flattened,
+    captured: &BTreeSet<Name>,
+) -> Numeric {
     // Optimistic start: everything declared with an initialiser that could be
     // numeric. A declaration with no initialiser is `undefined`, which is not a
     // number, so it never enters.
@@ -173,6 +199,7 @@ pub(super) fn analyse(body: &[Stmt], flattened: &Flattened) -> Numeric {
     for statement in body {
         collect_candidates(statement, flattened, &mut candidates);
     }
+    candidates.names.retain(|name| !captured.contains(name));
 
     // Shrink until stable. Each round asks the same question with a smaller set,
     // so a local removed can remove the ones that depended on it.
