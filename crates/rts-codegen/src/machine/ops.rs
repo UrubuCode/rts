@@ -410,6 +410,32 @@ impl MachineOps for JsMachine<'_> {
             };
             return into.arith(op, args[0], args[1]).map_err(machine);
         }
+        // AN INTEGER COMPARISON: `<`, `<=`, `>`, `>=`, `==`, `===` over two PROVED int32
+        // operands both held as `I32`. Every `i32` is exactly an `f64`, so the float compare
+        // of the two widened values answers the same boolean as the signed integer compare
+        // of the originals; an `i32` is never NaN (the float compare's one odd ordering) and
+        // never `-0` (so `==` agrees as well). Only the `to_f64` pair is removed. A mixed
+        // pair (a Double, Tagged or unknown side) fails the test below and takes the path
+        // under it, unchanged.
+        if args.len() == 2
+            && matches!(
+                which,
+                JsPrim::LessThan
+                    | JsPrim::LessOrEqual
+                    | JsPrim::GreaterThan
+                    | JsPrim::GreaterOrEqual
+                    | JsPrim::StrictEquals
+                    | JsPrim::LooseEquals
+            )
+            && of
+                .iter()
+                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..)))
+            && args.iter().all(|held| into.repr_of(*held) == Repr::I32)
+        {
+            if let Some(done) = self.numeric_instruction(into, which, args[0], args[1])? {
+                return Ok(done);
+            }
+        }
         if args.len() == 2 && self.all_numeric(&of) {
             let left = self.as_double(into, args[0])?;
             let right = self.as_double(into, args[1])?;
