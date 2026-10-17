@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-16",
+  "date": "2026-10-17",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 616,
+    "passing": 614,
     "total": 870,
-    "pct": 70.8,
+    "pct": 70.6,
     "by_subfolder": {
       "balance": {
         "passing": 15,
@@ -63,11 +63,11 @@
         "total": 46
       },
       "percentage": {
-        "passing": 20,
+        "passing": 21,
         "total": 39
       },
       "baseline": {
-        "passing": 22,
+        "passing": 21,
         "total": 37
       },
       "shrink": {
@@ -83,7 +83,7 @@
         "total": 32
       },
       "basis": {
-        "passing": 25,
+        "passing": 23,
         "total": 30
       },
       "table": {
