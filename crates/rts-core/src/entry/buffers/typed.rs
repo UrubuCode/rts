@@ -41,6 +41,12 @@ pub(in crate::entry) fn construct(
     let offset = super::optional_number(offset);
     let length = super::optional_number(length);
     let absent = super::undefined();
+    // A plain array-like object (`{ length: 2, 0: 5, 1: 6 }`) is read here,
+    // outside the borrow, because its getters and `valueOf`s are user code.
+    let array_like = plain_array_like(source, kind);
+    if crate::entry::throw::in_flight() {
+        return absent;
+    }
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return undefined_of(context);
@@ -86,7 +92,10 @@ pub(in crate::entry) fn construct(
             .is_some_and(|cell| context.text_at(cell).is_some());
         let values = match source == absent || is_string {
             true => Vec::new(),
-            false => words_of(context, source, kind),
+            false => match &array_like {
+                Some(held) => held.iter().map(|value| word_of(context, *value, kind)).collect(),
+                None => words_of(context, source, kind),
+            },
         };
         let count = match values.is_empty() {
             true => {
@@ -205,9 +214,34 @@ pub(in crate::entry) fn store_at(this: u64, index: f64, value: u64) -> u64 {
 
 /// `t.set(source, offset?)` — copies elements in, converting each.
 pub(in crate::entry) fn copy_from(this: u64, source: u64, offset: u64) -> u64 {
+    // `ToNumber` of the offset first, outside every borrow: it may be user code.
     let offset = super::optional_number(offset);
-    with_current(|context| {
-        let start = super::as_count(offset.unwrap_or(0.0));
+    if crate::entry::throw::in_flight() {
+        return super::undefined();
+    }
+    let is_view = with_current(|context| {
+        Value(source)
+            .as_slot()
+            .is_some_and(|cell| context.view_at(cell).is_some())
+    });
+    if !is_view {
+        return copy_array_like(this, source, offset);
+    }
+    let Some(start) = set_offset(offset) else {
+        return super::undefined();
+    };
+    // 0 = fine, 1 = RangeError, 2 = bigint/number mix (TypeError).
+    let refused = with_current(|context| {
+        let mixed = match (
+            super::view_of(context, this),
+            Value(source).as_slot().and_then(|cell| context.view_at(cell)),
+        ) {
+            (Some(target), Some(from)) => target.kind.is_bigint() != from.kind.is_bigint(),
+            _ => false,
+        };
+        if mixed {
+            return 2u8;
+        }
         // Read out before anything is written: the source may be a view over the
         // very bytes about to be overwritten, and a copy is what makes an
         // overlapping `set` answer what a non-overlapping one would.
@@ -216,6 +250,11 @@ pub(in crate::entry) fn copy_from(this: u64, source: u64, offset: u64) -> u64 {
             None => Vec::new(),
         };
         if let Some(view) = super::view_of(context, this) {
+            // A source that does not fit is refused BEFORE any write.
+            if start + (values.len() as f64) > view.count() as f64 {
+                return 1;
+            }
+            let start = start as usize;
             let kind = view.kind;
             let size = kind.size();
             if let Some(bytes) = super::window_mut(context, &view) {
@@ -224,8 +263,170 @@ pub(in crate::entry) fn copy_from(this: u64, source: u64, offset: u64) -> u64 {
                 }
             }
         }
-        undefined_of(context)
-    })
+        0
+    });
+    match refused {
+        1 => crate::entry::throw::range_error("offset is out of bounds"),
+        2 => crate::entry::throw::type_error("Cannot mix BigInt and other types, use explicit conversions"),
+        _ => {}
+    }
+    super::undefined()
+}
+
+/// The elements of a plain array-like OBJECT source (not an array, a view, a
+/// buffer or a string — those have their own paths), already `ToNumber`ed for a
+/// numeric kind. `None` for anything else, or for an object without `length`.
+fn plain_array_like(source: u64, kind: Kind) -> Option<Vec<u64>> {
+    let plain = with_current(|context| {
+        Value(source).as_slot().is_some_and(|cell| {
+            context.view_at(cell).is_none()
+                && context.elements_at(cell).is_none()
+                && context.bytes_at(cell).is_none()
+                && context.text_at(cell).is_none()
+        })
+    });
+    if !plain {
+        return None;
+    }
+    // An iterable is drained through its iterator, not read as an array-like;
+    // that path is not this one's to take.
+    let iterator = with_current(|context| crate::entry::symbol::well_known(context, "iterator"));
+    let has_iterator = crate::entry::computed::get_indexed(source, iterator);
+    if crate::entry::throw::in_flight() || has_iterator != super::undefined() {
+        return None;
+    }
+    let key = with_current(|context| {
+        context
+            .intern_value(crate::text::Str::from_str("length"))
+            .bits()
+    });
+    let length = crate::entry::computed::get_indexed(source, key);
+    if crate::entry::throw::in_flight() || length == super::undefined() {
+        return None;
+    }
+    let length = crate::entry::class_support::to_number(length);
+    if crate::entry::throw::in_flight() {
+        return None;
+    }
+    let length = match length {
+        number if number.is_nan() || number <= 0.0 => 0,
+        number => number.trunc() as usize,
+    };
+    let mut held = Vec::with_capacity(length.min(1 << 20));
+    for at in 0..length {
+        let value = crate::entry::computed::get_indexed(source, Value::from_f64(at as f64).bits());
+        if crate::entry::throw::in_flight() {
+            return None;
+        }
+        held.push(match kind.is_bigint() {
+            true => value,
+            false => {
+                let number = crate::entry::class_support::to_number(value);
+                if crate::entry::throw::in_flight() {
+                    return None;
+                }
+                Value::from_f64(number).bits()
+            }
+        });
+    }
+    Some(held)
+}
+
+/// `ToIntegerOrInfinity(offset)` for `set`; a negative one is the `RangeError`
+/// (raised here, so `None` means one is in flight).
+fn set_offset(offset: Option<f64>) -> Option<f64> {
+    let offset = match offset.unwrap_or(0.0) {
+        number if number.is_nan() => 0.0,
+        number => number.trunc(),
+    };
+    if offset < 0.0 {
+        crate::entry::throw::range_error("offset is out of bounds");
+        return None;
+    }
+    Some(offset)
+}
+
+/// `set` from an array-like (an array, a string, any object with `length`):
+/// `ToLength(source.length)`, the range check, then each `source[i]` through the
+/// full `[[Get]]` and `ToNumber` — both outside any borrow, since either may run
+/// user code — written one at a time as the specification does.
+fn copy_array_like(this: u64, source: u64, offset: Option<f64>) -> u64 {
+    let absent = super::undefined();
+    let Some(start) = set_offset(offset) else {
+        return absent;
+    };
+    // `ToObject(source)` refuses null and undefined.
+    if with_current(|context| crate::entry::objects::nullish(context, source).is_some()) {
+        crate::entry::throw::type_error("Cannot convert undefined or null to object");
+        return absent;
+    }
+    let key = with_current(|context| {
+        context
+            .intern_value(crate::text::Str::from_str("length"))
+            .bits()
+    });
+    let length = crate::entry::computed::get_indexed(source, key);
+    if crate::entry::throw::in_flight() {
+        return absent;
+    }
+    let length = crate::entry::class_support::to_number(length);
+    if crate::entry::throw::in_flight() {
+        return absent;
+    }
+    let length = match length {
+        number if number.is_nan() || number <= 0.0 => 0.0,
+        number => number.trunc(),
+    };
+    let Some((count, kind)) = with_current(|context| {
+        super::view_of(context, this).map(|view| (view.count() as f64, view.kind))
+    }) else {
+        return absent;
+    };
+    if start + length > count {
+        crate::entry::throw::range_error("offset is out of bounds");
+        return absent;
+    }
+    let start = start as usize;
+    for at in 0..(length as usize) {
+        let held = crate::entry::computed::get_indexed(source, Value::from_f64(at as f64).bits());
+        if crate::entry::throw::in_flight() {
+            return absent;
+        }
+        // A bigint element takes the value as it arrived; a numeric one takes
+        // its `ToNumber` (which can run `valueOf`).
+        let value = match kind.is_bigint() {
+            true => held,
+            false => {
+                let number = crate::entry::class_support::to_number(held);
+                if crate::entry::throw::in_flight() {
+                    return absent;
+                }
+                Value::from_f64(number).bits()
+            }
+        };
+        let refused = with_current(|context| {
+            // A bigint destination refuses what is not a bigint (a number, a
+            // boolean...) where a numeric one would have converted it.
+            let Some(word) = super::element_word(context, value, kind) else {
+                return true;
+            };
+            if let Some(view) = super::view_of(context, this)
+                && let Some(bytes) = super::window_mut(context, &view)
+            {
+                super::element::write_word(bytes, (start + at) * kind.size(), kind, word, true);
+            }
+            false
+        });
+        if refused {
+            let shown = match Value(held).numeric() {
+                Some(number) => format!("{number}"),
+                None => String::from("value"),
+            };
+            crate::entry::throw::type_error(&format!("Cannot convert {shown} to a BigInt"));
+            return absent;
+        }
+    }
+    absent
 }
 
 /// `t.subarray(begin, end)` — another view over the SAME bytes.
