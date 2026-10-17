@@ -151,14 +151,7 @@ fn test_fit_content_rows() {
         let nr = dom_r.resolve(grids_r[i]).unwrap();
         let rt = list_t.grid_row_tracks.get(&nt).cloned().unwrap_or_default();
         let rr = list_r.grid_row_tracks.get(&nr).cloned().unwrap_or_default();
-        if rt != rr {
-            let class_t = dom_t.node(nt).attr("class").unwrap_or("");
-            let style_t = dom_t.node(nt).attr("style").unwrap_or("");
-            let style_r = dom_r.node(nr).attr("style").unwrap_or("");
-            eprintln!("MISMATCH ROW Grid[{i}] class={class_t} style={style_t} vs ref style={style_r}");
-            eprintln!("  test rows: {:?}", rt);
-            eprintln!("  ref  rows: {:?}", rr);
-        }
+        assert_eq!(rt, rr, "Grid [{i}] row tracks mismatch: test={:?} vs ref={:?}", rt, rr);
     }
 }
 
