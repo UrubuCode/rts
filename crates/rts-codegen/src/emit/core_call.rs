@@ -26,12 +26,19 @@ pub(super) fn emit(
     let ExprKind::Ident(name) = &callee.kind else {
         return Ok(None);
     };
-    let Some(&bound) = ctx.core_imports.get(name) else {
-        return Ok(None);
+    // A same-module `@intrinsic` function: a real declaration (so the name IS in scope),
+    // proved unshadowed by `register_intrinsics` (declared once, never written).
+    let bound = if let Some(&primitive) = ctx.intrinsic_fns.get(name) {
+        Bound::Core(primitive)
+    } else {
+        let Some(&bound) = ctx.core_imports.get(name) else {
+            return Ok(None);
+        };
+        if scope.lookup(*name).is_some() {
+            return Ok(None);
+        }
+        bound
     };
-    if scope.lookup(*name).is_some() {
-        return Ok(None);
-    }
     let primitive = match bound {
         Bound::Core(primitive) => primitive,
         Bound::Sys(sys) => {

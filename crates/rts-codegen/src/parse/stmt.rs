@@ -255,6 +255,7 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
         },
         swc::Decl::Fn(function) => StmtKind::Function(Box::new(Function {
             name: Some(cx.name(&function.ident.sym)),
+            intrinsic: intrinsic_of(&function.function.decorators)?,
             ..function_parts(cx, &function.function)?
         })),
         swc::Decl::Class(class) if !is_decorated_class(&class.class) => {
@@ -286,7 +287,51 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
     Ok(Stmt::new(kind, at))
 }
 
-fn declarators(cx: &mut Cx, declarators: &[swc::VarDeclarator]) -> Result<Vec<Binding>> {
+/// The core op `@intrinsic("sqrt")` on a function declaration names, or `None`
+/// when no decorator is spelled `intrinsic(...)`. Other decorators are left alone.
+///
+/// A MALFORMED one (not exactly one string argument, or a name the shared
+/// `core_names` table does not know) is a parse error, never a silent drop: a
+/// misspelt intrinsic would otherwise compile to the ordinary call.
+fn intrinsic_of(decorators: &[swc::Decorator]) -> Result<Option<rts_corelib::CorePrimitive>> {
+    let mut found = None;
+    for decorator in decorators {
+        let swc::Expr::Call(call) = &*decorator.expr else {
+            continue;
+        };
+        let swc::Callee::Expr(callee) = &call.callee else {
+            continue;
+        };
+        let swc::Expr::Ident(ident) = &**callee else {
+            continue;
+        };
+        if &*ident.sym != "intrinsic" {
+            continue;
+        }
+        let malformed = || {
+            super::ParseError::Syntax(
+                "@intrinsic takes exactly one string argument naming a core op, e.g. @intrinsic(\"sqrt\")".into(),
+            )
+        };
+        let [argument] = call.args.as_slice() else {
+            return Err(malformed());
+        };
+        let swc::Expr::Lit(swc::Lit::Str(name)) = &*argument.expr else {
+            return Err(malformed());
+        };
+        if argument.spread.is_some() || found.is_some() {
+            return Err(malformed());
+        }
+        let name = name.value.to_string_lossy();
+        let Some(bound) = crate::runtime::core_names::intrinsic_lookup(&name) else {
+            return Err(super::ParseError::Syntax(format!("@intrinsic(\"{name}\") names no core op")));
+        };
+        found = Some(bound.primitive);
+    }
+    Ok(found)
+}
+
+fn declarators(cx: &mut Cx,declarators: &[swc::VarDeclarator]) -> Result<Vec<Binding>> {
     declarators
         .iter()
         .map(|declarator| {

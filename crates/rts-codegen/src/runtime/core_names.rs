@@ -164,6 +164,13 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
     }
 }
 
+/// The primitive `@intrinsic("name")` means: the SAME table and the same lowercase
+/// import spelling as `lookup` ("sqrt", not "Sqrt"), so the decorator and the
+/// `rts:core` import cannot disagree about which ops exist or their arity.
+pub fn intrinsic_lookup(name: &str) -> Option<CoreName> {
+    lookup(name)
+}
+
 /// The primitive a `rts:core` export name means, or `None` for an unknown name.
 pub fn lookup(name: &str) -> Option<CoreName> {
     let (primitive, arity) = match name {

@@ -106,6 +106,7 @@ pub(super) fn function_parts(cx: &mut Cx, function: &swc::Function) -> Result<Fu
         captures_this: false,
         is_async: function.is_async,
         advertised_length: None,
+        intrinsic: None,
         is_generator: function.is_generator,
         at: position(function.span),
     })
@@ -133,6 +134,7 @@ pub(crate) fn arrow(cx: &mut Cx, arrow: &swc::ArrowExpr) -> Result<Function> {
         captures_this: true,
         is_async: arrow.is_async,
         advertised_length: None,
+        intrinsic: None,
         is_generator: arrow.is_generator,
         at: position(arrow.span),
     })
@@ -158,6 +160,7 @@ pub(crate) fn accessor(
         captures_this: false,
         is_async: false,
         advertised_length: None,
+        intrinsic: None,
         is_generator: false,
         at,
     })
@@ -502,6 +505,7 @@ fn constructor_member(cx: &mut Cx, constructor: &swc::Constructor) -> Result<Met
             captures_this: false,
             is_async: false,
             advertised_length: None,
+            intrinsic: None,
             is_generator: false,
             at: position(constructor.span),
         }),
@@ -755,6 +759,7 @@ pub(super) fn namespace_declaration(
                     captures_this: false,
                     is_async: false,
                     advertised_length: None,
+                    intrinsic: None,
                     is_generator: false,
                     at,
                 })),

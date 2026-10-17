@@ -699,6 +699,10 @@ pub struct Ctx<'a> {
     /// to the primitive each means. Compile-time only: the import emits nothing.
     /// Reset per module beside `live_imports`.
     pub(crate) core_imports: std::collections::BTreeMap<Name, crate::runtime::core_names::Bound>,
+    /// Top-level `@intrinsic("op")` functions of THIS unit (std only), by name. Unlike
+    /// `core_imports` these are real, declared functions: only a direct call lowers to
+    /// the op; value uses read the function. Reset per unit by `register_intrinsics`.
+    pub(crate) intrinsic_fns: std::collections::BTreeMap<Name, rts_corelib::CorePrimitive>,
     /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
     /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
     statics_primordial: statics::Primordials,
@@ -836,6 +840,7 @@ impl<'a> Ctx<'a> {
             names_top_level: false,
             math_primordial: false,
             core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
@@ -1265,6 +1270,7 @@ pub(super) fn emit_program_into(
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
     ctx.core_imports.clear();
+    register_intrinsics(body, ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1689,6 +1695,40 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     })
 }
 
+/// Records this unit's top-level `@intrinsic("op")` functions in `ctx.intrinsic_fns`, BEFORE any
+/// body emits (declarations hoist, so a call may precede its declaration). Std only: a
+/// user unit carrying one is refused. The name must be declared exactly once in the whole
+/// body and never written (`direct_call`'s proof), so a bare `f(...)` cannot be a shadow
+/// and the emitter needs no scope test; anything else is refused rather than guessed.
+fn register_intrinsics(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<()> {
+    ctx.intrinsic_fns.clear();
+    let mut found = Vec::new();
+    for statement in body {
+        if let crate::syntax::StmtKind::Function(function) = &statement.kind
+            && let (Some(name), Some(primitive)) = (function.name, function.intrinsic)
+        {
+            found.push((name, primitive));
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    if ctx.origin != Origin::Std {
+        return Err(module::refuse("@intrinsic is std-only"));
+    }
+    let eval_name = ctx.names.intern("eval");
+    let global_this = ctx.names.intern("globalThis");
+    let declared = inline::Declarations::of(body);
+    let writes = primordial::disturbed(body, eval_name, global_this);
+    for (name, primitive) in found {
+        if declared.count(name) != 1 || !writes.untouched(name) {
+            return Err(module::refuse("an @intrinsic function declared more than once or reassigned"));
+        }
+        ctx.intrinsic_fns.insert(name, primitive);
+    }
+    Ok(())
+}
+
 /// One module's body as a function, without taking the compilation apart.
 fn emit_unit(
     body: &[Stmt],
@@ -1723,6 +1763,7 @@ fn emit_unit(
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
     ctx.core_imports.clear();
+    register_intrinsics(body, ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -2423,5 +2464,66 @@ mod tests {
         let public = r#"import { sqrt, min } from "rts:core";"#;
         emit_module_from(public, Origin::User).expect("user code may import a public one");
         emit_module_from(public, Origin::Std).expect("so may std");
+    }
+
+    /// The printed IR of every function a module compiles to, under the given origin.
+    fn ir_of(source: &str, origin: Origin) -> EmitResult<String> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let program = crate::parse::parse_module(source, &mut names).expect("parses");
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        ctx.origin = origin;
+        let emitted = emit_module(&program.body, &mut ctx)?;
+        Ok(emitted.functions.iter().map(|(_, function)| format!("{function}")).collect::<Vec<_>>().join("
+"))
+    }
+
+    #[test]
+    fn an_intrinsic_call_lowers_to_the_op_in_std_and_is_refused_in_user_code() {
+        // The body is the identity, so a `sqrt` instruction can only come from the op.
+        let decorated = "@intrinsic(\"sqrt\") function mysqrt(x: number) { return x; }
+";
+        let calls = "function viaFn(a: number) { return mysqrt(a); }
+viaFn(2);
+const t = mysqrt(9);
+";
+        let std = ir_of(&format!("{decorated}{calls}"), Origin::Std).expect("std honours it");
+        assert!(std.to_lowercase().contains("sqrt"), "call must lower to the op:
+{std}");
+        // Each site alone, so neither emitter's lowering can hide behind the other's.
+        let nested = ir_of(&format!("{decorated}function viaFn(a: number) {{ return mysqrt(a); }}
+viaFn(2);
+"), Origin::Std).expect("emits");
+        assert!(nested.to_lowercase().contains("sqrt"), "a call inside a function lowers:
+{nested}");
+        let top = ir_of(&format!("{decorated}const t = mysqrt(9);
+"), Origin::Std).expect("emits");
+        assert!(top.to_lowercase().contains("sqrt"), "a top-level call lowers:
+{top}");
+        // Controls: the same source undecorated, and decorated but only used as a value.
+        let plain = ir_of(&format!("function mysqrt(x: number) {{ return x; }}
+{calls}"), Origin::Std).expect("emits");
+        assert!(!plain.to_lowercase().contains("sqrt"), "control must not sqrt:
+{plain}");
+        let value = ir_of(&format!("{decorated}const g = mysqrt;
+[1].map(mysqrt);
+g(1);
+"), Origin::Std)
+            .expect("a value use of an intrinsic still compiles");
+        assert!(!value.to_lowercase().contains("sqrt"), "a value use is the real function:
+{value}");
+        // User code may not carry one.
+        let refused = ir_of(&format!("{decorated}{calls}"), Origin::User).expect_err("user code is refused");
+        assert!(format!("{refused:?}").contains("@intrinsic is std-only"), "{refused:?}");
+        // A shadowing declaration is refused rather than guessed at.
+        let shadow = ir_of(&format!("{decorated}function f(mysqrt: number) {{ return mysqrt; }}
+"), Origin::Std)
+            .expect_err("a second declaration of the name is refused");
+        assert!(format!("{shadow:?}").contains("declared more than once"), "{shadow:?}");
     }
 }

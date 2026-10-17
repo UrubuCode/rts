@@ -335,6 +335,7 @@ fn attempt(
                 .map(|(name, primitive)| (*name, *primitive))
                 .collect(),
         )
+        .with_intrinsic_fns(ctx.intrinsic_fns.clone())
         .with_statics_primordial(ctx.statics_primordial)
         .with_collections(ctx.collection_evidence.clone());
     let mut domain = crate::domain::Js::new();
@@ -1040,6 +1041,7 @@ fn helper_of(value: crate::syntax::Expr) -> Function {
         is_async: false,
         is_generator: false,
         advertised_length: None,
+        intrinsic: None,
         at,
     }
 }

@@ -850,6 +850,7 @@ fn default_constructor(ctx: &mut Ctx, class: &Class) -> Function {
         // about this engine's convention, which `class C {}` reported as
         // `C.length === 4`.
         advertised_length: Some(0),
+        intrinsic: None,
         at: class.at,
     }
 }

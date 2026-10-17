@@ -42,6 +42,9 @@ pub struct Callees {
     /// Names imported from `rts:core` that this function sees unshadowed, with the
     /// primitive each means -- `runtime::core_names`.
     core_imports: std::collections::BTreeMap<crate::names::Name, crate::runtime::core_names::Bound>,
+    /// Same-module `@intrinsic` functions, by name (real functions; only a direct call
+    /// lowers to the op) -- `Ctx::intrinsic_fns`.
+    intrinsic_fns: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
     statics_primordial: crate::emit::statics::Primordials,
     /// Which names the program expects to be collections -- `emit/evidence`, handed
     /// over whole so both emitters choose a direct entry for the same receivers.
@@ -65,6 +68,7 @@ impl Callees {
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: held,
@@ -85,6 +89,7 @@ impl Callees {
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
             core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: std::collections::BTreeMap::new(),
@@ -167,6 +172,20 @@ impl Callees {
     ) -> Self {
         self.core_imports = imports;
         self
+    }
+
+    /// The same map, with this unit's `@intrinsic` functions.
+    pub fn with_intrinsic_fns(
+        mut self,
+        fns: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
+    ) -> Self {
+        self.intrinsic_fns = fns;
+        self
+    }
+
+    /// The op `name` lowers to where it is a same-module `@intrinsic` function.
+    pub fn intrinsic_fn(&self, name: crate::names::Name) -> Option<rts_corelib::CorePrimitive> {
+        self.intrinsic_fns.get(&name).copied()
     }
 
     /// The primitive `name` is bound to by an `rts:core` import, if it is.

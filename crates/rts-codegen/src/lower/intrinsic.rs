@@ -123,10 +123,21 @@ impl Lowering<'_> {
         let ExprKind::Ident(name) = &callee.kind else {
             return Ok(None);
         };
-        if !self.is_core_import(*name) {
+        // A same-module `@intrinsic` function is a real binding, so unlike an import it
+        // is "unshadowed" when the name resolves HERE to the binding it has at the module
+        // top (the emitter twin proves the same by declared-once, `register_intrinsics`).
+        let bound = if let Some(primitive) = self.callees.intrinsic_fn(*name)
+            && let here = self.resolution.binding_in(self.scope, *name)
+            && here.is_some()
+            && here == self.resolution.binding_in(self.resolution.module(), *name)
+        {
+            crate::runtime::core_names::Bound::Core(primitive)
+        } else if self.is_core_import(*name) {
+            self.callees.core_import(*name).expect("just asked")
+        } else {
             return Ok(None);
-        }
-        let primitive = match self.callees.core_import(*name).expect("just asked") {
+        };
+        let primitive = match bound {
             crate::runtime::core_names::Bound::Core(primitive) => primitive,
             crate::runtime::core_names::Bound::Sys(sys) => {
                 if arguments.len() != sys.arity() {

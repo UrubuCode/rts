@@ -431,6 +431,12 @@ pub struct Function {
     /// answered `C.length === 4` — a number about this engine's calling
     /// convention, leaking through a property the language pins.
     pub advertised_length: Option<u32>,
+    /// The core op a call of it lowers to, when written `@intrinsic("name")`.
+    ///
+    /// Only a top-level declaration carries one, and only std honours it
+    /// (`emit::register_intrinsics`). The body still exists and emits: a value
+    /// use of the name reads the real function.
+    pub intrinsic: Option<rts_corelib::CorePrimitive>,
     /// Where it was written.
     pub at: Position,
 }
