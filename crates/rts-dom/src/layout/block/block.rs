@@ -1085,7 +1085,7 @@ pub(crate) fn layout_block(
                 }),
             );
             at += 1;
-        } else if let Some(color) = css.bg.filter(|_| paints_background) {
+        } else if let Some(color) = css.bg.filter(|c| paints_background && (*c & 0xff) != 0) {
             let color = paint_color(color);
             list.pieces.insert(
                 at,

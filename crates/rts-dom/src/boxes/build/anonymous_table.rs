@@ -118,7 +118,7 @@ pub(super) fn is_table_part_child(dom: &crate::dom::Dom, node: NodeIdx) -> bool 
 /// of one run without ending it (§17.2.1 rule 1 drops it inside a table).
 fn is_collapsible_space(dom: &crate::dom::Dom, node: NodeIdx) -> bool {
     match &dom.node(node).kind {
-        NodeKind::Text(t) => t.trim().is_empty(),
+        NodeKind::Text(t) => crate::inline_box::so_espaco_css(t),
         NodeKind::Comment(_) => true,
         _ => false,
     }

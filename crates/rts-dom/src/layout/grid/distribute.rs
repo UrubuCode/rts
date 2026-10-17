@@ -43,7 +43,11 @@ pub(in crate::layout) fn grid_item_min_content_width(
     let f = font_px(&css, font_size);
     let min_floor = match css.min_width {
         Some(crate::style::Dimension::Auto) | None => 0.0,
-        Some(d) => crate::style::dimensao_absoluta(d, resolve).map(|p| p + frame_h).unwrap_or(0.0),
+        Some(crate::style::Dimension::Percent(_)) => 0.0,
+        Some(crate::style::Dimension::Calc(ref c)) if c.pct != 0.0 => 0.0,
+        Some(d) => crate::layout::measure::intrinsic_min_max::resolve(Some(d), dom, child, f, ctx, resolve)
+            .map(|p| p + frame_h)
+            .unwrap_or(0.0),
     };
     use crate::scrollbar::Overflow::{Clip, Visible};
     let axis_visible = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
@@ -51,11 +55,6 @@ pub(in crate::layout) fn grid_item_min_content_width(
         return min_floor.max(frame_h);
     }
     let mx_w = css.max_width.and_then(|d| d.resolve(resolve));
-    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
-        return (min_w + frame_h).max(min_floor);
-    } else if css.min_width.is_some() {
-        return min_floor.max(frame_h);
-    }
     if let Some(mut w) = css.width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
         if let Some(mx) = mx_w {
             w = w.min(mx);
@@ -114,12 +113,35 @@ pub(in crate::layout) fn grid_item_min_size_width(
     let Some(css) = dom.computed_style_idx(child) else { return 0.0 };
     let [_, br, _, bl] = crate::style::borders::used_widths(&css);
     let frame_h = css.padding.resolve_h(resolve) + bl + br + css.margin.resolve_h(resolve);
-    if let Some(min_w) = css.min_width.and_then(|d| crate::style::dimensao_absoluta(d, resolve)) {
+    let f = font_px(&css, font_size);
+    if has_pct(css.min_width) {
+        frame_h
+    } else if let Some(min_w) = crate::layout::measure::intrinsic_min_max::resolve(css.min_width, dom, child, f, ctx, resolve) {
         min_w + frame_h
     } else if css.min_width.is_some() {
         frame_h
     } else {
         grid_item_min_content_width(dom, child, box_id, area_h, grid_css, font_size, resolve, ctx)
+    }
+}
+
+pub(in crate::layout) fn grid_item_base_width(
+    col_tracks: &[GridTrack],
+    col: usize,
+    dom: &Dom,
+    child: NodeIdx,
+    box_id: Option<crate::boxes::BoxId>,
+    area_h: Option<f32>,
+    grid_css: Option<&ComputedStyle>,
+    font_size: f32,
+    resolve: &ResolveCtx,
+    ctx: &LayoutCtx,
+) -> f32 {
+    let is_mc = matches!(col_tracks.get(col), Some(GridTrack::Intrinsic { min: TrackBound::MinContent, .. }));
+    if is_mc {
+        grid_item_min_content_width(dom, child, box_id, area_h, grid_css, font_size, resolve, ctx)
+    } else {
+        grid_item_min_size_width(dom, child, box_id, area_h, grid_css, font_size, resolve, ctx)
     }
 }
 
@@ -349,8 +371,8 @@ pub(in crate::layout) fn re_resolve_columns_with_rows(
             changed = true;
         }
         if let Some(wmin) = content_min.as_mut() {
-            let new_min = grid_item_min_content_width(
-                dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx,
+            let new_min = grid_item_base_width(
+                col_tracks, c.c0, dom, c.child, Some(c.box_id), area_h, Some(css), font_size, resolve, ctx,
             );
             let new_min = super::clamp::clamp_item_min_w(new_min, dom, c.child, col_tracks, c.c0, c.c1, col_gap, Some(content_w), resolve);
             if new_min > wmin[c.c0] {

@@ -83,7 +83,7 @@ pub(super) fn run_without_line_content(dom: &Dom, container: NodeIdx, items: &[F
 pub(super) fn item_so_de_espaco(dom: &Dom, item: &FlowItem, preserves: bool) -> bool {
     match item {
         FlowItem::Plain(n) => match &dom.node(*n).kind {
-            NodeKind::Text(t) => !preserves && t.trim().is_empty(),
+            NodeKind::Text(t) => !preserves && crate::inline_box::so_espaco_css(t),
             NodeKind::Comment(_) => true,
             _ => false,
         },

@@ -240,7 +240,7 @@ pub(in crate::layout) fn layout_children_vertical(
                 NodeKind::Comment(_) | NodeKind::Document => {}
                 NodeKind::Element { tag } if is_non_rendered_tag(tag) => {}
                 NodeKind::Text(t)
-                    if t.trim().is_empty()
+                    if crate::inline_box::so_espaco_css(t)
                         && !whitespace_is_inline_separator(dom, id, dom_node) => {}
                 _ => {
                     flush_ib!(child_y);
@@ -501,7 +501,7 @@ pub(in crate::layout) fn layout_children_vertical(
             // blocos/floats. Quando está perto de texto/inline, entra no grupo e o
             // `wrap_runs` o colapsa como um espaço normal.
             NodeKind::Text(t)
-                if t.trim().is_empty() && !whitespace_is_inline_separator(dom, id, child) => {}
+                if crate::inline_box::so_espaco_css(t) && !whitespace_is_inline_separator(dom, id, child) => {}
             // Texto / elemento inline: entra no CONTEXTO INLINE corrente — flui
             // com os irmãos inline adjacentes (o flush pinta o grupo inteiro).
             _ => {
@@ -546,7 +546,7 @@ pub(in crate::layout) fn layout_children_vertical(
 /// line or before it.
 fn group_has_content(dom: &Dom, group: &[(NodeIdx, BoxId)]) -> bool {
     group.iter().any(|&(n, _)| match &dom.node(n).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         _ => true,
     })
 }

@@ -27,7 +27,7 @@ pub(super) fn layout_bare_text(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> (f32, f32) {
-    if t.trim().is_empty() {
+    if crate::inline_box::so_espaco_css(t) {
         return (0.0, 0.0);
     }
     let parent_css = dom
@@ -39,7 +39,7 @@ pub(super) fn layout_bare_text(
     let text_cow: std::borrow::Cow<'_, str> = if ws.preserves_spaces() {
         std::borrow::Cow::Borrowed(t)
     } else {
-        let trimmed = t.trim();
+        let trimmed = crate::inline_box::apara_css(t);
         if trimmed.chars().any(crate::inline_box::e_espaco_css) || trimmed.contains('\n') || trimmed.contains('\t') {
             let mut s = String::with_capacity(trimmed.len());
             let mut in_space = false;

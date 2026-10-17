@@ -16,6 +16,12 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         // cor ou um gradiente" era lida, então `background: #fff url(x)
         // no-repeat` — a forma da folha real — não pintava fundo nenhum.
         "background" => {
+            if val.trim().eq_ignore_ascii_case("none") {
+                css.bg = Some(0);
+                css.gradient = None;
+                css.bg_image = Some("none".to_string());
+                return true;
+            }
             let bg = crate::style::background::parse_background(val);
             if let Some(c) = bg.color {
                 set_if(&mut css.bg, Some(c));
@@ -41,6 +47,9 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
             // fica guardada crua (não é buscada — ver `style::background`).
             if let Some(g) = crate::style::effects::LinearGradient::parse(val) {
                 set_if(&mut css.gradient, Some(g));
+            } else if val.trim().eq_ignore_ascii_case("none") {
+                css.gradient = None;
+                css.bg_image = None;
             } else {
                 set_if(&mut css.bg_image, Some(val.trim().to_string()));
             }

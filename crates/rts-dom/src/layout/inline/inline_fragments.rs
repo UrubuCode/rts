@@ -400,7 +400,7 @@ pub(in crate::layout) fn group_is_whole_owner(
     // the group with no box and counted on both sides — the same equality.
     let counts = |n: NodeIdx| match &dom.node(n).kind {
         NodeKind::Comment(_) => false,
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         _ => true,
     };
     let children_with_content = dom

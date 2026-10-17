@@ -199,7 +199,7 @@ pub(in crate::layout) fn layout_inline_flow(
     // Um MARKER (inline vazio) não cria linha — um `<span></span>` sozinho não muda a altura.
     if runs
         .iter()
-        .all(|r| r.text.trim().is_empty() && !r.atomic.is_some_and(|(_, _, k)| k.tem_corpo()))
+        .all(|r| crate::inline_box::so_espaco_css(&r.text) && !r.atomic.is_some_and(|(_, _, k)| k.tem_corpo()))
     {
         // Continua sem linha; cada Marker ganha 0×0 (`inline_fragmentos`).
         inline_fragments::register_markers_without_line(list, x, y, &runs, group);
@@ -298,7 +298,7 @@ pub(in crate::layout) fn layout_inline_flow(
         let half_leading = crate::inline_box::meia_entrelinha(line_h, content);
         let has_text = line
             .iter()
-            .any(|s| s.atomic.is_none() && !s.text.trim().is_empty());
+            .any(|s| s.atomic.is_none() && !crate::inline_box::so_espaco_css(&s.text));
         let tall_image_without_text =
             super::line_baseline::tall_image_without_text(&line, line_h, lh, has_text);
         // As superfícies (fundo/borda) dos inlines por fragmentos desta

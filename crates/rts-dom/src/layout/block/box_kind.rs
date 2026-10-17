@@ -58,7 +58,7 @@ pub(in crate::layout) fn has_content_for_fragment(dom: &Dom, id: NodeIdx) -> boo
         .children
         .iter()
         .any(|&c| match &dom.node(c).kind {
-            NodeKind::Text(t) => !t.trim().is_empty(),
+            NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
             NodeKind::Element { .. } => true,
             _ => false,
         })
@@ -327,7 +327,7 @@ pub(in crate::layout) fn in_inline_context(dom: &Dom, parent: NodeIdx, child: No
         return false;
     };
     let is_inline = |idx: NodeIdx| match &dom.node(idx).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
                 && !is_out_of_flow(dom, idx)
@@ -355,7 +355,7 @@ pub(in crate::layout) fn whitespace_is_inline_separator(
         return false;
     };
     let is_inline_candidate = |idx: NodeIdx| match &dom.node(idx).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
                 && !is_block_level(dom, idx)
@@ -368,11 +368,11 @@ pub(in crate::layout) fn whitespace_is_inline_separator(
         .iter()
         .rev()
         .copied()
-        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if crate::inline_box::so_espaco_css(t)));
     let next = children[pos + 1..]
         .iter()
         .copied()
-        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if crate::inline_box::so_espaco_css(t)));
     previous.is_some_and(is_inline_candidate) || next.is_some_and(is_inline_candidate)
 }
 

@@ -119,7 +119,7 @@ pub(in crate::layout) fn layout_children_grid(
                 );
                 wmax[c.c0] = wmax[c.c0].max(aspect::grid_item_outer_width(dom, c.child, c.box_id, ah, content_w, css, font_size, ctx));
                 if needs_min {
-                    let min = aspect::grid_item_min_content_width(dom, c.child, Some(c.box_id), ah, Some(css), font_size, &resolve, ctx);
+                    let min = distribute::grid_item_base_width(&col_tracks, c.c0, dom, c.child, Some(c.box_id), ah, Some(css), font_size, &resolve, ctx);
                     let min = clamp::clamp_item_min_w(min, dom, c.child, &col_tracks, c.c0, c.c1, col_gap, Some(content_w), &resolve);
                     wmin[c.c0] = wmin[c.c0].max(min);
                 }
