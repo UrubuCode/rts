@@ -285,6 +285,9 @@ pub(crate) fn fmt_track(track: &crate::style::GridTrack) -> String {
     match track {
         crate::style::GridTrack::Fixed(d) => fmt_dim(*d),
         crate::style::GridTrack::Fr(f) => format!("{f}fr"),
+        crate::style::GridTrack::Flex { min, flex } => {
+            format!("minmax({}, {flex}fr)", fmt_track_bound(min))
+        }
         crate::style::GridTrack::Auto => "auto".to_string(),
         crate::style::GridTrack::Bounded { min, max } => {
             format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))

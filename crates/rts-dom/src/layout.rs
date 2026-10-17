@@ -451,6 +451,7 @@ pub fn layout_document(dom: &Dom, ctx: &LayoutCtx) -> DisplayList {
     dom.clear_dirty();
     crate::bump!(node_rects, list.box_rects.len());
     crate::bump!(scroll_regions, list.scroll_regions.len());
+    crate::paint::gradient_size::apply_gradient_sizes(&mut list, dom);
     list
 }
 

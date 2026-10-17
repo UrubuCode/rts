@@ -165,8 +165,6 @@ pub(crate) fn grid_item_outer_width(
     }
 }
 
-pub(in crate::layout) use super::distribute::grid_item_min_content_width;
-
 pub(in crate::layout) fn grid_item_min_content_height(
     dom: &Dom,
     child: NodeIdx,
@@ -351,7 +349,7 @@ pub(in crate::layout) fn resolve_standalone_row_tracks(
             crate::style::GridTrack::Fixed(d) => {
                 fixed_sum += resolve_height(Some(*d), h, resolve).unwrap_or(0.0);
             }
-            crate::style::GridTrack::Fr(fr) => {
+            crate::style::GridTrack::Fr(fr) | crate::style::GridTrack::Flex { flex: fr, .. } => {
                 total_fr += fr;
             }
             _ => {}
@@ -371,7 +369,7 @@ pub(in crate::layout) fn resolve_standalone_row_tracks(
         .into_iter()
         .map(|track| match track {
             crate::style::GridTrack::Fixed(d) => resolve_height(Some(d), h, resolve).unwrap_or(0.0),
-            crate::style::GridTrack::Fr(fr) => fr * flex_share,
+            crate::style::GridTrack::Fr(fr) | crate::style::GridTrack::Flex { flex: fr, .. } => fr * flex_share,
             _ => 0.0,
         })
         .collect();

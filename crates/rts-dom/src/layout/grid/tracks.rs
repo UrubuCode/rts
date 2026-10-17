@@ -68,7 +68,14 @@ pub(in crate::layout) fn resolve_tracks(
 
             T::Fr(f) => {
                 sum_fr += f.max(0.0);
-                0.0
+                min_of(i)
+            }
+            T::Flex { min, flex } => {
+                sum_fr += flex.max(0.0);
+                match min {
+                    B::Auto => min_of(i),
+                    other => eval_bound(other, i),
+                }
             }
             // Expandido antes de chegar aqui (`expand_auto_repeats`); uma
             // lista com um `AutoRepeat` por resolver é um erro do chamador.
@@ -106,10 +113,10 @@ pub(in crate::layout) fn resolve_tracks(
     if sum_fr > 0.0 {
         let mut frozen = vec![false; tracks.len()];
         loop {
-            let active_fr: f32 = tracks.iter().enumerate().filter(|(i, t)| !frozen[*i] && matches!(t, T::Fr(_)))
-                .map(|(_, t)| match t { T::Fr(f) => f.max(0.0), _ => 0.0 }).sum();
+            let active_fr: f32 = tracks.iter().enumerate().filter(|(i, t)| !frozen[*i] && t.flex_factor().is_some())
+                .map(|(_, t)| t.flex_factor().unwrap_or(0.0).max(0.0)).sum();
             let non_flex_sum: f32 = tracks.iter().enumerate()
-                .filter(|(i, t)| frozen[*i] || !matches!(t, T::Fr(_)))
+                .filter(|(i, t)| frozen[*i] || t.flex_factor().is_none())
                 .map(|(i, _)| sizes[i])
                 .sum::<f32>() + total_gap;
             let leftover = (container - non_flex_sum).max(0.0);
@@ -117,10 +124,10 @@ pub(in crate::layout) fn resolve_tracks(
             let hypothetical_fr = leftover / flex_sum;
             let mut newly_frozen = false;
             for (i, t) in tracks.iter().enumerate() {
-                if let T::Fr(f) = t {
-                    let mn = min_of(i);
-                    if !frozen[i] && hypothetical_fr * f.max(0.0) < mn {
-                        sizes[i] = mn;
+                if let Some(f) = t.flex_factor() {
+                    let base = sizes[i];
+                    if !frozen[i] && hypothetical_fr * f.max(0.0) < base {
+                        sizes[i] = base;
                         frozen[i] = true;
                         newly_frozen = true;
                     }
@@ -128,7 +135,7 @@ pub(in crate::layout) fn resolve_tracks(
             }
             if !newly_frozen {
                 for (i, t) in tracks.iter().enumerate() {
-                    if let T::Fr(f) = t {
+                    if let Some(f) = t.flex_factor() {
                         if !frozen[i] {
                             sizes[i] = hypothetical_fr * f.max(0.0);
                         }
@@ -344,6 +351,12 @@ pub(in crate::layout) fn resolve_row_tracks(
                     ch.max(base).min(mx.max(base))
                 }
                 Some(T::Fr(_)) => 0.0,
+                Some(T::Flex { min, .. }) => match min {
+                    B::Fixed(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(0.0),
+                    B::MinContent | B::Auto => min_row_h.get(r).copied().unwrap_or(0.0),
+                    B::MaxContent => content_row_h.get(r).copied().unwrap_or(0.0),
+                    B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
+                },
                 _ => ch,
             }
         })
@@ -352,13 +365,13 @@ pub(in crate::layout) fn resolve_row_tracks(
     if align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch)) {
         if let Some(ch) = container_h.or(mnh) {
             let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
-            let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
+            let sum_fr: f32 = (0..nrows).filter_map(|r| row_track(r).and_then(|t| t.flex_factor()).map(|f| f.max(0.0))).sum();
             if sum_fr > 0.0 {
-                let non_fr: f32 = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fr(_)))).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
+                let non_fr: f32 = (0..nrows).filter(|&r| row_track(r).and_then(|t| t.flex_factor()).is_none()).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
                 let free = (ch - non_fr).max(0.0);
                 let flex_sum = sum_fr.max(1.0);
                 for r in 0..nrows {
-                    if let Some(T::Fr(f)) = row_track(r) { row_sizes[r] = free * f.max(0.0) / flex_sum; }
+                    if let Some(f) = row_track(r).and_then(|t| t.flex_factor()) { row_sizes[r] = free * f.max(0.0) / flex_sum; }
                 }
             } else {
                 let min_of_row = |r: usize| match row_track(r) {
@@ -400,28 +413,34 @@ pub(in crate::layout) fn resolve_row_tracks(
         } else {
             let mut max_fr_share = 0.0f32;
             for r in 0..nrows {
-                if let Some(T::Fr(f)) = row_track(r) {
-                    if *f > 0.0 {
-                        let ch = content_row_h.get(r).copied().unwrap_or(0.0);
-                        max_fr_share = max_fr_share.max(ch / f.max(1.0));
+                if let Some(t) = row_track(r) {
+                    if let Some(f) = t.flex_factor() {
+                        if f > 0.0 {
+                            let ch = content_row_h.get(r).copied().unwrap_or(0.0);
+                            max_fr_share = max_fr_share.max(ch / f.max(1.0));
+                        }
                     }
                 }
             }
             if max_fr_share > 0.0 {
                 for r in 0..nrows {
-                    if let Some(T::Fr(f)) = row_track(r) {
-                        row_sizes[r] = row_sizes[r].max(max_fr_share * f);
+                    if let Some(t) = row_track(r) {
+                        if let Some(f) = t.flex_factor() {
+                            row_sizes[r] = row_sizes[r].max(max_fr_share * f);
+                        }
                     }
                 }
                 let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
                 let container_fixed_h = row_sizes.iter().sum::<f32>() + total_gap;
-                let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
-                let non_fr: f32 = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fr(_)))).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
+                let sum_fr: f32 = (0..nrows).filter_map(|r| row_track(r).and_then(|t| t.flex_factor()).map(|f| f.max(0.0))).sum();
+                let non_fr: f32 = (0..nrows).filter(|&r| row_track(r).and_then(|t| t.flex_factor()).is_none()).map(|r| row_sizes[r]).sum::<f32>() + total_gap;
                 let free = (container_fixed_h - non_fr).max(0.0);
                 let flex_sum = sum_fr.max(1.0);
                 for r in 0..nrows {
-                    if let Some(T::Fr(f)) = row_track(r) {
-                        row_sizes[r] = free * f.max(0.0) / flex_sum;
+                    if let Some(t) = row_track(r) {
+                        if let Some(f) = t.flex_factor() {
+                            row_sizes[r] = free * f.max(0.0) / flex_sum;
+                        }
                     }
                 }
             }

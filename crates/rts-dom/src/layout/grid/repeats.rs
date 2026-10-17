@@ -1,6 +1,6 @@
 //! Expansion of `repeat(auto-fill|auto-fit, ...)` track patterns (CSS Grid 1 §7.2.3.2/3).
 
-use crate::style::{Dimension, GridTrack, LineNames, TrackList};
+use crate::style::{Dimension, GridTrack, LineNames, TrackBound, TrackList};
 
 pub(crate) fn expand_auto_repeats(
     track_list: &TrackList,
@@ -12,6 +12,8 @@ pub(crate) fn expand_auto_repeats(
     let track_base = |t: &T| match t {
         T::Fixed(Dimension::Px(p)) | T::Bounded { min: Dimension::Px(p), .. } => *p,
         T::Fixed(Dimension::Percent(pct)) | T::Bounded { min: Dimension::Percent(pct), .. } if container > 0.0 => pct * container / 100.0,
+        T::Flex { min: TrackBound::Fixed(Dimension::Px(p)), .. } => *p,
+        T::Flex { min: TrackBound::Fixed(Dimension::Percent(pct)), .. } if container > 0.0 => pct * container / 100.0,
         _ => 0.0,
     };
     let (other_base, other_count) = track_list

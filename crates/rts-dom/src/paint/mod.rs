@@ -7,6 +7,7 @@
 
 pub(crate) mod background_image;
 pub(crate) mod decor;
+pub(crate) mod gradient_size;
 pub(crate) mod item;
 pub(crate) mod list;
 pub(crate) mod pieces;

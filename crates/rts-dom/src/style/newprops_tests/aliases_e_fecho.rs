@@ -117,11 +117,14 @@ fn grid_auto_columns_usa_o_mesmo_tipo_de_trilha_que_a_irma() {
     // A metade que faltava: `grid-auto-rows` já existia, tipada e CONSUMIDA pelo
     // layout. Guardar esta como string crua teria sido um segundo modelo de
     // trilha dentro da mesma tabela — e `GridTrack` já sabe ler `minmax(0, 1fr)`.
-    use crate::style::GridTrack;
+    use crate::style::{Dimension, GridTrack, TrackBound};
     assert_eq!(
         parse_inline("grid-auto-columns: minmax(0, 1fr)").grid_auto_columns,
-        Some(GridTrack::Fr(1.0)),
-        "minmax com máximo flexível É a trilha flexível"
+        Some(GridTrack::Flex {
+            min: TrackBound::Fixed(Dimension::Px(0.0)),
+            flex: 1.0,
+        }),
+        "minmax com máximo flexível preserva o piso"
     );
     assert_eq!(
         parse_inline("grid-auto-columns: min-content").grid_auto_columns,

@@ -392,6 +392,7 @@ pub(in crate::layout) fn layout_block_reusing(
         ctx,
         &mut own,
     );
+    crate::paint::gradient_size::apply_gradient_sizes(&mut own, dom);
     // Se esta subárvore ACRESCENTOU floats ao BFC ambiente, o fragmento NÃO
     // é gravado: uma reutilização futura (cache-hit ou costura) só REPINTA o
     // desenho guardado, nunca volta a chamar `layout_block` — e sem chamá-lo

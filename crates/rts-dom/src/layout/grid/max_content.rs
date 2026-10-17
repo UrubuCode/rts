@@ -233,8 +233,8 @@ fn grid_content_width(
     };
     let mut max_fr_share = 0.0f32;
     for (i, track) in col_tracks.iter().enumerate() {
-        if let GridTrack::Fr(f) = track {
-            if *f > 0.0 {
+        if let Some(f) = track.flex_factor() {
+            if f > 0.0 {
                 let w = if is_min {
                     wmin.get(i).copied().unwrap_or(0.0)
                 } else {
@@ -260,6 +260,7 @@ fn grid_content_width(
                     _ => wm,
                 },
                 GridTrack::Fr(f) => max_fr_share * f,
+                GridTrack::Flex { flex, .. } => max_fr_share * flex,
                 _ => wm,
             }
         } else {
@@ -273,6 +274,7 @@ fn grid_content_width(
                     _ => wx,
                 },
                 GridTrack::Fr(f) => max_fr_share * f,
+                GridTrack::Flex { flex, .. } => max_fr_share * flex,
                 _ => wx,
             }
         };

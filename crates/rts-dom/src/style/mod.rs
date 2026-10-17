@@ -107,6 +107,8 @@ mod subgrid_wpt_tests_2;
 #[cfg(test)]
 mod grid_items_wpt_tests;
 #[cfg(test)]
+mod grid_layout_wpt_tests;
+#[cfg(test)]
 mod tests;
 
 // A API pública é a MESMA da antiga `style.rs` monolítica — os consumidores

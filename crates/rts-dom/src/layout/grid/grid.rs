@@ -111,7 +111,7 @@ pub(in crate::layout) fn layout_children_grid(
     // esmagadora maioria das grades é só `fr` e px.
     let needs_min = col_tracks
         .iter()
-        .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. } | crate::style::GridTrack::Auto | crate::style::GridTrack::Fr(_)));
+        .any(|t| matches!(t, crate::style::GridTrack::Intrinsic { .. } | crate::style::GridTrack::Auto) || t.flex_factor().is_some());
     let needs_measure = needs_min;
     let (mut content_max, mut content_min): (Option<Vec<f32>>, Option<Vec<f32>>) = if needs_measure {
         let mut wmax = vec![0.0f32; ncols];
