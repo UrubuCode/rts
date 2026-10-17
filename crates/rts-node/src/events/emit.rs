@@ -14,6 +14,26 @@ use rts_core::entry;
 /// `EventEmitter`s in this workspace reach.
 pub(super) extern "C" fn emit(_e: u64, this: u64, event: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     let events = super::events_object(this);
+    // `events.errorMonitor` listeners run BEFORE the regular `'error'`
+    // handling and never count as a regular `'error'` listener: with none
+    // registered the unhandled-error raise below still happens.
+    if entry::text_of(event).as_deref() == Some("error") {
+        let monitor = super::error_monitor_symbol();
+        let monitors = super::collect_array(entry::get_indexed(events, monitor));
+        if !monitors.is_empty() {
+            let kept: Vec<u64> = monitors.iter().copied().filter(|&w| !super::wrapper_once(w)).collect();
+            if kept.len() != monitors.len() {
+                super::store_array(events, monitor, kept);
+            }
+            let absent = entry::undefined_value();
+            for wrapper in monitors {
+                entry::call(super::wrapper_fn(wrapper), this, a0, a1, a2, absent);
+                if entry::thrown() != 0 {
+                    return entry::boolean_value(true);
+                }
+            }
+        }
+    }
     let array = entry::get_indexed(events, event);
     let wrappers = super::collect_array(array);
     if wrappers.is_empty() {
