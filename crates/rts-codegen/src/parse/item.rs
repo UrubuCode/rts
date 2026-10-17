@@ -1132,14 +1132,66 @@ pub(super) fn namespace_declaration(
     let Some(body) = &module.body else {
         return unsupported("an ambient namespace with no body", at);
     };
-    let swc::TsNamespaceBody::TsModuleBlock(block) = body else {
-        return unsupported("a dotted namespace name (`namespace A.B`)", at);
-    };
+    lower_namespace(cx, name, body, None, at)
+}
 
+/// One namespace level. `parent` is the enclosing namespace's parameter when
+/// this level is itself a member (`namespace A.B.C`, or `export namespace B`
+/// inside `A`): TypeScript's emit then receives `B = A.B || (A.B = {})` and
+/// declares `var B` inside the enclosing IIFE, so a second `namespace A.B`
+/// merges into the same `A.B` object.
+///
+/// A dotted name `A.B.C { body }` is `A { B { C { body } } }`, each inner level
+/// exported into its parent, and only the innermost carries the body.
+fn lower_namespace(
+    cx: &mut Cx,
+    name: crate::names::Name,
+    body: &swc::TsNamespaceBody,
+    parent: Option<crate::names::Name>,
+    at: rts_cranelift::fault::Position,
+) -> Result<Stmt> {
     let mut body_stmts = Vec::new();
+    let block = match body {
+        swc::TsNamespaceBody::TsModuleBlock(block) => block,
+        swc::TsNamespaceBody::TsNamespaceDecl(inner) => {
+            let inner_name = cx.name(&inner.id.sym);
+            body_stmts.push(lower_namespace(
+                cx,
+                inner_name,
+                &inner.body,
+                Some(name),
+                at,
+            )?);
+            return finish_namespace(cx, name, body_stmts, parent, at);
+        }
+    };
     for item in &block.body {
         match item {
             swc::ModuleItem::Stmt(statement) => body_stmts.push(stmt(cx, statement)?),
+            swc::ModuleItem::ModuleDecl(swc::ModuleDecl::ExportDecl(export))
+                if matches!(&export.decl, swc::Decl::TsModule(_)) =>
+            {
+                let swc::Decl::TsModule(nested) = &export.decl else {
+                    unreachable!()
+                };
+                if is_ambient_module(nested) {
+                    continue;
+                }
+                let swc::TsModuleName::Ident(ident) = &nested.id else {
+                    return unsupported("a string-named TypeScript module", at);
+                };
+                let Some(nested_body) = &nested.body else {
+                    return unsupported("an ambient namespace with no body", at);
+                };
+                let nested_name = cx.name(&ident.sym);
+                body_stmts.push(lower_namespace(
+                    cx,
+                    nested_name,
+                    nested_body,
+                    Some(name),
+                    at,
+                )?);
+            }
             swc::ModuleItem::ModuleDecl(swc::ModuleDecl::ExportDecl(export)) => {
                 let declared = decl(cx, &export.decl)?;
                 let exported_names = names_bound_by(&declared.kind);
@@ -1151,6 +1203,87 @@ pub(super) fn namespace_declaration(
             _ => return unsupported("a namespace member that is not a declaration", at),
         }
     }
+    finish_namespace(cx, name, body_stmts, parent, at)
+}
+
+/// Wraps a lowered namespace body in its IIFE and the hoisted `var`.
+fn finish_namespace(
+    cx: &mut Cx,
+    name: crate::names::Name,
+    body_stmts: Vec<Stmt>,
+    parent: Option<crate::names::Name>,
+    at: rts_cranelift::fault::Position,
+) -> Result<Stmt> {
+    let member_of = |parent: crate::names::Name| Expr {
+        kind: ExprKind::Member {
+            object: Box::new(Expr {
+                kind: ExprKind::Ident(parent),
+                at,
+            }),
+            property: name,
+            optional: false,
+        },
+        at,
+    };
+    let argument = match parent {
+        // `B = A.B || (A.B = {})`
+        Some(parent) => Expr {
+            kind: ExprKind::Assign {
+                target: AssignTarget::Place(Box::new(Expr {
+                    kind: ExprKind::Ident(name),
+                    at,
+                })),
+                value: Box::new(Expr {
+                    kind: ExprKind::Logical {
+                        op: LogicalOp::Or,
+                        left: Box::new(member_of(parent)),
+                        right: Box::new(Expr {
+                            kind: ExprKind::Assign {
+                                target: AssignTarget::Place(Box::new(member_of(parent))),
+                                value: Box::new(Expr {
+                                    kind: ExprKind::Object {
+                                        properties: Vec::new(),
+                                    },
+                                    at,
+                                }),
+                                op: AssignOp::Plain,
+                            },
+                            at,
+                        }),
+                    },
+                    at,
+                }),
+                op: AssignOp::Plain,
+            },
+            at,
+        },
+        None => Expr {
+            kind: ExprKind::Logical {
+                op: LogicalOp::Or,
+                left: Box::new(Expr {
+                    kind: ExprKind::Ident(name),
+                    at,
+                }),
+                right: Box::new(Expr {
+                    kind: ExprKind::Assign {
+                        target: AssignTarget::Place(Box::new(Expr {
+                            kind: ExprKind::Ident(name),
+                            at,
+                        })),
+                        value: Box::new(Expr {
+                            kind: ExprKind::Object {
+                                properties: Vec::new(),
+                            },
+                            at,
+                        }),
+                        op: AssignOp::Plain,
+                    },
+                    at,
+                }),
+            },
+            at,
+        },
+    };
 
     let iife = Expr {
         kind: ExprKind::Call {
@@ -1177,39 +1310,14 @@ pub(super) fn namespace_declaration(
                 })),
                 at,
             }),
-            arguments: vec![Spreadable::Single(Expr {
-                kind: ExprKind::Logical {
-                    op: LogicalOp::Or,
-                    left: Box::new(Expr {
-                        kind: ExprKind::Ident(name),
-                        at,
-                    }),
-                    right: Box::new(Expr {
-                        kind: ExprKind::Assign {
-                            target: AssignTarget::Place(Box::new(Expr {
-                                kind: ExprKind::Ident(name),
-                                at,
-                            })),
-                            value: Box::new(Expr {
-                                kind: ExprKind::Object {
-                                    properties: Vec::new(),
-                                },
-                                at,
-                            }),
-                            op: AssignOp::Plain,
-                        },
-                        at,
-                    }),
-                },
-                at,
-            })],
+            arguments: vec![Spreadable::Single(argument)],
             optional: false,
         },
         at,
     };
     let call_stmt = Stmt::new(StmtKind::Expr(iife), at);
 
-    if cx.declared_namespaces.insert(name) {
+    if parent.is_some() || cx.declared_namespaces.insert(name) {
         let hoist = Stmt::new(
             StmtKind::Declare {
                 kind: BindingKind::Var,
