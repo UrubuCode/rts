@@ -15,9 +15,11 @@
 //! (`overload::binary` is one function over the operator): `+ - * / % **`, the
 //! symbols `add sub mul div mod pow`. Each is proven independently per class — a
 //! class may define several, and `a - b` needs `sub`, not `add`. The relational and
-//! equality operators (`< <= > >= ==`, whose answer goes through ToBoolean and `==`
-//! through an extra both-objects gate) and unary `-` (`neg`) are NOT handled here;
-//! they stay on the runtime path.
+//! equality operators (`< <= > >= ==`, symbols `lt le gt ge eq`) share it too, but the
+//! runtime then applies ToBoolean to the method's answer, so they are emitted as
+//! `!!a[sym](b, false)`. `==` asks only when BOTH operands are objects
+//! (`overload.rs`): both are concrete instances here, so the gate is met. `===` and `!=`
+//! are not overloaded and untouched. Unary `-` (`neg`) stays on the runtime path.
 //!
 //! # Why the direct call is the runtime's answer, clause by clause
 //!
@@ -66,7 +68,7 @@
 //! The method is reached by an ordinary computed-key call, so the function called is
 //! whatever the class definition stored under the symbol — the one the runtime finds.
 //!
-//! Scope: `+ - * / % **`, both operands the same class, and that class defines THAT
+//! Scope: `+ - * / % ** < <= > >= ==`, both operands the same class, and that class defines THAT
 //! operator's symbol. The `@operator("+")` spelling is not parsed.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -78,14 +80,20 @@ use super::scope::{Binding, Scope};
 use crate::names::{Name, Names};
 use crate::syntax::{
     BinaryOp, Class, ClassElement, ClassKey, Expr, ExprKind, ForEachTarget, Function, FunctionBody, Import,
-    ImportBinding, Literal, MethodKind, Pattern, PropertyKey, Spreadable, Stmt, StmtKind,
+    ImportBinding, Literal, MethodKind, Pattern, PropertyKey, Spreadable, Stmt, StmtKind, UnaryOp,
 };
 
 /// The operators handled, by the name of their `rts` symbol.
-const OPS: [&str; 6] = ["add", "sub", "mul", "div", "mod", "pow"];
+const OPS: [&str; 11] = ["add", "sub", "mul", "div", "mod", "pow", "lt", "le", "gt", "ge", "eq"];
+
+/// Whether the operator's answer goes through ToBoolean (relational and equality)
+/// rather than being the method's raw result.
+fn is_truth(symbol: &str) -> bool {
+    matches!(symbol, "lt" | "le" | "gt" | "ge" | "eq")
+}
 
 /// The symbol name of a binary operator this pass handles, or `None` for every other
-/// (relational, equality, bitwise, … — those stay on the runtime path).
+/// (bitwise, shift, `===`, `!=`, … — those stay on the runtime path).
 pub(in crate::emit) fn symbol_of(op: BinaryOp) -> Option<&'static str> {
     match op {
         BinaryOp::Add => Some("add"),
@@ -94,6 +102,12 @@ pub(in crate::emit) fn symbol_of(op: BinaryOp) -> Option<&'static str> {
         BinaryOp::Div => Some("div"),
         BinaryOp::Rem => Some("mod"),
         BinaryOp::Exponent => Some("pow"),
+        BinaryOp::Less => Some("lt"),
+        BinaryOp::LessEqual => Some("le"),
+        BinaryOp::Greater => Some("gt"),
+        BinaryOp::GreaterEqual => Some("ge"),
+        // `==` only: `===` (StrictEqual) and `!=`/`!==` are not overloaded.
+        BinaryOp::LooseEqual => Some("eq"),
         _ => None,
     }
 }
@@ -130,7 +144,7 @@ impl Direct {
         let class = self.class_of(left, scope, symbol)?;
         (self.class_of(right, scope, symbol)? == class).then_some(())?;
         let at = left.at;
-        Some(Expr::new(
+        let direct = Expr::new(
             ExprKind::Call {
                 callee: Box::new(Expr::new(
                     ExprKind::Index {
@@ -147,7 +161,20 @@ impl Direct {
                 optional: false,
             },
             at,
-        ))
+        );
+        if !is_truth(symbol) {
+            return Some(direct);
+        }
+        // Relational and equality: the runtime answers `ToBoolean(left[sym](right, false))`
+        // (`overload::truth`, from `compare`/`loose_equals`), and the operator's value is that
+        // boolean whatever the method returned. `!!x` is ToBoolean of `x`: unary `!` is
+        // not overloadable (only `neg` is, and that is `-`), so it is the same conversion.
+        // A throw from the method skips the `!`s exactly as it skips `truth` at runtime
+        // (`truth` answers false under a throw and the site re-raises).
+        let not = |inner: Expr| {
+            Expr::new(ExprKind::Unary { op: UnaryOp::Not, operand: Box::new(inner) }, at)
+        };
+        Some(not(not(direct)))
     }
 
     /// The class `expr` is a fresh instance of, if that class's `symbol` is proven.
