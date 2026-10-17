@@ -8,8 +8,9 @@
 //! a libc dependency); `rts-node`'s `os.totalmem()` is the real one there.
 
 /// A numeric host query: `which` 0 is physical memory in bytes, 1 what is
-/// available, 2 the uptime in seconds, 3 the logical CPU count. Any other
-/// selector (and any failed read) answers `0`; the compiler only emits those four.
+/// available, 2 the uptime in seconds, 3 the logical CPU count, 4 `process.pid`,
+/// 5 the 1-minute load average. Any other selector (and any failed read)
+/// answers `0`; the compiler only emits those six.
 /// (Named for its first use; one entry with a selector keeps the table short.)
 #[rtse::entry]
 pub fn sys_memory(which: i64) -> f64 {
@@ -20,8 +21,22 @@ pub fn sys_memory(which: i64) -> f64 {
         },
         2 => uptime().unwrap_or(0.0),
         3 => cpu_count().unwrap_or(0.0),
+        4 => std::process::id() as f64,
+        5 => loadavg1().unwrap_or(0.0),
         _ => 0.0,
     }
+}
+
+/// The 1-minute load average, the first field of `/proc/loadavg`.
+#[cfg(target_os = "linux")]
+fn loadavg1() -> Option<f64> {
+    std::fs::read_to_string("/proc/loadavg").ok()?.split_whitespace().next()?.parse().ok()
+}
+
+/// Windows has no load average (Node answers `[0, 0, 0]`); other hosts, none bound.
+#[cfg(not(target_os = "linux"))]
+fn loadavg1() -> Option<f64> {
+    None
 }
 
 #[cfg(windows)]
@@ -127,9 +142,10 @@ fn memory() -> Option<(f64, f64)> {
 }
 
 /// A textual host query: `which` 0 is `os.hostname()`, 1 `os.homedir()`, 2
-/// `os.tmpdir()`, 3 `process.cwd()`. Returns an interned string; any other
-/// selector (and any failed read) answers the empty string, and the compiler
-/// only emits those four. Unlike [`sys_memory`] it allocates, so it is NOT in the codegen's
+/// `os.tmpdir()`, 3 `process.cwd()`, 4 `os.type()`, 5 `os.release()`, 6
+/// `os.version()`. Returns an interned string; any other selector (and any
+/// failed read) answers the empty string, and the compiler only emits those
+/// seven. Unlike [`sys_memory`] it allocates, so it is NOT in the codegen's
 /// `CANNOT_RAISE` set.
 #[rtse::entry]
 pub fn sys_text(which: i64) -> u64 {
@@ -138,12 +154,110 @@ pub fn sys_text(which: i64) -> u64 {
         1 => homedir(),
         2 => Some(tmpdir()),
         3 => std::env::current_dir().ok().map(|path| path.to_string_lossy().into_owned()),
+        4 => Some(os_type()),
+        5 => os_release(),
+        6 => os_version(),
         _ => None,
     }
     .unwrap_or_default();
     // The string is built before the context is borrowed: reading the OS holds
     // no heap state.
     super::with_current(|context| context.intern_value(crate::text::Str::from_str(&text)).bits())
+}
+
+/// Node's `os.type()` (`uname -s`): `Windows_NT`, `Linux`, `Darwin`; any other
+/// host falls back to the capitalised `std::env::consts::OS`.
+fn os_type() -> String {
+    match std::env::consts::OS {
+        "windows" => "Windows_NT".to_string(),
+        "linux" => "Linux".to_string(),
+        "macos" => "Darwin".to_string(),
+        other => {
+            let mut chars = other.chars();
+            chars.next().map(|first| first.to_uppercase().chain(chars).collect()).unwrap_or_default()
+        }
+    }
+}
+
+#[cfg(windows)]
+#[repr(C)]
+struct OsVersionInfoW {
+    size: u32,
+    major: u32,
+    minor: u32,
+    build: u32,
+    platform: u32,
+    csd: [u16; 128],
+}
+
+#[cfg(windows)]
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn RtlGetVersion(info: *mut OsVersionInfoW) -> i32;
+}
+
+#[cfg(windows)]
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn RegGetValueW(
+        key: isize,
+        sub_key: *const u16,
+        value: *const u16,
+        flags: u32,
+        kind: *mut u32,
+        data: *mut u16,
+        size: *mut u32,
+    ) -> i32;
+}
+
+#[cfg(windows)]
+fn windows_version() -> Option<(u32, u32, u32)> {
+    let mut info = OsVersionInfoW { size: std::mem::size_of::<OsVersionInfoW>() as u32, major: 0, minor: 0, build: 0, platform: 0, csd: [0; 128] };
+    (unsafe { RtlGetVersion(&mut info) } >= 0).then_some((info.major, info.minor, info.build))
+}
+
+/// `major.minor.build`, from `RtlGetVersion` (as libuv's `uv_os_uname`).
+#[cfg(windows)]
+fn os_release() -> Option<String> {
+    windows_version().map(|(major, minor, build)| format!("{major}.{minor}.{build}"))
+}
+
+/// The registry `ProductName` (e.g. "Windows 11 Home"), with libuv's fixup: the
+/// value still says "Windows 10" on Windows 11 (build >= 22000).
+#[cfg(windows)]
+fn os_version() -> Option<String> {
+    let wide = |text: &str| text.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+    let sub_key = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let value = wide("ProductName");
+    let mut buffer = [0u16; 256];
+    let mut size = (buffer.len() * 2) as u32;
+    // HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ.
+    let status = unsafe {
+        RegGetValueW(0x8000_0002u32 as i32 as isize, sub_key.as_ptr(), value.as_ptr(), 2, std::ptr::null_mut(), buffer.as_mut_ptr(), &mut size)
+    };
+    if status != 0 {
+        return None;
+    }
+    let len = buffer.iter().position(|&unit| unit == 0).unwrap_or(buffer.len());
+    let name = String::from_utf16_lossy(&buffer[..len]);
+    match (windows_version(), name.strip_prefix("Windows 10")) {
+        (Some((_, _, build)), Some(rest)) if build >= 22000 => Some(format!("Windows 11{rest}")),
+        _ => Some(name),
+    }
+}
+
+/// `uname -r`, from `/proc/sys/kernel/osrelease`.
+#[cfg(not(windows))]
+fn os_release() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+    Some(text.trim().to_string())
+}
+
+/// `uname -v`, from `/proc/sys/kernel/version`; empty where there is no procfs.
+#[cfg(not(windows))]
+fn os_version() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/sys/kernel/version").ok()?;
+    Some(text.trim().to_string())
 }
 
 fn env_text(name: &str) -> Option<String> {

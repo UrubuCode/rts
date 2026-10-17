@@ -74,13 +74,23 @@ pub enum Sys {
     Tmpdir,
     /// `process.cwd()`: a runtime string.
     Cwd,
+    /// `process.pid`: a number.
+    Pid,
+    /// `os.loadavg()[0]`: the 1-minute load average (`0` where the OS has none).
+    LoadAvg1,
+    /// `os.type()`: a runtime string (`"Windows_NT"`, `"Linux"`, ...).
+    OsType,
+    /// `os.release()`: a runtime string.
+    OsRelease,
+    /// `os.version()`: a runtime string.
+    OsVersion,
 }
 
 impl Sys {
     /// Whether the answer is a runtime STRING (`RuntimeOp::SysText`) rather than
     /// a number (`RuntimeOp::SysMemory`).
     pub fn is_text(self) -> bool {
-        matches!(self, Sys::Hostname | Sys::Homedir | Sys::Tmpdir | Sys::Cwd)
+        matches!(self, Sys::Hostname | Sys::Homedir | Sys::Tmpdir | Sys::Cwd | Sys::OsType | Sys::OsRelease | Sys::OsVersion)
     }
 
     /// The selector `RuntimeOp::SysMemory` (or `SysText`, see [`Sys::is_text`])
@@ -95,6 +105,11 @@ impl Sys {
             Sys::Homedir => 1,
             Sys::Tmpdir => 2,
             Sys::Cwd => 3,
+            Sys::Pid => 4,
+            Sys::LoadAvg1 => 5,
+            Sys::OsType => 4,
+            Sys::OsRelease => 5,
+            Sys::OsVersion => 6,
             Sys::Platform | Sys::Arch | Sys::Endianness => unreachable!("a constant has no entry"),
         }
     }
@@ -160,6 +175,11 @@ pub fn lookup_sys(name: &str) -> Option<Sys> {
         "homedir" => Some(Sys::Homedir),
         "tmpdir" => Some(Sys::Tmpdir),
         "cwd" => Some(Sys::Cwd),
+        "pid" => Some(Sys::Pid),
+        "loadavg1" => Some(Sys::LoadAvg1),
+        "osType" => Some(Sys::OsType),
+        "osRelease" => Some(Sys::OsRelease),
+        "osVersion" => Some(Sys::OsVersion),
         _ => None,
     }
 }
