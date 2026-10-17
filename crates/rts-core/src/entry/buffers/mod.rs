@@ -573,6 +573,7 @@ pub(in crate::entry) fn indexed_set(
     cell: u32,
     key: Value,
     value: u64,
+    refusal: &mut Option<String>,
 ) -> bool {
     let Some(view) = context.view_at(cell) else {
         return false;
@@ -599,6 +600,20 @@ pub(in crate::entry) fn indexed_set(
     // still — the key was a view's, so no property is created — and the element
     // keeps what it held.
     let Some(word) = element_word(context, value, kind) else {
+        // Raised by the caller, outside the borrow. Only a number or a bigint
+        // crossing the two families is a `TypeError`; a string or an object
+        // still leaves the element alone, as before.
+        let held_bigint = super::bigints::digits_of(context, value).is_some();
+        if kind.is_bigint() {
+            if let Some(number) = Value(value).numeric() {
+                *refusal = Some(format!(
+                    "Cannot convert {} to a BigInt",
+                    crate::coerce::number_to_string(number).to_rust().unwrap_or_default()
+                ));
+            }
+        } else if held_bigint {
+            *refusal = Some("Cannot convert a BigInt value to a number".to_string());
+        }
         return true;
     };
     if let Some(bytes) = window_mut(context, &view) {

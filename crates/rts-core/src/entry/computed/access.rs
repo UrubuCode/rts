@@ -293,7 +293,7 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         // through to a property, which is what the language does — a typed
         // array does not grow and `a[9] = 1` on a two-element one stores
         // nothing anybody can read back.
-        if super::super::buffers::indexed_set(context, slot, Value(key), value) {
+        if super::super::buffers::indexed_set(context, slot, Value(key), value, &mut refusal) {
             return None;
         }
         let Some(key) = property_key(context, Value(key)) else {
