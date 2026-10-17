@@ -251,7 +251,9 @@ fn test_grid_item_content_baseline_001() {
         &[],
         "span",
     );
-    // Spans 0..39 (containers 1-15) já batem; o resto é WIP (Box Alignment §5.4).
-    assert!(bad.iter().all(|&i| i >= 39), "regressão nos spans já corrigidos: {bad:?}");
-    assert!(bad.len() <= 48, "regressão: {} spans divergem: {bad:?}", bad.len());
+    // Spans 0..48 já batem — 39..48 desde que as propriedades lógicas mapeiam
+    // pelo writing-mode do PRÓPRIO item (`dom::eixos_proprios`); o resto é WIP
+    // (Box Alignment §5.4).
+    assert!(bad.iter().all(|&i| i >= 48), "regressão nos spans já corrigidos: {bad:?}");
+    assert!(bad.len() <= 40, "regressão: {} spans divergem: {bad:?}", bad.len());
 }

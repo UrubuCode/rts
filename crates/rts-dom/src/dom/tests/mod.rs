@@ -11,6 +11,7 @@ mod eventos;
 mod freelist;
 mod geometria_cache;
 mod invalidacao;
+mod logicas_eixo_proprio;
 mod medidor_ativo;
 mod mutacao;
 mod parser;

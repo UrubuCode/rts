@@ -413,17 +413,21 @@ impl Dom {
         // Stylesheet de autor resolvido para este nó (normal + important separados;
         // PASS B — as declarações com var() resolvem na posição da regra, contra
         // as vars acima). O matcher navega a árvore via `matches_complex`.
+        // O `direction`/`writing-mode` FINAL do elemento: ver `eixos_proprios`.
+        let override_node = self.style_overrides.get(&idx);
+        let (own_dir, own_wm) = super::eixos_proprios::compose(
+            self.stylesheet.rule_axes(&matched),
+            &inline,
+            override_node,
+            parent_direction,
+            parent_writing_mode,
+        );
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
-            self.stylesheet.declarations_from(
-                &matched,
-                Some(vars_ref),
-                parent_direction,
-                parent_writing_mode,
-            )
+            self.stylesheet
+                .declarations_with_axes(&matched, Some(vars_ref), own_dir, own_wm)
         };
-        let override_node = self.style_overrides.get(&idx);
 
         // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
         let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
@@ -437,10 +441,8 @@ impl Dom {
         css.merge_over(&inline.normal); // style="" inline
         for (prop, raw, important) in &inline.pending {
             if !important {
-                let dir = css.direction.or(parent_direction);
-                let wm = css.writing_mode.or(parent_writing_mode);
                 crate::style::stylesheet::apply_resolved_decl(
-                    &mut css, prop, raw, vars_ref, dir, wm,
+                    &mut css, prop, raw, vars_ref, own_dir, own_wm,
                 );
             }
         }
@@ -458,10 +460,8 @@ impl Dom {
         css.merge_over(&inline.important); // inline !important
         for (prop, raw, important) in &inline.pending {
             if *important {
-                let dir = css.direction.or(parent_direction);
-                let wm = css.writing_mode.or(parent_writing_mode);
                 crate::style::stylesheet::apply_resolved_decl(
-                    &mut css, prop, raw, vars_ref, dir, wm,
+                    &mut css, prop, raw, vars_ref, own_dir, own_wm,
                 );
             }
         }

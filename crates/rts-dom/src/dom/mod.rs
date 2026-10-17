@@ -40,6 +40,7 @@ mod ciclo;
 mod consulta;
 mod css_url;
 mod direction_herdada;
+mod eixos_proprios;
 pub(crate) mod entities;
 mod estilo;
 mod eventos;
