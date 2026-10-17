@@ -60,6 +60,18 @@ pub fn add(left: u64, right: u64) -> u64 {
     }
     let [left, right] = operands;
 
+    // A symbol has neither a numeric nor a text form, and `+` needs one of the
+    // two for either side: `Symbol() + ""` and `"x" + Symbol()` are a
+    // `TypeError`, not `NaN`. Asked AFTER `ToPrimitive`, as `to_number` does, so
+    // an object whose `Symbol.toPrimitive` answers a symbol reaches it too.
+    // Raised outside the borrow, for the reason every raising native has.
+    if with_current(|context| {
+        super::symbol::is_symbol(context, left) || super::symbol::is_symbol(context, right)
+    }) {
+        super::throw::type_error("Cannot convert a Symbol value to a string");
+        return with_current(|context| super::objects::undefined_of(context));
+    }
+
     // Asked before the numeric path and AFTER the string one, which is the order
     // the specification states and the order that is easy to get backwards:
     // `"" + 1n` concatenates and answers `"1"`, while `1 + 1n` is a `TypeError`.

@@ -44,6 +44,12 @@ use super::{Context, with_current};
 use crate::bigint::BigInt;
 use crate::value::Value;
 
+/// Why `BigInt(x)` refused, carrying what the message names.
+enum Refusal {
+    Range(f64),
+    Syntax(String),
+}
+
 /// `BigInt`.
 ///
 /// `tag` because `BigInt.prototype[Symbol.toStringTag]` is `"BigInt"` in the
@@ -61,10 +67,38 @@ impl BigIntClass {
     #[construct]
     fn convert(this: u64, value: u64) -> u64 {
         let _ = this;
-        with_current(|context| match parsed(context, value) {
-            Some(held) => context.bigint_value(held),
-            None => undefined_of(context),
-        })
+        // The refusal is decided in the borrow and RAISED after it, for the
+        // reason `settled` states: building the error takes the context again.
+        // A number that is not an integer is a `RangeError`; text that is not an
+        // integer literal is a `SyntaxError`, which is why `parsed` alone cannot
+        // say which — it answers `None` for both.
+        let refusal = with_current(|context| match parsed(context, value) {
+            Some(held) => Ok(context.bigint_value(held)),
+            None => match Value(value).numeric() {
+                Some(number) => Err(Refusal::Range(number)),
+                None => match Value(value)
+                    .as_slot()
+                    .and_then(|cell| context.text_at(cell))
+                    .and_then(|text| text.to_rust())
+                {
+                    Some(text) => Err(Refusal::Syntax(text)),
+                    None => Ok(undefined_of(context)),
+                },
+            },
+        });
+        match refusal {
+            Ok(answer) => answer,
+            Err(Refusal::Range(number)) => {
+                let shown = crate::coerce::number_to_string(number).to_rust().unwrap_or_default();
+                let message = format!("The number {shown} cannot be converted to a BigInt because it is not an integer");
+                super::throw::range_error(&message);
+                with_current(|context| undefined_of(context))
+            }
+            Err(Refusal::Syntax(text)) => {
+                super::throw::syntax_error(&format!("Cannot convert {text} to a BigInt"));
+                with_current(|context| undefined_of(context))
+            }
+        }
     }
 
     /// `BigInt.asIntN(bits, value)` — the low bits, read as signed.
