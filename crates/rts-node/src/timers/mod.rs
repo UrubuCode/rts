@@ -327,9 +327,18 @@ fn reject_aborted() {
         }
         fired
     });
+    let any = !aborted.is_empty();
     for (id, promise, reason) in aborted {
         forget(id);
-        entry::promise_settle(promise, reason, 1);
+        // Node rejects with `new AbortError(undefined, { cause: signal.reason })`.
+        entry::promise_settle(promise, crate::errors::abort_error(reason), 1);
+    }
+    // Run what the rejection woke NOW. `source()` pumps and then reads the
+    // table to decide `Idle`; a continuation still queued at that moment has not
+    // yet registered its next timer, so the loop ended the program with that
+    // timer pending (`await sleep(5, v, { signal: aborted }); await sleep(20)`).
+    if any {
+        entry::drain_microtasks();
     }
 }
 

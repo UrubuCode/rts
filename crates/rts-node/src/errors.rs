@@ -312,3 +312,25 @@ pub(crate) fn socket_dgram_not_running() {
         "ERR_SOCKET_DGRAM_NOT_RUNNING: Not running",
     );
 }
+
+/// Builds (does not raise) Node's `AbortError` — the value an API REJECTS with
+/// when its `options.signal` aborts: `name` `"AbortError"`, `code` `"ABORT_ERR"`,
+/// message `"The operation was aborted"`, and `cause` the signal's own `reason`.
+///
+/// Not `signal.reason` itself: that is the `DOMException` `controller.abort()`
+/// stores (code 20, "This operation was aborted"), which is what a program reads
+/// off the SIGNAL. `events.once` and `timers/promises` wrap it, so the two
+/// messages differ in real Node and a program asserting on `ABORT_ERR` needs the
+/// wrapper.
+pub(crate) fn abort_error(reason: u64) -> u64 {
+    let made = entry::make_named_error("Error", "The operation was aborted");
+    let Some(error) = made else { return reason };
+    entry::with_runtime(|context| {
+        let name = entry::make_string(context, "AbortError");
+        let code = entry::make_string(context, "ABORT_ERR");
+        entry::put_member(context, error, "name", name);
+        entry::put_member(context, error, "code", code);
+        entry::put_member(context, error, "cause", reason);
+    });
+    error
+}
