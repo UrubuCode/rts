@@ -41,11 +41,13 @@ pub(in crate::layout) fn layout_children_grid(
     let col_sub = subgrid_ctx.as_ref().and_then(|s| s.cols.as_ref());
     let row_sub = subgrid_ctx.as_ref().and_then(|s| s.rows.as_ref());
 
-    let col_basis = (content_w > 0.0 && css.width.is_some()).then_some(content_w);
+    let has_definite_w = !matches!(css.width, None | Some(crate::style::Dimension::Auto));
+    let col_basis = (content_w > 0.0 && has_definite_w).then_some(content_w);
     let is_flex_child = parent_css.as_ref().map_or(false, |p| {
         matches!(p.effective_display(), Some(crate::style::DisplayKind::Flex | crate::style::DisplayKind::FlexWrap | crate::style::DisplayKind::InlineFlex | crate::style::DisplayKind::InlineFlexWrap))
     });
-    let container_content_h = (css.height.is_some() || css.aspect_ratio.is_some() || is_flex_child).then_some(container_content_h).flatten();
+    let has_definite_h = !matches!(css.height, None | Some(crate::style::Dimension::Auto));
+    let container_content_h = (has_definite_h || css.aspect_ratio.is_some() || is_flex_child).then_some(container_content_h).flatten();
     let row_basis = container_content_h;
     let col_gap = col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, col_basis, &resolve));
     let row_gap = row_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.row_gap, row_basis, &resolve));
@@ -182,6 +184,7 @@ pub(in crate::layout) fn layout_children_grid(
         vec![None; ncols]
     };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Normal);
+    let mnh = css.min_height.and_then(|d| d.resolve(&resolve));
     let (row_sizes, nrows, row_collapsed, row_baselines) = if let Some(rs) = row_sub {
         let nr = rs.track_sizes.len().max(1);
         let baselines = if !is_ortho {
@@ -270,6 +273,7 @@ pub(in crate::layout) fn layout_children_grid(
             &content_row_h,
             &min_row_h,
             container_content_h,
+            mnh,
             &resolve,
             css.align_content,
             &row_collapsed,
@@ -313,13 +317,12 @@ pub(in crate::layout) fn layout_children_grid(
     let col_gutter = col_gap;
     let row_gutter = row_gap;
     let container_w = if content_w > 0.0 { content_w } else { col_sizes.iter().sum::<f32>() + collapse::gutters(ncols, &col_collapsed, col_gutter) };
-    let mnh = css.min_height.and_then(|d| d.resolve(&resolve));
     let mxh = css.max_height.and_then(|d| d.resolve(&resolve));
     let container_h = container_content_h.unwrap_or_else(|| {
         let raw = row_sizes.iter().sum::<f32>() + collapse::gutters(nrows, &row_collapsed, row_gutter);
         crate::style::clamp_size(raw, mnh, mxh)
     });
-    let col_gap = if content_w > 0.0 && css.width.is_some() { col_gap } else { col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, Some(container_w), &resolve)) };
+    let col_gap = if content_w > 0.0 && has_definite_w { col_gap } else { col_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.gap, Some(container_w), &resolve)) };
     let row_gap = if container_content_h.is_some() { row_gap } else { row_sub.map(|s| s.gap).unwrap_or_else(|| align::resolve_gap(css.row_gap, Some(container_h), &resolve)) };
     let is_rtl = css.direction == Some(crate::style::Direction::Rtl);
     let mut col_x = if col_sub.is_none() {

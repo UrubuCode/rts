@@ -355,6 +355,7 @@ pub(in crate::layout) fn resolve_row_tracks(
     content_row_h: &[f32],
     min_row_h: &[f32],
     container_h: Option<f32>,
+    mnh: Option<f32>,
     resolve: &ResolveCtx,
     align_content: Option<crate::style::JustifyContent>,
     row_collapsed: &[bool],
@@ -400,7 +401,7 @@ pub(in crate::layout) fn resolve_row_tracks(
         .collect();
 
     if align_content.map_or(true, |a| matches!(a, crate::style::JustifyContent::Stretch)) {
-        if let Some(ch) = container_h {
+        if let Some(ch) = container_h.or(mnh) {
             let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
             let sum_fr: f32 = (0..nrows).filter_map(|r| match row_track(r) { Some(T::Fr(f)) => Some(f.max(0.0)), _ => None }).sum();
             if sum_fr > 0.0 {
@@ -430,7 +431,7 @@ pub(in crate::layout) fn resolve_row_tracks(
                         let each = (ch - current_used) / auto_rows.len() as f32;
                         for r in auto_rows { row_sizes[r] += each; }
                     }
-                } else if current_used > ch {
+                } else if container_h.is_some() && current_used > ch {
                     let overflow = current_used - ch;
                     let non_fixed: Vec<usize> = (0..nrows).filter(|&r| !matches!(row_track(r), Some(T::Fixed(_)))).collect();
                     let reducible: f32 = non_fixed

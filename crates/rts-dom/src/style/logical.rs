@@ -246,6 +246,26 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             return true;
         }
     }
+    if prop == "border-inline"
+        || prop == "border-inline-width"
+        || prop == "border-inline-style"
+        || prop == "border-inline-color"
+    {
+        let suffix = &prop["border-inline".len()..];
+        let _ = try_apply(css, &format!("border-inline-start{suffix}"), val);
+        let _ = try_apply(css, &format!("border-inline-end{suffix}"), val);
+        return true;
+    }
+    if prop == "border-block"
+        || prop == "border-block-width"
+        || prop == "border-block-style"
+        || prop == "border-block-color"
+    {
+        let suffix = &prop["border-block".len()..];
+        let _ = try_apply(css, &format!("border-block-start{suffix}"), val);
+        let _ = try_apply(css, &format!("border-block-end{suffix}"), val);
+        return true;
+    }
 
     // As DIMENSÕES lógicas: `inline-size` é a largura e `block-size` a altura,
     // em escrita horizontal — o mesmo corte LTR-horizontal que o resto do módulo
