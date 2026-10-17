@@ -346,6 +346,30 @@ pub(crate) enum Int32Answer {
     Reuse(ValueId),
     /// The conversion is decided here, and this is what it answers.
     Settled(i32),
+    /// `ToInt32(a ± b)` over two int32-valued operands: a WRAPPING integer op.
+    Wrapping(NumOp, Int32Operand, Int32Operand),
+}
+
+/// One side of a [`Int32Answer::Wrapping`]: an `I32` value, or an int32 constant.
+pub(crate) enum Int32Operand {
+    Value(ValueId),
+    Const(i32),
+}
+
+/// An F64 value that is provably an int32: `ToF64` of an `I32`, or an
+/// int32-valued constant (`-0` is fine here, the sum's `ToInt32` erases it).
+fn int32_operand(func: &Function, value: ValueId) -> Option<Int32Operand> {
+    match *defining_inst(func, value)? {
+        Inst::ToF64(source) => Some(Int32Operand::Value(source)),
+        Inst::Const(id) => match func.constant(id)? {
+            ConstDecl::Scalar { repr: Repr::F64, bits } => {
+                let x = f64::from_bits(bits.0);
+                (x == f64::from(x as i32)).then_some(Int32Operand::Const(x as i32))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The value a `ToInt32` would produce, when it is knowable while building.
@@ -383,6 +407,15 @@ pub(crate) fn to_int32_answer(func: &Function, value: ValueId) -> Option<Int32An
             } => Some(Int32Answer::Settled(to_int32_of(f64::from_bits(bits.0)))),
             _ => None,
         },
+        // SOUND FOR ADD AND SUB ONLY. Two int32s differ/sum by at most 2^32 in
+        // magnitude, far under 2^53, so the f64 result is EXACT and `ToInt32` of
+        // it is the value mod 2^32 — precisely what wrapping `iadd`/`isub` give.
+        // MUL is excluded on purpose: an int32 product reaches ~2^62, the f64
+        // product is ROUNDED past 2^53, and `ToInt32` of the rounded double is
+        // not a wrapping `imul` (that is why `Math.imul` exists). Div/Rem too.
+        Inst::FloatArith(op @ (NumOp::Add | NumOp::Sub), a, b) => {
+            Some(Int32Answer::Wrapping(op, int32_operand(func, a)?, int32_operand(func, b)?))
+        }
         _ => None,
     }
 }

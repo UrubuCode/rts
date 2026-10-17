@@ -381,9 +381,30 @@ impl<'a> FuncBuilder<'a> {
                 });
                 return Ok(self.use_const(id));
             }
+            // `(a|0) + (b|0) | 0`: a wrapping integer add/sub, add/sub only
+            // (see `fold::to_int32_answer` for the soundness argument).
+            Some(super::fold::Int32Answer::Wrapping(op, a, b)) => {
+                let a = self.int32_operand_value(a);
+                let b = self.int32_operand_value(b);
+                return self.arith(op, a, b);
+            }
             None => {}
         }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// An `I32` value for one side of a folded wrapping add/sub.
+    fn int32_operand_value(&mut self, operand: super::fold::Int32Operand) -> ValueId {
+        match operand {
+            super::fold::Int32Operand::Value(v) => v,
+            super::fold::Int32Operand::Const(k) => {
+                let id = self.declare_const(ConstDecl::Scalar {
+                    repr: Repr::I32,
+                    bits: ScalarBits(k as u32 as u64),
+                });
+                self.use_const(id)
+            }
+        }
     }
 
     /// A one-operand integer operation over a proven integer.
