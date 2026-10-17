@@ -251,7 +251,7 @@ impl MachineOps for JsMachine<'_> {
         // double otherwise -- so the representation passes through unchanged.
         if which == JsPrim::ToNumber
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             return Ok(args[0]);
         }
@@ -391,10 +391,36 @@ impl MachineOps for JsMachine<'_> {
         // choosing an instruction because the operands LOOK numeric would lower a
         // different operator. That concern is the gate this sits behind -- both operands
         // PROVED, by a literal or a guard -- and a proved number coerces nothing.
+        //
+        // AN INTEGER RESULT is the range analysis' claim, and its whole meaning is that the
+        // mathematical result fits an `i32` (see `Js::integer_arith`): so over two `I32`
+        // operands the wrapping machine add IS the language's add, and nothing wraps. The
+        // lattice answers an integer only for `+`, `-` and `*`, and only when both
+        // operands are integers.
+        let integer_result = self.types.of(inst.result).is_int();
+        if integer_result
+            && args.len() == 2
+            && matches!(which, JsPrim::Add | JsPrim::Subtract | JsPrim::Multiply)
+            && args.iter().all(|held| into.repr_of(*held) == Repr::I32)
+        {
+            let op = match which {
+                JsPrim::Add => rts_cranelift::ir::NumOp::Add,
+                JsPrim::Subtract => rts_cranelift::ir::NumOp::Sub,
+                _ => rts_cranelift::ir::NumOp::Mul,
+            };
+            return into.arith(op, args[0], args[1]).map_err(machine);
+        }
         if args.len() == 2 && self.all_numeric(&of) {
             let left = self.as_double(into, args[0])?;
             let right = self.as_double(into, args[1])?;
             if let Some(done) = self.numeric_instruction(into, which, left, right)? {
+                // AN INTEGER RESULT COMPUTED IN THE DOUBLE DOMAIN (an operand was not held
+                // as an `I32`): the double is an exact integer of `i32` range by the same
+                // argument, so `ToInt32` is lossless and the value is in the representation
+                // the lattice declared for it.
+                if integer_result && into.repr_of(done) == Repr::F64 {
+                    return into.to_int32(done).map_err(machine);
+                }
                 return Ok(done);
             }
         }
@@ -476,7 +502,7 @@ impl MachineOps for JsMachine<'_> {
         // conversion.
         if which == JsPrim::BitwiseNot
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             let held = super::guarded::int32_of(into, args[0])?;
             let ones = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
@@ -492,7 +518,7 @@ impl MachineOps for JsMachine<'_> {
         // answers `0` for `-0` where the language answers `-0`.
         if which == JsPrim::Negate
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             let held = self.as_double(into, args[0])?;
             return into

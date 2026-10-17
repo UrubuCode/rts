@@ -225,3 +225,169 @@ fn coercing_anything_but_an_object_calls_nothing() {
             .has(Effect::CALLS_USER)
     );
 }
+
+/// Two ranges join to their hull, and the whole range IS `Int32` -- one name for one set,
+/// so `==` is set equality and the fixed point's "did it change" is exact.
+#[test]
+fn integer_ranges_join_to_their_hull() {
+    let domain = Js::new();
+    assert_eq!(
+        domain.join(&Type::int(0, 3), &Type::int(10, 12)),
+        Type::Ranged(0, 12)
+    );
+    assert_eq!(domain.join(&Type::int(5, 5), &Type::int(5, 5)), Type::Ranged(5, 5));
+    assert_eq!(
+        domain.join(&Type::Ranged(0, 3), &Type::Int32),
+        Type::Int32,
+        "the whole range absorbs"
+    );
+    assert_eq!(
+        domain.join(&Type::int(i64::from(i32::MIN), 0), &Type::int(0, i64::from(i32::MAX))),
+        Type::Int32,
+        "a hull that covers every i32 is Int32, not a Ranged spelling of it"
+    );
+    assert_eq!(domain.join(&Type::Ranged(0, 3), &Type::Double), Type::Double);
+    assert_eq!(domain.join(&Type::Ranged(0, 3), &Type::Str), Type::Anything);
+    // Commutative.
+    assert_eq!(
+        domain.join(&Type::int(10, 12), &Type::int(0, 3)),
+        domain.join(&Type::int(0, 3), &Type::int(10, 12))
+    );
+}
+
+/// THE NO-OVERFLOW ARGUMENT, at its boundary: an integer only where both ends of the result
+/// interval fit an `i32`, and a double at the first value that does not.
+#[test]
+fn integer_arithmetic_is_an_integer_only_when_it_provably_fits() {
+    let domain = Js::new();
+    let (add, sub, mul) = (
+        domain.prim(JsPrim::Add),
+        domain.prim(JsPrim::Subtract),
+        domain.prim(JsPrim::Multiply),
+    );
+    let max = i64::from(i32::MAX);
+    let min = i64::from(i32::MIN);
+    assert_eq!(
+        domain.transfer(add, &[Type::int(0, 10), Type::int(0, 10)]),
+        Type::Ranged(0, 20)
+    );
+    // Exactly the largest i32 is still an integer; one more is a double.
+    assert_eq!(
+        domain.transfer(add, &[Type::int(max - 1, max - 1), Type::int(1, 1)]),
+        Type::int(max, max)
+    );
+    assert_eq!(
+        domain.transfer(add, &[Type::int(max, max), Type::int(1, 1)]),
+        Type::Double
+    );
+    assert_eq!(
+        domain.transfer(add, &[Type::Int32, Type::int(1, 1)]),
+        Type::Double
+    );
+    assert_eq!(
+        domain.transfer(add, &[Type::int(0, max), Type::int(0, 1)]),
+        Type::Double,
+        "one end of the interval is past the range"
+    );
+    assert_eq!(
+        domain.transfer(sub, &[Type::int(min + 1, min + 1), Type::int(1, 1)]),
+        Type::int(min, min)
+    );
+    assert_eq!(
+        domain.transfer(sub, &[Type::int(min, min), Type::int(1, 1)]),
+        Type::Double
+    );
+    assert_eq!(
+        domain.transfer(sub, &[Type::int(0, 0), Type::int(min, min)]),
+        Type::Double,
+        "0 - i32::MIN is 2^31"
+    );
+    // A product: 46340^2 fits, 46341^2 does not.
+    assert_eq!(
+        domain.transfer(mul, &[Type::int(0, 46340), Type::int(0, 46340)]),
+        Type::int(0, 46340 * 46340)
+    );
+    assert_eq!(
+        domain.transfer(mul, &[Type::int(0, 46341), Type::int(0, 46341)]),
+        Type::Double
+    );
+    // A product with a negative factor may be `-0` (`0 * -5`), which no integer names.
+    assert_eq!(
+        domain.transfer(mul, &[Type::int(-5, -5), Type::int(0, 0)]),
+        Type::Double
+    );
+    assert_eq!(
+        domain.transfer(mul, &[Type::int(-3, 3), Type::int(2, 2)]),
+        Type::Double
+    );
+    // A non-integer operand is the old answer.
+    assert_eq!(
+        domain.transfer(add, &[Type::Double, Type::int(1, 1)]),
+        Type::Double
+    );
+    assert_eq!(
+        domain.transfer(add, &[Type::Anything, Type::int(1, 1)]),
+        Type::Anything
+    );
+}
+
+/// WIDENING contains both arguments and moves a bound at most once.
+#[test]
+fn widening_jumps_a_moving_bound_to_the_extreme() {
+    let domain = Js::new();
+    assert_eq!(
+        domain.widen(&Type::int(0, 0), &Type::int(0, 1)),
+        Type::Ranged(0, i32::MAX)
+    );
+    assert_eq!(
+        domain.widen(&Type::int(0, 5), &Type::int(-1, 5)),
+        Type::Ranged(i32::MIN, 5)
+    );
+    // New inside old: old stays, so the chain a parameter climbs never descends.
+    assert_eq!(domain.widen(&Type::int(0, 10), &Type::int(2, 3)), Type::Ranged(0, 10));
+    assert_eq!(domain.widen(&Type::int(0, 10), &Type::int(0, i64::from(i32::MAX))), Type::Ranged(0, i32::MAX));
+    // Not a range climb: the new answer.
+    assert_eq!(domain.widen(&Type::Double, &Type::int(0, 1)), Type::Ranged(0, 1));
+    assert_eq!(domain.widen(&Type::Nothing, &Type::int(0, 1)), Type::Ranged(0, 1));
+    assert_eq!(domain.widen(&Type::int(0, 1), &Type::Double), Type::Double);
+}
+
+/// WHAT A COMPARISON TEACHES, edge by edge, and what it must not claim.
+#[test]
+fn a_comparison_narrows_integer_operands_on_each_edge() {
+    let domain = Js::new();
+    let less = domain.prim(JsPrim::LessThan);
+    let at_most = domain.prim(JsPrim::LessOrEqual);
+    let greater = domain.prim(JsPrim::GreaterThan);
+    let i = Type::int(0, i64::from(i32::MAX));
+    let n = Type::int(1000, 1000);
+    let args = [i.clone(), n.clone()];
+    // i < 1000: i is at most 999 where it held, at least 1000 where it did not.
+    assert_eq!(domain.refine(less, &args, true, 0), Some(Type::Ranged(0, 999)));
+    assert_eq!(domain.refine(less, &args, false, 0), Some(Type::Ranged(1000, i32::MAX)));
+    // i <= 1000.
+    assert_eq!(domain.refine(at_most, &args, true, 0), Some(Type::Ranged(0, 1000)));
+    assert_eq!(domain.refine(at_most, &args, false, 0), Some(Type::Ranged(1001, i32::MAX)));
+    // 1000 > i, the bound on the left.
+    let flipped = [n.clone(), i.clone()];
+    assert_eq!(domain.refine(greater, &flipped, true, 1), Some(Type::Ranged(0, 999)));
+    // The other operand learns too: i < n with n a range raises n above i's floor.
+    let range = [Type::int(5, 5), Type::int(0, 100)];
+    assert_eq!(domain.refine(less, &range, true, 1), Some(Type::Ranged(6, 100)));
+    // An infeasible edge teaches nothing rather than inventing a type.
+    assert_eq!(domain.refine(less, &[Type::int(5, 5), Type::int(3, 3)], true, 0), None);
+    // Operands that are not both integers teach nothing: `NaN < 1` is false and so is
+    // `NaN >= 1`, which is why "not less" is only "at least" over integers.
+    assert_eq!(domain.refine(less, &[Type::Double, n.clone()], false, 0), None);
+    assert_eq!(domain.refine(less, &[Type::Anything, n], true, 0), None);
+    // And a truth value restates its operand's.
+    assert_eq!(
+        domain.forwards_truth(domain.prim(JsPrim::Truthy)),
+        Some(Forward::Same)
+    );
+    assert_eq!(
+        domain.forwards_truth(domain.prim(JsPrim::Not)),
+        Some(Forward::Negated)
+    );
+    assert_eq!(domain.forwards_truth(less), None);
+}

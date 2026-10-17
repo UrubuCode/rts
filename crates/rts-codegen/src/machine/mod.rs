@@ -457,7 +457,7 @@ impl<'a> JsMachine<'a> {
     /// would make every refusal below unreachable while emitting nothing that runs.
     pub fn repr_of(of: &Type) -> Option<Repr> {
         match of {
-            Type::Int32 => Some(Repr::I32),
+            Type::Int32 | Type::Ranged(..) => Some(Repr::I32),
             Type::Double => Some(Repr::F64),
             Type::Bool(_) => Some(Repr::Bool),
             _ => None,
@@ -479,7 +479,7 @@ impl<'a> JsMachine<'a> {
         !of.is_empty()
             && of
                 .iter()
-                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Double))
+                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..) | Type::Double))
     }
 
     /// The operand in the double domain, converting a proved integer.

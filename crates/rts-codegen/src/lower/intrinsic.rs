@@ -287,7 +287,7 @@ impl Lowering<'_> {
                 false => value,
             });
         }
-        let numeric = |held: &Self, value: ValueId| matches!(held.type_of(value), Type::Int32 | Type::Double);
+        let numeric = |held: &Self, value: ValueId| matches!(held.type_of(value), Type::Int32 | Type::Ranged(..) | Type::Double);
         let prim = match shape {
             Static::IsArray => {
                 return Ok(Some(self.entry(crate::runtime::RuntimeOp::ArrayIsArray, values, at)));
@@ -405,7 +405,7 @@ impl Lowering<'_> {
             plain.push(argument);
         }
         let receiver = self.expression(object)?;
-        if matches!(self.type_of(receiver), Type::Int32 | Type::Double) {
+        if matches!(self.type_of(receiver), Type::Int32 | Type::Ranged(..) | Type::Double) {
             let argument = match plain.first() {
                 Some(argument) => self.expression(argument)?,
                 None => self.singleton_at(crate::values::Singleton::Undefined, at),

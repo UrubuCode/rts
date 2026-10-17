@@ -304,7 +304,7 @@ impl Facts<'_> {
     }
 
     fn numeric(&self, value: ValueId) -> bool {
-        matches!(self.types.of(value), Type::Int32 | Type::Double)
+        matches!(self.types.of(value), Type::Int32 | Type::Ranged(..) | Type::Double)
     }
 
     fn param_index(&self, value: ValueId) -> Option<usize> {
@@ -531,7 +531,7 @@ fn make_plan(facts: &Facts, allow_peek: bool) -> Option<Plan> {
             continue;
         }
         match facts.types.of(facts.entry_args[j]) {
-            Type::Int32 | Type::Double => plan.params.push((j, false)),
+            Type::Int32 | Type::Ranged(..) | Type::Double => plan.params.push((j, false)),
             Type::Anything => plan.params.push((j, true)),
             _ => {}
         }
@@ -713,7 +713,7 @@ fn attempt(facts: &Facts, mut plan: Plan) -> Option<Func> {
             .filter(|(j, _)| {
                 matches!(
                     after.of(built.vmap[&facts.header_params[*j]]),
-                    Type::Int32 | Type::Double
+                    Type::Int32 | Type::Ranged(..) | Type::Double
                 )
             })
             .collect();

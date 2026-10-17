@@ -413,11 +413,11 @@ fn a_union_claim_produces_no_guard() {
     );
 }
 
-/// Every arithmetic row answers a `Double` whatever its operands were, because the result
-/// may not fit in an `i32`. Pinned because it is what killed this file's first draft: a
-/// slice built on integer arithmetic had arms nothing could reach.
+/// Arithmetic over two integers answers an integer exactly when the result PROVABLY fits
+/// an `i32` (the range analysis), and a `Double` otherwise. `7 - 3` is the integer 4;
+/// `Double` is what the unprovable ones still answer, pinned in `domain/tests.rs`.
 #[test]
-fn arithmetic_over_two_integers_is_proved_a_double() {
+fn arithmetic_over_two_integers_is_proved_an_integer_when_it_fits() {
     let mut names = Names::new();
     let program = parse_script("function f() { return 7 - 3; }", &mut names).expect("parses");
     let resolution = resolve_module(&program.body);
@@ -429,14 +429,14 @@ fn arithmetic_over_two_integers_is_proved_a_double() {
         .iter()
         .find(|held| matches!(&held.op, rts_mir::Op::Prim { .. }))
         .expect("a primitive");
-    assert_eq!(*types.of(subtraction.result), Type::Double);
-    // And the OPERANDS are integers, which is what makes the widening the operation's
-    // answer rather than a fact about its inputs.
+    assert_eq!(*types.of(subtraction.result), Type::Ranged(4, 4));
+    // And the OPERANDS are integers, which is what makes the answer a fact about the
+    // operands' ranges.
     let rts_mir::Op::Prim { args, .. } = &subtraction.op else {
         unreachable!("matched above")
     };
-    assert_eq!(*types.of(args[0]), Type::Int32);
-    assert_eq!(*types.of(args[1]), Type::Int32);
+    assert_eq!(*types.of(args[0]), Type::Ranged(7, 7));
+    assert_eq!(*types.of(args[1]), Type::Ranged(3, 3));
 }
 
 /// `%` over two proved numbers is `NumberRemainder`, the unboxed call the running engine

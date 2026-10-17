@@ -213,7 +213,7 @@ impl JsMachine<'_> {
         let ([a, b], [held_a, held_b]) = (args, of) else {
             return Ok(None);
         };
-        let proven = |held: &ValueId| matches!(self.types.of(*held), Type::Int32 | Type::Double);
+        let proven = |held: &ValueId| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..) | Type::Double);
         let (a_proven, b_proven) = (proven(held_a), proven(held_b));
         // AN OPERAND THAT MAY BE A DOUBLE is one the lattice knows nothing about. Anything
         // it DID name -- a string, a boolean, a singleton, an object -- is never one.

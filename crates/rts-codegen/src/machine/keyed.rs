@@ -36,7 +36,7 @@ use crate::runtime::RuntimeOp;
 impl JsMachine<'_> {
     /// Whether `o[k]` reads through a keyed site: every key but a proved number.
     pub(super) fn reads_keyed(&self, key: ValueId) -> bool {
-        !matches!(self.types.of(key), Type::Int32 | Type::Double)
+        !matches!(self.types.of(key), Type::Int32 | Type::Ranged(..) | Type::Double)
     }
 
     /// `a[i]` with a key the inference typed a number: the element read inline from the

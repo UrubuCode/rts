@@ -278,7 +278,7 @@ fn a_block_scope_is_walked_and_its_binding_is_its_own() {
     // The OUTER `i` is returned. Both are `Int32`, so the type cannot tell them
     // apart -- what says it is the right one is the value: it is the constant
     // `1`, which is the first instruction.
-    assert_eq!(*types.of(returned), Type::Int32);
+    assert!(types.of(returned).is_int());
     assert_eq!(lowered.func.insts[0].result, returned);
 }
 
@@ -293,7 +293,7 @@ fn an_assignment_answers_the_value_it_assigned() {
         Some(Terminator::Return(Some(value))) => *value,
         other => panic!("expected a returned value, got {other:?}"),
     };
-    assert_eq!(*types.of(returned), Type::Int32);
+    assert_eq!(*types.of(returned), Type::Ranged(7, 7));
 }
 
 /// The truth rule is an operation of the LANGUAGE, and the domain folds it
@@ -409,11 +409,12 @@ fn the_header_type_comes_from_inference_and_not_from_the_lowering() {
         .find(|held| lowered.func.predecessors(*held).len() == 2)
         .expect("a header");
     let carried = lowered.func.block(header).params[0];
-    // `0` from before the loop is an Int32; `at + 1` across the back edge is a
-    // Double, because this language's addition of two int32s may not fit. So the
-    // join is a number -- which is more than the lowering knew and exactly what a
-    // fixed point is for.
-    assert_eq!(*types.of(carried), Type::Double);
+    // `0` from before the loop is the integer 0; `at + 1` across the back edge is an
+    // integer too, since the guard `at < 3` keeps the sum in range. The loop head
+    // is widened, so the carried value is the non-negative integers -- which is more
+    // than the lowering knew and exactly what a fixed point is for. (Before the range
+    // analysis this was a `Double`, because the addition of two int32s may not fit.)
+    assert_eq!(*types.of(carried), Type::Ranged(0, i32::MAX));
 }
 
 /// A `break` leaves through the exit block, which declares the same parameters the
@@ -1550,7 +1551,7 @@ fn negation_is_a_number_and_a_bitwise_not_is_an_int32() {
     else {
         panic!("a return")
     };
-    assert_eq!(*types.of(answered), Type::Int32, "-1 is folded to an integer");
+    assert_eq!(*types.of(answered), Type::Ranged(-1, -1), "-1 is folded to an integer");
     // Over a binding and not a literal: `-1` written is folded into the constant.
     let negated = only("function f() { const one = 1; return -one; }").expect("covered");
     let types = rts_mir::infer::infer(&negated.func, &negated.domain);
@@ -2853,4 +2854,45 @@ fn a_substituted_call_is_its_body_over_the_argument_values() {
     };
     assert_eq!(calls(functions[1]), 0, "both calls substituted");
     assert!(calls(functions[2]) > 0, "a parameter `g` is not the proved one");
+}
+
+/// The types of every `+` of a function, in instruction order.
+fn adds_of(source: &str) -> Vec<Type> {
+    let lowered = only(source).expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::Add)))
+        .map(|held| types.of(held.result).clone())
+        .collect()
+}
+
+/// THE RANGE ANALYSIS, end to end through the graph: a counter its own guard bounds is an
+/// integer, the accumulator it feeds (which no interval bounds) is not, and a counter whose
+/// guard leaves room to overflow stays a double.
+#[test]
+fn a_loop_counter_bounded_by_its_guard_is_an_integer() {
+    let bounded = adds_of(
+        "function f() { let acc = 0; for (let i = 0; i < 1000; i++) acc += i; return acc; }",
+    );
+    assert!(
+        bounded.contains(&Type::Ranged(1, 1000)),
+        "i + 1 under i < 1000 is in [1, 1000]: {bounded:?}"
+    );
+    assert!(bounded.contains(&Type::Double), "the accumulator is unbounded: {bounded:?}");
+    // `i <= MAX` lets `i + 1` reach 2^31: every add stays a double.
+    let at_the_edge = adds_of("function f() { let i = 0; for (; i <= 2147483647; i++) {} return i; }");
+    assert!(
+        at_the_edge.iter().all(|held| *held == Type::Double),
+        "{at_the_edge:?}"
+    );
+    // `i < MAX` is room for exactly one more.
+    let below = adds_of("function f() { let i = 0; for (; i < 2147483647; i++) {} return i; }");
+    assert!(below.contains(&Type::Ranged(1, i32::MAX)), "{below:?}");
+    // An unknown bound is no bound.
+    let unknown = adds_of("function f(n) { let i = 0; for (; i < n; i++) {} return i; }");
+    assert!(unknown.iter().all(|held| *held == Type::Double), "{unknown:?}");
 }

@@ -44,6 +44,7 @@ use crate::runtime::RuntimeOp;
 mod tables;
 
 use rts_mir::cfg::{Const, EntryId, Prim};
+use rts_mir::domain::Forward;
 use rts_mir::guard::Assertion;
 use rts_mir::{Domain, Effect};
 
@@ -68,6 +69,21 @@ pub enum Type {
     /// proof about a value of it, which is what lets an addition become a machine
     /// add instead of a runtime call.
     Int32,
+    /// A number that is an integer in `[lo, hi]`, a PROPER subrange of `Int32`.
+    ///
+    /// The range analysis of plan 12 #4. [`Type::int`] is the only constructor, and it
+    /// answers `Int32` for the full range, so the two never name the same set twice and
+    /// `==` is set equality. Every value is a true integer: never fractional, never
+    /// `-0`, never `NaN` -- the proof `Int32` already is, narrowed.
+    ///
+    /// # Why the lattice stays finite where it matters
+    ///
+    /// It is TALL (2^32 bounds), so a loop's `i + 1` would climb one step a round for
+    /// ever. [`Js::widen`] cuts that: a bound still moving after a block has been seen a
+    /// few times jumps to the `i32` extreme, so a parameter's range changes at most twice
+    /// (each bound once) before it is `Int32` or leaves the integers for `Double`. The
+    /// join is the hull, which is monotone and commutative.
+    Ranged(i32, i32),
     /// A number.
     Double,
     /// A string.
@@ -113,6 +129,35 @@ pub enum Type {
     Callable,
     /// Nothing is known.
     Anything,
+}
+
+impl Type {
+    /// The integers `[lo, hi]` -- `Int32` for the whole range, [`Type::Ranged`] otherwise.
+    ///
+    /// Takes `i64` so a bound computed past the `i32` range is caught here and not wrapped
+    /// by a cast; a caller passes only bounds it has already checked fit.
+    pub fn int(lo: i64, hi: i64) -> Type {
+        debug_assert!(i64::from(i32::MIN) <= lo && lo <= hi && hi <= i64::from(i32::MAX));
+        if lo == i64::from(i32::MIN) && hi == i64::from(i32::MAX) {
+            Type::Int32
+        } else {
+            Type::Ranged(lo as i32, hi as i32)
+        }
+    }
+
+    /// The bounds of an integer type, widened to `i64` so arithmetic on them cannot wrap.
+    pub fn int_bounds(&self) -> Option<(i64, i64)> {
+        match self {
+            Type::Int32 => Some((i64::from(i32::MIN), i64::from(i32::MAX))),
+            Type::Ranged(lo, hi) => Some((i64::from(*lo), i64::from(*hi))),
+            _ => None,
+        }
+    }
+
+    /// Whether every value is a 32-bit integer, of whatever range.
+    pub fn is_int(&self) -> bool {
+        matches!(self, Type::Int32 | Type::Ranged(..))
+    }
 }
 
 /// This language's domain: the tables, and the trait over them.
@@ -541,13 +586,50 @@ impl Js {
     fn needs_no_coercion(of: &Type) -> bool {
         matches!(
             of,
-            Type::Int32 | Type::Double | Type::Bool(_) | Type::Str | Type::Undefined | Type::Null
+            Type::Int32
+                | Type::Ranged(..)
+                | Type::Double
+                | Type::Bool(_)
+                | Type::Str
+                | Type::Undefined
+                | Type::Null
         )
+    }
+
+    /// What `+`, `-` or `*` of two integer ranges answers, when the answer is an integer
+    /// -- `None` when it is not (an operand is not an integer, the row is another one, or
+    /// the result may leave `i32`), and the caller's table answers as it always did.
+    ///
+    /// # The no-overflow argument
+    ///
+    /// The result of an operator over two ranges lies in an interval whose ends are the
+    /// operator applied to the operands' ends: `[a.lo + b.lo, a.hi + b.hi]` for `+`,
+    /// `[a.lo - b.hi, a.hi - b.lo]` for `-`. The ends are computed in `i64` from values
+    /// that fit `i32`, so they cannot wrap. If BOTH ends fit `i32`, every integer between
+    /// them does, so the language's result -- an exact mathematical integer -- is an
+    /// `i32` and a wrapping machine add computes the same number. If an end does not fit,
+    /// this answers `None` and the sum stays a double, as it was.
+    ///
+    /// `*` is taken only for two NON-NEGATIVE ranges, and for a reason beyond overflow:
+    /// `0 * -5` is `-0`, which no integer type names, so a product that might involve a
+    /// negative factor is left a double. For non-negative integers the product is monotone
+    /// in both factors, so `[a.lo * b.lo, a.hi * b.hi]` bounds it (at most 2^62 in
+    /// `i64`), and a zero is `+0`. `+` and `-` need no such care: no integer plus or minus
+    /// an integer is `-0`.
+    fn integer_arith(which: JsPrim, one: &Type, two: &Type) -> Option<Type> {
+        let ((a_lo, a_hi), (b_lo, b_hi)) = (one.int_bounds()?, two.int_bounds()?);
+        let (lo, hi) = match which {
+            JsPrim::Add => (a_lo + b_lo, a_hi + b_hi),
+            JsPrim::Subtract => (a_lo - b_hi, a_hi - b_lo),
+            JsPrim::Multiply if a_lo >= 0 && b_lo >= 0 => (a_lo * b_lo, a_hi * b_hi),
+            _ => return None,
+        };
+        (i64::from(i32::MIN) <= lo && hi <= i64::from(i32::MAX)).then(|| Type::int(lo, hi))
     }
 
     /// Whether every value of this type is a number.
     fn is_numeric(of: &Type) -> bool {
-        matches!(of, Type::Int32 | Type::Double)
+        matches!(of, Type::Int32 | Type::Ranged(..) | Type::Double)
     }
 
     /// Whether ToNumeric of a value of this type is certainly a Number and never a
@@ -564,6 +646,7 @@ impl Js {
                 | Type::Null
                 | Type::Bool(_)
                 | Type::Int32
+                | Type::Ranged(..)
                 | Type::Double
                 | Type::Str
         )
@@ -585,6 +668,13 @@ impl Domain for Js {
         match (left, right) {
             (Type::Nothing, other) | (other, Type::Nothing) => other.clone(),
             (one, two) if one == two => one.clone(),
+            // TWO INTEGER RANGES JOIN TO THEIR HULL: the smallest range holding both.
+            // Monotone, commutative, associative and idempotent, and `Int32` (the whole
+            // range) is its top -- so the join of ranges never leaves the integers.
+            (one, two) if one.is_int() && two.is_int() => {
+                let ((a, b), (c, d)) = (one.int_bounds().unwrap(), two.int_bounds().unwrap());
+                Type::int(a.min(c), b.max(d))
+            }
             (Type::Bool(_), Type::Bool(_)) => Type::Bool(None),
             // THE AXIS. One numeric type, and `Int32` is a proof about a value of
             // it, so the join is the wider proof rather than a giving-up. The
@@ -603,7 +693,8 @@ impl Domain for Js {
     fn of_const(&self, value: &Const) -> Type {
         match value {
             Const::Int(held) => match i32::try_from(*held) {
-                Ok(_) => Type::Int32,
+                // A SINGLETON RANGE: the constant is exactly this integer.
+                Ok(exact) => Type::int(i64::from(exact), i64::from(exact)),
                 Err(_) => Type::Double,
             },
             Const::Float(_) => Type::Double,
@@ -635,6 +726,13 @@ impl Domain for Js {
         let Some(which) = self.meaning(prim) else {
             return Type::Anything;
         };
+        // THE RANGE ARITHMETIC: `+`, `-` and `*` over two integer ranges answer an integer
+        // range exactly when the result cannot leave `i32` -- see [`Js::integer_arith`].
+        if let [one, two] = args
+            && let Some(proved) = Self::integer_arith(which, one, two)
+        {
+            return proved;
+        }
         match which {
             // `+` is two operations wearing one spelling, and which one it is
             // depends on the operands. A string on either side concatenates.
@@ -755,7 +853,7 @@ impl Domain for Js {
             // the proof survives, which is what lets an increment of a proven
             // counter stay machine arithmetic.
             JsPrim::ToNumber => match args.first() {
-                Some(Type::Int32) => Type::Int32,
+                Some(held) if held.is_int() => held.clone(),
                 _ => Type::Double,
             },
             // An object of no known layout. An array HAS a shape in the machine
@@ -838,17 +936,94 @@ impl Domain for Js {
 
     fn narrow(&self, assertion: Assertion, of: &Type) -> Type {
         match self.asserted(assertion) {
-            Some(JsAssertion::IsInt32) => Type::Int32,
+            // A guard cannot make a proof weaker either: an operand already proved a
+            // narrower integer stays that.
+            Some(JsAssertion::IsInt32) => match of {
+                held if held.is_int() => held.clone(),
+                _ => Type::Int32,
+            },
             Some(JsAssertion::IsDouble) => match of {
                 // A guard cannot make a proof weaker: asserting "is a number" of
                 // something already proved `Int32` leaves it `Int32`.
-                Type::Int32 => Type::Int32,
+                held if held.is_int() => held.clone(),
                 _ => Type::Double,
             },
             Some(JsAssertion::IsStr) => Type::Str,
             Some(JsAssertion::HasShape(shape)) => Type::Shaped(shape),
             None => of.clone(),
         }
+    }
+
+    // WIDENING: see `Type::Ranged` for the argument, and `rts_mir::infer` for when it runs.
+    //
+    // Two integer ranges widen to a range at least as wide as both, with each bound that
+    // is STILL MOVING (new is beyond old) jumped to the `i32` extreme. So the result
+    // contains `old` and contains `new` (sound), is never narrower than `old` (the chain a
+    // parameter climbs is ascending), and a bound changes at most once (it reaches the
+    // extreme) -- at most two steps, then `Int32`. Anything else is not a range climb and
+    // answers `new`, which is what the default does.
+    fn widen(&self, old: &Type, new: &Type) -> Type {
+        match (old.int_bounds(), new.int_bounds()) {
+            (Some((old_lo, old_hi)), Some((new_lo, new_hi))) => {
+                let lo = if new_lo < old_lo { i64::from(i32::MIN) } else { old_lo };
+                let hi = if new_hi > old_hi { i64::from(i32::MAX) } else { old_hi };
+                Type::int(lo, hi)
+            }
+            _ => new.clone(),
+        }
+    }
+
+    fn forwards_truth(&self, prim: Prim) -> Option<Forward> {
+        match self.meaning(prim)? {
+            JsPrim::Truthy => Some(Forward::Same),
+            JsPrim::Not => Some(Forward::Negated),
+            _ => None,
+        }
+    }
+
+    // WHAT A COMPARISON TEACHES, over two integer ranges and nothing else.
+    //
+    // Both operands must be integers (no `NaN`, no `-0`, no string, no object), because
+    // only then is "not `a < b`" the same as "`a >= b`" and is the comparison free of
+    // coercion. Every case is rewritten to `x < y` or `x <= y`, and then x's upper bound
+    // is capped by y's upper bound (less one when strict) and y's lower bound is raised to
+    // x's lower bound (plus one when strict). An empty result means the edge is never
+    // taken; that teaches nothing here (`None`) rather than inventing a type for it.
+    fn refine(&self, prim: Prim, args: &[Type], truth: bool, which: usize) -> Option<Type> {
+        let relation = self.meaning(prim)?;
+        if !matches!(
+            relation,
+            JsPrim::LessThan | JsPrim::LessOrEqual | JsPrim::GreaterThan | JsPrim::GreaterOrEqual
+        ) {
+            return None;
+        }
+        let [a, b] = args else { return None };
+        let (a_range, b_range) = (a.int_bounds()?, b.int_bounds()?);
+        // `Some((x_is_first, strict))`: `x` is operand 0 when true, and the relation holds.
+        let (x_first, strict) = match (relation, truth) {
+            (JsPrim::LessThan, true) => (true, true),
+            (JsPrim::LessThan, false) => (false, false),
+            (JsPrim::LessOrEqual, true) => (true, false),
+            (JsPrim::LessOrEqual, false) => (false, true),
+            (JsPrim::GreaterThan, true) => (false, true),
+            (JsPrim::GreaterThan, false) => (true, false),
+            (JsPrim::GreaterOrEqual, true) => (false, false),
+            (JsPrim::GreaterOrEqual, false) => (true, true),
+            _ => return None,
+        };
+        let ((x_lo, x_hi), (y_lo, y_hi)) = match x_first {
+            true => (a_range, b_range),
+            false => (b_range, a_range),
+        };
+        let step = i64::from(strict);
+        let is_x = (which == 0) == x_first;
+        let (lo, hi) = match is_x {
+            true => (x_lo, x_hi.min(y_hi - step)),
+            false => (y_lo.max(x_lo + step), y_hi),
+        };
+        // The refined range lies inside the operand's own, since each bound only moved
+        // inward; an empty one means this edge is infeasible.
+        (lo <= hi).then(|| Type::int(lo, hi))
     }
 
     fn truth_of(&self, of: &Type) -> Option<bool> {
@@ -859,7 +1034,7 @@ impl Domain for Js {
             // alone: `0`, `-0`, `NaN`, `""` and `0n` are values of `Int32`,
             // `Double`, `Str` and `BigInt`. The toy domain answers `Some(true)` for all three,
             // because its language has two falsy values and a zero is true.
-            Type::Int32 | Type::Double | Type::Str | Type::BigInt => None,
+            Type::Int32 | Type::Ranged(..) | Type::Double | Type::Str | Type::BigInt => None,
             // An object is truthy whatever it holds, and so is a function.
             Type::Shaped(_) | Type::Object | Type::Callable => Some(true),
             Type::Nothing | Type::Anything => None,

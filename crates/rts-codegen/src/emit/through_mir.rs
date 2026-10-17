@@ -408,6 +408,9 @@ fn attempt(
     // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
     // was proved -- inferred again when it changed anything, since what the machine reads
     // is the types of the graph it is handed.
+    if std::env::var(TRACE).as_deref() == Ok("pre") {
+        eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
+    }
     let mut inferred = rts_mir::infer::infer(&graph, &domain);
     let fused = crate::optimize::fuse_templates(&mut graph, &domain, &inferred);
     crate::lower_module::verify_after("fuse_templates", &graph);
@@ -430,6 +433,11 @@ fn attempt(
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
+    }
+    if std::env::var(TRACE).as_deref() == Ok("types") {
+        for value in 0..graph.values {
+            eprintln!("[types] v{value}: {:?}", inferred.of(rts_mir::cfg::ValueId(value)));
+        }
     }
     let unbound = agrees(ctx, enclosing, &graph, &domain)?;
     let written = graph.block(graph.entry()).params.len();
