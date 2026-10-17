@@ -47,7 +47,7 @@ pub(in crate::layout) fn init_col_tracks(
                 (vec![GridTrack::Auto; s], vec![false; s], vec![Vec::new(); s + 1])
             }
             Some(GridTemplate::Tracks(t)) => super::tracks::expand_auto_repeats(t, c_w, col_gap, min_s),
-            _ => match areas.map(|a| a.cols).or_else(|| css.grid_columns.map(|c| c.max(1) as usize)) {
+            _ => match css.grid_columns.map(|c| c.max(1) as usize) {
                 Some(cols) => {
                     let tl = TrackList::from_tracks(vec![GridTrack::Fr(1.0); cols]);
                     super::tracks::expand_auto_repeats(&tl, c_w, col_gap, min_s)
@@ -106,13 +106,7 @@ pub(in crate::layout) fn init_row_tracks(
             Some(GridTemplate::Tracks(t)) => {
                 super::tracks::expand_auto_repeats(t, container_content_h.unwrap_or(0.0), row_gap, min_s)
             }
-            _ => match areas.map(|a| a.rows) {
-                Some(rows) => {
-                    let tl = TrackList::from_tracks(vec![GridTrack::Fr(1.0); rows]);
-                    super::tracks::expand_auto_repeats(&tl, container_content_h.unwrap_or(0.0), row_gap, min_s)
-                }
-                None => (Vec::new(), Vec::new(), Vec::new()),
-            },
+            _ => (Vec::new(), Vec::new(), Vec::new()),
         };
         if let Some(a) = areas {
             let start_len = tracks.len();

@@ -428,3 +428,32 @@ fn test_grid_minimum_size_grid_items_017() {
     let item = crate::table::tests::rect(&dom, &list, "#test-grid-item-overlapping-red", 0);
     assert_eq!((item.w, item.h), (0.0, 0.0));
 }
+
+#[test]
+fn test_named_grid_lines_001() {
+    let html = r#"<!DOCTYPE html>
+<style>
+.grid {
+    display: inline-grid;
+    background: red;
+    grid-template-columns: [C] 25px [C] 25px [C] 25px [C] 25px;
+    grid-auto-rows: 50px;
+    grid-template-areas: "A1 A2 A3 A4"
+                         ".  A2 A3 A4";
+}
+.grid > div { background: green; }
+</style>
+<div class="grid">
+    <div id="d1" style="grid-area: A1"></div>
+    <div id="d2" style="grid-area: A2"></div>
+    <div id="d3" style="grid-area: A3"></div>
+    <div id="d4" style="grid-area: A4"></div>
+    <div id="d5" style="grid-column: C; grid-row: 2;"></div>
+</div>"#;
+
+    let (dom, list) = crate::table::tests::geometria(html, 800.0);
+    let g = crate::table::tests::rect(&dom, &list, ".grid", 0);
+    let d5 = crate::table::tests::rect(&dom, &list, "#d5", 0);
+    assert_eq!((g.w, g.h), (100.0, 100.0));
+    assert_eq!((d5.x, d5.y, d5.w, d5.h), (0.0, 50.0, 25.0, 50.0));
+}
