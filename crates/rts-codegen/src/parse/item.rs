@@ -19,6 +19,7 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
 
     match parsed {
         swc::Program::Module(module) => {
+            cx.operators = operators_import(cx, module);
             let mut in_prologue = true;
             for item in &module.body {
                 if in_prologue
@@ -50,10 +51,59 @@ pub(crate) fn program(cx: &mut Cx, parsed: &swc::Program, goal: Goal) -> Result<
         }
     }
 
+    // `@operator("+")` in a module that never imported `operators`: the key it desugars to
+    // needs the binding, so the module gets the import it would otherwise have had to write.
+    if cx.operators_injected
+        && let Some(local) = cx.operators
+    {
+        items.insert(
+            0,
+            crate::syntax::ModuleItem::Import(crate::syntax::Import {
+                bindings: vec![crate::syntax::ImportBinding::Named {
+                    exported: "operators".to_owned(),
+                    local,
+                }],
+                source: "rts".to_owned(),
+                attributes: Vec::new(),
+                at: rts_cranelift::fault::Position::UNKNOWN,
+            }),
+        );
+    }
+
     Ok(Program {
         goal,
         directives,
         body: items,
+    })
+}
+
+/// The local a module's own `import { operators } from "rts"` binds, if it has one.
+///
+/// Read before any member is parsed, because a class written above the import (imports
+/// hoist) still desugars `@operator` against it. Reusing the user's binding, rather than
+/// always injecting a second one, keeps the module at exactly one `operators` import --
+/// the shape `emit::operator_direct` requires to fire.
+fn operators_import(cx: &mut Cx, module: &swc::Module) -> Option<crate::names::Name> {
+    module.body.iter().find_map(|item| {
+        let swc::ModuleItem::ModuleDecl(swc::ModuleDecl::Import(import)) = item else {
+            return None;
+        };
+        if import.type_only || import.src.value.to_string_lossy() != "rts" {
+            return None;
+        }
+        import.specifiers.iter().find_map(|specifier| match specifier {
+            swc::ImportSpecifier::Named(named) if !named.is_type_only => {
+                let imported = match &named.imported {
+                    Some(swc::ModuleExportName::Ident(ident)) => ident.sym.to_string(),
+                    Some(swc::ModuleExportName::Str(string)) => {
+                        string.value.to_string_lossy().to_string()
+                    }
+                    None => named.local.sym.to_string(),
+                };
+                (imported == "operators").then(|| cx.name(&named.local.sym))
+            }
+            _ => None,
+        })
     })
 }
 
@@ -421,7 +471,10 @@ fn class_members(cx: &mut Cx, class: &swc::Class) -> Result<Class> {
         }
         match member {
             swc::ClassMember::Method(method) => body.push(ClassElement::Method(Method {
-                key: ClassKey::Public(property_key(cx, &method.key)?),
+                key: match super::decorator::operator_key(cx, method)? {
+                    Some(key) => ClassKey::Public(crate::syntax::PropertyKey::Computed(key)),
+                    None => ClassKey::Public(property_key(cx, &method.key)?),
+                },
                 kind: method_kind(method.kind),
                 function: Box::new(function(cx, &method.function)?),
                 is_static: method.is_static,

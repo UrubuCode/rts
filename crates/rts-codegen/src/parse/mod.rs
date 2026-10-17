@@ -141,6 +141,12 @@ pub struct Cx<'a> {
     pub(crate) private_scopes: Vec<(u32, std::collections::HashSet<String>)>,
     /// How many class bodies have been entered, so each gets its own space.
     pub(crate) classes_seen: u32,
+    /// The local `import { operators } from "rts"` binds, once one is known: the base of the
+    /// `[operators.<name>]` key an `@operator("op")` method desugars to.
+    pub(crate) operators: Option<crate::names::Name>,
+    /// Whether `operators` is a hidden import this parse invented for a module that wrote
+    /// `@operator` without importing the symbol; `item::program` then prepends it.
+    pub(crate) operators_injected: bool,
 }
 
 impl Cx<'_> {
@@ -259,6 +265,8 @@ pub fn parse_as(source: &str, goal: Goal, dialect: Dialect, names: &mut Names) -
                     declared_namespaces: std::collections::HashSet::new(),
                     private_scopes: Vec::new(),
                     classes_seen: 0,
+                    operators: None,
+                    operators_injected: false,
                 };
                 let tree = item::program(&mut cx, &program, goal)?;
                 // An early error is a *syntax* error: a program with one is

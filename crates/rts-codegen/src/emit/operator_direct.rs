@@ -75,7 +75,7 @@
 //! whatever the class definition stored under the symbol — the one the runtime finds.
 //!
 //! Scope: `+ - * / % ** < <= > >= ==` and unary `-`, both operands the same class, and that class defines THAT
-//! operator's symbol. The `@operator("+")` spelling is not parsed.
+//! operator's symbol. The `@operator("+")` decorator spelling is sugar for the same key (`parse/decorator.rs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
