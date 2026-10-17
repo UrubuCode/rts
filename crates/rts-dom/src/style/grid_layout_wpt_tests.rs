@@ -194,3 +194,64 @@ fn test_repeat_auto_fill_003() {
         assert_eq!(rt, rr, "mismatch at leaf div {i}");
     }
 }
+
+
+/// Lays out a WPT test + ref pair and returns the indices of `sel` elements
+/// whose rects differ. Used as a ratchet for partially-passing fixtures.
+fn wpt_rect_mismatches(test: &str, reference: &str, sheets: &[&str], sel: &str) -> Vec<usize> {
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let base = r"C:\Users\nexga\Documents\wpt-corpus\css\";
+    let load = |p: &str| {
+        let mut dom = crate::parse_html_to_dom(&std::fs::read_to_string(format!("{base}{p}")).unwrap());
+        for s in sheets {
+            dom.add_stylesheet(&std::fs::read_to_string(format!("{base}{s}")).unwrap());
+        }
+        dom
+    };
+    let (dom_t, dom_r) = (load(test), load(reference));
+    let (list_t, list_r) = (
+        crate::layout::layout_document(&dom_t, &ctx),
+        crate::layout::layout_document(&dom_r, &ctx),
+    );
+    let (els_t, els_r) = (dom_t.query_all(sel), dom_r.query_all(sel));
+    assert_eq!(els_t.len(), els_r.len());
+    els_t
+        .iter()
+        .zip(&els_r)
+        .enumerate()
+        .filter(|(_, (t, r))| {
+            list_t.rect_of(dom_t.resolve(**t).unwrap()) != list_r.rect_of(dom_r.resolve(**r).unwrap())
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+#[test]
+fn test_grid_self_baseline_002() {
+    let bad = wpt_rect_mismatches(
+        r"css-grid\alignment\self-baseline\grid-self-baseline-002.html",
+        r"css-grid\alignment\self-baseline\grid-self-baseline-002-ref.html",
+        &[r"support\alignment.css", r"support\grid.css"],
+        ".item",
+    );
+    // Ratchet: só pode diminuir.
+    assert!(bad.len() <= SELF_BASELINE_002_MAX, "regressão: {} itens divergem: {bad:?}", bad.len());
+}
+const SELF_BASELINE_002_MAX: usize = 7;
+
+#[test]
+fn test_grid_item_content_baseline_001() {
+    let bad = wpt_rect_mismatches(
+        r"css-grid\alignment\grid-item-content-baseline-001.html",
+        r"css-grid\alignment\grid-item-content-baseline-001-ref.html",
+        &[],
+        "span",
+    );
+    // Spans 0..39 (containers 1-15) já batem; o resto é WIP (Box Alignment §5.4).
+    assert!(bad.iter().all(|&i| i >= 39), "regressão nos spans já corrigidos: {bad:?}");
+    assert!(bad.len() <= 48, "regressão: {} spans divergem: {bad:?}", bad.len());
+}

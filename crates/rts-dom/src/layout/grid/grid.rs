@@ -171,18 +171,24 @@ pub(in crate::layout) fn layout_children_grid(
             &resolve,
         )
     };
+    let inherited_baselines = baseline::take_subgrid_baselines(container);
+    let inherited_cols = if is_ortho { inherited_baselines.clone() } else { None };
+    let col_baselines = match inherited_cols {
+        Some(b) => b,
+        None => {
+            let b = baseline::compute_col_baselines(dom, &cells, ncols, &resolve);
+            if col_sub.is_none() {
+                baseline::apply_baseline_sizes(&mut col_sizes, &b);
+            }
+            b
+        }
+    };
     // O computed style do Blink pode consultar o LayoutObject para propriedades
     // dependentes de used values. Guardamos a mesma resolução no container para o
     // DOM a serializar sem executar um segundo algoritmo de track sizing.
     if css.grid_template_columns.is_some() {
         list.grid_column_tracks.insert(id, col_sizes.clone());
     }
-    let inherited_baselines = baseline::take_subgrid_baselines(container);
-    let col_baselines = if is_ortho {
-        inherited_baselines.clone().unwrap_or_else(|| vec![None; ncols])
-    } else {
-        vec![None; ncols]
-    };
     let align = css.align_items.unwrap_or(crate::style::AlignItems::Normal);
     let mnh = css.min_height.and_then(|d| d.resolve(&resolve));
     let (row_sizes, nrows, row_collapsed, row_baselines) = if let Some(rs) = row_sub {
@@ -336,6 +342,8 @@ pub(in crate::layout) fn layout_children_grid(
         // `justify-self`/`align-self` do ITEM vencem `justify-items`/`align-items`
         // do container — mesma prioridade de `align-self` no flex.
         let item_css = dom.computed_style_idx(child).unwrap_or_default();
+        let child_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
+        let is_child_ortho = child_wm.is_horizontal() != container_wm.is_horizontal();
         let (is_col_sub, is_row_sub) =
             subgrid::is_subgrid_node(dom, child, container_wm);
         let area_h = aspect::definite_area_height(&explicit_rows, css.grid_auto_rows.as_ref(), (cell.r0, cell.r1), row_gap, container_content_h, &resolve);
@@ -403,6 +411,13 @@ pub(in crate::layout) fn layout_children_grid(
         } else {
             nat_h
         };
+        let (content_override, delta_w, delta_h) = align::resolve_content_baseline_override(
+            dom, child, cell, &item_css, is_child_ortho, cell_w, cell_h, nat_w, nat_h,
+            &row_baselines, &col_baselines, ctx,
+        );
+        let iw = iw + delta_w;
+        let ih = ih + delta_h;
+        let _style_guard = align::ComputedStyleOverrideScope::enter(dom, child, content_override);
         let (x, y) = align::resolve_item_offsets(
             cell, child, dom, &item_css, is_rtl, cell_x, cell_w, cell_y, cell_h,
             justify, align, iw, ih, &row_baselines, &col_baselines, ctx,

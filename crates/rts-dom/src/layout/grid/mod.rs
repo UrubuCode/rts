@@ -8,6 +8,7 @@ pub(crate) mod aspect;
 pub(crate) mod baseline;
 pub(crate) mod clamp;
 pub(super) mod collapse;
+pub(super) mod container_baseline;
 pub(crate) mod distribute;
 pub(super) mod grid;
 pub(super) mod init_tracks;

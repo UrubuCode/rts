@@ -178,20 +178,232 @@ pub(super) fn resolve_item_offsets(
         if auto_t && auto_b { cell_y + free / 2.0 } else if auto_t { cell_y + free } else { cell_y }
     } else if matches!(align, crate::style::AlignItems::Stretch) {
         cell_y
-    } else if !is_item_ortho
-        && !super::distribute::has_pct(item_css.height)
+    } else if !super::distribute::has_pct(item_css.height)
         && let Some(tb) = row_baselines
             .get(if align == crate::style::AlignItems::Baseline { cell.r0 } else { cell.r1.saturating_sub(1) })
             .and_then(|t| t.as_ref())
     {
         let first = align == crate::style::AlignItems::Baseline;
-        let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
-        tb.align_offset(align, ascent, cell_h)
-            .map_or_else(|| cell_y + cell_align_offset(align, cell_h, ih), |o| cell_y + o)
+        let font = crate::layout::font_px(item_css, crate::layout::DEFAULT_FONT_SIZE);
+        let rc = crate::layout::ResolveCtx {
+            parent_content_w: cell_w,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let ascent = if is_item_ortho {
+            let mb = item_css.margin.bottom.resolve(&rc).unwrap_or(0.0);
+            (ih - mb).max(0.0)
+        } else {
+            super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx)
+        };
+        let is_opposite = !is_item_ortho && child_wm != parent_wm && !child_wm.is_horizontal() && !parent_wm.is_horizontal();
+        if is_opposite && tb.has_end {
+            tb.align_offset_end(ascent, cell_h)
+                .map_or_else(|| cell_y + cell_align_offset(align, cell_h, ih), |o| cell_y + o)
+        } else {
+            tb.align_offset(align, ascent, cell_h)
+                .map_or_else(|| cell_y + cell_align_offset(align, cell_h, ih), |o| cell_y + o)
+        }
     } else {
         cell_y + cell_align_offset(align, cell_h, ih)
     };
     (x, y)
+}
+
+pub(super) struct ComputedStyleOverrideScope<'a> {
+    dom: &'a crate::Dom,
+    node: crate::layout::NodeIdx,
+    prev: Option<std::rc::Rc<crate::style::ComputedStyle>>,
+}
+
+impl<'a> ComputedStyleOverrideScope<'a> {
+    pub fn enter(
+        dom: &'a crate::Dom,
+        node: crate::layout::NodeIdx,
+        style: Option<crate::style::ComputedStyle>,
+    ) -> Option<Self> {
+        let style = style?;
+        let prev = dom.override_computed_style(node, style);
+        Some(Self { dom, node, prev })
+    }
+}
+
+impl Drop for ComputedStyleOverrideScope<'_> {
+    fn drop(&mut self) {
+        self.dom.restore_computed_style(self.node, self.prev.take());
+    }
+}
+
+pub(in crate::layout) fn item_content_metrics(
+    css: &crate::style::ComputedStyle,
+    font_size: f32,
+    resolve: &crate::layout::ResolveCtx,
+    is_ortho_frame: bool,
+) -> (f32, f32, f32) {
+    use crate::style::WritingMode;
+    let frame_wm = crate::layout::block::rotated::rotated_frame_mode();
+    let child_wm = css.writing_mode.unwrap_or_default();
+    let wm = if is_ortho_frame { child_wm } else { frame_wm.unwrap_or(child_wm) };
+    let [bt, br, bb, bl] = crate::style::borders::used_widths(css);
+    let (b_start, b_end) = if frame_wm.is_some() && !is_ortho_frame {
+        (bt, bb)
+    } else {
+        match wm {
+            WritingMode::HorizontalTb => (bt, bb),
+            WritingMode::VerticalLr | WritingMode::SidewaysLr => (bl, br),
+            WritingMode::VerticalRl | WritingMode::SidewaysRl => (br, bl),
+        }
+    };
+    let (m_start, m_end) = if frame_wm.is_some() && !is_ortho_frame {
+        (css.margin.top.resolve(resolve).unwrap_or(0.0), css.margin.bottom.resolve(resolve).unwrap_or(0.0))
+    } else {
+        match wm {
+            WritingMode::HorizontalTb => (css.margin.top.resolve(resolve).unwrap_or(0.0), css.margin.bottom.resolve(resolve).unwrap_or(0.0)),
+            WritingMode::VerticalLr | WritingMode::SidewaysLr => (css.margin.left.resolve(resolve).unwrap_or(0.0), css.margin.right.resolve(resolve).unwrap_or(0.0)),
+            WritingMode::VerticalRl | WritingMode::SidewaysRl => (css.margin.right.resolve(resolve).unwrap_or(0.0), css.margin.left.resolve(resolve).unwrap_or(0.0)),
+        }
+    };
+    let (p_start, p_end) = if frame_wm.is_some() && !is_ortho_frame {
+        (css.padding.top.resolve(resolve).unwrap_or(0.0).max(0.0), css.padding.bottom.resolve(resolve).unwrap_or(0.0).max(0.0))
+    } else {
+        match wm {
+            WritingMode::HorizontalTb => (css.padding.top.resolve(resolve).unwrap_or(0.0).max(0.0), css.padding.bottom.resolve(resolve).unwrap_or(0.0).max(0.0)),
+            WritingMode::VerticalLr | WritingMode::SidewaysLr => (css.padding.left.resolve(resolve).unwrap_or(0.0).max(0.0), css.padding.right.resolve(resolve).unwrap_or(0.0).max(0.0)),
+            WritingMode::VerticalRl | WritingMode::SidewaysRl => (css.padding.right.resolve(resolve).unwrap_or(0.0).max(0.0), css.padding.left.resolve(resolve).unwrap_or(0.0).max(0.0)),
+        }
+    };
+
+    let (a, d) = match wm {
+        WritingMode::HorizontalTb => (0.8 * font_size, 0.2 * font_size),
+        WritingMode::VerticalLr | WritingMode::SidewaysLr => (0.2 * font_size, 0.8 * font_size),
+        WritingMode::VerticalRl | WritingMode::SidewaysRl => (0.8 * font_size, 0.2 * font_size),
+    };
+
+    let b_first = m_start + b_start + p_start + a;
+    let b_last = m_end + b_end + p_end + d;
+    let outer_sz = m_start + b_start + p_start + (2.0 * font_size) + p_end + b_end + m_end;
+    (b_first, b_last, outer_sz)
+}
+
+pub(in crate::layout) fn item_content_baseline_metrics(
+    css: &crate::style::ComputedStyle,
+    font_size: f32,
+    resolve: &crate::layout::ResolveCtx,
+    is_ortho_frame: bool,
+) -> (f32, f32) {
+    let (b_first, b_last, _) = item_content_metrics(css, font_size, resolve, is_ortho_frame);
+    (b_first, b_last)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_content_baseline_override(
+    _dom: &crate::Dom,
+    child: crate::layout::NodeIdx,
+    cell: &super::lines::GridCell,
+    item_css: &crate::style::ComputedStyle,
+    is_ortho: bool,
+    cell_w: f32,
+    cell_h: f32,
+    nat_w: f32,
+    nat_h: f32,
+    row_baselines: &[Option<super::baseline::TrackBaseline>],
+    col_baselines: &[Option<super::baseline::TrackBaseline>],
+    ctx: &crate::layout::LayoutCtx,
+) -> (Option<crate::style::ComputedStyle>, f32, f32) {
+    use crate::style::{JustifyContent, Side, WritingMode};
+    let Some(ac) = item_css.align_content else { return (None, 0.0, 0.0); };
+    let is_fb = ac == JustifyContent::Baseline;
+    let is_lb = ac == JustifyContent::LastBaseline;
+    if !is_fb && !is_lb {
+        return (None, 0.0, 0.0);
+    }
+
+    let tb = if is_ortho {
+        col_baselines.get(if is_fb { cell.c0 } else { cell.c1.saturating_sub(1) }).and_then(|o| o.as_ref())
+    } else {
+        row_baselines.get(if is_fb { cell.r0 } else { cell.r1.saturating_sub(1) }).and_then(|o| o.as_ref())
+    };
+    let Some(tb) = tb else { return (None, 0.0, 0.0); };
+
+    let child_wm = item_css.writing_mode.unwrap_or_default();
+    let font = crate::layout::font_px(item_css, crate::layout::DEFAULT_FONT_SIZE);
+    let rc = crate::layout::ResolveCtx {
+        parent_content_w: cell_w,
+        node_font_size: font,
+        root_font_size: crate::style::root_font_size(),
+        viewport_w: ctx.viewport_w,
+        viewport_h: ctx.viewport_h,
+    };
+
+    let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(child);
+    let (ascent, descent, outer_sz) = item_content_metrics(item_css, font, &rc, is_ortho_frame);
+    let frame_wm = crate::layout::block::rotated::rotated_frame_mode();
+    let is_in_frame = frame_wm.is_some();
+    let cell_sz = if tb.max_size > 0.0 {
+        tb.max_size
+    } else if is_ortho {
+        cell_w
+    } else {
+        cell_h
+    };
+    let item_sz = if tb.max_size > 0.0 {
+        outer_sz
+    } else if is_ortho {
+        nat_w
+    } else {
+        nat_h
+    };
+
+    let align = item_css.align_self.unwrap_or(crate::style::AlignItems::Normal);
+    let is_stretch = matches!(align, crate::style::AlignItems::Stretch);
+
+    let (delta_start, delta_end) = if is_fb {
+        let d_start = (tb.max_ascent - ascent).max(0.0);
+        let d_end = if is_stretch {
+            (cell_sz - (item_sz + d_start)).max(0.0)
+        } else {
+            0.0
+        };
+        (d_start, d_end)
+    } else {
+        let d_end = (tb.last_max_descent - descent).max(0.0);
+        let d_start = if is_stretch {
+            (cell_sz - (item_sz + d_end)).max(0.0)
+        } else {
+            0.0
+        };
+        (d_start, d_end)
+    };
+
+    if delta_start == 0.0 && delta_end == 0.0 {
+        return (None, 0.0, 0.0);
+    }
+
+    let mut new_css = item_css.clone();
+    let add_side = |s: &Side, delta: f32| -> Side {
+        let cur = s.resolve(&rc).unwrap_or(0.0);
+        Side::px_len(cur + delta)
+    };
+
+    if is_ortho_frame {
+        new_css.padding.top = add_side(&new_css.padding.top, delta_start);
+        new_css.padding.bottom = add_side(&new_css.padding.bottom, delta_end);
+        (Some(new_css), delta_start + delta_end, 0.0)
+    } else if is_in_frame || child_wm.is_horizontal() {
+        new_css.padding.top = add_side(&new_css.padding.top, delta_start);
+        new_css.padding.bottom = add_side(&new_css.padding.bottom, delta_end);
+        (Some(new_css), 0.0, delta_start + delta_end)
+    } else if child_wm == WritingMode::VerticalLr || child_wm == WritingMode::SidewaysLr {
+        new_css.padding.left = add_side(&new_css.padding.left, delta_start);
+        new_css.padding.right = add_side(&new_css.padding.right, delta_end);
+        (Some(new_css), delta_start + delta_end, 0.0)
+    } else {
+        new_css.padding.right = add_side(&new_css.padding.right, delta_start);
+        new_css.padding.left = add_side(&new_css.padding.left, delta_end);
+        (Some(new_css), delta_start + delta_end, 0.0)
+    }
 }
 
 pub(in crate::layout) fn resolve_gap(

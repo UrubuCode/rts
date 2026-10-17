@@ -272,6 +272,10 @@ pub enum JustifyContent {
     End,
     /// `stretch` (CSS Box Alignment Level 3 §5): estica as trilhas/linhas para preencher o contentor.
     Stretch,
+    /// `baseline` / `first baseline` (Box Alignment §5.4): baseline content-alignment.
+    Baseline,
+    /// `last baseline` (Box Alignment §5.4).
+    LastBaseline,
 }
 
 impl JustifyContent {
@@ -296,6 +300,8 @@ impl JustifyContent {
             "space-around" => JustifyContent::SpaceAround,
             "space-evenly" => JustifyContent::SpaceEvenly,
             "stretch" => JustifyContent::Stretch,
+            "baseline" | "first baseline" => JustifyContent::Baseline,
+            "last baseline" => JustifyContent::LastBaseline,
             _ => return None,
         })
     }

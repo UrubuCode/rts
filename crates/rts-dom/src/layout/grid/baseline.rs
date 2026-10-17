@@ -18,11 +18,15 @@ pub(crate) struct TrackBaseline {
     pub single_last_max_descent: f32,
     pub has_first: bool,
     pub has_last: bool,
+    pub end_max_ascent: f32,
+    pub end_max_descent: f32,
+    pub has_end: bool,
+    pub max_size: f32,
 }
 
 impl TrackBaseline {
     pub fn is_empty(&self) -> bool {
-        !self.has_first && !self.has_last
+        !self.has_first && !self.has_last && !self.has_end
     }
 
     pub fn required_size(&self) -> f32 {
@@ -39,6 +43,9 @@ impl TrackBaseline {
                 s = s.max(self.single_last_max_ascent + self.last_max_descent);
             }
         }
+        if self.has_end {
+            s = s.max(self.end_max_ascent + self.end_max_descent);
+        }
         s
     }
 
@@ -51,6 +58,14 @@ impl TrackBaseline {
                 Some((cell_size - self.last_max_descent - ascent).max(0.0))
             }
             _ => None,
+        }
+    }
+
+    pub fn align_offset_end(&self, ascent: f32, cell_size: f32) -> Option<f32> {
+        if self.has_end {
+            Some((cell_size - self.end_max_descent - ascent).max(0.0))
+        } else {
+            None
         }
     }
 }
@@ -93,7 +108,7 @@ pub(in crate::layout) fn cleanup_baselines(cells: &[GridCell]) {
     });
 }
 
-pub(in crate::layout) fn measure_item_ascent(
+pub(in crate::layout) fn measure_item_baseline(
     dom: &Dom,
     child: NodeIdx,
     box_id: BoxId,
@@ -101,7 +116,7 @@ pub(in crate::layout) fn measure_item_ascent(
     item_h: f32,
     first: bool,
     ctx: &LayoutCtx,
-) -> f32 {
+) -> (f32, f32) {
     let css = dom.computed_style_idx(child).unwrap_or_default();
     let font = font_px(&css, DEFAULT_FONT_SIZE);
     let rc = ResolveCtx {
@@ -117,48 +132,55 @@ pub(in crate::layout) fn measure_item_ascent(
 
     if matches!(
         css.effective_display(),
-        Some(
-            DisplayKind::Flex
-                | DisplayKind::InlineFlex
-                | DisplayKind::FlexWrap
-                | DisplayKind::InlineFlexWrap
-        )
+        Some(DisplayKind::Flex | DisplayKind::InlineFlex | DisplayKind::FlexWrap | DisplayKind::InlineFlexWrap)
     ) && crate::layout::flex::baseline::has_element_items(dom, child)
     {
         let ascent = crate::layout::flex::baseline::container_ascent(dom, child, border_h, item_w, ctx);
-        return mt + ascent.min(border_h);
+        let a = mt + ascent.min(border_h);
+        return (a, (item_h - a).max(0.0));
+    }
+
+    let frame = crate::layout::block::rotated::rotated_frame_mode()
+        .filter(|_| !crate::layout::block::rotated::is_ortho_in_frame(child));
+    if let Some(frame_wm) = frame {
+        let (a, d) = match frame_wm {
+            crate::style::WritingMode::VerticalLr | crate::style::WritingMode::SidewaysLr => (0.2 * font, 0.8 * font),
+            _ => (0.8 * font, 0.2 * font),
+        };
+        let bt = css.border_widths.top.resolve(&rc).unwrap_or(0.0);
+        let bb = css.border_widths.bottom.resolve(&rc).unwrap_or(0.0);
+        let pt = css.padding.top.resolve(&rc).unwrap_or(0.0).max(0.0);
+        let pb = css.padding.bottom.resolve(&rc).unwrap_or(0.0).max(0.0);
+        let b = if first { mt + bt + pt + a } else { item_h - mb - bb - pb - d };
+        return (b, (item_h - b).max(0.0));
     }
 
     let start = crate::layout::inline::line_baseline::mark();
     let ortho = crate::layout::block::rotated_ortho::mark();
     let mut scratch = crate::layout::DisplayList::for_dom(dom);
     crate::layout::layout_block(
-        dom,
-        child,
-        box_id,
-        0.0,
-        0.0,
-        item_w,
-        None,
-        Some(item_w),
-        None,
-        false,
-        true,
-        &crate::layout::BlockFormattingContext::new(),
-        ctx,
-        &mut scratch,
+        dom, child, box_id, 0.0, 0.0, item_w, None, Some(item_w), None,
+        false, true, &crate::layout::BlockFormattingContext::new(), ctx, &mut scratch,
     );
     crate::layout::block::rotated_ortho::restore(ortho);
     let (first_b, _, last_b) =
-        crate::layout::inline::line_baseline::collect_from_block(dom, child, start, 0.0, border_h);
+        crate::layout::inline::line_baseline::collect_from_block(dom, child, start, 0.0, item_h);
     crate::layout::inline::line_baseline::discard(start);
 
-    let inner = if first {
-        first_b.or(last_b).unwrap_or(border_h)
-    } else {
-        last_b.or(first_b).unwrap_or(border_h)
-    };
-    mt + inner
+    let inner = if first { first_b.or(last_b).unwrap_or(mt + border_h) } else { last_b.or(first_b).unwrap_or(mt + border_h) };
+    (inner, (item_h - inner).max(0.0))
+}
+
+pub(in crate::layout) fn measure_item_ascent(
+    dom: &Dom,
+    child: NodeIdx,
+    box_id: BoxId,
+    item_w: f32,
+    item_h: f32,
+    first: bool,
+    ctx: &LayoutCtx,
+) -> f32 {
+    measure_item_baseline(dom, child, box_id, item_w, item_h, first, ctx).0
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,9 +199,10 @@ pub(in crate::layout) fn compute_row_baselines(
 ) -> Vec<Option<TrackBaseline>> {
     let has_any_baseline = matches!(container_align, AlignItems::Baseline | AlignItems::LastBaseline)
         || cells.iter().any(|c| {
-            dom.computed_style_idx(c.child)
-                .and_then(|s| s.align_self)
-                .is_some_and(|a| matches!(a, AlignItems::Baseline | AlignItems::LastBaseline))
+            dom.computed_style_idx(c.child).is_some_and(|s| {
+                matches!(s.align_self, Some(AlignItems::Baseline | AlignItems::LastBaseline))
+                    || matches!(s.align_content, Some(crate::style::JustifyContent::Baseline | crate::style::JustifyContent::LastBaseline))
+            })
         });
 
     if !has_any_baseline {
@@ -197,26 +220,52 @@ pub(in crate::layout) fn compute_row_baselines(
             continue;
         }
         let child_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
-        if child_wm.is_horizontal() != parent_wm.is_horizontal() {
-            continue;
-        }
+        let is_ortho = child_wm.is_horizontal() != parent_wm.is_horizontal();
         let align = css.align_self.unwrap_or(container_align);
-        if !matches!(align, AlignItems::Baseline | AlignItems::LastBaseline) || super::distribute::has_pct(css.height) {
+        let has_content_baseline = matches!(css.align_content, Some(crate::style::JustifyContent::Baseline | crate::style::JustifyContent::LastBaseline));
+        let is_self_baseline = matches!(align, AlignItems::Baseline | AlignItems::LastBaseline);
+        if (!is_self_baseline && (!has_content_baseline || is_ortho)) || super::distribute::has_pct(css.height) {
             continue;
         }
-        let first = align == AlignItems::Baseline;
+        let first = if is_self_baseline {
+            align == AlignItems::Baseline
+        } else {
+            matches!(css.align_content, Some(crate::style::JustifyContent::Baseline))
+        };
         let r = if first { c.r0 } else { c.r1.saturating_sub(1) };
         if r >= nrows {
             continue;
         }
         let cw = super::grid::span_size(col_sizes, c.c0, c.c1, col_gap);
         let (_, h) = crate::layout::measure_block(dom, c.child, c.box_id, cw, None, None, None, true, ctx);
-        let ascent = measure_item_ascent(dom, c.child, c.box_id, cw, h, first, ctx);
-        let descent = (h - ascent).max(0.0);
+        let (ascent, descent) = if has_content_baseline && !is_self_baseline {
+            let font = font_px(&css, DEFAULT_FONT_SIZE);
+            let rc = ResolveCtx {
+                parent_content_w: cw, node_font_size: font, root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w, viewport_h: ctx.viewport_h,
+            };
+            let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(c.child);
+            super::align::item_content_baseline_metrics(&css, font, &rc, is_ortho_frame)
+        } else if is_ortho {
+            let font = font_px(&css, DEFAULT_FONT_SIZE);
+            let rc = ResolveCtx {
+                parent_content_w: cw, node_font_size: font, root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w, viewport_h: ctx.viewport_h,
+            };
+            let mb = css.margin.bottom.resolve(&rc).unwrap_or(0.0);
+            ((h - mb).max(0.0), mb)
+        } else {
+            measure_item_baseline(dom, c.child, c.box_id, cw, h, first, ctx)
+        };
 
+        let is_opposite = !is_ortho && child_wm != parent_wm && !child_wm.is_horizontal() && !parent_wm.is_horizontal();
         let single = c.rows() == 1;
         let tb = out[r].get_or_insert_with(TrackBaseline::default);
-        if first {
+        if is_opposite {
+            tb.end_max_ascent = tb.end_max_ascent.max(ascent);
+            tb.end_max_descent = tb.end_max_descent.max(descent);
+            tb.has_end = true;
+        } else if first {
             tb.max_ascent = tb.max_ascent.max(ascent);
             tb.max_descent = tb.max_descent.max(descent);
             if single {
@@ -232,6 +281,25 @@ pub(in crate::layout) fn compute_row_baselines(
                 tb.single_last_max_descent = tb.single_last_max_descent.max(descent);
             }
             tb.has_last = true;
+        }
+    }
+
+    for c in cells {
+        let Some(css) = dom.computed_style_idx(c.child) else { continue; };
+        let Some(ac) = css.align_content else { continue; };
+        let is_fb = ac == crate::style::JustifyContent::Baseline;
+        let is_lb = ac == crate::style::JustifyContent::LastBaseline;
+        if !is_fb && !is_lb { continue; }
+        let c_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
+        if c_wm.is_horizontal() != parent_wm.is_horizontal() { continue; }
+        let r = if is_fb { c.r0 } else { c.r1.saturating_sub(1) };
+        if let Some(Some(tb)) = out.get_mut(r) {
+            let font = font_px(&css, DEFAULT_FONT_SIZE);
+            let rc = ResolveCtx { parent_content_w: 0.0, node_font_size: font, root_font_size: crate::style::root_font_size(), viewport_w: ctx.viewport_w, viewport_h: ctx.viewport_h };
+            let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(c.child);
+            let (ascent, descent, sz) = super::align::item_content_metrics(&css, font, &rc, is_ortho_frame);
+            let delta = if is_fb { (tb.max_ascent - ascent).max(0.0) } else { (tb.last_max_descent - descent).max(0.0) };
+            tb.max_size = tb.max_size.max(sz + delta);
         }
     }
 
@@ -322,11 +390,10 @@ pub(in crate::layout) fn compute_row_baselines(
             let item_w = (sub_inner_w / sub_span_cols as f32 - item.extra_mbp_x).max(0.0);
             let (_, h) = crate::layout::measure_block(dom, child, box_id, item_w, None, None, None, true, ctx);
             let first = item_align == AlignItems::Baseline;
-            let mut ascent = measure_item_ascent(dom, child, box_id, item_w, h, first, ctx);
+            let (mut ascent, mut descent) = measure_item_baseline(dom, child, box_id, item_w, h, first, ctx);
             if item.start == 0 {
                 ascent += smbp_y;
             }
-            let mut descent = (h - ascent).max(0.0);
             if item.start + 1 >= sub_span_rows {
                 descent += embp_y;
             }
@@ -351,6 +418,60 @@ pub(in crate::layout) fn compute_row_baselines(
     out
 }
 
+pub(in crate::layout) fn compute_col_baselines(
+    dom: &Dom,
+    cells: &[GridCell],
+    ncols: usize,
+    resolve: &ResolveCtx,
+) -> Vec<Option<TrackBaseline>> {
+    let mut out: Vec<Option<TrackBaseline>> = vec![None; ncols];
+    let is_in_frame = crate::layout::block::rotated::rotated_frame_mode().is_some();
+    for c in cells {
+        let Some(css) = dom.computed_style_idx(c.child) else { continue; };
+        let Some(ac) = css.align_content else { continue; };
+        let is_fb = ac == crate::style::JustifyContent::Baseline;
+        let is_lb = ac == crate::style::JustifyContent::LastBaseline;
+        if !is_fb && !is_lb { continue; }
+        let c_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
+        let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(c.child);
+        let is_col_ortho = if is_in_frame { is_ortho_frame } else { !c_wm.is_horizontal() };
+        if !is_col_ortho { continue; }
+        let col = if is_fb { c.c0 } else { c.c1.saturating_sub(1) };
+        if col >= ncols { continue; }
+        let font = font_px(&css, DEFAULT_FONT_SIZE);
+        let (ascent, descent, _) = super::align::item_content_metrics(&css, font, resolve, is_ortho_frame);
+        let tb = out[col].get_or_insert_with(TrackBaseline::default);
+        if is_fb {
+            tb.max_ascent = tb.max_ascent.max(ascent);
+            tb.max_descent = tb.max_descent.max(descent);
+            tb.has_first = true;
+        } else {
+            tb.last_max_ascent = tb.last_max_ascent.max(ascent);
+            tb.last_max_descent = tb.last_max_descent.max(descent);
+            tb.has_last = true;
+        }
+    }
+    for c in cells {
+        let Some(css) = dom.computed_style_idx(c.child) else { continue; };
+        let Some(ac) = css.align_content else { continue; };
+        let is_fb = ac == crate::style::JustifyContent::Baseline;
+        let is_lb = ac == crate::style::JustifyContent::LastBaseline;
+        if !is_fb && !is_lb { continue; }
+        let c_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
+        let is_ortho_frame = crate::layout::block::rotated::is_ortho_in_frame(c.child);
+        let is_col_ortho = if is_in_frame { is_ortho_frame } else { !c_wm.is_horizontal() };
+        if !is_col_ortho { continue; }
+        let col = if is_fb { c.c0 } else { c.c1.saturating_sub(1) };
+        if let Some(Some(tb)) = out.get_mut(col) {
+            let font = font_px(&css, DEFAULT_FONT_SIZE);
+            let (ascent, descent, sz) = super::align::item_content_metrics(&css, font, resolve, is_ortho_frame);
+            let delta = if is_fb { (tb.max_ascent - ascent).max(0.0) } else { (tb.last_max_descent - descent).max(0.0) };
+            tb.max_size = tb.max_size.max(sz + delta);
+        }
+    }
+    out
+}
+
 pub(in crate::layout) fn apply_baseline_sizes(
     content_row_h: &mut [f32],
     baselines: &[Option<TrackBaseline>],
@@ -358,120 +479,12 @@ pub(in crate::layout) fn apply_baseline_sizes(
     for (r, tb) in baselines.iter().enumerate() {
         if let Some(tb) = tb {
             if r < content_row_h.len() {
-                content_row_h[r] = content_row_h[r].max(tb.required_size());
+                content_row_h[r] = content_row_h[r].max(tb.required_size()).max(tb.max_size);
             }
         }
     }
 }
 
-/// The baseline of a grid container seen from outside (CSS Grid Level 1 §11.1).
-/// Synthesized from the first grid item in the first row, or the container's
-/// content bottom edge if there are no items or overflow is clipped.
-pub(crate) fn container_ascent(
-    dom: &Dom,
-    id: NodeIdx,
-    h: f32,
-    content_w: f32,
-    ctx: &LayoutCtx,
-) -> f32 {
-    let Some(css) = dom.computed_style_idx(id) else {
-        return h;
-    };
-    if crate::layout::inline::line_stack::clips_overflow(&css) {
-        return h;
-    }
-    let Some(&box_id) = dom.box_tree().boxes_of(id).first() else {
-        return h;
-    };
-    let in_flow: Vec<NodeIdx> = dom
-        .node(id)
-        .children
-        .iter()
-        .copied()
-        .filter(|&c| match &dom.node(c).kind {
-            crate::dom::NodeKind::Element { tag } => !crate::layout::is_non_rendered_tag(tag),
-            crate::dom::NodeKind::Text(t) => !t.trim().is_empty(),
-            _ => false,
-        })
-        .filter(|&c| !crate::layout::is_out_of_flow(dom, c) && !crate::layout::is_display_none(dom, c))
-        .collect();
-    if in_flow.is_empty() {
-        return h;
-    }
-    let mut ordered = in_flow;
-    ordered.sort_by_key(|&c| {
-        dom.computed_style_idx(c)
-            .and_then(|st| st.order)
-            .unwrap_or(0)
-    });
-    let first = ordered[0];
-    let mut leaf = first;
-    while dom.computed_style_idx(leaf).map_or(false, |c| {
-        matches!(c.effective_display(), Some(DisplayKind::Grid | DisplayKind::InlineGrid))
-    }) {
-        let ch: Vec<NodeIdx> = dom
-            .node(leaf)
-            .children
-            .iter()
-            .copied()
-            .filter(|&c| match &dom.node(c).kind {
-                crate::dom::NodeKind::Element { tag } => !crate::layout::is_non_rendered_tag(tag),
-                crate::dom::NodeKind::Text(t) => !t.trim().is_empty(),
-                _ => false,
-            })
-            .filter(|&c| !crate::layout::is_out_of_flow(dom, c) && !crate::layout::is_display_none(dom, c))
-            .collect();
-        if let Some(&c) = ch.first() {
-            leaf = c;
-        } else {
-            break;
-        }
-    }
+pub(crate) use super::container_baseline::container_ascent;
 
-    let start = crate::layout::inline::line_baseline::mark();
-    let ortho = crate::layout::block::rotated_ortho::mark();
-    let mut scratch = crate::layout::DisplayList::for_dom(dom);
-    crate::layout::layout_block(
-        dom,
-        id,
-        box_id,
-        0.0,
-        0.0,
-        content_w,
-        None,
-        None,
-        None,
-        false,
-        true,
-        &crate::layout::BlockFormattingContext::new(),
-        ctx,
-        &mut scratch,
-    );
-    crate::layout::block::rotated_ortho::restore(ortho);
-    let (first_b, _, last_b) =
-        crate::layout::inline::line_baseline::collect_from_block(dom, leaf, start, 0.0, h);
-    crate::layout::inline::line_baseline::discard(start);
-
-    let leaf_rect = scratch.rect_of_node(leaf).or_else(|| scratch.rect_of_node(first));
-    if let Some(r) = leaf_rect {
-        if let Some(b) = first_b.or(last_b) {
-            b
-        } else {
-            let leaf_css = dom.computed_style_idx(leaf).unwrap_or_default();
-            let font = font_px(&css, DEFAULT_FONT_SIZE);
-            let leaf_font = font_px(&leaf_css, font);
-            let leaf_rc = ResolveCtx {
-                parent_content_w: content_w,
-                node_font_size: leaf_font,
-                root_font_size: crate::style::root_font_size(),
-                viewport_w: ctx.viewport_w,
-                viewport_h: ctx.viewport_h,
-            };
-            let mb = leaf_css.margin.bottom.resolve(&leaf_rc).unwrap_or(0.0);
-            r.y + r.h + mb
-        }
-    } else {
-        h
-    }
-}
 
