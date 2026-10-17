@@ -1908,6 +1908,41 @@ fn is_bare_class_constructor_call(callee: u64) -> bool {
 /// that made it, including the ones testing for the mistake.
 #[rtse::entry]
 pub fn instance_of(value: u64, callee: u64) -> bool {
+    // The result memo, one borrow: see `Context::instance_of_result`. Every
+    // field is compared, and `C.prototype` is RE-READ because reassigning it
+    // changes a value, not a shape, so neither the type nor the epoch moves.
+    let remembered = with_current(|context| {
+        let cell = Value(value).as_slot()?;
+        let function = Value(callee).as_slot()?;
+        let (rty, rproto, cbits, wanted, epoch, answer) =
+            context.instance_of_result.copied(cell)?;
+        if cbits != callee || epoch != super::cache::chain_epoch() {
+            return None;
+        }
+        if context.region.type_of(cell)? != rty
+            || context.prototype_at(cell).unwrap_or(0) != rproto
+            || context.proxy_at(cell).is_some()
+            || context.text_at(cell).is_some()
+            || context.proxy_at(function).is_some()
+            || context.bound_at(function).is_some()
+        {
+            return None;
+        }
+        // The callee must still be proven free of `Symbol.hasInstance`: its own
+        // type and prototype are what that memo checks, and they are not walked
+        // links, so the receiver memo cannot rely on the epoch for them.
+        let cty = context.region.type_of(function)?;
+        let cproto = context.prototype_at(function).unwrap_or(0);
+        if context.has_instance_absent.copied(function) != Some((cty, cproto, epoch)) {
+            return None;
+        }
+        let key = prototype_key(context);
+        let now = super::objects::read_property(context, function, key)?;
+        (now.bits() == wanted).then_some(answer)
+    });
+    if let Some(answer) = remembered {
+        return answer;
+    }
     // Step 1, before anything else can run: the right-hand side is an OBJECT or
     // the operator refuses. Asked ahead of the hook because the hook is a
     // property of it, and a number has none to read.
@@ -2046,10 +2081,12 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // loop is the one place that knows what "callable" means for a proxy and a
     // bound function, so the refusal is raised from inside it.
     let mut resume: Option<(u64, u64)> = None;
+    let ordinary_hook = hook.is_none();
     let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
             return Err(Refusal::NotCallable);
         };
+        let callee_cell = function;
         // A PROXY and a BOUND function are both callable with no code address
         // of their own, so `callable_at` answered `None` and the operator
         // answered false for `x instanceof P` and `x instanceof f.bind(null)`
@@ -2102,9 +2139,10 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         else {
             return Err(Refusal::BadPrototype);
         };
-        let Some(mut cell) = Value(value).as_slot() else {
+        let Some(start) = Value(value).as_slot() else {
             return Ok(false);
         };
+        let mut cell = start;
         // Step 3 of `OrdinaryHasInstance`: if the left operand is not an
         // OBJECT, the answer is false before any chain is walked. A number, a
         // symbol and a bigint are refused by the line above — none of them is a
@@ -2133,12 +2171,14 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // `({}) instanceof Object` are both false — the object really does
         // inherit, and asking only for an own link is asking the wrong
         // question.
+        let mut answer = false;
         for _ in 0..super::objects::CHAIN_LIMIT {
             let Some(next) = super::objects::inherited_from(context, cell) else {
-                return Ok(false);
+                break;
             };
             if Value::from_slot(next).bits() == wanted.bits() {
-                return Ok(true);
+                answer = true;
+                break;
             }
             if context.proxy_at(next).is_some() {
                 resume = Some((Value::from_slot(next).bits(), wanted.bits()));
@@ -2146,7 +2186,32 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
             }
             cell = next;
         }
-        Ok(false)
+        // Remember the answer (see `Context::instance_of_result`). Only the
+        // ordinary path reaches here with `ordinary_hook`: no hook, callee neither
+        // proxy nor bound (a bound callee has no own `prototype` and would have
+        // returned `BadPrototype` above, a proxy is excluded explicitly), receiver
+        // neither proxy nor string, no proxy on its chain, no refusal.
+        if ordinary_hook
+            && context.proxy_at(callee_cell).is_none()
+            && context.bound_at(callee_cell).is_none()
+            && let Some(ty) = context.region.type_of(start)
+        {
+            // Flag the RECEIVER's chain so that relinking or changing any link
+            // bumps the epoch and retires the memo; flagging never bumps it, so
+            // the epoch is read afterwards.
+            let mut link = super::objects::inherited_from(context, start);
+            for _ in 0..super::objects::CHAIN_LIMIT {
+                let Some(at) = link else { break };
+                context.mark_chain_link(at);
+                link = super::objects::inherited_from(context, at);
+            }
+            let proto = context.prototype_at(start).unwrap_or(0);
+            let epoch = super::cache::chain_epoch();
+            context
+                .instance_of_result
+                .set(start, (ty, proto, callee, wanted.bits(), epoch, answer));
+        }
+        Ok(answer)
     });
     // `OrdinaryHasInstance` steps 4–6 from the proxy on: each link through
     // `[[GetPrototypeOf]]`, which is its trap — `x instanceof C` over a proxy

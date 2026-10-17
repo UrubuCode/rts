@@ -623,6 +623,22 @@ pub struct Context {
     /// of the three is a JavaScript value, so nothing here is invisible to the
     /// collector.
     has_instance_absent: Aside<(u32, u64, u64)>,
+    /// A per-RECEIVER memo of a finished ordinary `instanceof` answer.
+    ///
+    /// Keyed by the left-hand cell; holds `(receiver type_id, receiver
+    /// prototype, callee bits, callee.prototype bits, chain epoch, answer)`.
+    /// Written only on the ordinary path (no `Symbol.hasInstance`, callee neither
+    /// proxy nor bound, receiver neither proxy nor string), after flagging every
+    /// link of the receiver's chain so that a relink or edit of any of them bumps
+    /// `cache::chain_epoch`. A hit also needs `has_instance_absent` to still
+    /// hold for the callee and `callee.prototype` to be RE-READ and equal the
+    /// stored bits — assigning `C.prototype = ...` changes a value, not a shape,
+    /// so it moves neither the type nor the epoch.
+    ///
+    /// Nothing stored is a traced JavaScript value: the type is a number, the
+    /// bits are compared with `==` and never dereferenced or turned back into a
+    /// cell, and the live arguments of the call keep both cells alive.
+    instance_of_result: Aside<(u32, u64, u64, u64, u64, bool)>,
     /// What an Error was constructed FROM, until something asks for `.stack`.
     ///
     /// The class name and the call stack as it stood at construction. Rendering
@@ -1552,6 +1568,7 @@ impl Context {
             spill_type,
             callables: Aside::in_region(bits),
             has_instance_absent: Aside::in_region(bits),
+            instance_of_result: Aside::in_region(bits),
             proxies: Aside::in_region(bits),
             cursors: Aside::in_region(bits),
             prototypes: Aside::in_region(bits),
