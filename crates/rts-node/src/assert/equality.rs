@@ -22,7 +22,7 @@
 //! duplicated: if `node:util` ever needs real `Object.is` leaves, this is the
 //! walker it should reach for and `values.rs` the seam.
 
-use super::values::{invoke, is_callable, kind_of, member, own_key_strings, string_of};
+use super::values::{global_member, invoke, is_callable, kind_of, member, own_key_strings, string_of};
 use rts_core::entry;
 
 /// Which of Node's five comparisons a walk is.
@@ -136,8 +136,21 @@ fn walk(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> b
     if !time_equal(actual, expected) || !pattern_equal(actual, expected) {
         return false;
     }
+    // A boxed primitive (`new Number(1)`) keeps its value in an internal slot.
+    match (entry::boxed_primitive(actual), entry::boxed_primitive(expected)) {
+        (Some(left), Some(right)) => {
+            if !walk(left, right, mode, seen) {
+                return false;
+            }
+        }
+        (None, None) => {}
+        _ => return false,
+    }
     seen.push((actual, expected));
-    let answer = members_equal(actual, expected, mode, seen);
+    let answer = collection_equal(actual, expected, mode, seen)
+        && error_equal(actual, expected, mode, seen)
+        && (!mode.strict || symbols_equal(actual, expected, mode, seen))
+        && members_equal(actual, expected, mode, seen);
     seen.pop();
     answer
 }
@@ -146,28 +159,153 @@ fn walk(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> b
 ///
 /// # Why a refusal and not a comparison
 ///
-/// A `Map`'s entries and a `Set`'s items are internal slots: they are not own
-/// enumerable properties, so the key walk below sees NOTHING in them and every
-/// pair of `Map`s compares equal — a wrong answer that runs, and the exact
-/// defect class this repository refuses. Comparing them properly needs to
-/// iterate them, and iterating means calling user-reachable methods for each
-/// entry from inside a comparison; the honest stopping point is to compare by
-/// identity and say so.
-///
-/// For `Promise`, `WeakMap` and `WeakSet` identity IS Node's answer, so those
-/// are correct rather than conservative. For `Map`, `Set` and anything else
-/// caught by the duck test this is a false NEGATIVE — an assertion that should
-/// pass reports a failure — which is loud, unlike the silent pass it replaces.
+/// A `WeakMap`'s and `WeakSet`'s entries are not enumerable by design, and a
+/// `Promise` has no comparable state, so identity IS Node's answer for all
+/// three and for any thenable. `Map` and `Set` are NOT here: their entries are
+/// internal slots, but `Array.from` reads them out ([`collection_equal`]), so
+/// they are compared structurally and order-insensitively as Node does.
 ///
 /// Duck-typed because the host surface exposes no class identity: a `then`
-/// method (thenables, `Promise`), or `has` **and** `delete` together (`Map`,
-/// `Set`, `WeakMap`, `WeakSet`). A plain object carrying that pair is caught
-/// too, and that is named in the module's refusal list.
+/// method (thenables, `Promise`), or `has` **and** `delete` together on
+/// something that is neither a `Map` nor a `Set`. A plain object carrying that
+/// pair is caught too, and that is named in the module's refusal list.
 fn identity_only(value: u64) -> bool {
     if is_callable(member(value, "then")) {
         return true;
     }
-    is_callable(member(value, "has")) && is_callable(member(value, "delete"))
+    collection_tag(value).is_none()
+        && is_callable(member(value, "has"))
+        && is_callable(member(value, "delete"))
+}
+
+/// Which keyed collection a value is, by `Object.prototype.toString`.
+fn collection_tag(value: u64) -> Option<&'static str> {
+    let object = global_member("Object");
+    let to_string = member(member(object, "prototype"), "toString");
+    if !is_callable(to_string) {
+        return None;
+    }
+    let absent = entry::undefined_value();
+    let tag = string_of(entry::call(to_string, value, absent, absent, absent, absent))?;
+    match tag.as_str() {
+        "[object Map]" => Some("Map"),
+        "[object Set]" => Some("Set"),
+        _ => None,
+    }
+}
+
+/// `Array.from(collection)` as a vector — a `Set`'s items, or a `Map`'s
+/// `[key, value]` pairs.
+fn items_of(collection: u64) -> Vec<u64> {
+    let array = global_member("Array");
+    let from = member(array, "from");
+    let absent = entry::undefined_value();
+    let list = entry::call(from, array, collection, absent, absent, absent);
+    let length = entry::number_of(member(list, "length")).map(|n| n as usize).unwrap_or(0);
+    (0..length)
+        .map(|index| entry::get_indexed(list, entry::make_number(index as f64)))
+        .collect()
+}
+
+/// The `Map` / `Set` rule: same kind, same size, and every item of `actual`
+/// matched to a DISTINCT item of `expected` by structural equality — position
+/// is not part of the answer, and object items / object keys recurse.
+///
+/// Greedy matching is exact here because the comparison is an equivalence
+/// relation: an item that equals one candidate equals the same set of them.
+fn collection_equal(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> bool {
+    let (left, right) = (collection_tag(actual), collection_tag(expected));
+    if left != right {
+        return false;
+    }
+    let Some(kind) = left else {
+        return true;
+    };
+    let mine = items_of(actual);
+    let theirs = items_of(expected);
+    if mine.len() != theirs.len() {
+        return false;
+    }
+    let mut taken = vec![false; theirs.len()];
+    for item in &mine {
+        let found = (0..theirs.len()).find(|&at| {
+            if taken[at] {
+                return false;
+            }
+            match kind {
+                "Map" => {
+                    walk(member(*item, "0"), member(theirs[at], "0"), mode, seen)
+                        && walk(member(*item, "1"), member(theirs[at], "1"), mode, seen)
+                }
+                _ => walk(*item, theirs[at], mode, seen),
+            }
+        });
+        match found {
+            Some(at) => taken[at] = true,
+            None => return false,
+        }
+    }
+    true
+}
+
+/// The own enumerable symbol keys of a value.
+fn symbols_of(value: u64) -> Vec<u64> {
+    let object = global_member("Object");
+    let get = member(object, "getOwnPropertySymbols");
+    if !is_callable(get) {
+        return Vec::new();
+    }
+    let absent = entry::undefined_value();
+    let list = entry::call(get, object, value, absent, absent, absent);
+    let length = entry::number_of(member(list, "length")).map(|n| n as usize).unwrap_or(0);
+    let enumerable = member(member(object, "prototype"), "propertyIsEnumerable");
+    (0..length)
+        .map(|index| entry::get_indexed(list, entry::make_number(index as f64)))
+        .filter(|symbol| {
+            entry::to_boolean(entry::call(enumerable, value, *symbol, absent, absent, absent))
+        })
+        .collect()
+}
+
+/// The symbol-keyed rule: every enumerable own symbol of `expected` is on
+/// `actual` with an equal value, and (unless partial) there are no others.
+fn symbols_equal(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> bool {
+    let wanted = symbols_of(expected);
+    let held = symbols_of(actual);
+    if !mode.partial && wanted.len() != held.len() {
+        return false;
+    }
+    wanted.iter().all(|symbol| {
+        held.iter().any(|own| entry::strict_equals(*own, *symbol))
+            && walk(
+                entry::get_indexed(actual, *symbol),
+                entry::get_indexed(expected, *symbol),
+                mode,
+                seen,
+            )
+    })
+}
+
+/// The `Error` rule: `name`, `message`, `cause` and `errors` are
+/// non-enumerable, so the key walk never sees them; Node compares them anyway.
+fn error_equal(actual: u64, expected: u64, mode: Mode, seen: &mut Vec<(u64, u64)>) -> bool {
+    let class = global_member("Error");
+    if !is_callable(class) {
+        return true;
+    }
+    let (left, right) = (entry::instance_of(actual, class), entry::instance_of(expected, class));
+    if left != right {
+        return false;
+    }
+    if !left {
+        return true;
+    }
+    ["message", "name"]
+        .iter()
+        .all(|key| same_value(member(actual, key), member(expected, key)))
+        && ["cause", "errors"]
+            .iter()
+            .all(|key| walk(member(actual, key), member(expected, key), mode, seen))
 }
 
 /// The `Date` rule, applied when either side looks like one.
