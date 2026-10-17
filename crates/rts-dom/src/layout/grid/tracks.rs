@@ -326,7 +326,10 @@ pub(in crate::layout) fn measure_content_rows(
             }
         }
         if h > current_span_h {
-            let targets = if !unfixed_rows.is_empty() {
+            let empty: Vec<usize> = unfixed_rows.iter().copied().filter(|&r| content_row_h[r] == 0.0).collect();
+            let targets = if !empty.is_empty() {
+                empty
+            } else if !unfixed_rows.is_empty() {
                 unfixed_rows
             } else {
                 (cell.r0..end).collect()

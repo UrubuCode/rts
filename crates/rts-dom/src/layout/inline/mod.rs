@@ -21,3 +21,5 @@ pub(super) mod segment;
 pub(super) mod static_anchor;
 pub(super) mod tab_size;
 pub(super) mod vertical_align;
+#[cfg(test)]
+mod vertical_align_tests;

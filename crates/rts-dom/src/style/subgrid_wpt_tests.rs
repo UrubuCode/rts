@@ -373,7 +373,6 @@ fn test_abs_pos_002() {
     for (i, (&a, &b)) in xt.iter().zip(&xr).enumerate() {
         let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
         let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
-        println!("x {i}: test={ra:?} ref={rb:?}");
         assert_eq!(ra, rb, "x {i}");
     }
 }
@@ -437,7 +436,7 @@ fn test_line_names_008() {
     for (i, (&a, &b)) in xt.iter().zip(&xr).enumerate() {
         let ra = list_t.rect_of(dom_t.resolve(a).unwrap());
         let rb = list_r.rect_of(dom_r.resolve(b).unwrap());
-        println!("x {i}: test={ra:?} ref={rb:?}");
+        assert_eq!(ra, rb, "x {i}");
     }
 }
 

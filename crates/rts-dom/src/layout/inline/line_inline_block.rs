@@ -285,6 +285,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             family,
             ctx.measurer,
         );
+        let mut max_item_bottom = 0.0f32;
         for (&(child, box_id, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atoms)
         {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
@@ -313,6 +314,7 @@ pub(in crate::layout) fn layout_inline_block_line(
             } else {
                 base_y
             };
+            max_item_bottom = max_item_bottom.max(item_y - cy + h);
             x += gap;
             layout_block(
                 dom,
@@ -335,7 +337,8 @@ pub(in crate::layout) fn layout_inline_block_line(
             x += w + trailing;
         }
         last_baseline = Some(cy + env.above);
-        cy += env.height();
+        let line_h = env.height().min(max_item_bottom).max(lh);
+        cy += line_h;
     }
     if let Some(b) = last_baseline {
         super::line_baseline::register_last_line(owner, b);
