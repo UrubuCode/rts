@@ -18,4 +18,6 @@ pub(crate) mod subgrid;
 pub(super) mod subgrid_names;
 pub(crate) mod subgrid_contrib;
 pub(super) mod subgrid_row_contrib;
+pub(super) mod repeats;
 pub(crate) mod tracks;
+

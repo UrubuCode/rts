@@ -1,88 +1,8 @@
 //! O SIZING de trilhas de grid (CSS Grid 1 §11) e a expansão de
 //! `repeat(auto-fill|auto-fit, …)` (§7.2.3.2/3).
 use super::*;
-/// função.
-pub(crate) fn expand_auto_repeats(
-    track_list: &crate::style::TrackList,
-    container: f32,
-    gap: f32,
-    min_size: Option<f32>,
-) -> (
-    Vec<crate::style::GridTrack>,
-    Vec<bool>,
-    Vec<crate::style::LineNames>,
-) {
-    use crate::style::GridTrack as T;
-    let track_base = |t: &T| match t {
-        T::Fixed(crate::style::Dimension::Px(p)) | T::Bounded { min: crate::style::Dimension::Px(p), .. } => *p,
-        T::Fixed(crate::style::Dimension::Percent(pct)) | T::Bounded { min: crate::style::Dimension::Percent(pct), .. } if container > 0.0 => pct * container / 100.0,
-        _ => 0.0,
-    };
-    let (other_base, other_count) = track_list.entries.iter().filter(|(_, t)| !matches!(t, T::AutoRepeat { .. }))
-        .fold((0.0f32, 0usize), |(b, c), (_, t)| (b + track_base(t), c + 1));
+pub(crate) use super::repeats::expand_auto_repeats;
 
-    let mut out_tracks = Vec::with_capacity(track_list.entries.len());
-    let mut collapsible = Vec::with_capacity(track_list.entries.len());
-    let mut out_lines = Vec::with_capacity(track_list.entries.len() + 1);
-
-    let mut current_line: crate::style::LineNames = Vec::new();
-
-    for (entry_lines, track) in &track_list.entries {
-        current_line.extend(entry_lines.iter().cloned());
-        match track {
-            T::AutoRepeat {
-                tracks: pattern,
-                fit,
-                count_unit,
-            } => {
-                if pattern.entries.is_empty() {
-                    continue;
-                }
-                let m = pattern.entries.len();
-                let total_size = |n: usize| -> f32 {
-                    let total_tracks = other_count + n * m;
-                    let total_gaps = total_tracks.saturating_sub(1) as f32 * gap;
-                    other_base + (n as f32) * count_unit + total_gaps
-                };
-                let n = if *count_unit <= 0.0 || m == 0 {
-                    1
-                } else if container > 0.0 {
-                    let mut best = 1;
-                    while total_size(best + 1) <= container {
-                        best += 1;
-                    }
-                    best
-                } else if let Some(ms) = min_size.filter(|&s| s > 0.0) {
-                    let mut best = 1;
-                    while total_size(best) < ms {
-                        best += 1;
-                    }
-                    best
-                } else {
-                    1
-                };
-                for _ in 0..n {
-                    for (p_lines, p_track) in &pattern.entries {
-                        current_line.extend(p_lines.iter().cloned());
-                        out_lines.push(std::mem::take(&mut current_line));
-                        out_tracks.push(p_track.clone());
-                        collapsible.push(*fit);
-                    }
-                    current_line.extend(pattern.trailing.iter().cloned());
-                }
-            }
-            other => {
-                out_lines.push(std::mem::take(&mut current_line));
-                out_tracks.push(other.clone());
-                collapsible.push(false);
-            }
-        }
-    }
-    current_line.extend(track_list.trailing.iter().cloned());
-    out_lines.push(current_line);
-
-    (out_tracks, collapsible, out_lines)
-}
 
 /// A LARGURA (ou altura) de cada trilha de uma grade — CSS Grid 1 §11,
 /// reduzido ao que este motor sustenta: sem itens a atravessar trilhas (essa
@@ -184,10 +104,37 @@ pub(in crate::layout) fn resolve_tracks(
     // unidade significa —, e nesse caso uma trilha limitada ou intrínseca fica
     // pela sua base.
     if sum_fr > 0.0 {
-        let flex_sum = sum_fr.max(1.0);
-        for (i, t) in tracks.iter().enumerate() {
-            if let T::Fr(f) = t {
-                sizes[i] = free * f.max(0.0) / flex_sum;
+        let mut frozen = vec![false; tracks.len()];
+        loop {
+            let active_fr: f32 = tracks.iter().enumerate().filter(|(i, t)| !frozen[*i] && matches!(t, T::Fr(_)))
+                .map(|(_, t)| match t { T::Fr(f) => f.max(0.0), _ => 0.0 }).sum();
+            let non_flex_sum: f32 = tracks.iter().enumerate()
+                .filter(|(i, t)| frozen[*i] || !matches!(t, T::Fr(_)))
+                .map(|(i, _)| sizes[i])
+                .sum::<f32>() + total_gap;
+            let leftover = (container - non_flex_sum).max(0.0);
+            let flex_sum = active_fr.max(1.0);
+            let hypothetical_fr = leftover / flex_sum;
+            let mut newly_frozen = false;
+            for (i, t) in tracks.iter().enumerate() {
+                if let T::Fr(f) = t {
+                    let mn = min_of(i);
+                    if !frozen[i] && hypothetical_fr * f.max(0.0) < mn {
+                        sizes[i] = mn;
+                        frozen[i] = true;
+                        newly_frozen = true;
+                    }
+                }
+            }
+            if !newly_frozen {
+                for (i, t) in tracks.iter().enumerate() {
+                    if let T::Fr(f) = t {
+                        if !frozen[i] {
+                            sizes[i] = hypothetical_fr * f.max(0.0);
+                        }
+                    }
+                }
+                break;
             }
         }
         return sizes;
@@ -475,6 +422,36 @@ pub(in crate::layout) fn resolve_row_tracks(
                 for r in 0..nrows {
                     if let Some(T::Fr(f)) = row_track(r) {
                         row_sizes[r] = free * f.max(0.0) / flex_sum;
+                    }
+                }
+            }
+            let has_pct_row = (0..nrows).any(|r| match row_track(r) {
+                Some(T::Fixed(crate::style::Dimension::Percent(_))) => true,
+                _ => false,
+            });
+            if has_pct_row {
+                let total_gap = super::collapse::gutters(nrows, row_collapsed, row_gap);
+                let container_fixed_h = row_sizes.iter().sum::<f32>() + total_gap;
+                let mut used = total_gap;
+                let mut auto_rows = Vec::new();
+                for r in 0..nrows {
+                    match row_track(r) {
+                        Some(T::Fixed(crate::style::Dimension::Percent(pct))) => {
+                            row_sizes[r] = (container_fixed_h * pct / 100.0).max(0.0);
+                            used += row_sizes[r];
+                        }
+                        Some(T::Auto | T::Intrinsic { max: B::Auto, .. }) | None => {
+                            auto_rows.push(r);
+                        }
+                        _ => {
+                            used += row_sizes[r];
+                        }
+                    }
+                }
+                if !auto_rows.is_empty() && container_fixed_h > used {
+                    let each = (container_fixed_h - used) / auto_rows.len() as f32;
+                    for r in auto_rows {
+                        row_sizes[r] = each;
                     }
                 }
             }
