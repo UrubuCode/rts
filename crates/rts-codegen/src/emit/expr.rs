@@ -157,7 +157,7 @@ pub fn emit_expr(
             // is no proxy, `C.prototype` and its method cannot be replaced, and the
             // symbol is unobtainable elsewhere, so no trap, getter or shadow can
             // intervene and the result (and any throw) is the runtime's — the proof and
-            // every fallback are in `operator_direct` (relational/equality wrap the call in ToBoolean). Unary stays runtime.
+            // every fallback are in `operator_direct` (relational/equality wrap the call in ToBoolean).
             if let Some(call) = ctx.operator_direct.call(*op, left, right, scope)
             {
                 return emit_expr(builder, scope, ctx, &call);
@@ -326,6 +326,14 @@ pub fn emit_expr(
                         return emit_literal(builder, ctx, &folded);
                     }
                 }
+            }
+            // Unary `-a` on a proven instance of a class defining `[operators.neg]`: the
+            // runtime answers `a[neg](undefined, undefined)` raw (`overload::unary`), so the
+            // argument-less call `a[neg]()` is emitted; proof and fallbacks in `operator_direct`.
+            if *op == crate::syntax::UnaryOp::Negate
+                && let Some(call) = ctx.operator_direct.negate(operand, scope)
+            {
+                return emit_expr(builder, scope, ctx, &call);
             }
             super::unary::emit_unary(builder, scope, ctx, *op, operand)
         }

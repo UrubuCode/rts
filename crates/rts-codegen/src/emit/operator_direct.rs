@@ -19,7 +19,13 @@
 //! runtime then applies ToBoolean to the method's answer, so they are emitted as
 //! `!!a[sym](b, false)`. `==` asks only when BOTH operands are objects
 //! (`overload.rs`): both are concrete instances here, so the gate is met. `===` and `!=`
-//! are not overloaded and untouched. Unary `-` (`neg`) stays on the runtime path.
+//! are not overloaded and untouched.
+//!
+//! Unary `-a` (`neg`) is the one unary operator: `overload::unary` probes `a[neg]` and, if
+//! callable, returns `a[neg](undefined, undefined)` untouched (no right operand, no
+//! `reversed` flag, no ToBoolean). For a proven instance of a class defining `neg` it is the
+//! direct call `a[neg]()`: the two `undefined` slots are what a missing argument already is,
+//! and unobservable since a method that mentions `arguments` or a rest parameter is excluded.
 //!
 //! # Why the direct call is the runtime's answer, clause by clause
 //!
@@ -68,7 +74,7 @@
 //! The method is reached by an ordinary computed-key call, so the function called is
 //! whatever the class definition stored under the symbol — the one the runtime finds.
 //!
-//! Scope: `+ - * / % ** < <= > >= ==`, both operands the same class, and that class defines THAT
+//! Scope: `+ - * / % ** < <= > >= ==` and unary `-`, both operands the same class, and that class defines THAT
 //! operator's symbol. The `@operator("+")` spelling is not parsed.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -84,7 +90,7 @@ use crate::syntax::{
 };
 
 /// The operators handled, by the name of their `rts` symbol.
-const OPS: [&str; 11] = ["add", "sub", "mul", "div", "mod", "pow", "lt", "le", "gt", "ge", "eq"];
+const OPS: [&str; 12] = ["add", "sub", "mul", "div", "mod", "pow", "lt", "le", "gt", "ge", "eq", "neg"];
 
 /// Whether the operator's answer goes through ToBoolean (relational and equality)
 /// rather than being the method's raw result.
@@ -175,6 +181,34 @@ impl Direct {
             Expr::new(ExprKind::Unary { op: UnaryOp::Not, operand: Box::new(inner) }, at)
         };
         Some(not(not(direct)))
+    }
+
+    /// The direct call `operand[operators.neg]()` for unary `-operand`, or `None` where the
+    /// runtime's negation must run. The runtime (`overload::unary`) answers
+    /// `operand[neg](undefined, undefined)` raw, with no ToBoolean; a missing argument is
+    /// `undefined` and the method cannot see the count (`method_plain`), so the call is
+    /// argument-less. Only a proven class instance fires: `-5`, `-x` on a number, and a
+    /// parameter operand never match `class_of`.
+    pub(in crate::emit) fn negate(&self, operand: &Expr, scope: &Scope) -> Option<Expr> {
+        let (local, key) = (self.local?, self.keys.get("neg")?);
+        scope.lookup(local)?;
+        self.class_of(operand, scope, "neg")?;
+        let at = operand.at;
+        Some(Expr::new(
+            ExprKind::Call {
+                callee: Box::new(Expr::new(
+                    ExprKind::Index {
+                        object: Box::new(operand.clone()),
+                        index: Box::new(key.clone()),
+                        optional: false,
+                    },
+                    at,
+                )),
+                arguments: Vec::new(),
+                optional: false,
+            },
+            at,
+        ))
     }
 
     /// The class `expr` is a fresh instance of, if that class's `symbol` is proven.
