@@ -45,6 +45,17 @@ pub(super) fn time_of(this: u64) -> f64 {
     })
 }
 
+/// How `console.log` shows a date: the ISO text, or `Invalid Date`. `None` for
+/// anything that carries no time value, so a caller can ask of any object.
+pub fn inspect_text(this: u64) -> Option<String> {
+    let time = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let key = context.well_known(TIME);
+        read_property(context, cell, key)?.numeric()
+    })?;
+    Some(super::civil::iso_text(time))
+}
+
 /// One calendar field of a receiver, `NaN` when the date is invalid.
 pub(super) fn field(this: u64, pick: fn(&Parts) -> f64) -> f64 {
     parts_of(time_of(this)).as_ref().map_or(f64::NAN, pick)

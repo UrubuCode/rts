@@ -137,6 +137,7 @@ mod uri;
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, own_keys};
 pub use math::math_random;
+pub use date::inspect_text as date_inspect_text;
 pub use sys::{sys_memory, sys_text};
 pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;

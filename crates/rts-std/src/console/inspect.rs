@@ -325,6 +325,13 @@ fn object(value: u64, depth: u32, ancestors: &mut Vec<u32>, slot: u32) -> Result
     // escrita pelo programa responde igual a uma classe do motor.
     let label = label_of(value)?;
     let keys = keys_of(value)?;
+    // A `Date` keeps its time value in a slot that is an ordinary own key here;
+    // Node prints the ISO text bare instead, at any depth.
+    if label == "Date " && keys.iter().any(|key| key == "__dateValue") {
+        if let Some(text) = entry::date_inspect_text(value) {
+            return Ok(text);
+        }
+    }
     if keys.is_empty() {
         return Ok(format!("{label}{{}}"));
     }

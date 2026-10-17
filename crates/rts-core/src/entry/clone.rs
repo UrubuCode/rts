@@ -177,6 +177,19 @@ fn cloned(value: u64) -> u64 {
 /// which is what makes a transferred buffer's copy independent (the language's
 /// requirement) rather than a second reference to bytes it no longer owns.
 extern "C" fn structured_clone(_e: u64, _t: u64, value: u64, options: u64, _a2: u64, _a3: u64) -> u64 {
+    // Node refuses an options argument that is neither absent, `null` nor an
+    // object (`structuredClone(x, 5)`), before cloning anything.
+    let refused = with_current(|context| {
+        let bits = crate::value::Value(options);
+        let absent = options == super::objects::undefined_of(context)
+            || options
+                == rts_cranelift::tags::encode(rts_cranelift::tags::TAG_SINGLETON, u64::from(context.singletons.null));
+        !absent && bits.as_slot().is_none()
+    });
+    if refused {
+        super::throw::type_error("Failed to execute 'structuredClone': Options cannot be converted to a dictionary");
+        return with_current(|context| super::objects::undefined_of(context));
+    }
     let result = cloned(value);
     detach_transferred(options);
     result
@@ -189,6 +202,11 @@ extern "C" fn structured_clone(_e: u64, _t: u64, value: u64, options: u64, _a2: 
 /// have the walk copy zero bytes instead of the ones the clone is supposed to
 /// carry away.
 fn detach_transferred(options: u64) {
+    // `structuredClone(x)` passes no options at all; an absent or non-object
+    // options has no transfer list, so there is nothing to detach.
+    if crate::value::Value(options).as_slot().is_none() {
+        return;
+    }
     let transfer_name = with_current(|context| context.intern_value(Str::from_str("transfer")).bits());
     let list = super::computed::get_indexed(options, transfer_name);
     let Some(cells) = with_current(|context| {
