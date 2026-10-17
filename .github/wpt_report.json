@@ -3168,18 +3168,18 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-011",
-      "mascarados": [
-        2,
-        2
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flex-basis-012",
       "mascarados": [
         3,
         3
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flex-basis-011",
+      "mascarados": [
+        2,
+        2
       ],
       "estado": "passa"
     },
@@ -3200,14 +3200,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-child-percent-basis-resize-1",
-      "mascarados": [
-        20,
-        20
-      ],
-      "estado": "passa-vazio"
-    },
-    {
       "nome": "flex-column-reverse-multiline-item-position",
       "mascarados": [
         1,
@@ -3215,6 +3207,14 @@
       ],
       "estado": "falha",
       "pct": 0.390625
+    },
+    {
+      "nome": "flex-child-percent-basis-resize-1",
+      "mascarados": [
+        20,
+        20
+      ],
+      "estado": "passa-vazio"
     },
     {
       "nome": "flex-container-line-if-empty-vertical-writing-mode",
@@ -3234,15 +3234,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-container-max-content-001",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "falha",
-      "pct": 1.90126953125
-    },
-    {
       "nome": "flex-container-min-content-001",
       "mascarados": [
         0,
@@ -3250,6 +3241,15 @@
       ],
       "estado": "falha",
       "pct": 0.8314453125
+    },
+    {
+      "nome": "flex-container-max-content-001",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "falha",
+      "pct": 1.90126953125
     },
     {
       "nome": "flex-cross-size-border-box-001",
@@ -3731,7 +3731,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-008",
+      "nome": "flex-minimum-height-flex-items-011",
       "mascarados": [
         3,
         3
@@ -3739,7 +3739,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-minimum-height-flex-items-011",
+      "nome": "flex-minimum-height-flex-items-008",
       "mascarados": [
         3,
         3
@@ -7365,7 +7365,7 @@
       "estado": "passa"
     },
     {
-      "nome": "intrinsic-size/col-wrap-002",
+      "nome": "intrinsic-size/col-wrap-003",
       "mascarados": [
         3,
         3
@@ -7373,7 +7373,7 @@
       "estado": "passa"
     },
     {
-      "nome": "intrinsic-size/col-wrap-003",
+      "nome": "intrinsic-size/col-wrap-002",
       "mascarados": [
         3,
         3
