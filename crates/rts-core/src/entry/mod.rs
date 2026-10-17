@@ -60,6 +60,7 @@ mod computed;
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+mod inspect_facts;
 pub mod declared;
 mod date;
 mod error;
@@ -138,6 +139,8 @@ mod uri;
 pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, own_keys};
 pub use math::math_random;
 pub use date::inspect_text as date_inspect_text;
+pub use inspect_facts::{array_hole_runs, boxed_primitive, has_accessors, is_class_constructor, is_regexp_object};
+pub use promise::inspect_outcome as promise_inspect_outcome;
 pub use sys::{sys_memory, sys_text};
 pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
