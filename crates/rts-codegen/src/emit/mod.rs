@@ -703,6 +703,11 @@ pub struct Ctx<'a> {
     /// `core_imports` these are real, declared functions: only a direct call lowers to
     /// the op; value uses read the function. Reset per unit by `register_intrinsics`.
     pub(crate) intrinsic_fns: std::collections::BTreeMap<Name, rts_corelib::CorePrimitive>,
+    /// Every Std `@intrinsic` EXPORT of the graph, by (canonical specifier, exported name).
+    /// Whole-graph, rebuilt once per `emit_modules`; an importer's named binding of one
+    /// puts its local name in `intrinsic_fns` (`register_intrinsics`).
+    pub(crate) intrinsic_exports:
+        std::collections::BTreeMap<(String, String), rts_corelib::CorePrimitive>,
     /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
     /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
     statics_primordial: statics::Primordials,
@@ -841,6 +846,7 @@ impl<'a> Ctx<'a> {
             math_primordial: false,
             core_imports: std::collections::BTreeMap::new(),
             intrinsic_fns: std::collections::BTreeMap::new(),
+            intrinsic_exports: std::collections::BTreeMap::new(),
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
@@ -1270,7 +1276,7 @@ pub(super) fn emit_program_into(
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
     ctx.core_imports.clear();
-    register_intrinsics(body, ctx)?;
+    register_intrinsics(body, &[], ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1459,6 +1465,30 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         }
         let body = chunk::split(body, ctx);
         lowered.push((unit, imports, body, publications));
+    }
+    // Std `@intrinsic` exports, found in the LOWERED bodies (what `register_intrinsics` of each
+    // importer needs before any unit emits). `rewrite` made every `import.source` equal the
+    // exporter's `Unit.specifier`, so the keys meet directly. User units are never recorded.
+    ctx.intrinsic_exports.clear();
+    for (unit, _, body, publications) in &lowered {
+        if unit.origin != Origin::Std {
+            continue;
+        }
+        for publication in publications {
+            let module::PublicationSource::Local(local) = &publication.source else {
+                continue;
+            };
+            let intrinsic = body.iter().find_map(|statement| match &statement.kind {
+                crate::syntax::StmtKind::Function(function) if function.name == Some(*local) => {
+                    function.intrinsic
+                }
+                _ => None,
+            });
+            if let Some(primitive) = intrinsic {
+                ctx.intrinsic_exports
+                    .insert((unit.specifier.clone(), publication.exported.clone()), primitive);
+            }
+        }
     }
 
     // `Math` IS UNTOUCHED ONLY IF EVERY UNIT LEAVES IT ALONE, which is what
@@ -1700,8 +1730,42 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
 /// user unit carrying one is refused. The name must be declared exactly once in the whole
 /// body and never written (`direct_call`'s proof), so a bare `f(...)` cannot be a shadow
 /// and the emitter needs no scope test; anything else is refused rather than guessed.
-fn register_intrinsics(body: &[Stmt], ctx: &mut Ctx) -> EmitResult<()> {
+fn register_intrinsics(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    ctx: &mut Ctx,
+) -> EmitResult<()> {
     ctx.intrinsic_fns.clear();
+    // CROSS-MODULE: a named import of a Std `@intrinsic` export (`intrinsic_exports`, built
+    // whole-graph by `emit_modules`). The import is still bound normally (a value use reads the
+    // real function); only a direct call lowers. The imported local has no declaration to
+    // prove, so the proof is the converse: nothing in this body declares the name (an
+    // import is not in `body`, so any declaration is a shadow) and nothing writes it. A name
+    // failing it just stays an ordinary call; never an error.
+    let mut imported = Vec::new();
+    if !ctx.intrinsic_exports.is_empty() {
+        for import in imports {
+            for binding in &import.bindings {
+                if let crate::syntax::ImportBinding::Named { exported, local } = binding
+                    && let Some(&primitive) =
+                        ctx.intrinsic_exports.get(&(import.source.clone(), exported.clone()))
+                {
+                    imported.push((*local, primitive));
+                }
+            }
+        }
+    }
+    if !imported.is_empty() {
+        let eval_name = ctx.names.intern("eval");
+        let global_this = ctx.names.intern("globalThis");
+        let declared = inline::Declarations::of(body);
+        let writes = primordial::disturbed(body, eval_name, global_this);
+        for (local, primitive) in imported {
+            if declared.count(local) == 0 && writes.untouched(local) {
+                ctx.intrinsic_fns.insert(local, primitive);
+            }
+        }
+    }
     let mut found = Vec::new();
     for statement in body {
         if let crate::syntax::StmtKind::Function(function) = &statement.kind
@@ -1763,7 +1827,7 @@ fn emit_unit(
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
     ctx.core_imports.clear();
-    register_intrinsics(body, ctx)?;
+    register_intrinsics(body, imports, ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -2525,5 +2589,104 @@ g(1);
 "), Origin::Std)
             .expect_err("a second declaration of the name is refused");
         assert!(format!("{shadow:?}").contains("declared more than once"), "{shadow:?}");
+    }
+
+    /// The printed IR of a whole graph (`(specifier, origin, source)`, dependencies first).
+    fn graph_ir(units: &[(&str, Origin, &str)]) -> EmitResult<String> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let programs: Vec<_> = units
+            .iter()
+            .map(|(_, _, source)| crate::parse::parse_module(source, &mut names).expect("parses"))
+            .collect();
+        let graph: Vec<Unit> = units
+            .iter()
+            .zip(&programs)
+            .map(|((specifier, origin, _), program)| Unit {
+                origin: *origin,
+                specifier: specifier.to_string(),
+                items: &program.body,
+                paths: (String::new(), String::new()),
+            })
+            .collect();
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        let emitted = emit_modules(&graph, &mut ctx)?;
+        Ok(emitted.program.functions.iter().map(|(_, function)| format!("{function}")).collect::<Vec<_>>().join("\n"))
+    }
+
+    #[test]
+    fn a_cross_module_intrinsic_call_lowers_to_the_op_and_a_value_use_reads_the_function() {
+        // The exporter's body is the identity, so a `sqrt` instruction can only be the op.
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\nexport function other(x: number) { return x; }\n";
+        let graph = |importer: &'static str, origin: Origin| {
+            graph_ir(&[("/std/m.ts", Origin::Std, exporter), ("/main.ts", origin, importer)])
+        };
+        let call = graph("import { mysqrt } from \"/std/m.ts\";\nconst t = mysqrt(4);\n", Origin::User).expect("emits");
+        assert!(call.to_lowercase().contains("sqrt"), "an imported call lowers:\n{call}");
+        let nested = graph("import { mysqrt } from \"/std/m.ts\";\nfunction f(a: number) { return mysqrt(a); }\nf(4);\n", Origin::User)
+            .expect("emits");
+        assert!(nested.to_lowercase().contains("sqrt"), "a nested imported call lowers:\n{nested}");
+        let alias = graph("import { mysqrt as r } from \"/std/m.ts\";\nconst t = r(4);\n", Origin::User).expect("emits");
+        assert!(alias.to_lowercase().contains("sqrt"), "an aliased import lowers:\n{alias}");
+        // A value use is NOT refused and reads the real function: no op without a call.
+        let value = graph("import { mysqrt } from \"/std/m.ts\";\nconst g = mysqrt;\n[1].map(mysqrt);\ng(1);\n", Origin::User)
+            .expect("a value use of an imported intrinsic compiles");
+        assert!(!value.to_lowercase().contains("sqrt"), "a value use is the function:\n{value}");
+        // Controls: the exporter undecorated; and a local shadow of the imported name.
+        let plain = graph_ir(&[
+            ("/std/m.ts", Origin::Std, "export function mysqrt(x: number) { return x; }\n"),
+            ("/main.ts", Origin::User, "import { mysqrt } from \"/std/m.ts\";\nconst t = mysqrt(4);\n"),
+        ])
+        .expect("emits");
+        assert!(!plain.to_lowercase().contains("sqrt"), "undecorated control:\n{plain}");
+        let shadow = graph("import { mysqrt } from \"/std/m.ts\";\nfunction f(mysqrt: (n: number) => number) { return mysqrt(4); }\nf((n: number) => n);\n", Origin::User)
+            .expect("emits");
+        assert!(!shadow.to_lowercase().contains("sqrt"), "a parameter shadow stays a call:\n{shadow}");
+        // A USER exporter's `@intrinsic` is refused at the exporter, never honoured by an importer.
+        let user = graph_ir(&[
+            ("/u.ts", Origin::User, exporter),
+            ("/main.ts", Origin::User, "import { mysqrt } from \"/u.ts\";\nmysqrt(4);\n"),
+        ])
+        .expect_err("refused");
+        assert!(format!("{user:?}").contains("@intrinsic is std-only"), "{user:?}");
+    }
+
+    #[test]
+    fn a_mixed_import_lowers_only_the_intrinsic_and_the_rest_binds_normally() {
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\nexport function other(x: number) { return x + 1; }\n";
+        let ir = graph_ir(&[
+            ("/std/m.ts", Origin::Std, exporter),
+            ("/main.ts", Origin::User, "import { mysqrt, other } from \"/std/m.ts\";\nconst a = mysqrt(4);\nconst b = other(4);\n"),
+        ])
+        .expect("emits");
+        assert!(ir.to_lowercase().contains("sqrt"), "mysqrt lowers:\n{ir}");
+        assert!(ir.contains("CachedGet"), "`other` is still read off the namespace:\n{ir}");
+        // Only `other` imported: nothing lowers, the module still evaluates (it is imported).
+        let rest = graph_ir(&[
+            ("/std/m.ts", Origin::Std, exporter),
+            ("/main.ts", Origin::User, "import { other } from \"/std/m.ts\";\nother(1);\n"),
+        ])
+        .expect("emits");
+        assert!(!rest.to_lowercase().contains("sqrt"), "{rest}");
+    }
+
+    #[test]
+    fn a_reexport_or_namespace_import_of_an_intrinsic_falls_back_to_the_function() {
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\n";
+        for importer in [
+            "import * as m from \"/std/m.ts\";\nm.mysqrt(4);\n",
+            "import m from \"/std/m.ts\";\nm(4);\n",
+            "export { mysqrt } from \"/std/m.ts\";\n",
+            "export * from \"/std/m.ts\";\n",
+        ] {
+            let ir = graph_ir(&[("/std/m.ts", Origin::Std, exporter), ("/main.ts", Origin::User, importer)])
+                .unwrap_or_else(|error| panic!("{importer} must compile: {error:?}"));
+            assert!(!ir.to_lowercase().contains("sqrt"), "{importer} stays the function:\n{ir}");
+        }
     }
 }
