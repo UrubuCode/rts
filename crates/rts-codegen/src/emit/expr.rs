@@ -139,6 +139,18 @@ pub fn emit_expr(
             // operands while they are still expressions, because a value has
             // no name to have been annotated.
             let speculate = speculation_is_worth_emitting(ctx, left, right);
+            // `x instanceof R` where the compiler holds the whole prototype chain
+            // of `x` and `R` is an ordinary class (`class_layout/fold.rs` states
+            // the proof): the answer is a constant. Both operands are still
+            // emitted, in order, so every read and any argument of `new C(…)`
+            // happens exactly as it would; only the walk is dropped.
+            if *op == BinaryOp::InstanceOf
+                && let Some(answer) = ctx.instance_fold.decide(left, right, &ctx.names)
+            {
+                emit_expr(builder, scope, ctx, left)?;
+                emit_expr(builder, scope, ctx, right)?;
+                return Ok(boolean_constant(builder, answer));
+            }
             let a = emit_expr(builder, scope, ctx, left)?;
             let b = emit_expr(builder, scope, ctx, right)?;
             emit_binary_speculating(builder, ctx, *op, a, b, speculate)

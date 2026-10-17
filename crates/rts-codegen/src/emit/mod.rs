@@ -732,6 +732,9 @@ pub struct Ctx<'a> {
     /// not written to and nothing spells a definition — a fact about the WHOLE
     /// program, folded over every unit like `math_primordial`.
     layouts_allowed: bool,
+    /// What `x instanceof R` can be answered from at compile time — see
+    /// `class_layout::fold`. Empty wherever `layouts_allowed` is false.
+    instance_fold: class_layout::Fold,
     /// Every name the whole program reads as a value — `receiver::handed_over`,
     /// folded over every unit. What a function handed to anything may have had
     /// done to it is unknown, so `f.call` on one is left as written.
@@ -854,6 +857,7 @@ impl<'a> Ctx<'a> {
             direct_targets: std::collections::BTreeMap::new(),
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
+            instance_fold: class_layout::Fold::default(),
             handed_over: std::collections::BTreeSet::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
@@ -1339,6 +1343,7 @@ pub(super) fn emit_program_into(
         ),
         false => std::collections::BTreeMap::new(),
     };
+    ctx.instance_fold = instance_fold(ctx, body, eval_name, global_this, &std::collections::BTreeSet::new());
 
     let mut emitted = function::emit_body(
         ctx,
@@ -1686,6 +1691,32 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // load-bearing: `Name` ids are handed out in interning order, and moving
     // this earlier would renumber every map keyed by one.
     whole_program_facts(&program, ctx);
+    // Names an import or a renaming export can bind to something other than
+    // the class of that spelling are not folded on (see `class_layout::fold`).
+    let mut unfoldable = std::collections::BTreeSet::new();
+    for (_, imports, _, held) in lowered.iter() {
+        for import in imports.iter() {
+            for binding in &import.bindings {
+                match binding {
+                    crate::syntax::ImportBinding::Default(local)
+                    | crate::syntax::ImportBinding::Namespace(local) => {
+                        unfoldable.insert(*local);
+                    }
+                    crate::syntax::ImportBinding::Named { exported, local } => {
+                        unfoldable.insert(*local);
+                        unfoldable.insert(ctx.names.intern(exported));
+                    }
+                }
+            }
+        }
+        for publication in held.iter() {
+            unfoldable.insert(ctx.names.intern(&publication.exported));
+            if let module::PublicationSource::Local(local) = &publication.source {
+                unfoldable.insert(*local);
+            }
+        }
+    }
+    ctx.instance_fold = instance_fold(ctx, &program, eval_name, global_this, &unfoldable);
     if treeshake::wanted() {
         let all: Vec<treeshake::Unit> = lowered
             .iter()
@@ -2689,4 +2720,34 @@ g(1);
             assert!(!ir.to_lowercase().contains("sqrt"), "{importer} stays the function:\n{ir}");
         }
     }
+}
+
+/// The compile-time `instanceof` facts of `program`, or none where the layout
+/// proof is off or `Object`/`Reflect` could be reached through an alias.
+fn instance_fold(
+    ctx: &mut Ctx,
+    program: &[Stmt],
+    eval_name: Name,
+    global_this: Name,
+    excluded: &std::collections::BTreeSet<Name>,
+) -> class_layout::Fold {
+    if !ctx.layouts_allowed || ctx.layouts.is_empty() {
+        return class_layout::Fold::default();
+    }
+    let prototype = ctx.names.intern("prototype");
+    let object = ctx.names.intern("Object");
+    let reflect = ctx.names.intern("Reflect");
+    if !primordial::only_a_base(program, object, eval_name, global_this, prototype)
+        || !primordial::only_a_base(program, reflect, eval_name, global_this, prototype)
+    {
+        return class_layout::Fold::default();
+    }
+    class_layout::fold_facts(
+        program,
+        &ctx.layouts,
+        &inline::Declarations::of(program),
+        &primordial::disturbed(program, eval_name, global_this),
+        &receiver::ordinary_of(program),
+        excluded,
+    )
 }

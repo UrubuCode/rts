@@ -150,6 +150,7 @@ pub(super) struct Layout {
     in_order: bool,
 }
 
+mod fold;
 mod methods;
 mod proof;
 mod rewrite;
@@ -157,6 +158,7 @@ mod setters;
 
 use proof::{classes_in, inert, layout_of, spelled, undefined};
 use rewrite::{Born, Instances, Spreads, born_in_list, unseen};
+pub(super) use fold::{Fold, facts as fold_facts};
 pub(super) use setters::setters_reachable;
 
 /// Every class in `body` that has a layout, by the name a site constructs it
