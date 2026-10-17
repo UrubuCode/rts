@@ -189,7 +189,13 @@ pub(in crate::layout) fn layout_inline_block_line(
                 .position(|&n| n == child)
                 .unwrap_or(prev_pos + 1);
             if dom.node(parent).children[prev_pos + 1..cur_pos].iter().any(|&n| matches!(&dom.node(n).kind, NodeKind::Text(t) if t.chars().all(crate::inline_box::e_espaco_css))) {
-                4.45
+                if font_size <= 0.001 {
+                    0.0
+                } else {
+                    let mono = parent_css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+                    (ctx.measurer.text_width_family(" ", font_size, parent_css.font_family.as_deref(), mono, false, false)
+                        + parent_css.word_spacing.unwrap_or(0.0)).max(0.0)
+                }
             } else { 0.0 }
         } else {
             0.0

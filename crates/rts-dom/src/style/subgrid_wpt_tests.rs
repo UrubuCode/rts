@@ -47,6 +47,31 @@ fn test_standalone_axis_size_006() {
 }
 
 #[test]
+fn test_standalone_axis_size_005() {
+    let html = std::fs::read_to_string(
+        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\standalone-axis-size-005.html",
+    )
+    .unwrap();
+    let dom = crate::parse_html_to_dom(&html);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let r_grid = list
+        .rect_of(dom.resolve(dom.query_all(".grid")[0]).unwrap())
+        .unwrap();
+    let r_subgrid = list
+        .rect_of(dom.resolve(dom.query_all(".subgrid")[0]).unwrap())
+        .unwrap();
+    assert_eq!(r_grid.w, 100.0);
+    assert_eq!(r_grid.h, 100.0);
+    assert_eq!(r_subgrid.w, 100.0);
+    assert_eq!(r_subgrid.h, 100.0);
+}
+
+#[test]
 fn test_line_names_010() {
     let html = std::fs::read_to_string(
         r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-010.html",

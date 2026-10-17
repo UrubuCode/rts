@@ -457,3 +457,16 @@ fn test_named_grid_lines_001() {
     assert_eq!((g.w, g.h), (100.0, 100.0));
     assert_eq!((d5.x, d5.y, d5.w, d5.h), (0.0, 50.0, 25.0, 50.0));
 }
+
+#[test]
+fn test_subgrid_item_margin_left_auto() {
+    let html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-item-with-margin-left-auto.html").unwrap();
+    let ref_html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\reference\ref-filled-green-100px-square.xht").unwrap();
+    let (dom, list) = crate::table::tests::geometria(&html, 800.0);
+    let (ref_dom, ref_list) = crate::table::tests::geometria(&ref_html, 800.0);
+    let subgrid = crate::table::tests::rect(&dom, &list, ".subgrid", 0);
+    let content = crate::table::tests::rect(&dom, &list, ".content", 0);
+    let ref_div = crate::table::tests::rect(&ref_dom, &ref_list, "div", 0);
+    assert_eq!((content.w, content.h), (ref_div.w, ref_div.h));
+    assert_eq!((subgrid.w, subgrid.h), (ref_div.w, ref_div.h));
+}
