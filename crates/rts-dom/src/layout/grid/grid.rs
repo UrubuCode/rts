@@ -428,7 +428,7 @@ pub(in crate::layout) fn layout_children_grid(
         );
         let is_tbl = matches!(item_css.display, Some(crate::style::DisplayKind::Table | crate::style::DisplayKind::InlineTable))
             || matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if tag == "table");
-        let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg"));
+        let rep = matches!(&dom.node(child).kind, crate::dom::NodeKind::Element { tag } if matches!(tag.as_str(), "img" | "canvas" | "svg" | "input" | "select" | "textarea" | "button"));
         let forced_w = if is_col_sub {
             Some(cell_w)
         } else if stretch_x {

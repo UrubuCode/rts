@@ -190,6 +190,10 @@ pub(in crate::layout) fn compute_row_baselines(
         if is_row_sub {
             continue;
         }
+        let child_wm = dom.base_style_idx(c.child).and_then(|c| c.writing_mode).unwrap_or_default();
+        if child_wm.is_horizontal() != parent_wm.is_horizontal() {
+            continue;
+        }
         let align = css.align_self.unwrap_or(container_align);
         if !matches!(align, AlignItems::Baseline | AlignItems::LastBaseline) {
             continue;

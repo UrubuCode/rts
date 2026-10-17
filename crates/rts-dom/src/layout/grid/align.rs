@@ -17,7 +17,8 @@ pub(super) fn cell_align_offset(a: crate::style::AlignItems, cell: f32, item: f3
         crate::style::AlignItems::Center => free / 2.0,
         crate::style::AlignItems::FlexEnd
         | crate::style::AlignItems::Right
-        | crate::style::AlignItems::SelfEnd => free,
+        | crate::style::AlignItems::SelfEnd
+        | crate::style::AlignItems::LastBaseline => free,
         crate::style::AlignItems::SafeCenter => (free / 2.0).max(0.0),
         crate::style::AlignItems::SafeEnd => free.max(0.0),
         _ => 0.0, // FlexStart / Left / Stretch / SelfStart
@@ -131,16 +132,29 @@ pub(super) fn resolve_item_offsets(
     col_baselines: &[Option<super::baseline::TrackBaseline>],
     ctx: &crate::layout::LayoutCtx,
 ) -> (f32, f32) {
+    let parent_wm = dom
+        .node(child)
+        .parent
+        .and_then(|p| dom.base_style_idx(p))
+        .and_then(|c| c.writing_mode)
+        .unwrap_or_default();
+    let child_wm = dom.base_style_idx(child).and_then(|c| c.writing_mode).unwrap_or_default();
+    let is_item_ortho = child_wm.is_horizontal() != parent_wm.is_horizontal();
+
     let (auto_l, auto_r) = (item_css.margin.left.is_auto(), item_css.margin.right.is_auto());
     let x = if auto_l || auto_r {
         let free = (cell_w - iw).max(0.0);
         if auto_l && auto_r { cell_x + free / 2.0 } else if auto_l { cell_x + free } else { cell_x }
     } else if matches!(justify, crate::style::AlignItems::Baseline | crate::style::AlignItems::LastBaseline) {
-        if let Some(tb) = col_baselines.get(cell.c0).and_then(|t| t.as_ref()) {
-            let first = justify == crate::style::AlignItems::Baseline;
-            let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
-            tb.align_offset(justify, ascent, cell_w)
-                .map_or_else(|| cell_x + cell_align_offset(justify, cell_w, iw), |o| cell_x + o)
+        if is_item_ortho {
+            if let Some(tb) = col_baselines.get(cell.c0).and_then(|t| t.as_ref()) {
+                let first = justify == crate::style::AlignItems::Baseline;
+                let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
+                tb.align_offset(justify, ascent, cell_w)
+                    .map_or_else(|| cell_x + cell_align_offset(justify, cell_w, iw), |o| cell_x + o)
+            } else {
+                cell_x + cell_align_offset(justify, cell_w, iw)
+            }
         } else {
             cell_x + cell_align_offset(justify, cell_w, iw)
         }
@@ -160,9 +174,10 @@ pub(super) fn resolve_item_offsets(
         if auto_t && auto_b { cell_y + free / 2.0 } else if auto_t { cell_y + free } else { cell_y }
     } else if matches!(align, crate::style::AlignItems::Stretch) {
         cell_y
-    } else if let Some(tb) = row_baselines
-        .get(if align == crate::style::AlignItems::Baseline { cell.r0 } else { cell.r1.saturating_sub(1) })
-        .and_then(|t| t.as_ref())
+    } else if !is_item_ortho
+        && let Some(tb) = row_baselines
+            .get(if align == crate::style::AlignItems::Baseline { cell.r0 } else { cell.r1.saturating_sub(1) })
+            .and_then(|t| t.as_ref())
     {
         let first = align == crate::style::AlignItems::Baseline;
         let ascent = super::baseline::measure_item_ascent(dom, child, cell.box_id, cell_w, ih, first, ctx);
