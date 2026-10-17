@@ -1216,6 +1216,42 @@ pub(crate) fn layout_block(
     apply_relative_offset(
         box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list,
     );
+    // An IN-FLOW block-level child that breaks a relative INLINE ancestor also
+    // moves by that ancestor's offset — `apply_relative_offset` only moved the
+    // block's OWN. Inline content around the block already gets this through
+    // `inline_offset` (`relative.rs`), but a block leaves the line, so a
+    // relative `<span>` wrapping a block left the block unmoved (WPT
+    // `position-relative-001`). `inline_offset` walks the DOM parents while
+    // they are inline and stops at the first block/inline-block — so it is
+    // `(0, 0)` in the common case (a block whose parent is a block) and costs
+    // only that check. Same range as the own-offset shift: the block's whole
+    // emitted subtree.
+    //
+    // OUT-OF-FLOW boxes (`absolute`/`fixed`) are excluded: their containing
+    // block is not the inline's, so `avail_w`/`avail_h` here are the viewport
+    // or the positioned ancestor — resolving the inline ancestors' percentages
+    // against that is wrong, and they already take their position from the
+    // inline's static position (`relative.rs`, `positioned/`). Without this
+    // guard a `position:fixed` box under two relative spans moved by `top:100%`
+    // of the VIEWPORT (the nested-inline-percentage test).
+    let out_of_flow = matches!(
+        css.position,
+        Some(crate::style::Position::Absolute | crate::style::Position::Fixed)
+    );
+    if !out_of_flow {
+        let (inl_dx, inl_dy) = crate::layout::positioned::relative::inline_offset(
+            dom,
+            dom.node(id).parent,
+            avail_w,
+            avail_h,
+            ctx,
+        );
+        if inl_dx != 0.0 || inl_dy != 0.0 {
+            crate::layout::positioned::relative::shift_from(
+                list, box_start, Some(box_id), inl_dx, inl_dy,
+            );
+        }
+    }
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
