@@ -1202,6 +1202,13 @@ pub enum RuntimeOp {
     /// string, selected by an integer (0 host, 1 home, 2 tmp). Allocates, so
     /// unlike `SysMemory` it can collect. Host-only; **appended**.
     SysText,
+    /// `f64ToBits(x)` from `rts:core`: the IEEE-754 bits of a double as an unsigned
+    /// bigint. A call because a bigint is a heap cell; a bigint rather than a number
+    /// because 64 bits do not fit a double exactly. **Appended**.
+    F64ToBits,
+    /// `f64FromBits(b)` from `rts:core`: the double a bigint's low 64 bits spell,
+    /// unboxed. Reads the heap, so a call. **Appended**.
+    F64FromBits,
 }
 
 impl RuntimeOp {
@@ -1347,6 +1354,8 @@ impl RuntimeOp {
         RuntimeOp::SetNewDirect,
         RuntimeOp::SysMemory,
         RuntimeOp::SysText,
+        RuntimeOp::F64ToBits,
+        RuntimeOp::F64FromBits,
     ];
 
     /// The linker name the runtime must define.
@@ -1492,6 +1501,8 @@ impl RuntimeOp {
             RuntimeOp::SetNewDirect => "__rts_set_new_direct",
             RuntimeOp::SysMemory => "__rts_sys_memory",
             RuntimeOp::SysText => "__rts_sys_text",
+            RuntimeOp::F64ToBits => "__rts_f64_to_bits",
+            RuntimeOp::F64FromBits => "__rts_f64_from_bits",
         }
     }
 
@@ -1533,6 +1544,8 @@ impl RuntimeOp {
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::SysMemory => (vec![Repr::I64], vec![Repr::F64]),
             RuntimeOp::SysText => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::F64ToBits => (vec![Repr::F64], vec![UNPROVEN]),
+            RuntimeOp::F64FromBits => (vec![UNPROVEN], vec![Repr::F64]),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
                 (vec![UNPROVEN], vec![UNPROVEN])

@@ -72,7 +72,9 @@ pub(super) fn emit(
         | CorePrimitive::Trunc
         | CorePrimitive::Abs
         | CorePrimitive::Sign
-        | CorePrimitive::Round => 1,
+        | CorePrimitive::Round
+        | CorePrimitive::F64ToBits
+        | CorePrimitive::F64FromBits => 1,
         // The library-call members: the same door `Math.<name>` takes (`math_direct`).
         other if other.math_direct_name().is_some_and(|name| crate::runtime::math_direct::binary_index(name).is_some()) => 2,
         other if other.math_direct_name().is_some() => 1,
@@ -80,6 +82,15 @@ pub(super) fn emit(
     };
     if arguments.len() != arity {
         return Err(super::module::refuse("an rts:core call with the wrong number of arguments"));
+    }
+    // `f64FromBits` takes a bigint, not a number: no ToNumber (it would throw on one).
+    if primitive == CorePrimitive::F64FromBits {
+        let Spreadable::Single(argument) = &arguments[0] else {
+            return Err(super::module::refuse("a spread argument in an rts:core call"));
+        };
+        let bits = emit_expr(builder, scope, ctx, argument)?;
+        let answered = super::expr::call(builder, ctx, RuntimeOp::F64FromBits, &[bits])?[0];
+        return Ok(Some(tagged(builder, answered)));
     }
     let mut doubles = Vec::with_capacity(arity);
     for argument in arguments {
@@ -104,6 +115,11 @@ pub(super) fn emit(
         CorePrimitive::Sign => super::math::sequence::sign(builder, doubles[0])?,
         CorePrimitive::Round => super::math::sequence::round(builder, doubles[0])?,
         CorePrimitive::Min => builder.arith(rts_cranelift::ir::NumOp::Min, doubles[0], doubles[1])?,
+        // The pattern is 64 bits, which a number cannot hold exactly, so the answer
+        // is a bigint (already a tagged value: no boxing).
+        CorePrimitive::F64ToBits => {
+            return Ok(Some(super::expr::call(builder, ctx, RuntimeOp::F64ToBits, &[doubles[0]])?[0]));
+        }
         CorePrimitive::Max => builder.arith(rts_cranelift::ir::NumOp::Max, doubles[0], doubles[1])?,
         other => {
             // `Math.f(…)` over doubles: `MathDirect1`/`2` with the member's number.

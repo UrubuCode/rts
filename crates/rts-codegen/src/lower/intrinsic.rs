@@ -156,6 +156,23 @@ impl Lowering<'_> {
                 return Ok(Some(self.entry(op, vec![selector], at)));
             }
         };
+        // The 64-bit pattern does not fit a number exactly, so `f64ToBits` answers a
+        // bigint (`F64ToBits`) and `f64FromBits` reads one (`F64FromBits`).
+        if matches!(primitive, rts_corelib::CorePrimitive::F64ToBits | rts_corelib::CorePrimitive::F64FromBits) {
+            if arguments.len() != 1 {
+                return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+            }
+            let Spreadable::Single(argument) = &arguments[0] else {
+                return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+            };
+            let value = self.expression(argument)?;
+            return Ok(Some(if primitive == rts_corelib::CorePrimitive::F64ToBits {
+                let number = self.prim(JsPrim::ToNumber, vec![value], at);
+                self.entry(crate::runtime::RuntimeOp::F64ToBits, vec![number], at)
+            } else {
+                self.entry(crate::runtime::RuntimeOp::F64FromBits, vec![value], at)
+            }));
+        }
         // The library-call members take the door `Math.<name>` takes, selector first.
         if let Some(name) = primitive.math_direct_name() {
             let (door, which, arity) = match crate::runtime::math_direct::unary_index(name) {

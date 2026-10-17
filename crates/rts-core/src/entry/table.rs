@@ -85,6 +85,7 @@ use super::functions::ARGUMENT_AT_ENTRY;
 use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
 use super::sys::{SYS_MEMORY_ENTRY, SYS_TEXT_ENTRY};
+use super::bigints::{F64_FROM_BITS_ENTRY, F64_TO_BITS_ENTRY};
 use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
 use super::template_join::TEMPLATE_JOIN_ENTRY;
 use super::text::STRING_OF_ENTRY;
@@ -853,6 +854,11 @@ pub enum CoreEntry {
     /// [`super::sys_text`] -- `hostname`/`homedir`/`tmpdir` from `"rts:sys"`: an
     /// interned string, selected by an integer. Allocates.
     SysText = 134,
+    /// [`super::f64_to_bits`] -- `rts:core`'s `f64ToBits`: a double's IEEE-754 bits as
+    /// an unsigned bigint. Allocates.
+    F64ToBits = 135,
+    /// [`super::f64_from_bits`] -- `f64FromBits`: the double a bigint's low 64 bits spell.
+    F64FromBits = 136,
 }
 
 /// How many entry points exist.
@@ -860,7 +866,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 135;
+pub const CORE_ENTRY_COUNT: usize = 137;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -1003,6 +1009,8 @@ impl CoreEntry {
         CoreEntry::SetNewDirect,
         CoreEntry::SysMemory,
         CoreEntry::SysText,
+        CoreEntry::F64ToBits,
+        CoreEntry::F64FromBits,
     ];
 
     /// The number a call site holds.
@@ -1153,6 +1161,8 @@ impl CoreEntry {
             CoreEntry::ModuleEvaluate => MODULE_EVALUATE_ENTRY,
             CoreEntry::SysMemory => SYS_MEMORY_ENTRY,
             CoreEntry::SysText => SYS_TEXT_ENTRY,
+            CoreEntry::F64ToBits => F64_TO_BITS_ENTRY,
+            CoreEntry::F64FromBits => F64_FROM_BITS_ENTRY,
         }
     }
 

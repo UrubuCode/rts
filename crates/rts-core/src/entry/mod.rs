@@ -218,7 +218,7 @@ pub use operators::{
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use primitive::string_for_host;
 pub use bigint_class::bigint_new;
-pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
+pub use bigints::{f64_from_bits, f64_to_bits, bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use template_join::{TEMPLATE_JOINED, template_join};

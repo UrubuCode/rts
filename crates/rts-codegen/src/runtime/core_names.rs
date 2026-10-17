@@ -233,6 +233,8 @@ pub fn lookup(name: &str) -> Option<CoreName> {
         "atanh" => (CorePrimitive::Atanh, 1),
         "pow" => (CorePrimitive::Pow, 2),
         "atan2" => (CorePrimitive::Atan2, 2),
+        "f64ToBits" => (CorePrimitive::F64ToBits, 1),
+        "f64FromBits" => (CorePrimitive::F64FromBits, 1),
         _ => return None,
     };
     Some(CoreName {

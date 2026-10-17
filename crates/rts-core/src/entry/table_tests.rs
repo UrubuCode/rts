@@ -325,8 +325,13 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // second clause of the membership rule and is not arithmetic. One row serves
     // both names through a selector, not two. It adds a capability rather than
     // removing a crossing, which is the host layer's whole point.
+    //
+    // Moved to 137 for `F64ToBits`/`F64FromBits` (`rts:core`'s `f64ToBits` and
+    // `f64FromBits`): each allocates or reads a bigint, which is the heap clause of
+    // the membership rule. They are two rows because the argument and result
+    // shapes differ (f64 -> bigint, bigint -> f64), which one selector cannot carry.
     assert!(
-        CORE_ENTRY_COUNT <= 135,
+        CORE_ENTRY_COUNT <= 137,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

@@ -238,6 +238,9 @@ impl Js {
         // `totalmem()`/`freemem()` from `rts:sys` -- `lower/intrinsic.rs`.
         RuntimeOp::SysMemory,
         RuntimeOp::SysText,
+        // `f64ToBits`/`f64FromBits` from `rts:core` -- `lower/intrinsic.rs`.
+        RuntimeOp::F64ToBits,
+        RuntimeOp::F64FromBits,
         // An element of an array a `for`-`of` walks by index -- `lower/iterate.rs`.
         RuntimeOp::ElementAt,
         // Whether an array may be read by index where its iterator would step it --
@@ -901,7 +904,7 @@ impl Domain for Js {
                 | RuntimeOp::NumberToFixedDirect
                 | RuntimeOp::SysText,
             ) => Type::Str,
-            Some(RuntimeOp::BigIntNew) => Type::BigInt,
+            Some(RuntimeOp::BigIntNew | RuntimeOp::F64ToBits) => Type::BigInt,
             // A truth value wherever the row answers one unboxed -- the representation
             // is the proof, so it is read off the signature rather than listed. A list
             // missed `TypeOfIs`, and every `if (typeof x === "object")` then asked the
@@ -918,7 +921,8 @@ impl Domain for Js {
                 | RuntimeOp::MathRandom
                 | RuntimeOp::MathDirect1
                 | RuntimeOp::MathDirect2
-                | RuntimeOp::SysMemory,
+                | RuntimeOp::SysMemory
+                | RuntimeOp::F64FromBits,
             ) => Type::Double,
             // EVERY OTHER ROW OF THE CATALOGUE answers the widest thing, and that is a
             // change of shape worth stating: the old table held only what this lowering
