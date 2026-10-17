@@ -172,6 +172,7 @@ fn grid_content_width(
             );
             super::aspect::ratio_outer_width(dom, c.child, area_h, 0.0, font, ctx)
                 .unwrap_or_else(|| crate::table::min_content_with_floor(dom, c.child, font, ctx))
+                .min(max)
         };
         wmax[c.c0] = wmax[c.c0].max(max);
         wmin[c.c0] = wmin[c.c0].max(min);

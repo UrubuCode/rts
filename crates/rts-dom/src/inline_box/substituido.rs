@@ -333,18 +333,15 @@ pub(crate) fn largura_min_content_por_razao(
     css: &ComputedStyle,
     resolve: &ResolveCtx,
 ) -> Option<f32> {
-    let h = css
-        .height
-        .and_then(|d| d.resolve(resolve))
-        .or_else(|| css.min_height.and_then(|d| d.resolve(resolve)))
+    let non_pct = |d: Option<crate::style::Dimension>| match d {
+        Some(crate::style::Dimension::Percent(_)) | None => None,
+        Some(d) => d.resolve(resolve),
+    };
+    let h = non_pct(css.height)
+        .or_else(|| non_pct(css.min_height))
         .map(|h| {
-            let h = css
-                .max_height
-                .and_then(|d| d.resolve(resolve))
-                .map_or(h, |mx| h.min(mx));
-            css.min_height
-                .and_then(|d| d.resolve(resolve))
-                .map_or(h, |mn| h.max(mn))
+            let h = non_pct(css.max_height).map_or(h, |mx| h.min(mx));
+            non_pct(css.min_height).map_or(h, |mn| h.max(mn))
         })
         .filter(|h| *h > 0.0)?;
     let (nw, nh) = ratio_do_replaced(dom, id)?;

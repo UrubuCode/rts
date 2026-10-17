@@ -50,3 +50,24 @@ fn test_flex_sizing_rows_indefinite_height() {
     assert_eq!(abspos_rect.h, 100.0);
 }
 
+#[test]
+fn test_min_content_width_percent_height_aspect_ratio_001() {
+    let html = r#"<!DOCTYPE html>
+<div style="display: grid; width: min-content; height: 100px; grid-template-rows: 50px; background: red;">
+  <div style="height: 100%; background: green;">
+    <canvas width="20" height="10" style="height: 100%; display: block;"></canvas>
+  </div>
+</div>"#;
+    let dom = crate::parse_html_to_dom(html);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 1280.0,
+        viewport_h: 800.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let list = crate::layout::layout_document(&dom, &ctx);
+    let divs = dom.query_all("div");
+    let grid_node = dom.resolve(divs[0]).unwrap();
+    let grid_rect = list.rect_of(grid_node).unwrap();
+    assert_eq!(grid_rect.w, 100.0);
+    assert_eq!(grid_rect.h, 100.0);
+}
