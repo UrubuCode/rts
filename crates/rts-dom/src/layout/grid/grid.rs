@@ -218,20 +218,12 @@ pub(in crate::layout) fn layout_children_grid(
             container_wm,
             col_sub.is_some(),
         );
+        let row_baselines = baseline::compute_row_baselines(
+            dom, &tree, &cells, container, align, nrows, &col_sizes, col_gap, row_gap, container_wm, ctx,
+        );
         let (mut content_row_h, min_row_h) = tracks::measure_content_rows(
-            dom,
-            &cells,
-            &explicit_rows,
-            css.grid_auto_rows.as_ref(),
-            &col_sizes,
-            col_sub,
-            col_gap,
-            row_gap,
-            nrows,
-            container_content_h,
-            &resolve,
-            container_wm,
-            ctx,
+            dom, &cells, &explicit_rows, css.grid_auto_rows.as_ref(), &col_sizes, col_sub,
+            col_gap, row_gap, nrows, container_content_h, &resolve, container_wm, &row_baselines, ctx,
         );
         subgrid::collect_row_contributions(
             dom,
@@ -251,19 +243,6 @@ pub(in crate::layout) fn layout_children_grid(
             &resolve,
             container_content_h,
             &mut content_row_h,
-        );
-        let row_baselines = baseline::compute_row_baselines(
-            dom,
-            &tree,
-            &cells,
-            container,
-            align,
-            nrows,
-            &col_sizes,
-            col_gap,
-            row_gap,
-            container_wm,
-            ctx,
         );
         baseline::apply_baseline_sizes(&mut content_row_h, &row_baselines);
         let row_sizes = tracks::resolve_row_tracks(
