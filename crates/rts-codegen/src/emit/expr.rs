@@ -151,6 +151,18 @@ pub fn emit_expr(
                 emit_expr(builder, scope, ctx, right)?;
                 return Ok(boolean_constant(builder, answer));
             }
+            // `a + b` between two proven instances of one class that defines
+            // `[operators.add]`: the runtime's overload protocol reduces to
+            // `a[add](b, false)`, so that call is emitted instead. A concrete `new C()`
+            // is no proxy, `C.prototype` and its method cannot be replaced, and the
+            // symbol is unobtainable elsewhere, so no trap, getter or shadow can
+            // intervene and the result (and any throw) is the runtime's — the proof and
+            // every fallback are in `operator_direct`.
+            if *op == BinaryOp::Add
+                && let Some(call) = ctx.operator_add.call(left, right, scope)
+            {
+                return emit_expr(builder, scope, ctx, &call);
+            }
             let a = emit_expr(builder, scope, ctx, left)?;
             let b = emit_expr(builder, scope, ctx, right)?;
             emit_binary_speculating(builder, ctx, *op, a, b, speculate)

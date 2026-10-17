@@ -1116,7 +1116,7 @@ pub(crate) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
 /// containing one fails to compile before this walk's answer is ever used.
 /// Wiring that role back in must also make this leaf report its name, the same
 /// way an `Ident` would.
-fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) {
+pub(crate) fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) {
     match pattern {
         Pattern::Name(_) => {}
         Pattern::Target(expr) => on(Child::Expr(expr)),

@@ -100,6 +100,7 @@ mod module;
 mod nonstrict;
 mod object;
 mod omit;
+mod operator_direct;
 mod optional;
 mod page;
 mod primordial;
@@ -735,6 +736,9 @@ pub struct Ctx<'a> {
     /// What `x instanceof R` can be answered from at compile time — see
     /// `class_layout::fold`. Empty wherever `layouts_allowed` is false.
     instance_fold: class_layout::Fold,
+    /// `a + b` between two proven instances of one `[operators.add]` class, as a
+    /// direct method call — see `operator_direct`. Inert unless the module proves it.
+    operator_add: operator_direct::DirectAdd,
     /// Every name the whole program reads as a value — `receiver::handed_over`,
     /// folded over every unit. What a function handed to anything may have had
     /// done to it is unknown, so `f.call` on one is left as written.
@@ -858,6 +862,7 @@ impl<'a> Ctx<'a> {
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
             instance_fold: class_layout::Fold::default(),
+            operator_add: operator_direct::DirectAdd::default(),
             handed_over: std::collections::BTreeSet::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
@@ -1344,6 +1349,27 @@ pub(super) fn emit_program_into(
         false => std::collections::BTreeMap::new(),
     };
     ctx.instance_fold = instance_fold(ctx, body, eval_name, global_this, &std::collections::BTreeSet::new());
+    // `Object`/`Reflect` only as bases is the same clause `instance_fold` asks: no alias of
+    // either reaches a relink or a symbol recovery through a key built at run time.
+    let layouts_allowed = ctx.layouts_allowed;
+    let handed_over = ctx.handed_over.clone();
+    ctx.operator_add = operator_direct::facts(
+        body,
+        &imports.iter().collect::<Vec<_>>(),
+        &std::collections::BTreeSet::new(),
+        ctx.names,
+        layouts_allowed,
+        eval_name,
+        global_this,
+        &handed_over,
+        |names| {
+            let prototype = names.intern("prototype");
+            let object = names.intern("Object");
+            let reflect = names.intern("Reflect");
+            primordial::only_a_base(body, object, eval_name, global_this, prototype)
+                && primordial::only_a_base(body, reflect, eval_name, global_this, prototype)
+        },
+    );
 
     let mut emitted = function::emit_body(
         ctx,
@@ -1717,6 +1743,31 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         }
     }
     ctx.instance_fold = instance_fold(ctx, &program, eval_name, global_this, &unfoldable);
+    // The same pass over the whole graph: the proof reads every unit's text and imports, and
+    // a site fires only where its own scope resolves `operators` (see `operator_direct`).
+    {
+        let all_imports: Vec<&crate::syntax::Import> =
+            lowered.iter().flat_map(|(_, imports, _, _)| imports.iter()).collect();
+        let layouts_allowed = ctx.layouts_allowed;
+        let handed_over = ctx.handed_over.clone();
+        ctx.operator_add = operator_direct::facts(
+            &program,
+            &all_imports,
+            &unfoldable,
+            ctx.names,
+            layouts_allowed,
+            eval_name,
+            global_this,
+            &handed_over,
+            |names| {
+                let prototype = names.intern("prototype");
+                let object = names.intern("Object");
+                let reflect = names.intern("Reflect");
+                primordial::only_a_base(&program, object, eval_name, global_this, prototype)
+                    && primordial::only_a_base(&program, reflect, eval_name, global_this, prototype)
+            },
+        );
+    }
     if treeshake::wanted() {
         let all: Vec<treeshake::Unit> = lowered
             .iter()
