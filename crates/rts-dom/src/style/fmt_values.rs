@@ -186,6 +186,8 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
         JustifyContent::Stretch => "stretch",
         JustifyContent::Baseline => "baseline",
         JustifyContent::LastBaseline => "last baseline",
+        JustifyContent::SafeCenter => "safe center",
+        JustifyContent::SafeEnd => "safe end",
     }
     .into()
 }

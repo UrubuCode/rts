@@ -148,3 +148,17 @@ fn pointer_events_e_guardado_e_herda() {
         None
     );
 }
+
+// `safe`/`unsafe` overflow-position (Box Alignment §4.4). Antes caíam no
+// `_ => None` do parse e a declaração inteira era DESCARTADA (justify/align-
+// content ficavam no default `flex-start`). `unsafe` colapsa no keyword liso
+// (sem grampo de overflow); só `safe center`/`safe end` guardam variante.
+#[test]
+fn safe_e_unsafe_overflow_position_parseiam() {
+    use crate::style::JustifyContent as J;
+    assert_eq!(J::parse("safe center"), Some(J::SafeCenter));
+    assert_eq!(J::parse("safe end"), Some(J::SafeEnd));
+    assert_eq!(J::parse("safe flex-end"), Some(J::SafeEnd));
+    assert_eq!(J::parse("unsafe center"), Some(J::Center));
+    assert_eq!(J::parse("unsafe flex-end"), Some(J::FlexEnd));
+}

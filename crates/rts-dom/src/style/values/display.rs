@@ -276,6 +276,16 @@ pub enum JustifyContent {
     Baseline,
     /// `last baseline` (Box Alignment §5.4).
     LastBaseline,
+    /// `safe center` (Box Alignment §4.4): centra, MAS se o conteúdo
+    /// transbordar o contentor cai em `start` (free negativo → 0), para não
+    /// perder dados do lado de início. A única diferença de [`Center`] é esse
+    /// grampo no overflow — o mesmo que [`AlignItems::SafeCenter`] já faz no
+    /// eixo cruzado. `unsafe center` colapsa em [`Center`] no parse (não há
+    /// grampo), e por isso não tem variante própria.
+    SafeCenter,
+    /// `safe end` / `safe flex-end` (Box Alignment §4.4): como [`FlexEnd`],
+    /// mas com o mesmo grampo de overflow de [`SafeCenter`].
+    SafeEnd,
 }
 
 impl JustifyContent {
@@ -302,6 +312,13 @@ impl JustifyContent {
             "stretch" => JustifyContent::Stretch,
             "baseline" | "first baseline" => JustifyContent::Baseline,
             "last baseline" => JustifyContent::LastBaseline,
+            // `safe`/`unsafe` overflow-position (Box Alignment §4.4). Only the
+            // `safe` prefix on center/end keeps a distinct variant (the
+            // overflow clamp); `unsafe` means "no clamp" — the plain keyword.
+            "safe center" => JustifyContent::SafeCenter,
+            "safe end" | "safe flex-end" => JustifyContent::SafeEnd,
+            "unsafe center" => JustifyContent::Center,
+            "unsafe end" | "unsafe flex-end" => JustifyContent::FlexEnd,
             _ => return None,
         })
     }
