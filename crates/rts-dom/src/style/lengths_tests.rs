@@ -310,6 +310,19 @@ mod palavras_chave_intrinsecas {
         assert_eq!((s.w, s.h), (100.0, 100.0), "{s:?}");
     }
 
+    /// Um `<img src="data:image/svg+xml,…">` PERCENT-ENCODED com a cor na raiz
+    /// `<svg style='background-color: green'>` pinta a caixa verde: a caixa é
+    /// 100×100 (width + aspect-ratio) e verde (não o placeholder cinza) — WPT
+    /// `aspect-ratio/replaced-element-004`. (Geometria aqui; a cor é pintura.)
+    #[test]
+    fn img_svg_percent_encoded_tem_tamanho_pela_razao_css() {
+        let src = "data:image/svg+xml,%3Csvg viewBox='0 0 5 1' style='background-color: green'%3E%3C/svg%3E";
+        let fonte = format!("<img src=\"{src}\" style='width:100px;aspect-ratio:1/1' id='i'>");
+        let (d, l) = geometria(&fonte, 1280.0);
+        let i = rect(&d, &l, "img", 0);
+        assert_eq!((i.w, i.h), (100.0, 100.0), "{i:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
