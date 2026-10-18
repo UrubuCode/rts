@@ -79,6 +79,19 @@ mod palavras_chave_intrinsecas {
         );
     }
 
+    /// Um `max-width` DEFINIDO vence o mínimo TRANSFERIDO pela razão a partir de
+    /// `min-height` (CSS Sizing 4 §5.1): `height:50; aspect-ratio:2/1;
+    /// min-height:100; max-width:100` dá 100×100 — a altura usada é 100, a razão
+    /// pede 200 de largura, e o max-width corta para 100 (WPT
+    /// `block-aspect-ratio-045`). Antes o mínimo transferido (200) vencia.
+    #[test]
+    fn max_width_definido_vence_o_minimo_transferido_pela_razao() {
+        let fonte = "<div style='background:green;height:50px;aspect-ratio:2/1;min-height:100px;max-width:100px' id='alvo'></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
+    }
+
     /// `aspect-ratio: auto <ratio>` (em qualquer ordem) parseia a razão e marca
     /// o flag `auto`; `auto` sozinho não declara razão.
     #[test]
