@@ -329,6 +329,23 @@ mod palavras_chave_intrinsecas {
         assert_eq!((s.w, s.h), (100.0, 100.0), "max-height: {s:?}");
     }
 
+    /// Uma `<canvas>` COAGE o seu tamanho natural a uma `aspect-ratio` pura:
+    /// mantém a largura e deriva a altura pela razão. Uma canvas 40×10 com
+    /// `aspect-ratio:1` fica 40×40, e com `box-sizing:border-box` e `padding`
+    /// 60 a caixa é 100×100 (WPT `replaced-element-045`); uma 10×40 fica 10×10.
+    #[test]
+    fn canvas_coage_tamanho_natural_a_aspect_ratio() {
+        let a = "<canvas width='40' height='10' style='aspect-ratio:1;background:green;padding-right:60px;padding-bottom:60px;box-sizing:border-box' id='c'></canvas>";
+        let (d, l) = geometria(a, 1280.0);
+        let c = rect(&d, &l, "canvas", 0);
+        assert_eq!((c.w, c.h), (100.0, 100.0), "40x10: {c:?}");
+
+        let b = "<canvas width='10' height='40' style='aspect-ratio:1;background:green;padding-right:90px;padding-bottom:90px;box-sizing:border-box' id='c'></canvas>";
+        let (d, l) = geometria(b, 1280.0);
+        let c = rect(&d, &l, "canvas", 0);
+        assert_eq!((c.w, c.h), (100.0, 100.0), "10x40: {c:?}");
+    }
+
     /// `aspect-ratio: auto 5/1` num `<object>` svg PREFERE a razão natural — o
     /// `viewBox='0 0 1 1'` DENTRO do data-URI (1:1), não o 5/1 de reserva — por
     /// isso `width:100px` dá 100×100, não 100×20 (WPT `replaced-element-020`).
