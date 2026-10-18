@@ -78,6 +78,14 @@ pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u
                 continue;
             }
         }
+        // A getter run for an earlier key may have deleted or hidden this one;
+        // the spec asks the descriptor again per key and skips it if gone.
+        if !filter && !super::super::object_proto::still_enumerable(object, name) {
+            if super::super::throw::in_flight() {
+                return;
+            }
+            continue;
+        }
         visit(name);
         if super::super::throw::in_flight() {
             return;
@@ -117,8 +125,15 @@ pub(super) extern "C" fn assign(
             // source runs and a setter on the target runs — which is what
             // `assign` does and what a slot-to-slot copy would have skipped.
             let value = super::super::computed::get_indexed(source, name);
+            // A throwing getter aborts the copy before this key is written.
+            if super::super::throw::in_flight() {
+                return;
+            }
             super::super::computed::set_indexed(target, name, value, 0 /* strict: um native que escreve reporta a recusa */);
         });
+        if super::super::throw::in_flight() {
+            return target;
+        }
         // `own_keys` never reports a symbol — it is the string enumeration,
         // and a symbol has no string spelling for it to report — so a
         // `[sym]: v` entry used to vanish across `Object.assign` and spread

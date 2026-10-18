@@ -567,6 +567,33 @@ pub(super) fn owns(this: u64, key: u64) -> bool {
 /// answer `false` for every symbol-keyed property in the program, including
 /// `Map.prototype`'s own. `ToPropertyKey` says the symbol case comes first
 /// precisely because it is not a conversion: a symbol already IS a key.
+/// Whether `key` is STILL an own, enumerable property of `object` — the
+/// per-key re-check `EnumerableOwnProperties` does before each read, so a getter
+/// that deletes or hides a later key makes that key vanish from the result.
+///
+/// Conservative: anything that is not a plain cell (a primitive string source,
+/// say) answers `true`, because the key list was built from it moments ago.
+pub(in crate::entry) fn still_enumerable(object: u64, key: u64) -> bool {
+    // A boxed primitive keeps its units outside the cell storage `owns` reads
+    // (`new String("hi").hasOwnProperty("0")` is a separate known gap), so it is
+    // exempt rather than wrongly emptied.
+    if super::inspect_facts::boxed_primitive(object).is_some() {
+        return true;
+    }
+    if Value(object).as_slot().is_none() || !owns(object, key) {
+        return Value(object).as_slot().is_none();
+    }
+    with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return true;
+        };
+        match own_key(context, key) {
+            Some(Key::Name(machine)) => super::integrity::enumerable(context, cell, machine),
+            _ => true,
+        }
+    })
+}
+
 fn own_key(context: &mut Context, key: u64) -> Option<Key> {
     if let Some(text) = super::symbol::key_text_of(context, key) {
         let text = crate::text::Str::from_str(&text);
