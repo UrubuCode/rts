@@ -188,6 +188,21 @@ pub fn all() -> Vec<Fixture> {
             build: build_field_read,
         },
         Fixture {
+            name: "fr_single_sel",
+            about: "field read, Single, run-time reference",
+            build: build_field_read_single_select,
+        },
+        Fixture {
+            name: "fr_shard_const",
+            about: "field read, Sharded(2), constant reference",
+            build: build_field_read_sharded_const,
+        },
+        Fixture {
+            name: "fr_shard_sel",
+            about: "field read, Sharded(2), run-time reference",
+            build: build_field_read_sharded_select,
+        },
+        Fixture {
             name: "widen_narrow",
             about: "a value made generic and proven back, as instructions",
             build: build_widen_narrow,
@@ -359,6 +374,116 @@ fn build_field_read(types: &mut TypeRegistry, _funcs: &mut FuncRegistry) -> Buil
         heap: Some(heap),
         callee: None,
     }
+}
+
+/// Which addressing a field-read fixture runs under, and whether its reference
+/// is a constant (everything folds but the loads) or chosen at run time.
+#[derive(Clone, Copy)]
+enum ReadShape {
+    SingleSelect,
+    ShardedConst,
+    ShardedSelect,
+}
+
+/// Field read under Single vs Sharded addressing (plan 15 stage 0).
+///
+/// The `Select` forms choose between reference 0 and reference 1 on a
+/// condition that is always false but not provably so, so the address
+/// arithmetic (imul/add for Single; and/shift/table load/imul/add for Sharded)
+/// is really executed. Both references name a live object holding 1.
+fn build_field_read_shape(types: &mut TypeRegistry, shape_kind: ReadShape) -> Built {
+    let cell = types.declare(&[Repr::I64]);
+    let layout = ObjectLayout::of(cell, types);
+    let heap = match shape_kind {
+        ReadShape::SingleSelect => heap_for_n(cell, types, 2),
+        ReadShape::ShardedConst | ReadShape::ShardedSelect => heap_sharded(cell, types, 2),
+    };
+    let _ = layout;
+    let select = matches!(shape_kind, ReadShape::SingleSelect | ReadShape::ShardedSelect);
+    let signature = counted();
+    let mut func = Function::new(signature.clone());
+    let trips = entry_param(&func, 0);
+    let shape = open_loop(&mut func, types, trips, Repr::I64);
+
+    let mut b = FuncBuilder::new(&mut func, types, shape.body);
+    let ref_repr = Repr::Ref(RefKind::Aggregate(cell));
+    let object = if select {
+        let a = constant(&mut b, ref_repr, 0);
+        let c = constant(&mut b, ref_repr, 1);
+        let never = b
+            .compare(CmpOp::Eq, shape.step, trips)
+            .expect("both proven");
+        b.select(never, c, a).expect("same representation")
+    } else {
+        constant(&mut b, ref_repr, 0)
+    };
+    let value = b.field_load(object, cell, 0).expect("field exists");
+    let next = b
+        .arith(NumOp::Add, shape.accumulator, value)
+        .expect("both proven");
+    close_loop(&mut b, &shape, next);
+
+    Built {
+        func,
+        signature,
+        heap: Some(heap),
+        callee: None,
+    }
+}
+
+fn build_field_read_single_select(types: &mut TypeRegistry, _f: &mut FuncRegistry) -> Built {
+    build_field_read_shape(types, ReadShape::SingleSelect)
+}
+fn build_field_read_sharded_const(types: &mut TypeRegistry, _f: &mut FuncRegistry) -> Built {
+    build_field_read_shape(types, ReadShape::ShardedConst)
+}
+fn build_field_read_sharded_select(types: &mut TypeRegistry, _f: &mut FuncRegistry) -> Built {
+    build_field_read_shape(types, ReadShape::ShardedSelect)
+}
+
+/// A single-region heap of `count` objects, every one holding 1 in field 0.
+fn heap_for_n(ty: TypeId, types: &TypeRegistry, count: usize) -> RegionBases {
+    let layout = ObjectLayout::of(ty, types);
+    let bytes = vec![0u8; layout.size as usize * count];
+    let leaked = Box::leak(bytes.into_boxed_slice());
+    let base = leaked.as_ptr() as u64;
+    for i in 0..count {
+        unsafe {
+            let object = (base as *mut u8).add(i * layout.size as usize);
+            (object.offset(HeaderLayout::TYPE_OFFSET as isize) as *mut i64)
+                .write(ty.index() as i64);
+            let field = layout.field_offset(0).expect("one field");
+            (object.offset(field as isize) as *mut i64).write(1);
+        }
+    }
+    RegionBases::single(RegionBase::Immediate(base), layout.size)
+}
+
+/// A sharded heap: `regions` separate allocations, each with its slot 0 filled,
+/// and a leaked table of their bases. One stride for every shard.
+fn heap_sharded(ty: TypeId, types: &TypeRegistry, regions: u32) -> RegionBases {
+    let layout = ObjectLayout::of(ty, types);
+    let mut table: Vec<u64> = Vec::new();
+    for _ in 0..regions {
+        let bytes = vec![0u8; layout.size as usize * 2];
+        let leaked = Box::leak(bytes.into_boxed_slice());
+        let base = leaked.as_ptr() as u64;
+        unsafe {
+            let object = base as *mut u8;
+            (object.offset(HeaderLayout::TYPE_OFFSET as isize) as *mut i64)
+                .write(ty.index() as i64);
+            let field = layout.field_offset(0).expect("one field");
+            (object.offset(field as isize) as *mut i64).write(1);
+        }
+        table.push(base);
+    }
+    let table = Box::leak(table.into_boxed_slice());
+    RegionBases::sharded(
+        RegionBase::Immediate(table.as_ptr() as u64),
+        regions,
+        layout.size,
+    )
+    .expect("power of two")
 }
 
 /// Widening and narrowing back, which should cost almost nothing.
