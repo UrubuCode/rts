@@ -47,7 +47,8 @@ pub(in crate::entry) fn construct(
     if crate::entry::throw::in_flight() {
         return absent;
     }
-    with_current(|context| {
+    let mut failure: Option<Failure> = None;
+    let made = with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return undefined_of(context);
         };
@@ -58,14 +59,56 @@ pub(in crate::entry) fn construct(
         if let Some(over) = Value(source).as_slot()
             && let Some(bytes) = context.bytes_at(over).map(Vec::len)
         {
-            let start = super::range(bytes, offset, None).0;
-            let available = bytes - start;
+            // The specification's order: `ToIndex(byteOffset)`, then alignment,
+            // then either the whole-buffer divisibility or `ToIndex(length)`.
+            let outside = |at: f64| {
+                Failure::Range(format!("Start offset {at} is outside the bounds of the buffer"))
+            };
+            let asked_offset = offset.unwrap_or(0.0);
+            let Some(start) = super::to_index(asked_offset) else {
+                failure = Some(outside(asked_offset.trunc()));
+                return undefined_of(context);
+            };
+            if start % size != 0 {
+                failure = Some(Failure::Range(format!(
+                    "start offset of {} should be a multiple of {size}",
+                    kind_name(kind)
+                )));
+                return undefined_of(context);
+            }
             let count = match length {
-                Some(asked) => (super::as_count(asked) * size).min(available),
-                // The remainder of the buffer, rounded down to whole elements:
-                // a five-byte buffer viewed as `Int32Array` holds one element,
-                // not one and a quarter.
-                None => (available / size) * size,
+                Some(asked) => {
+                    let Some(items) = super::to_index(asked) else {
+                        failure = Some(Failure::Range(format!(
+                            "Invalid typed array length: {}",
+                            spelled(asked)
+                        )));
+                        return undefined_of(context);
+                    };
+                    match items.checked_mul(size).and_then(|span| span.checked_add(start)) {
+                        Some(end) if end <= bytes => items * size,
+                        _ => {
+                            failure = Some(Failure::Range(format!(
+                                "Invalid typed array length: {items}"
+                            )));
+                            return undefined_of(context);
+                        }
+                    }
+                }
+                None => {
+                    if bytes % size != 0 {
+                        failure = Some(Failure::Range(format!(
+                            "byte length of {} should be a multiple of {size}",
+                            kind_name(kind)
+                        )));
+                        return undefined_of(context);
+                    }
+                    if start > bytes {
+                        failure = Some(outside(start as f64));
+                        return undefined_of(context);
+                    }
+                    bytes - start
+                }
             };
             super::attach(
                 context,
@@ -107,9 +150,27 @@ pub(in crate::entry) fn construct(
                 // borrow.
                 let length = match Value(source).as_slot().and_then(|cell| context.text_at(cell)) {
                     Some(text) => crate::coerce::string_to_number(text),
-                    None => Value(source).numeric().unwrap_or(0.0),
+                    None => match Value(source).as_bool() {
+                        Some(flag) => f64::from(u8::from(flag)),
+                        None => Value(source).numeric().unwrap_or(0.0),
+                    },
                 };
-                super::as_count(length)
+                if crate::entry::bigints::digits_of(context, source).is_some() {
+                    failure = Some(Failure::Type(
+                        "Cannot convert a BigInt value to a number".to_string(),
+                    ));
+                    return undefined_of(context);
+                }
+                match super::to_index(length) {
+                    Some(count) => count,
+                    None => {
+                        failure = Some(Failure::Range(format!(
+                            "Invalid typed array length: {}",
+                            spelled(length)
+                        )));
+                        return undefined_of(context);
+                    }
+                }
             }
             false => values.len(),
         };
@@ -131,7 +192,53 @@ pub(in crate::entry) fn construct(
         super::attach(context, cell, view);
         backing.release();
         Value::from_slot(cell).bits()
-    })
+    });
+    // Raised after the borrow ends: building the error runs the program's own
+    // constructor.
+    match failure {
+        Some(Failure::Range(message)) => {
+            crate::entry::throw::range_error(&message);
+            absent
+        }
+        Some(Failure::Type(message)) => {
+            crate::entry::throw::type_error(&message);
+            absent
+        }
+        None => made,
+    }
+}
+
+/// A refusal found inside the borrow, raised once it is released.
+enum Failure {
+    Range(String),
+    Type(String),
+}
+
+/// The class name, for the messages that quote it.
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Int8 => "Int8Array",
+        Kind::Uint8 | Kind::Raw => "Uint8Array",
+        Kind::Uint8Clamped => "Uint8ClampedArray",
+        Kind::Int16 => "Int16Array",
+        Kind::Uint16 => "Uint16Array",
+        Kind::Int32 => "Int32Array",
+        Kind::Uint32 => "Uint32Array",
+        Kind::Float32 => "Float32Array",
+        Kind::Float64 => "Float64Array",
+        Kind::BigInt64 => "BigInt64Array",
+        Kind::BigUint64 => "BigUint64Array",
+    }
+}
+
+/// A rejected length as the engine spells it: whole numbers without a fraction.
+fn spelled(number: f64) -> String {
+    match number {
+        number if number.is_infinite() && number > 0.0 => "Infinity".to_string(),
+        number if number.is_infinite() => "-Infinity".to_string(),
+        number if number.is_nan() => "NaN".to_string(),
+        number => format!("{}", number.trunc()),
+    }
 }
 
 /// `t.at(i)` / `t.get(i)` — the element, or `undefined`.
@@ -292,7 +399,49 @@ fn plain_array_like(source: u64, kind: Kind) -> Option<Vec<u64>> {
     // that path is not this one's to take.
     let iterator = with_current(|context| crate::entry::symbol::well_known(context, "iterator"));
     let has_iterator = crate::entry::computed::get_indexed(source, iterator);
-    if crate::entry::throw::in_flight() || has_iterator != super::undefined() {
+    if crate::entry::throw::in_flight() {
+        return None;
+    }
+    let (collection, null, callable) = with_current(|context| {
+        let null = rts_cranelift::tags::encode(
+            rts_cranelift::tags::TAG_SINGLETON,
+            u64::from(context.singletons.null),
+        );
+        (
+            Value(source)
+                .as_slot()
+                .is_some_and(|cell| crate::entry::collections::iterated(context, cell).is_some()),
+            null,
+            crate::entry::modules::is_callable_in(context, has_iterator),
+        )
+    });
+    let present = has_iterator != super::undefined() && has_iterator != null;
+    if collection || callable {
+        // Drained through the iterator (a `Set`, a generator, ...), outside
+        // the borrow because stepping it is user code.
+        let drained = crate::entry::iterate::values_of(source);
+        if crate::entry::throw::in_flight() {
+            return None;
+        }
+        let mut held = Vec::with_capacity(drained.len());
+        for value in drained {
+            held.push(match kind.is_bigint() {
+                true => value,
+                false => {
+                    let number = crate::entry::class_support::to_number(value);
+                    if crate::entry::throw::in_flight() {
+                        return None;
+                    }
+                    Value::from_f64(number).bits()
+                }
+            });
+        }
+        return Some(held);
+    }
+    if present {
+        crate::entry::throw::type_error(
+            "TypedArray's constructor requires that the property of the first argument, items[Symbol.iterator], when exists, be a function",
+        );
         return None;
     }
     let key = with_current(|context| {
