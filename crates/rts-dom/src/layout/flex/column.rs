@@ -487,16 +487,28 @@ pub(in crate::layout) fn layout_children_column(
                     viewport_w: ctx.viewport_w,
                     viewport_h: ctx.viewport_h,
                 };
-                ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some()
+                // `flex-basis: content`/`max-content` IGNORA a `height` do item
+                // para o main (que passa a ser content-based), por isso a altura
+                // só conta se a base NÃO for de conteúdo (WPT
+                // `percentage-heights-016/017/018`: `flex:1 1 content; height:100`
+                // → o neto `height:100%` é `auto`).
+                let fb_content = matches!(
+                    ccss.flex_basis,
+                    Some(crate::style::Dimension::MaxContent | crate::style::Dimension::MinContent | crate::style::Dimension::FitContent)
+                );
+                let fb_definite = ccss.flex_basis.and_then(|b| crate::style::dimensao_absoluta(b, &r)).is_some();
+                // `min-height` só fixa o main quando é um comprimento > 0 (um
+                // `min-height:0` não constrange nada).
+                let min_h_definite = ccss.min_height
+                    .and_then(|m| crate::style::dimensao_absoluta(m, &r))
+                    .is_some_and(|v| v > 0.0);
+                (!fb_content && ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some())
                     || ccss.aspect_ratio.is_some()
                     // `flex-basis` ABSOLUTO dá um main definido (WPT
-                    // `percentage-heights-007`: `flex: 0 0 100px` → o filho
-                    // `height:100%` vê um CB de 100, não `auto`).
-                    || ccss.flex_basis.and_then(|b| crate::style::dimensao_absoluta(b, &r)).is_some()
-                    // `min-height` ABSOLUTO idem num item de flex (Flexbox §4.1):
-                    // `min-block-size:100px` fixa o main em ≥100, definido para o
-                    // filho `height:100%` (WPT `percentage-heights-019`).
-                    || ccss.min_height.and_then(|m| crate::style::dimensao_absoluta(m, &r)).is_some()
+                    // `percentage-heights-007`: `flex: 0 0 100px`).
+                    || fb_definite
+                    // `min-height` ABSOLUTO > 0 idem (WPT `percentage-heights-019`).
+                    || min_h_definite
             };
             let avail = (own_definite || container_content_h.is_some()).then_some(it.h);
             let forced_h = Some(it.h);
