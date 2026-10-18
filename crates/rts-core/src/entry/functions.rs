@@ -1213,6 +1213,11 @@ pub(in crate::entry) fn constructible(
             return constructible(context, target, depth + 1)
                 .map(|_| named_refusal(context, cell));
         }
+        // `Proxy` is constructible yet has NO `prototype` (so `instanceof Proxy`
+        // throws); it is the one built-in the own-`prototype` rule misses.
+        if is_proxy_constructor(context, cell) {
+            return None;
+        }
         let key = context.well_known("prototype");
         if super::objects::own_property(context, cell, key).is_some() {
             return None;
@@ -1229,6 +1234,15 @@ pub(in crate::entry) fn constructible(
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| "anonymous".to_owned());
     Some(format!("{spelled} is not a constructor"))
+}
+
+/// Whether this cell is the `Proxy` constructor: constructible, but with no
+/// `prototype` property, so the own-`prototype` test cannot recognise it.
+fn is_proxy_constructor(context: &Context, cell: u32) -> bool {
+    context
+        .classes
+        .iter()
+        .any(|entry| entry.name == "Proxy" && Value(entry.made).as_slot() == Some(cell))
 }
 
 fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
@@ -1728,7 +1742,7 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
             // `newTarget` of `Reflect.construct(Other, [], bound)` there is no
             // substitution: `bound.prototype` is `undefined` and the default
             // applies.
-            if Value(target).as_slot() != Value(callee).as_slot() {
+            if Value(target).as_slot() != Value(callee).as_slot() || is_proxy_constructor(context, resolved) {
                 break Value(undefined_of(context));
             }
             let next = context

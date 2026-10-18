@@ -76,6 +76,12 @@ impl Proxy {
     /// where the traps are.
     #[construct]
     fn build(this: u64, target: u64, handler: u64) -> u64 {
+        // Under `new` the machine hands a fresh cell as `this`; a plain call
+        // does not.
+        if Value(this).as_slot().is_none() {
+            super::throw::type_error("Constructor Proxy requires 'new'");
+            return absent();
+        }
         if !objects_only(target, handler) {
             return absent();
         }

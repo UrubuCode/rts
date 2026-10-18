@@ -159,7 +159,26 @@ pub(in crate::entry) fn supply(
             "JSON" => super::json::register_json(context),
             "Date" => super::date::register_date(context),
             "Generator" => super::generator::register(context),
-        "Proxy" => super::proxy::register_proxy(context),
+        "Proxy" => {
+                let made = super::proxy::register_proxy(context);
+                // `Proxy` has no `prototype` property: `instanceof Proxy` throws.
+                if let Some(cell) = Value(made).as_slot()
+                    && let Key::Name(machine) = context.well_known("prototype")
+                {
+                    super::integrity::set_attributes(
+                        context,
+                        cell,
+                        machine,
+                        super::integrity::Attributes {
+                            writable: true,
+                            enumerable: false,
+                            configurable: true,
+                        },
+                    );
+                    super::computed::remove_own(context, cell, machine);
+                }
+                made
+            }
         "Map" => super::collections::register_map(context),
             "Set" => super::collections::register_set(context),
             "Buffer" => super::buffer::register_buffer_with_aliases(context),
