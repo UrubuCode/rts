@@ -251,6 +251,23 @@ pub(crate) fn replaced_inline_size(
             }
             _ => None,
         });
+    // A `<canvas>` COERCES its intrinsic size to a declared `aspect-ratio`
+    // (HTML §4.12.5 / CSS Sizing 4): it keeps its width and derives its height
+    // from the ratio, so a `40×10` canvas with `aspect-ratio:1` is
+    // intrinsically 40×40 and a `10×40` one is 10×10 (WPT `replaced-element-045`
+    // /`-046`). This is the canvas's own size, so it applies whatever the box
+    // sizing — unlike the `declarada` override below, which the border-box case
+    // skips. Only the pure `<ratio>` form; `auto <ratio>` keeps the attributes'
+    // ratio. An `<img>` is untouched: its natural size stays as the pixels say
+    // (013/014).
+    let ratio = match (is_canvas, ratio) {
+        (true, Some((rw, _))) => css
+            .aspect_ratio
+            .filter(|r| *r > 0.0 && r.is_finite() && css.aspect_ratio_auto != Some(true))
+            .map(|r| (rw, rw / r))
+            .or(ratio),
+        _ => ratio,
+    };
     // A propriedade CSS `aspect-ratio` (quando presente como `<ratio>` puro —
     // `auto W/H` nem parseia hoje) SOBREPÕE a razão natural/dos-atributos para
     // o replaced (CSS Sizing 4 §5): um `<img height:100; aspect-ratio:1/2>` é
