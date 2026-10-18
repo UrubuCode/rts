@@ -212,6 +212,7 @@ fn grid_content_width(
                 }
             },
             &mut wmin,
+            true, // min-content: flexible tracks keep their base (CSS Grid §11.5)
         );
     } else {
         super::distribute::distribute_spanning_slice(
@@ -223,6 +224,7 @@ fn grid_content_width(
             |c| super::subgrid::is_subgrid_node(dom, c.child, container_wm).0,
             |c| item_w(c),
             &mut wmax,
+            false, // max-content: flexible tracks still participate
         );
     }
 

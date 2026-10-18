@@ -181,3 +181,26 @@ fn debug_percentage_sizes_001_to_003() {
         }
     }
 }
+
+/// CSS Grid §11.5: under a MIN-content constraint (`width:min-content`) a
+/// flexible track spanned by an item keeps its base and is NOT grown by the
+/// item's min-content — the item overflows instead. A `1fr 30px` grid holding
+/// one `grid-column:1/span 2` item with a 300px filler is 30px of CONTENT wide
+/// (the fixed track only), not 280 (WPT `css-grid/grid-flex-spanning-items-001`).
+const SPANNING_FLEX_MIN: &str = r#"<!DOCTYPE html>
+<div id="mygrid" style="display:grid;grid-template-columns:1fr 30px;border:10px solid fuchsia;width:min-content">
+  <div id="item" style="grid-column:1 / span 2"><div style="width:300px;height:50px;background:aqua"></div></div>
+</div>"#;
+
+#[test]
+fn grid_min_content_nao_cresce_track_flexivel_com_item_spanning() {
+    let (dom, list) = geometria(SPANNING_FLEX_MIN, 1280.0);
+    let g = rect(&dom, &list, "#mygrid", 0);
+    // Border-box: 30px de conteúdo + 2×10 de borda = 50; a 1fr fica em 0 e o
+    // filler de 300px transborda a caixa.
+    assert!(
+        (g.w - 50.0).abs() < 1.0,
+        "#mygrid largura {:?}, esperado 50 (30 conteúdo + 20 borda; 1fr não cresce)",
+        g.w
+    );
+}
