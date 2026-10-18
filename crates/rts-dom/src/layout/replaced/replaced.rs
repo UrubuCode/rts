@@ -9,28 +9,46 @@ use super::*;
 /// rasterizador ainda não é um motor SVG; este recorte preserva, porém, o caso
 /// comum de fixtures e ícones de estado `data:image/svg+xml,<svg><rect
 /// fill=.../></svg>` sem inventar suporte para paths, transforms ou texto.
-fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
-    // Um `<img>` traz o SVG em `src=`; um `<object type="image/svg+xml">` em
-    // `data=` — a mesma `data:image/svg+xml,…`, lida do mesmo modo.
+/// O corpo textual de uma `data:image/svg+xml,…`, descodificado — de `src=`
+/// (`<img>`) ou `data=` (`<object type="image/svg+xml">`). Vem muitas vezes
+/// PERCENT-ENCODED (`%3Csvg…%3E`); sem descodificar, nem `<rect` nem `<svg …>`
+/// se encontram (WPT `replaced-element-004`). Descodificação mínima: só os
+/// escapes que aparecem nestes fixtures (`<`, `>`, espaço, `#`, `%`) —
+/// suficiente para ler a cor e o `viewBox`, não um descodificador de URL geral.
+fn embedded_svg_body(dom: &Dom, id: NodeIdx) -> Option<String> {
     let src = dom.node(id).attr("src").or_else(|| dom.node(id).attr("data"))?;
     let raw = src.strip_prefix("data:image/svg+xml,")?;
-    // O corpo de uma `data:image/svg+xml,…` vem muitas vezes PERCENT-ENCODED
-    // (`%3Csvg…%3E`); sem descodificar, nem `<rect` nem `<svg …>` se encontram
-    // (WPT `replaced-element-004`). Descodificação mínima: só os escapes que
-    // aparecem nestes fixtures (`<`, `>`, espaço, `#`, `%`), suficiente para
-    // achar a cor — não é um descodificador de URL geral.
-    let svg_owned;
-    let svg: &str = if raw.contains('%') {
-        svg_owned = raw
-            .replace("%3C", "<")
+    Some(if raw.contains('%') {
+        raw.replace("%3C", "<")
             .replace("%3E", ">")
             .replace("%20", " ")
             .replace("%23", "#")
-            .replace("%25", "%");
-        &svg_owned
+            .replace("%25", "%")
     } else {
-        raw
-    };
+        raw.to_string()
+    })
+}
+
+/// A razão do `viewBox` DENTRO de um SVG embutido (um `<object>`/`<img>` svg),
+/// que não tem o atributo `viewBox` no próprio nó — WPT `replaced-element-020`:
+/// `aspect-ratio: auto 5/1` tem de preferir o 1:1 do viewBox embutido.
+fn embedded_svg_viewbox_ratio(dom: &Dom, id: NodeIdx) -> Option<f32> {
+    let svg = embedded_svg_body(dom, id)?;
+    let svg_tag = svg.get(..svg.find('>')?)?;
+    let at = svg_tag.find("viewBox=")? + "viewBox=".len();
+    let quote = *svg_tag.as_bytes().get(at)?;
+    if quote != b'\'' && quote != b'"' {
+        return None;
+    }
+    let value = &svg_tag[at + 1..];
+    let vb = &value[..value.find(quote as char)?];
+    let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+    (n.len() == 4 && n[3] > 0.0).then(|| n[2] / n[3])
+}
+
+fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
+    let svg = embedded_svg_body(dom, id)?;
+    let svg: &str = &svg;
     // O valor de `nome='…'`/`nome="…"` no trecho `tag` (uma abertura de tag).
     let attr = |tag: &str, nome: &str| -> Option<String> {
         let marker = format!("{nome}=");
@@ -125,18 +143,15 @@ pub(in crate::layout) fn layout_svg_placeholder(
                 .filter(|n| *n > 0.0)
         })
     };
-    // razão de aspecto do viewBox ("0 0 W H" → W/H).
-    let vb_ratio = node.attr("viewBox").and_then(|vb| {
-        let n: Vec<f32> = vb
-            .split_whitespace()
-            .filter_map(|s| s.parse().ok())
-            .collect();
-        if n.len() == 4 && n[3] > 0.0 {
-            Some(n[2] / n[3])
-        } else {
-            None
-        }
-    });
+    // razão de aspecto do viewBox ("0 0 W H" → W/H) — do atributo próprio
+    // (`<svg>`) ou, faltando ele, de dentro do data-URI (`<object>`/`<img>`).
+    let vb_ratio = node
+        .attr("viewBox")
+        .and_then(|vb| {
+            let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+            (n.len() == 4 && n[3] > 0.0).then(|| n[2] / n[3])
+        })
+        .or_else(|| embedded_svg_viewbox_ratio(dom, id));
     let (forced_outer_w, forced_outer_h) = current_forced_replaced_size();
     let m = &css.margin;
     let (ml, mr) = (
