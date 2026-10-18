@@ -107,7 +107,7 @@ Layout and computed style measured against **Chrome/Blink** (Edge headless, 1280
 ```
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 99.9%   4525/4528 measurements matching Blink
 [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 98.8%   168/170 fixtures passing
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱] 71.8%   625/870 WPT reftests (css-flexbox) rendering test == reference
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱] 72.6%   632/870 WPT reftests (css-flexbox) rendering test == reference
 ```
 
 The WPT line is **self-consistency**, the way browsers run reftests: test and reference are both rendered by this engine and compared pixel by pixel, no browser involved (`scripts/wpt_reftests.md`). It measures coherence, not Blink parity.
@@ -121,7 +121,7 @@ The total alone says nothing about where the work is — it does not tell a bran
 ```
 subfolders of css-flexbox
   [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  56.4%   22/39     balance
-  [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  50.0%   12/24     intrinsic-size
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  66.7%   16/24     intrinsic-size
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.9%   15/19     abspos
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰] 100.0%   4/4       flex-lines
   [▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱]  25.0%   1/4       order
@@ -137,11 +137,11 @@ the 777 tests at the root, by subject
   [▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱]  62.2%   23/37     baseline
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱]  97.3%   36/37     shrink
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱]  70.6%   24/34     min-
-  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  75.0%   24/32     overflow
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.1%   25/32     overflow
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱]  76.7%   23/30     basis
   [▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱]  51.7%   15/29     table
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  78.6%   22/28     wrap
-  [▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱]  54.2%   13/24     writing-mode
+  [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  62.5%   15/24     writing-mode
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱]  90.5%   19/21     justify
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱]  80.0%   12/15     order
   [▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱]  63.6%   7/11      column
@@ -163,7 +163,7 @@ Fixtures that fail **on purpose** (each names a measured gap; `tests/css/esperad
 
 **DOM engine state** (`crates/rts-dom/PLAN.md` §0): **102/124 lots done**, 13 partial, pending: Q, U, V–Y, TEXTO, LOG, IFC, INTR, USED, borda-conflito-hidden. The paint ruler (pixels against Blink, `scripts/css_pintura.md`) needs a browser and runs locally; its last number is recorded there.
 
-*Updated 2026-10-17 by CI (`dom-rulers`).*
+*Updated 2026-10-18 by CI (`dom-rulers`).*
 <!-- CSS_DOM_STATS_END -->
 
 <!-- RTS_VS_ELECTRON_START -->
