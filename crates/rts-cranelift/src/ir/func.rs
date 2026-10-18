@@ -213,45 +213,116 @@ impl Function {
     /// value where it was defined, so it panicked on the same functions the lowering
     /// did, a stage later.
     pub fn control_order(&self) -> Vec<BlockId> {
-        let mut order = Vec::new();
+        let count = self.blocks().count();
         let mut seen = std::collections::HashSet::new();
-        // An explicit stack rather than recursion: a deeply nested body would be a
-        // stack overflow in the compiler, which is the one failure a compiler must
-        // not have.
-        let mut stack = vec![(self.entry, false)];
+        let mut order = Vec::new();
+
+        // The entry's subgraph first, in reverse postorder.
+        self.append_reverse_postorder(self.entry, &mut seen, &mut order);
+
+        // Then the dead blocks — the ones the entry cannot reach, over the same
+        // edges. They are still lowered (the backend removes them; deciding here
+        // that the program does not contain them is not this pass's call), but
+        // the ORDER they come out in used to be creation order, which does not
+        // place a definition before its uses. A dead region whose value is
+        // defined in a block created after the block that reads it lowered the
+        // read first, and `lower::body::Body::value` panicked with `no entry
+        // found for key` on a value the map had not got. (Measured on WhatsApp
+        // Web's `s8.js`: v149, defined in a dead block and read in a dead block
+        // created before it.)
+        //
+        // Each dead subgraph is walked from ITS OWN entry — a dead block no other
+        // dead block leads to — so the walk reaches a definition before the uses
+        // downstream of it, exactly as the reachable walk does. Starting instead
+        // from the lowest-numbered dead block would begin in the middle of a
+        // subgraph, leaving the block that defines what that start reads to be
+        // numbered later. Entries are taken in creation order for determinism
+        // (rule 13), and a dead cycle — no block in it is an entry — is covered
+        // by the final sweep in creation order, best effort, because no order
+        // places every definition of a cycle before its uses anyway.
+        let mut led_to_by_dead = vec![false; count];
+        for (id, _) in self.blocks() {
+            if seen.contains(&id) {
+                continue;
+            }
+            self.walk_successors(id, |successor| {
+                if successor.index() < count {
+                    led_to_by_dead[successor.index()] = true;
+                }
+            });
+        }
+        for (id, _) in self.blocks() {
+            if !seen.contains(&id) && !led_to_by_dead[id.index()] {
+                self.append_reverse_postorder(id, &mut seen, &mut order);
+            }
+        }
+        for (id, _) in self.blocks() {
+            if !seen.contains(&id) {
+                self.append_reverse_postorder(id, &mut seen, &mut order);
+            }
+        }
+        order
+    }
+
+    /// Appends the reverse postorder of the subgraph rooted at `root` to `order`,
+    /// marking every block it reaches as seen. A block already seen is skipped,
+    /// so calling this for several roots numbers each subgraph once.
+    fn append_reverse_postorder(
+        &self,
+        root: BlockId,
+        seen: &mut std::collections::HashSet<BlockId>,
+        order: &mut Vec<BlockId>,
+    ) {
+        if seen.contains(&root) {
+            return;
+        }
+        // An explicit stack rather than recursion: a deeply nested body would be
+        // a stack overflow in the compiler, which is the one failure a compiler
+        // must not have.
+        let mut postorder = Vec::new();
+        let mut stack = vec![(root, false)];
         while let Some((id, expanded)) = stack.pop() {
             if expanded {
-                order.push(id);
+                postorder.push(id);
                 continue;
             }
             if !seen.insert(id) {
                 continue;
             }
             stack.push((id, true));
-            if let Some(block) = self.block(id)
-                && let Some(terminator) = &block.terminator
-            {
-                for successor in terminator.successors() {
-                    stack.push((successor, false));
-                }
+            self.walk_successors(id, |successor| stack.push((successor, false)));
+        }
+        postorder.reverse();
+        order.extend(postorder);
+    }
+
+    /// Calls `f` for every block control may reach from `id`: the terminator's
+    /// successors, and — because a throw leaves through no terminator — the
+    /// handlers, cleanup and resumption point of every region around it. This is
+    /// the edge set the order follows, so a value a handler or a cleanup reads is
+    /// defined before it in the order, which is what lowering and
+    /// `frame::transform` both depend on.
+    fn walk_successors(&self, id: BlockId, mut f: impl FnMut(BlockId)) {
+        if let Some(block) = self.block(id)
+            && let Some(terminator) = &block.terminator
+        {
+            for successor in terminator.successors() {
+                f(successor);
             }
-            if let Some(region) = self.region_of(id) {
-                for (_, around) in self.regions.enclosing(region) {
-                    let exceptional = around
-                        .handlers
-                        .iter()
-                        .map(|handler| handler.block)
-                        .chain(around.cleanup)
-                        .chain(around.resume_return);
-                    for successor in exceptional {
-                        stack.push((successor, false));
-                    }
+        }
+        if let Some(region) = self.region_of(id) {
+            for (_, around) in self.regions.enclosing(region) {
+                for handler in &around.handlers {
+                    f(handler.block);
+                }
+                if let Some(cleanup) = around.cleanup {
+                    f(cleanup);
+                }
+                if let Some(resume_return) = around.resume_return {
+                    f(resume_return);
                 }
             }
         }
-        order.reverse();
-        order.extend(self.blocks().map(|(id, _)| id).filter(|id| !seen.contains(id)));
-        order
     }
 
     /// Which region protects a block, if any.
@@ -399,6 +470,38 @@ mod tests {
             repr: Repr::I64,
             bits: ScalarBits(0),
         }
+    }
+
+    #[test]
+    fn dead_code_is_ordered_so_a_definition_precedes_its_uses() {
+        // A block nothing reaches is still lowered, and the order it comes out in
+        // has to place a definition before the blocks that read it — the same
+        // property the reachable part has. Ordering dead blocks by creation
+        // order did not: here the block that would DEFINE a value (`def`) is
+        // created after the block that would READ it (`use_block`), and the two
+        // are a dead subgraph `def -> use_block`. Creation order lists `use_block`
+        // first; `control_order` must list `def` first, because `def` leads to
+        // `use_block` and nothing leads to `def`. Lowering a `use` before its
+        // `def` is the WhatsApp `s8.js` panic this pins.
+        let mut func = empty();
+        let entry = func.entry;
+
+        // The reachable part is just the entry returning, so everything else is
+        // dead. `use_block` is created before `def` to invert their ids against
+        // the control flow between them.
+        let use_block = func.push_block();
+        let def = func.push_block();
+        func.set_terminator(entry, Terminator::Return(vec![]));
+        func.set_terminator(def, Terminator::Jump(crate::ir::BlockCall::to(use_block)));
+        func.set_terminator(use_block, Terminator::Return(vec![]));
+
+        let order = func.control_order();
+        let position = |block: BlockId| order.iter().position(|&b| b == block);
+        assert!(
+            position(def) < position(use_block),
+            "the defining block must be lowered before the block it leads to, \
+             even when both are dead and the definer was created later: {order:?}"
+        );
     }
 
     #[test]

@@ -613,3 +613,65 @@ fn a_cleanup_of_several_blocks_is_copied_whole() {
         "and the arm the cleanup's own branch chose is the one that ran"
     );
 }
+
+#[test]
+fn a_cleanup_copy_emits_a_definition_before_its_use_regardless_of_block_id() {
+    // The copy of a cleanup is lowered in the piece's own order, so a value
+    // defined in one of its blocks and read in another has to come out before
+    // the read. When the defining block was created AFTER the reading one — a
+    // `finally` whose body has its own control flow — ordering the copy by
+    // block id put the read first, and lowering panicked with `no entry found
+    // for key`. Measured on WhatsApp Web (`s8.js`): a call result defined in
+    // `block105` was read in `block13`, and the copy emitted `block13` first.
+    //
+    // Here `def_block` is created after `use_block`, so their ids invert the
+    // control order the piece actually runs in. The cleanup must still record
+    // the value its own later block computed.
+    let _serial = reset();
+    let types = TypeRegistry::new();
+
+    let mut func = Function::new(Signature {
+        params: vec![Repr::Tagged],
+        returns: vec![Repr::Tagged],
+        ..Signature::default()
+    });
+    let value = param(&func, 0);
+    let entry = func.entry;
+
+    let mut b = FuncBuilder::new(&mut func, &types, entry);
+    let cleanup = b.create_block(); // the piece's entry
+    let use_block = b.create_block(); // reads the value — created BEFORE the block that defines it
+    let def_block = b.create_block(); // defines the value — the id inversion
+    b.open_region(vec![], Some(cleanup));
+    b.ret(&[value]);
+
+    // The piece enters at the definition.
+    let mut b = FuncBuilder::new(&mut func, &types, cleanup);
+    b.jump(def_block, &[]).expect("a jump");
+
+    // Defines the value, then hands control to the block created before it.
+    let mut b = FuncBuilder::new(&mut func, &types, def_block);
+    let marker = b.declare_const(ConstDecl::Scalar {
+        repr: Repr::Tagged,
+        bits: ScalarBits(42),
+    });
+    let marker = b.use_const(marker);
+    b.jump(use_block, &[]).expect("a jump");
+
+    // Reads what the later block defined, records it, and ends the cleanup.
+    let mut b = FuncBuilder::new(&mut func, &types, use_block);
+    let promise = b.promise_new();
+    b.promise_settle(promise, marker, false);
+    b.cleanup_done();
+
+    assert_eq!(verify(&func, &types, &FuncRegistry::new()), vec![]);
+
+    let address = compile("inverted_cleanup", &[Repr::Tagged], &[Repr::Tagged], &func);
+    let run: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(address) };
+    assert_eq!(run(99), 99, "the value still returns past the finally");
+    assert_eq!(
+        trace(),
+        vec![42],
+        "the finally recorded the value its own later-created block computed"
+    );
+}

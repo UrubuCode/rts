@@ -158,4 +158,35 @@ function __instalaInterfaces(alvo: any): void {
   alvo.Promise = Promise;
   alvo.JSON = JSON;
   alvo.Math = Math;
+  // A free-name global that is NOT a property of `globalThis` (so the mirror
+  // loop below, which reads `globalThis[...]`, cannot see it): assigned from the
+  // free name directly, which resolves through the scope chain.
+  alvo.structuredClone = structuredClone;
+  // Web-platform globals that live on `globalThis` but that nothing above put
+  // on the window. The free NAME `crypto` resolved (the scope chain falls
+  // through to `globalThis`), but `self.crypto`/`window.crypto` — how a page's
+  // feature detection reads them — found `undefined`, because `window` is a
+  // `WindowImpl` instance, a different object from the one a free name resolves
+  // against. Measured on WhatsApp Web: `self.crypto` (and its `subtle`),
+  // `self.performance`, `self.fetch`, `self.URL`, `self.WebAssembly` and the
+  // rest were all `undefined` while the bare names worked. Same defect the
+  // ECMAScript constructors above already fix, for the next tier of globals.
+  //
+  // Read through `globalThis[...]` — a member access, which answers `undefined`
+  // for one not installed — rather than as free names, so a build missing one
+  // still compiles here and simply does not mirror it, instead of the whole
+  // module being refused for naming an absent global.
+  const g: any = globalThis;
+  const aEspelhar: string[] = [
+    "crypto", "performance", "fetch", "Request", "Response", "Headers",
+    "URL", "URLSearchParams", "Blob", "WebAssembly", "MessageChannel",
+    "structuredClone", "TextEncoder", "TextDecoder", "AbortController",
+    "AbortSignal", "Event", "EventTarget", "CustomEvent",
+  ];
+  let k = 0;
+  while (k < aEspelhar.length) {
+    const nome = aEspelhar[k];
+    if (typeof g[nome] !== "undefined") { alvo[nome] = g[nome]; }
+    k = k + 1;
+  }
 }

@@ -132,42 +132,59 @@ impl Body<'_> {
     /// is actually reachable — and the copy would then omit a block the
     /// original reaches.
     fn cleanup_piece(&self, entry: BlockId) -> Result<Vec<BlockId>, LowerError> {
-        let mut order = Vec::new();
-        // `seen` is a membership index beside `order`, not a replacement for
-        // it: `order.contains(&id)` was a linear scan of a `Vec` that grows
-        // with every block already collected, O(n^2) in the blocks of one
-        // cleanup — the same shape as `verify::rules::cleanup_piece`, which
-        // this mirrors and which carries the full measurement (60
-        // `try`/`finally`, 29.32 ms). Sound under rule 13 for the same reason
-        // as there: `order` is sorted below before it is ever read, so which
-        // order the worklist visited blocks in — and hash order along with
-        // it — is never observed.
+        // Reverse postorder from the entry, and NOT block-id order.
+        //
+        // The copy is lowered in exactly this order, so a value defined in one
+        // block of the piece and read in another must come out before its use.
+        // Sorting by `BlockId` did not guarantee that: a `finally` whose body
+        // has its own control flow can run from a higher-numbered block to a
+        // lower-numbered one — a call defines its result in a block created late
+        // and a later branch reads it in a block created early — and the copy
+        // then emitted the use before the definition, so `Body::value` found no
+        // entry for the value and the compiler panicked. (Measured on WhatsApp
+        // Web's `s8.js`: v133, a call result, defined in `block105` and read in
+        // `block13`.) RPO places every block after the ones that dominate it, so
+        // a definition is always emitted before its uses — which is the order
+        // `Function::control_order` lowers the function as a whole in, and the
+        // reason the ORIGINAL cleanup blocks lowered correctly while their copy
+        // did not.
+        //
+        // Deterministic for rule 13 the way `control_order` is: an explicit
+        // stack rather than recursion (a deep `finally` must not overflow the
+        // compiler's stack), successors pushed in terminator order, postorder
+        // reversed. `seen` is the membership index; which order the worklist
+        // visited blocks in is never observed because the postorder is what is
+        // kept. A guard and an inline cache are branches too, so every successor
+        // is followed, not the two obvious ones — a piece that followed only
+        // jumps would stop at the first arithmetic on unproven operands, which
+        // is most cleanups. `CleanupDone` has no successors, so the walk stops
+        // at the piece's exits on its own.
+        let mut postorder = Vec::new();
         let mut seen: HashSet<BlockId> = HashSet::new();
-        let mut queue = vec![entry];
-        while let Some(id) = queue.pop() {
+        let mut stack = vec![(entry, false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                postorder.push(id);
+                continue;
+            }
             if !seen.insert(id) {
                 continue;
             }
-            order.push(id);
+            stack.push((id, true));
             let data = self
                 .func
                 .block(id)
                 .ok_or(LowerError::UnterminatedBlock { block: id })?;
-            // Every successor, not the two obvious ones. A guard and an inline
-            // cache are branches too, so a piece that followed only jumps would
-            // stop at the first arithmetic on unproven operands -- which is
-            // most cleanups.
             if let Some(terminator) = &data.terminator {
-                queue.extend(terminator.successors());
+                for successor in terminator.successors() {
+                    if !seen.contains(&successor) {
+                        stack.push((successor, false));
+                    }
+                }
             }
         }
-        // Sorted so the copy is emitted in the function's own block order. Rule
-        // 13: the same input has to produce the same output, and a traversal
-        // order that depended on which branch was pushed last would not.
-        order.sort();
-        let at = order.iter().position(|&id| id == entry).unwrap_or(0);
-        order.swap(0, at);
-        Ok(order)
+        postorder.reverse();
+        Ok(postorder)
     }
 
     /// Ends one block of a cleanup copy.
