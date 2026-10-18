@@ -137,6 +137,7 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
     match d {
         Dimension::Px(v) => fmt_px(v),
         Dimension::Percent(p) => format!("{p}%"),
+        Dimension::Stretch => "stretch".into(),
         Dimension::Em(v) => format!("{v}em"),
         Dimension::Rem(v) => format!("{v}rem"),
         Dimension::Vw(v) => format!("{v}vw"),

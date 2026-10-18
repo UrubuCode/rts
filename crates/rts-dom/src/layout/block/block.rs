@@ -399,7 +399,12 @@ pub(crate) fn layout_block(
         // manda a spec — e neste elemento o `max-width:200px` da mesma regra NÃO
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
-        let base = if css.width == Some(crate::style::Dimension::MaxContent) {
+        let base = if css.width == Some(crate::style::Dimension::Stretch) {
+            // `width: stretch` (CSS Sizing 4): PREENCHE o disponível, mesmo num
+            // contexto shrink-to-fit (float/abspos/inline-block) onde `auto`
+            // encolheria. Num bloco em fluxo normal coincide com o `auto`.
+            (avail_w - frame).max(0.0)
+        } else if css.width == Some(crate::style::Dimension::MaxContent) {
             crate::layout::flex::column_wrap_width::max_content_width(
                 dom,
                 id,
@@ -658,6 +663,11 @@ pub(crate) fn layout_block(
             let mv = margin_top + margin_bottom;
             (oh - mv - frame_v).max(0.0)
         })
+    } else if css.height == Some(crate::style::Dimension::Stretch) {
+        // `height: stretch` (CSS Sizing 4): PREENCHE a altura do containing
+        // block (quando definida) em vez de ser o conteúdo — o análogo vertical
+        // do `width:stretch`. `avail_h` já é o content-box do pai.
+        avail_h.map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
     } else {
         resolve_height(css.height, avail_h, &resolve)
             .map(|h| {

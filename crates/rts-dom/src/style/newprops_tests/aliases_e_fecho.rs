@@ -263,3 +263,13 @@ fn backdrop_filter_e_recusa_medida_e_nao_lista_de_afazeres() {
     // e o `filter` normal NÃO é recusa — é do agente do paint, e está implementado.
     assert!(!is_inert("filter"));
 }
+
+// `stretch` / `-webkit-fill-available` (CSS Sizing 4) parseiam como keyword de
+// dimensão própria (resolve tarde, no layout). Antes caíam no `None` e a
+// declaração era descartada.
+#[test]
+fn stretch_e_fill_available_parseiam_como_dimensao() {
+    use crate::style::Dimension;
+    assert_eq!(parse_inline("width:stretch").width, Some(Dimension::Stretch));
+    assert_eq!(parse_inline("height:-webkit-fill-available").height, Some(Dimension::Stretch));
+}

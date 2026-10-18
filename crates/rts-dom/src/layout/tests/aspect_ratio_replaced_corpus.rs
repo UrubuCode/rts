@@ -238,3 +238,17 @@ fn block_auto_width_comes_from_the_ratio_when_height_is_definite() {
     let (dom, list) = geometria(html, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
 }
+
+/// `width: stretch` fills the containing block even in a shrink-to-fit context
+/// (a float, where `auto` would shrink to content), and `height: stretch` fills
+/// the container's definite height (CSS Sizing 4; WPT `css-sizing/stretch/*`).
+#[test]
+fn stretch_keyword_fills_available_size() {
+    use crate::table::tests::geometria;
+    let w = r#"<body style="margin:0"><div style="width:200px"><div id="t" style="float:left;width:stretch;height:10px"></div></div></body>"#;
+    let (dom, list) = geometria(w, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 200.0, "float width:stretch preenche, não encolhe");
+    let h = r#"<body style="margin:0"><div style="height:100px"><div id="t" style="height:stretch;width:10px"></div></div></body>"#;
+    let (dom, list) = geometria(h, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "height:stretch preenche a altura do pai");
+}
