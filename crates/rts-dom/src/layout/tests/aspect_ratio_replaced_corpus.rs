@@ -189,3 +189,23 @@ fn css_aspect_ratio_on_replaced_overrides_and_transfers() {
     let (dom, list) = geometria(html, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (50.0, 100.0));
 }
+
+/// A NON-replaced block with `aspect-ratio` and auto height: the ratio gives
+/// the preferred height, but the content's min-content height is a floor (the
+/// aspect-ratio minimum, CSS Sizing 4 §5.1) when `min-height:auto` and overflow
+/// is visible — `width:100;aspect-ratio:2/1` with a 100px child is 100 tall,
+/// not the ratio's 50 (WPT `block-aspect-ratio-009`). `overflow:hidden` (or
+/// auto/scroll) disables the floor: the content is clipped and the ratio wins
+/// (WPT `block-aspect-ratio-010`/`-011`/`-012`).
+#[test]
+fn block_aspect_ratio_floored_by_content_unless_overflow_clips() {
+    use crate::table::tests::geometria;
+    let floors = r#"<body style="margin:0"><div id="t" style="width:100px;aspect-ratio:2/1">
+      <div style="height:100px"></div></div></body>"#;
+    let (dom, list) = geometria(floors, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "conteúdo pisa a razão");
+    let clips = r#"<body style="margin:0"><div id="t" style="width:100px;aspect-ratio:1/1;overflow:hidden">
+      <div style="height:500px"></div></div></body>"#;
+    let (dom, list) = geometria(clips, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "overflow:hidden => razão vence, conteúdo cortado");
+}

@@ -984,24 +984,40 @@ pub(crate) fn layout_block(
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
     // mesmo que o conteúdo seja menor) — já resolvido antes dos filhos.
     //
-    // EXCEÇÃO para um out-of-flow com `aspect-ratio` e SEM `height`: aí
-    // `explicit_content_h` é a altura DA RAZÃO (não um `height` real), e a
-    // min-height:auto de um abspos é a min-content do conteúdo — que portanto
-    // a PISA, não é sobrescrita (CSS Sizing 4 §5.1 "aspect-ratio minimum", WPT
-    // `css-sizing/aspect-ratio/abspos-012`: `width:100;aspect-ratio:2/1` com um
-    // filho de 100px de altura é 100 de alto, não os 50 da razão). Gatado a
-    // out-of-flow: um item de grid/flex nunca entra aqui, e um bloco comum tem
-    // min-height:auto = 0 (a razão vence, o conteúdo transborda).
+    // EXCEÇÃO com `aspect-ratio` e SEM `height`: aí `explicit_content_h` é a
+    // altura DA RAZÃO (não um `height` real), e a min-content do conteúdo é um
+    // PISO sobre ela (a "aspect-ratio minimum" do CSS Sizing 4 §5.1, que vale
+    // quando `min-height:auto`) — não é sobrescrita. `width:100;aspect-ratio:
+    // 2/1` com um filho de 100px é 100 de alto, não os 50 da razão, tanto num
+    // abspos (WPT `abspos-012`) como num BLOCO comum (WPT
+    // `block-aspect-ratio-009`): a razão dá o tamanho PREFERIDO, o conteúdo
+    // cresce-o. Excluídos os itens de FLEX/GRID — a altura deles vem do
+    // contentor, não desta transferência.
+    let parent_is_flex_or_grid = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .and_then(|pcss| pcss.effective_display())
+        .is_some_and(|d| d.is_flex_container() || d.is_grid_container());
+    // `overflow` não-visível (hidden/auto/scroll) DESLIGA o piso automático: o
+    // conteúdo que não cabe é cortado/rolado, a razão vence (mesma regra que
+    // `flex::limits::automatic_min`; WPT `block-aspect-ratio-010`/`-011`/`-012`,
+    // `overflow:hidden|auto|scroll` com filho de 600px continua 100 de alto).
+    // `Clip` conta como visível aqui (não é scroll container), como lá.
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let eixo_visivel = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    let overflow_visivel = eixo_visivel(css.overflow_x) && eixo_visivel(css.overflow_y);
     let content_h = match explicit_content_h {
         Some(e)
-            if css.position.is_some_and(|p| p.out_of_flow())
-                && css.height.is_none()
+            if css.height.is_none()
                 && css.aspect_ratio.is_some()
                 // só com `min-height: auto`: um `min-height` DECLARADO (mesmo
                 // `0`) é o mínimo e desliga o piso automático, deixando a razão
                 // vencer e o conteúdo transbordar (WPT `abspos-018`,
                 // `min-height:0` com filho de 200px continua 100 de alto).
-                && css.min_height.is_none() =>
+                && css.min_height.is_none()
+                && !parent_is_flex_or_grid
+                && overflow_visivel =>
         {
             e.max(content_h)
         }
