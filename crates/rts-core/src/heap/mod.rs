@@ -54,12 +54,14 @@
 mod aside;
 mod cursor;
 mod region;
+mod registry;
 mod runs;
 mod slab;
 
 pub use aside::Aside;
 pub use cursor::Cursor;
 pub use region::{GROWTH_CEILING, INLINE_SLOTS, Region, STRIDE};
+pub use registry::{BASE_REGION, DEFAULT_REGISTRY_CAPACITY, RegionRegistry};
 pub use runs::Runs;
 pub(crate) use region::Opened;
 pub use slab::{Handle, Slab, Slot, Stale};
