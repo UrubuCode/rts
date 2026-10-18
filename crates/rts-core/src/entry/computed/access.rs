@@ -194,6 +194,17 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         return value;
     }
+    // A typed array's element store coerces first (ToNumber / ToBigInt), here
+    // and outside the borrow because that can run user code; a throw leaves the
+    // element as it was. The expression still answers the original `value`.
+    let original = value;
+    let value = match super::super::buffers::store_kind(object) {
+        Some(kind) => match super::super::buffers::coerce_for_store(value, kind) {
+            Some(coerced) => coerced,
+            None => return original,
+        },
+        None => value,
+    };
     let mut refusal: Option<String> = None;
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
@@ -314,7 +325,7 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
     });
     if let Some(refusal) = refusal {
         super::super::throw::type_error(&refusal);
-        return value;
+        return original;
     }
     match setter {
         Some(Store::Setter(setter)) => {
@@ -333,6 +344,6 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         Some(Store::Direct) | None => {}
     }
-    value
+    original
 }
 

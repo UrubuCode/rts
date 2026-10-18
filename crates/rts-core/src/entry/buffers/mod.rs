@@ -622,6 +622,80 @@ pub(in crate::entry) fn indexed_set(
     true
 }
 
+/// The kind of the non-raw typed-array view `object` is, if it is one.
+pub(in crate::entry) fn store_kind(object: u64) -> Option<Kind> {
+    super::with_current(|context| {
+        let cell = Value(object).as_slot()?;
+        let view = context.view_at(cell)?;
+        (view.kind != Kind::Raw).then_some(view.kind)
+    })
+}
+
+/// The element-store coercion, run OUTSIDE every borrow because it can run user
+/// code: `ToNumber` for a numeric kind, `ToBigInt` for a bigint one. Answers the
+/// value to store (a double or a bigint), or `None` when it threw — the throw is
+/// in flight and the element must be left alone.
+pub(in crate::entry) fn coerce_for_store(value: u64, kind: Kind) -> Option<u64> {
+    if !kind.is_bigint() {
+        if Value(value).numeric().is_some() {
+            return Some(value);
+        }
+        let number = super::class_support::to_number(value);
+        if super::throw::in_flight() {
+            return None;
+        }
+        return Some(Value::from_f64(number).bits());
+    }
+    let primitive = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
+    if super::throw::in_flight() {
+        return None;
+    }
+    // Ok(value) | Err((is_syntax, message))
+    let verdict: Result<u64, (bool, String)> = super::with_current(|context| {
+        if super::bigints::digits_of(context, primitive).is_some() {
+            return Ok(primitive);
+        }
+        if let Some(flag) = Value(primitive).as_bool() {
+            return Ok(context.bigint_value(crate::bigint::BigInt::from_i64(i64::from(flag))));
+        }
+        if let Some(number) = Value(primitive).numeric() {
+            let shown = crate::coerce::number_to_string(number).to_rust().unwrap_or_default();
+            return Err((false, format!("Cannot convert {shown} to a BigInt")));
+        }
+        if let Some(cell) = Value(primitive).as_slot()
+            && !super::symbol::is_symbol(context, primitive)
+            && let Some(text) = context.text_at(cell).and_then(|text| text.to_rust())
+        {
+            let trimmed = text.trim_matches(|ch: char| ch.is_whitespace() || ch == '\u{FEFF}');
+            let parsed = match trimmed.is_empty() {
+                true => Some(crate::bigint::BigInt::zero()),
+                false => crate::bigint::BigInt::parse(trimmed),
+            };
+            return match parsed {
+                Some(held) => Ok(context.bigint_value(held)),
+                None => Err((true, format!("Cannot convert {text} to a BigInt"))),
+            };
+        }
+        let shown = match super::objects::nullish(context, primitive) {
+            Some(name) => name.to_string(),
+            None if super::symbol::is_symbol(context, primitive) => "Symbol()".to_string(),
+            None => "value".to_string(),
+        };
+        Err((false, format!("Cannot convert {shown} to a BigInt")))
+    });
+    match verdict {
+        Ok(word) => Some(word),
+        Err((true, message)) => {
+            super::throw::syntax_error(&message);
+            None
+        }
+        Err((false, message)) => {
+            super::throw::type_error(&message);
+            None
+        }
+    }
+}
+
 /// The value a bigint element reads as, from the word it holds.
 ///
 /// # Why the two kinds differ only here
