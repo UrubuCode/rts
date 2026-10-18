@@ -141,3 +141,23 @@ fn abspos_aspect_ratio_height_is_floored_by_content() {
     let (dom, list) = geometria(empty, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 50.0));
 }
+
+/// Mirror of the both-insets height case: with an EXPLICIT height and
+/// `aspect-ratio`, the ratio derives the WIDTH from the height and wins over
+/// the `left`/`right` inset stretch (WPT `css-sizing/aspect-ratio/abspos-006`:
+/// `height:100;aspect-ratio:1/1;left:0;right:0;top:0;bottom:0` in a 500×100
+/// block is 100 wide, not 500). A box stretched on both axes with NO explicit
+/// size still stretches the width and takes the height from the ratio (003).
+#[test]
+fn abspos_explicit_height_plus_ratio_sizes_width_over_inset_stretch() {
+    use crate::table::tests::geometria;
+    let six = r#"<body style="margin:0"><div style="width:500px;height:100px;position:relative">
+      <div id="t" style="aspect-ratio:1/1;height:100px;position:absolute;left:0;right:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(six, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+    // Both axes stretchable, no explicit size: width stretches, height from ratio.
+    let three = r#"<body style="margin:0"><div style="width:100px;height:500px;position:relative">
+      <div id="t" style="aspect-ratio:1/1;position:absolute;left:0;right:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(three, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}

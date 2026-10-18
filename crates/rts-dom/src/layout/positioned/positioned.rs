@@ -172,7 +172,17 @@ pub(in crate::layout) fn layout_out_of_flow(
     // mesmo "auto" para este efeito, e é o `Option` do valor DECLARADO que a
     // spec chama de "auto" no §10.6.4 — testar o resolvido re-abriria a
     // pergunta que o `is_none()` já fecha.
-    let stretch_w = left.is_some() && right.is_some() && css.width.is_none();
+    // The width stretches between `left`/`right` UNLESS an EXPLICIT height is
+    // present with an `aspect-ratio` — then the ratio derives the width from
+    // that height and wins over the inset stretch (the mirror of `stretch_h`
+    // below; WPT `abspos-006`, `height:100;aspect-ratio:1/1;left:0;right:0` is
+    // 100 wide, not the 500 between the insets). It yields only to an explicit
+    // height, not an inset-stretched one, so a box stretched on BOTH axes still
+    // stretches the width and takes the height from the ratio (WPT `abspos-003`).
+    let stretch_w = left.is_some()
+        && right.is_some()
+        && css.width.is_none()
+        && (css.aspect_ratio.is_none() || css.height.is_none());
     // Both insets of an axis + auto size => that axis is stretched between the
     // insets (CSS 2.1 §10.6.4). With an `aspect-ratio`, the height still
     // stretches UNLESS the width is already definite — then the ratio derives
