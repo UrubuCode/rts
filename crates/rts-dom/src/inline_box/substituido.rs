@@ -170,6 +170,10 @@ pub(crate) fn replaced_inline_size(
     let declarado = |d: Option<crate::style::Dimension>, attr: &str| match d {
         Some(crate::style::Dimension::Auto) => None,
         Some(crate::style::Dimension::Percent(_)) if !base_de_percentagem_definida => None,
+        // `width: stretch` (CSS Sizing 4): a largura disponível, como num bloco.
+        // Só com base finita (uma medição intrínseca mede com `avail_w`
+        // infinito, e aí não há contra o quê esticar).
+        Some(crate::style::Dimension::Stretch) => avail_w.is_finite().then_some(avail_w),
         Some(d) => d.resolve(&resolve),
         None => hint_px(attr),
     };
@@ -183,6 +187,8 @@ pub(crate) fn replaced_inline_size(
     // indefinite by definition (`height-percentage-005`, WPT: an `<img
     // height:100%>` in an auto-height `<div>` is its natural square).
     let vertical = |d: Option<crate::style::Dimension>| match d {
+        // `height: stretch` preenche a altura definida do containing block.
+        Some(crate::style::Dimension::Stretch) => cb_h,
         Some(crate::style::Dimension::Percent(_)) => {
             crate::layout::resolve_height(d, cb_h, &resolve)
         }
