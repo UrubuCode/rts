@@ -204,3 +204,25 @@ fn grid_min_content_nao_cresce_track_flexivel_com_item_spanning() {
         g.w
     );
 }
+
+/// CSS Grid §11.5.1: a FIXED min track sizing function (`minmax(0px, 500px)`,
+/// `minmax(0px, auto)`) is not an intrinsic min, so the item's content does NOT
+/// raise the track's base. With a DEFINITE grid height the base is that min and
+/// the grow pass distributes the container's space up to the max — a track in a
+/// 100px grid holding a 200px item is 100px, with the item overflowing, not
+/// 200px (WPT `css-grid/grid-minimum-size-grid-items-011`/`-012`).
+const MINMAX_FIXED_MIN: &str = r#"<!DOCTYPE html>
+<div id="g" style="display:grid;width:100px;height:100px;grid:minmax(0px,500px)/minmax(0px,500px)">
+  <div id="gi"><div style="width:200px;height:200px"></div></div>
+</div>"#;
+
+#[test]
+fn grid_minmax_min_fixo_nao_cresce_a_track_com_container_definido() {
+    let (dom, list) = geometria(MINMAX_FIXED_MIN, 1280.0);
+    let g = rect(&dom, &list, "#gi", 0);
+    assert!(
+        (g.w - 100.0).abs() < 1.0 && (g.h - 100.0).abs() < 1.0,
+        "#gi {:?}, esperado 100×100 (track fica no container, item de 200px transborda)",
+        (g.w, g.h)
+    );
+}

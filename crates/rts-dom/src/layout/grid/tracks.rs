@@ -312,7 +312,22 @@ pub(in crate::layout) fn resolve_row_tracks(
                     let mn = resolve_height(Some(*min), container_h, resolve).unwrap_or(0.0);
                     let mx =
                         resolve_height(Some(*max), container_h, resolve).unwrap_or(f32::INFINITY);
-                    ch.clamp(mn, mx)
+                    // `minmax(<fixed>, <fixed>)` has a FIXED min track sizing
+                    // function, so the item's content does NOT raise the base
+                    // (CSS Grid §11.5.1 — only an intrinsic min does). With a
+                    // DEFINITE grid height the base is the min and the grow pass
+                    // below distributes the container's space up to the max,
+                    // exactly as the column path (`resolve_tracks`) already does
+                    // via `dim(min)`: a `minmax(0px,500px)` row in a 100px grid
+                    // is 100 with a 200px item overflowing, not 200 (WPT
+                    // `css-grid/grid-minimum-size-grid-items-011`/`-012`). Only
+                    // when the grid height is AUTO does the content set it, the
+                    // long-standing behaviour kept here.
+                    if container_h.is_some() {
+                        mn
+                    } else {
+                        ch.clamp(mn, mx)
+                    }
                 }
                 Some(T::Intrinsic { min, max }) => {
                     let min_h = min_row_h.get(r).copied().unwrap_or(0.0);
@@ -329,7 +344,20 @@ pub(in crate::layout) fn resolve_row_tracks(
                         B::FitContent(d) => resolve_height(Some(*d), container_h, resolve).unwrap_or(ch),
                     };
                     let base = mn;
-                    ch.max(base).min(mx.max(base))
+                    // A FIXED min (`minmax(0px, auto)`) is not an intrinsic min,
+                    // so the content does not raise the base (CSS Grid §11.5.1);
+                    // with a definite grid height the base is that min and the
+                    // grow pass distributes the container's space up to the max
+                    // (`minmax(0px,auto)` in a 100px grid is 100 with a 200px
+                    // item overflowing, not 200 — WPT
+                    // `grid-minimum-size-grid-items-012`). An intrinsic min
+                    // (auto/min-content), or an auto grid height, keeps the
+                    // content-based base.
+                    if container_h.is_some() && matches!(min, B::Fixed(_)) {
+                        base
+                    } else {
+                        ch.max(base).min(mx.max(base))
+                    }
                 }
                 Some(T::Fr(_)) => 0.0,
                 Some(T::Flex { min, .. }) => match min {
