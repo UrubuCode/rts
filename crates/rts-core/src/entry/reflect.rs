@@ -155,6 +155,14 @@ impl Reflect {
             return answered;
         }
         let lands = with_current(|context| {
+            // A typed array answers for every canonical numeric key itself:
+            // [[Set]] is true for an element and for an out-of-range index
+            // (silently dropped), whatever the extensibility.
+            if let Some(cell) = Value(target).as_slot()
+                && super::buffers::is_element_key(context, cell, Value(key))
+            {
+                return true;
+            }
             let (Some(cell), Some(named)) = (
                 Value(target).as_slot(),
                 super::computed::property_key(context, Value(key)),

@@ -315,6 +315,12 @@ pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
         let Some(slot) = Value(object).as_slot() else {
             return true;
         };
+        // A typed array element: [[Delete]] refuses an in-range index and
+        // succeeds for any other canonical numeric key (nothing there to remove).
+        if super::super::buffers::is_element_key(context, slot, Value(key)) {
+            let count = context.view_at(slot).map_or(0, |view| view.count());
+            return !super::super::array::as_index(context, Value(key)).is_some_and(|at| at < count);
+        }
         // UM ELEMENTO DE ARRAY, antes de resolver a chave como nome.
         //
         // Isto estava faltando e não era uma recusa: `delete a[0]` percorria o

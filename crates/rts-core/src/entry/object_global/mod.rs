@@ -35,6 +35,7 @@ mod copy;
 mod define;
 mod descriptor;
 mod describe;
+mod typed;
 
 use copy::held;
 pub(in crate::entry) use define::{define, define_read, define_reported};

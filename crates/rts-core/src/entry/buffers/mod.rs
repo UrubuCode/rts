@@ -546,7 +546,7 @@ pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value
 /// Whether `key` is a number, or a string that is the canonical spelling of
 /// one (`"1.5"`, `"-1"`, `"NaN"`, `"-0"`) — the keys a typed array never
 /// stores as properties.
-fn is_canonical_numeric(context: &Context, key: Value) -> bool {
+pub(in crate::entry) fn is_canonical_numeric(context: &Context, key: Value) -> bool {
     if key.numeric().is_some() {
         return true;
     }
@@ -561,6 +561,14 @@ fn is_canonical_numeric(context: &Context, key: Value) -> bool {
     }
     let number = crate::coerce::string_to_number(text);
     crate::coerce::number_to_string(number) == *text
+}
+
+/// Whether `cell` is a non-raw typed array and `key` is a canonical numeric key,
+/// i.e. one of its integer-indexed keys (in range or not).
+pub(in crate::entry) fn is_element_key(context: &Context, cell: u32, key: Value) -> bool {
+    context
+        .view_at(cell)
+        .is_some_and(|view| view.kind != Kind::Raw && is_canonical_numeric(context, key))
 }
 
 /// `t[i] = v` — whether the write was a view's and is finished.
