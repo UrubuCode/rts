@@ -145,6 +145,33 @@ mod palavras_chave_intrinsecas {
         assert!((a.w - 100.0).abs() < 1.0, "039: {a:?}");
     }
 
+    /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
+    /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
+    /// filho de 500px fica na razão (100), cortando o filho (WPT
+    /// `block-aspect-ratio-018`). Guarda contra o piso do teste `-015`.
+    #[test]
+    fn overflow_hidden_anula_o_piso_de_conteudo_na_razao() {
+        let fonte = "<div style='background:green;height:100px;aspect-ratio:1/1;overflow:hidden' id='alvo'>\
+            <div style='width:100px;display:inline-block'></div>\
+            <div style='width:500px;display:inline-block'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
+    }
+
+    /// O min-content é o piso (min-width:auto) da largura derivada da razão num
+    /// bloco de largura auto (CSS Sizing 4 §5.1): `height:100; aspect-ratio:1/2`
+    /// com filho `width:100` fica 100 de largura, não os 50 que a razão pede —
+    /// o conteúdo não cabe em 50 (WPT `block-aspect-ratio-015`).
+    #[test]
+    fn min_content_e_piso_da_largura_derivada_da_razao() {
+        let fonte = "<div style='background:green;height:100px;aspect-ratio:1/2' id='alvo'>\
+            <div style='width:100px'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
+    }
+
     /// `aspect-ratio: auto <ratio>` (em qualquer ordem) parseia a razão e marca
     /// o flag `auto`; `auto` sozinho não declara razão.
     #[test]
