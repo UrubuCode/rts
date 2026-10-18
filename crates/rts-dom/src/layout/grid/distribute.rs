@@ -206,6 +206,9 @@ pub(in crate::layout) fn distribute_spanning_slice<F, S>(
     is_sub: S,
     mut get_width: F,
     slice: &mut [f32],
+    // Only the MIN-content call excludes flexible tracks from the distribution
+    // (CSS Grid §11.5); max-content passes false so they still participate.
+    exclude_flex: bool,
 ) where
     F: FnMut(&GridCell) -> f32,
     S: Fn(&GridCell) -> bool,
@@ -219,17 +222,37 @@ pub(in crate::layout) fn distribute_spanning_slice<F, S>(
             let end = c.c1.min(ncols);
             let mut current_span_w = (end.saturating_sub(c.c0 + 1)) as f32 * col_gap;
             let mut content_cols = Vec::new();
+            let mut has_flex = false;
             for col in c.c0..end {
                 match col_tracks.get(col) {
                     Some(GridTrack::Fixed(d)) => current_span_w += d.resolve(resolve).unwrap_or(0.0),
+                    // Under a MIN-content constraint a flexible track keeps its
+                    // base and is NOT a target of a spanning item's min-content
+                    // distribution (CSS Grid §11.5): the item's excess is the
+                    // flex tracks' to absorb by flex resolution, so the item
+                    // overflows the base instead (WPT `grid-flex-spanning-items-001`).
+                    // `exclude_flex` is true only on the min-content call; a
+                    // grid with no flexible track is untouched either way.
+                    Some(t) if exclude_flex && t.flex_factor().is_some() => {
+                        current_span_w += slice[col];
+                        has_flex = true;
+                    }
                     _ => { current_span_w += slice[col]; content_cols.push(col); }
                 }
             }
             let item_w = get_width(c);
             if item_w > current_span_w {
-                let targets = if !content_cols.is_empty() { content_cols } else { (c.c0..end).collect() };
-                let extra = (item_w - current_span_w) / targets.len() as f32;
-                for col in targets { slice[col] += extra; }
+                let targets: Vec<usize> = if !content_cols.is_empty() {
+                    content_cols
+                } else if has_flex {
+                    Vec::new()
+                } else {
+                    (c.c0..end).collect()
+                };
+                if !targets.is_empty() {
+                    let extra = (item_w - current_span_w) / targets.len() as f32;
+                    for col in targets { slice[col] += extra; }
+                }
             }
         }
     }
