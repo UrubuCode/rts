@@ -34,18 +34,16 @@
 //! runs, and a loader that tried to find `node:fs` on disk would shadow the real
 //! one with whatever happened to be there.
 //!
-//! An extension is not GUESSED, and this rule changed once with its reason. It
-//! used to be absolute — `./x` is `./x` — because a resolver that tried `.ts`,
-//! then `.js`, then `/index.ts` picks a file the program did not name, and
-//! which one it picked is invisible until two of them exist.
+//! An extension IS guessed, by a WRITTEN order (see `resolve::extended`): `./x`
+//! is tried literally first, then `x.ts, x.js, x.cjs, x.mjs, x.json`, then
+//! `x/index.*` in the same order. It used to be one candidate (`./x.ts`) on the
+//! grounds that a cascade picks a file the program did not name; the answer to
+//! that fear turned out to be a testable order rather than a shorter list, since
+//! real packages ship `index.js` beside `index.mjs` on purpose.
 //!
-//! What is here now is narrower and keeps that property: `./x` is tried, and if
-//! nothing is there, `./x.ts` — one candidate, not a cascade. Two files can
-//! never both match, so there is nothing invisible to pick between. It exists
-//! because that is how TypeScript is written: every relative import in this
-//! repository's own suite omits the extension, and refusing them measured as an
-//! engine that cannot compile modules rather than as a resolver that will not
-//! look.
+//! Disk answers (`is_file`/`is_dir`/`package.json`) are remembered for the length
+//! of one [`load`] (`fsq`); each static specifier is resolved once, by the walk,
+//! and [`rewrite`] reuses that answer.
 
 use std::path::{Path, PathBuf};
 
@@ -53,6 +51,7 @@ use rts_codegen::names::Names;
 use rts_codegen::parse::parse_module;
 use rts_codegen::syntax::ModuleItem;
 
+mod fsq;
 mod packages;
 mod resolve;
 mod tsconfig;
@@ -172,15 +171,8 @@ pub fn rewrite(items: &mut [ModuleItem], resolutions: &[(String, String)]) {
         .map(|(written, resolved)| (written.as_str(), resolved.as_str()))
         .collect();
     let lookup = |written: &str| known.get(written).map(|resolved| (*resolved).to_owned());
-    // The same question as the load's, asked again rather than threaded: this
-    // walks the tree at a point the load's answers do not reach — a different
-    // parse, against the compilation's own `Names`, with no pairing to carry
-    // them on. What matters is that it is the same FUNCTION:
-    // `rts_core::entry::dynamic_module`'s header warns about a second
-    // IMPLEMENTATION of what a path is, not a second call of the one
-    // implementation. The two calls agree because `resolve_written` is
-    // deterministic over (referrer, specifier, map, disk), and all four are
-    // fixed for the duration of a load.
+    // The load's answers are threaded in (`Loaded::resolutions`), so nothing is
+    // resolved a second time here.
     for item in items {
         match item {
             ModuleItem::Import(import) => {
@@ -262,6 +254,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
     // name locals by numbers this compilation never issued.
     let mut parsed = Vec::with_capacity(loaded.len());
     for file in &loaded {
+        fsq::bump(&fsq::FRONT_PARSES);
         let mut program = parse_module(&file.source, &mut names)
             .map_err(|error| HostError::Parse(format!("{}: {error:?}", file.specifier)))?;
         // Every relative specifier becomes the path the loader resolved it to,
@@ -271,6 +264,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         rewrite(&mut program.body, &file.resolutions);
         parsed.push(program);
     }
+    fsq::report();
 
     let mut tags = rts_cranelift::tags::TagRegistry::new();
     let model = rts_codegen::values::ValueModel::declare(&mut tags);

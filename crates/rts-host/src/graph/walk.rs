@@ -42,6 +42,7 @@ fn specifiers_naming_files<T>(
     source: &str,
     keep: impl Fn(&str) -> Option<T>,
 ) -> Result<Vec<(String, T)>, String> {
+    super::fsq::bump(&super::fsq::WALK_PARSES);
     let mut scratch = Names::default();
     let parsed = parse_module(source, &mut scratch).map_err(|error| format!("{error:?}"))?;
     let mut found = Vec::new();
@@ -207,6 +208,9 @@ pub fn load(entry: &Path) -> Result<Vec<Loaded>, HostError> {
     // begins. Every resolution below reads this one answer, and so does every
     // dynamic one while the program runs — spec §5's "one map per program".
     tsconfig::install(Aliases::discover(entry));
+    super::fsq::reset();
+    // Disk answers are remembered until this load ends (dropped on any return).
+    let _cache = super::fsq::scope();
     let start = plain(entry.canonicalize().unwrap_or_else(|_| entry.to_owned()));
     let mut ordered = Vec::new();
     let mut state = HashMap::new();

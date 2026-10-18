@@ -83,7 +83,7 @@ pub(super) fn resolve_bare(from: &Path, specifier: &str) -> Option<PathBuf> {
         // walk: a workspace often has an empty or partial directory shadowing a
         // real install further up, and stopping there would report "no such
         // module" while the module is installed.
-        if root.is_dir() {
+        if super::fsq::is_dir(&root) {
             if let Some(found) = inside(&root, &subpath) {
                 return Some(settled(found));
             }
@@ -156,7 +156,7 @@ fn relative(root: &Path, target: &str) -> Option<PathBuf> {
         return None;
     }
     let named = root.join(target);
-    match named.is_file() {
+    match super::fsq::is_file(&named) {
         true => Some(named),
         false => extended(root, target),
     }
@@ -167,9 +167,8 @@ fn relative(root: &Path, target: &str) -> Option<PathBuf> {
 /// A malformed manifest is not an error here: the file rules below it still
 /// answer, which is what `require` does for a package whose `package.json`
 /// cannot be read.
-fn read_manifest(root: &Path) -> Option<serde_json::Value> {
-    let text = std::fs::read_to_string(root.join("package.json")).ok()?;
-    serde_json::from_str(&text).ok()
+fn read_manifest(root: &Path) -> Option<std::rc::Rc<serde_json::Value>> {
+    super::fsq::manifest(root)
 }
 
 /// What an `"exports"` value resolves to for one subpath.

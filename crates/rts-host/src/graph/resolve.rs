@@ -122,7 +122,7 @@ pub(super) fn extended(base: &Path, specifier: &str) -> Option<PathBuf> {
                 .map(|name| named.join(name)),
         )
         .collect();
-    candidates.into_iter().find(|candidate| candidate.is_file())
+    candidates.into_iter().find(|candidate| super::fsq::is_file(candidate))
 }
 
 /// A canonical path with Windows's verbatim prefix taken off.
@@ -186,7 +186,7 @@ pub(super) fn resolve(from: &Path, specifier: &str) -> PathBuf {
     // What the program wrote, and then the one candidate: `./x` before `./x.ts`.
     // Written this way round so a file that genuinely has no extension still
     // wins over a `.ts` beside it — the program named that one.
-    let joined = match named.is_file() {
+    let joined = match super::fsq::is_file(&named) {
         true => named,
         false => extended(base, specifier).unwrap_or(named),
     };
@@ -224,6 +224,7 @@ pub fn names_the_host(specifier: &str) -> bool {
 /// `None` keeps its established meaning: not a file, so the text is used as
 /// written and the host provides it by name.
 pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -> Option<PathBuf> {
+    super::fsq::bump(&super::fsq::RESOLVE_WRITTEN);
     if is_relative(specifier) {
         return Some(resolve(from, specifier));
     }
@@ -263,7 +264,7 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
         // the same order `resolve` already uses for a relative specifier, so an
         // exact target is not run through a rule written for an extension-less
         // one.
-        if candidate.is_file() {
+        if super::fsq::is_file(&candidate) {
             return Some(settled(candidate));
         }
         // `continue`, never `?`. Spec §9 point 4 says the list is "tried in
