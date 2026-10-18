@@ -7,6 +7,8 @@
 
 use super::with_current;
 use crate::entry::objects::undefined_of;
+use crate::entry::{class_support, native, objects};
+use crate::text::Str;
 use crate::value::Value;
 
 /// Installs `ArrayBuffer`, and its `Symbol.species`.
@@ -25,7 +27,76 @@ use crate::value::Value;
 pub(in crate::entry) fn array_buffer(context: &mut crate::entry::Context) -> u64 {
     let made = register_array_buffer(context);
     crate::entry::native::species(context, made);
+    // `resizable` and `maxByteLength` as prototype accessors. A resizable buffer
+    // also carries them as own slots (see [`resizable_max`]); every other buffer
+    // answers through these, which keeps a plain `new ArrayBuffer(n)` and the
+    // internal buffer of every typed array from paying two more properties.
+    if let Some(cell) = class_support::prototype(context, "ArrayBuffer").and_then(|v| Value(v).as_slot()) {
+        native::getter(context, cell, "resizable", resizable_getter as native::Native);
+        native::getter(context, cell, "maxByteLength", max_byte_length_getter as native::Native);
+    }
     made
+}
+
+/// The ceiling of a resizable buffer, or `None` for a fixed-length (or detached) one.
+///
+/// A resizable buffer is the only kind that carries own `resizable` and
+/// `maxByteLength` slots, so their presence IS the state; detaching rewrites
+/// them to `false` / `0` (see `detach.rs`), which makes this `None` afterwards.
+pub(super) fn resizable_max(context: &mut crate::entry::Context, cell: u32) -> Option<usize> {
+    let on = context.well_known("resizable");
+    let held = objects::own_property(context, cell, on)?;
+    if held.bits() != Value::from_bool(true).bits() {
+        return None;
+    }
+    let max = context.well_known("maxByteLength");
+    objects::own_property(context, cell, max)?.as_f64().map(|n| n as usize)
+}
+
+/// Marks a buffer resizable with this ceiling.
+fn make_resizable(context: &mut crate::entry::Context, cell: u32, max: usize) {
+    super::flag(context, cell, "resizable", true);
+    super::stamp(context, cell, "maxByteLength", max as f64);
+}
+
+fn is_buffer(context: &crate::entry::Context, cell: u32) -> bool {
+    context.bytes_at(cell).is_some()
+}
+
+extern "C" fn resizable_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let answer = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        if !is_buffer(context, cell) {
+            return None;
+        }
+        Some(Value::from_bool(resizable_max(context, cell).is_some()).bits())
+    });
+    match answer {
+        Some(bits) => bits,
+        None => {
+            crate::entry::throw::type_error("Receiver is not an ArrayBuffer (get resizable)");
+            super::undefined()
+        }
+    }
+}
+
+extern "C" fn max_byte_length_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let answer = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        if !is_buffer(context, cell) {
+            return None;
+        }
+        let name = if resizable_max(context, cell).is_some() { "maxByteLength" } else { "byteLength" };
+        let key = context.well_known(name);
+        objects::own_property(context, cell, key).map(|held| held.bits())
+    });
+    match answer {
+        Some(bits) => bits,
+        None => {
+            crate::entry::throw::type_error("Receiver is not an ArrayBuffer (get maxByteLength)");
+            super::undefined()
+        }
+    }
 }
 
 /// `ArrayBuffer`.
@@ -40,22 +111,76 @@ impl ArrayBuffer {
     /// throw would end the program, since [`crate::entry::throw`] cannot find a
     /// handler in a caller.
     #[construct]
-    fn build(this: u64, length: f64) -> u64 {
-        let count = super::as_count(length);
-        with_current(|context| {
-            match Value(this).as_slot() {
-                Some(cell) => {
-                    super::install_bytes(context, cell, count);
-                    Value::from_slot(cell).bits()
+    fn build(this: u64, length: f64, options: u64) -> u64 {
+        let Some(count) = super::to_index(length) else {
+            crate::entry::throw::range_error("Array buffer allocation failed");
+            return super::undefined();
+        };
+        // `{ maxByteLength }`: absent or `undefined` is a fixed-length buffer.
+        let mut ceiling = None;
+        if Value(options).as_slot().is_some() {
+            let name = with_current(|context| context.intern_value(Str::from_str("maxByteLength")).bits());
+            let held = crate::entry::computed::get_indexed(options, name);
+            if held != super::undefined() {
+                match super::to_index(crate::entry::class_support::to_number(held)) {
+                    Some(max) if max >= count => ceiling = Some(max),
+                    _ => {
+                        crate::entry::throw::range_error("Invalid array buffer max length");
+                        return super::undefined();
+                    }
                 }
-                None => match super::new_buffer(context, count) {
-                    Some(cell) => Value::from_slot(cell).bits(),
-                    // The region is full and there is no collector to ask — the
-                    // answer every allocation in this crate gives.
-                    None => undefined_of(context),
-                },
             }
+        }
+        if Value(this).as_slot().is_none() {
+            crate::entry::throw::type_error("Constructor ArrayBuffer requires 'new'");
+            return super::undefined();
+        }
+        with_current(|context| match Value(this).as_slot() {
+            Some(cell) => {
+                super::install_bytes(context, cell, count);
+                if let Some(max) = ceiling {
+                    make_resizable(context, cell, max);
+                }
+                Value::from_slot(cell).bits()
+            }
+            None => undefined_of(context),
         })
+    }
+
+    /// `b.resize(n)` — grows (zero-filled) or shrinks a resizable buffer in place.
+    fn resize(this: u64, length: u64) -> u64 {
+        // `ToIndex(undefined)` is 0, so an absent argument resizes to nothing.
+        let wanted = super::optional_number(length).unwrap_or(0.0);
+        // 0 ok, 1 not resizable, 2 bad index or over the ceiling.
+        let outcome = with_current(|context| {
+            let Some(cell) = Value(this).as_slot() else { return 1 };
+            if !is_buffer(context, cell) {
+                return 1;
+            }
+            let Some(max) = resizable_max(context, cell) else { return 1 };
+            let Some(size) = super::to_index(wanted) else { return 2 };
+            if size > max {
+                return 2;
+            }
+            if let Some(bytes) = context.bytes_at_mut(cell) {
+                // `Vec::resize` truncates and zero-fills, which is exactly the
+                // language: shrinking forgets the tail, growing again does not
+                // bring it back.
+                bytes.resize(size, 0);
+            }
+            // The address may have moved and the window of a fixed view may no
+            // longer fit: every typed-array view goes back to the runtime path,
+            // which resolves bytes per access. Blunt, like detaching.
+            context.region.runs_mut().retract_typed();
+            super::stamp(context, cell, "byteLength", size as f64);
+            0
+        });
+        match outcome {
+            0 => {}
+            1 => crate::entry::throw::type_error("Method ArrayBuffer.prototype.resize called on incompatible receiver"),
+            _ => crate::entry::throw::range_error("ArrayBuffer.prototype.resize: Invalid length parameter"),
+        }
+        super::undefined()
     }
 
     /// `ArrayBuffer.isView(x)` — whether `x` is a `DataView` or a typed array.
@@ -117,7 +242,7 @@ impl ArrayBuffer {
     /// A shorter length truncates and a longer one zero-fills, which is the
     /// language's rule and is why the new length is read before the copy.
     fn transfer(this: u64, length: u64) -> u64 {
-        transferred(this, length, "transfer")
+        transferred(this, length, "transfer", true)
     }
 
     /// `b.transferToFixedLength(newLength)`.
@@ -129,35 +254,46 @@ impl ArrayBuffer {
     /// way — and a program that called the wrong one of two would otherwise keep
     /// reading bytes it had given away.
     fn transfer_to_fixed_length(this: u64, length: u64) -> u64 {
-        transferred(this, length, "transferToFixedLength")
+        transferred(this, length, "transferToFixedLength", false)
     }
 }
 
 /// The bytes moved into a new buffer, leaving this one detached.
-fn transferred(this: u64, length: u64, method: &str) -> u64 {
+fn transferred(this: u64, length: u64, method: &str, keep_resizable: bool) -> u64 {
     let wanted = super::optional_number(length);
-    let taken = with_current(|context| {
-        let cell = Value(this).as_slot()?;
-        if context.buffer_detached(cell) {
-            return None;
-        }
-        let bytes = context.bytes_at(cell)?;
-        let wanted = match wanted {
-            // `ToIndex` of the argument, and a negative one is a `RangeError`
-            // the caller below raises — `None` here would be indistinguishable
-            // from an already-detached buffer.
-            Some(number) if number >= 0.0 => number as usize,
-            Some(_) => return None,
-            None => bytes.len(),
+    // `Err(true)` is a RangeError, `Err(false)` a TypeError.
+    let taken: Result<(Vec<u8>, Option<usize>), bool> = with_current(|context| {
+        let cell = Value(this).as_slot().ok_or(false)?;
+        // ToIndex runs BEFORE the detached check, so a bad length is a
+        // RangeError on a detached buffer too.
+        let size = match wanted {
+            Some(number) => Some(super::to_index(number).ok_or(true)?),
+            None => None,
         };
+        if context.buffer_detached(cell) {
+            return Err(false);
+        }
+        let max = if keep_resizable { resizable_max(context, cell) } else { None };
+        let bytes = context.bytes_at(cell).ok_or(false)?;
+        let wanted = size.unwrap_or(bytes.len());
+        if max.is_some_and(|max| wanted > max) {
+            return Err(true);
+        }
         let mut moved = vec![0u8; wanted];
         let carried = wanted.min(bytes.len());
         moved[..carried].copy_from_slice(&bytes[..carried]);
-        Some(moved)
+        Ok((moved, max))
     });
-    let Some(taken) = taken else {
-        crate::entry::throw::type_error(&format!("Cannot perform ArrayBuffer.prototype.{method} on a detached ArrayBuffer"));
-        return super::undefined();
+    let (taken, ceiling) = match taken {
+        Ok(found) => found,
+        Err(true) => {
+            crate::entry::throw::range_error(&format!("Invalid array buffer length (ArrayBuffer.prototype.{method})"));
+            return super::undefined();
+        }
+        Err(false) => {
+            crate::entry::throw::type_error(&format!("Cannot perform ArrayBuffer.prototype.{method} on a detached ArrayBuffer"));
+            return super::undefined();
+        }
     };
     // The source is detached BEFORE the answer is made: allocating takes the
     // byte store mutably, and a program that observed the order would see the
@@ -170,6 +306,9 @@ fn transferred(this: u64, length: u64, method: &str) -> u64 {
         };
         if let Some(destination) = context.bytes_at_mut(made) {
             destination.copy_from_slice(&taken);
+        }
+        if let Some(max) = ceiling {
+            make_resizable(context, made, max);
         }
         Value::from_slot(made).bits()
     })
