@@ -68,6 +68,23 @@ pub(in crate::layout) fn flex_base_outer(
                 ctx,
             );
         }
+        // A flex base de um REPLACED é o seu tamanho NATURAL, SEM o clamp de
+        // `min-width`/`max-width` (Flexbox §9.2 passo 3: o clamp é da hypothetical
+        // main size, §9.7, não da base). `content_natural_width` passa pelo
+        // `replaced_inline_size`, que aplica esses clamps, por isso aqui mede-se
+        // com eles LIMPOS — um `<img>` 1×1 `min-width:100; flex:1 0 auto` tem base
+        // ~0 e cresce para 100, não base 100 que o empurrava para 150 (WPT
+        // `flex-aspect-ratio-img-row-007`, o bug que o Chrome 86 também tinha).
+        if css.width.is_none() && (css.min_width.is_some() || css.max_width.is_some()) {
+            let mut sem_clamp = (*css).clone();
+            sem_clamp.min_width = None;
+            sem_clamp.max_width = None;
+            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+                dom, id, &sem_clamp, container_w, None, (None, None), ctx,
+            ) {
+                return w + css.margin.resolve_h(&resolve);
+            }
+        }
         return child_outer_width(dom, id, container_w, parent_font, ctx);
     };
     let margin_h = css.margin.resolve_h(&resolve);
