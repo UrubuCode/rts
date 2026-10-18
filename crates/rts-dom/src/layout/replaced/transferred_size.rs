@@ -83,19 +83,26 @@ pub(in crate::layout) fn transferred(
         // junta para o item não-replaced (senão um replaced sem conteúdo também
         // o apanharia, WPT `intrinsic-percent-replaced-027`).
         let auto_cross_margin = css.margin.top.is_auto() || css.margin.bottom.is_auto();
-        let used_h = match resolve_height(css.height, Some(cross_h), &resolve) {
-            Some(h) => Some(h),
-            None if !auto_cross_margin => Some(cross_h),
+        let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+        let frame_h = css.padding.resolve_h(&resolve) + bl + br;
+        let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
+        let margin_v = css.margin.resolve_v(&resolve);
+        // `(altura de CONTEÚDO, veio-do-stretch)`. Do stretch, `cross_h` é a
+        // extensão da MARGIN-box (o item preenche o cross do container), logo o
+        // conteúdo é `cross_h - margem_v - frame_v` (WPT
+        // `aspect-ratio-intrinsic-size-008`). De uma `height` própria, é o valor
+        // da propriedade, menos o frame só em border-box.
+        let content_h = match resolve_height(css.height, Some(cross_h), &resolve) {
+            Some(h) => {
+                Some(if css.border_box.unwrap_or(false) { (h - frame_v).max(0.0) } else { h })
+            }
+            None if !auto_cross_margin => Some((cross_h - margin_v - frame_v).max(0.0)),
             None => None,
         };
-        if let Some(used_h) = used_h.filter(|h| *h > 0.0) {
-            let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
-            let frame_h = css.padding.resolve_h(&resolve) + bl + br;
-            let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
-            let content_h = if css.border_box.unwrap_or(false) { (used_h - frame_v).max(0.0) } else { used_h };
+        if let Some(content_h) = content_h.filter(|h| *h > 0.0) {
             if let Some(w) = aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v) {
                 let margin_h = css.margin.resolve_h(&resolve);
-                return Some((w + frame_h + margin_h, used_h));
+                return Some((w + frame_h + margin_h, content_h + frame_v));
             }
         }
     }

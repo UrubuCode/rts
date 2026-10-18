@@ -268,6 +268,21 @@ mod palavras_chave_intrinsecas {
         assert!((fl.w - 100.0).abs() < 1.5, "{fl:?}");
     }
 
+    /// Um item flex-row esticado com `aspect-ratio` + margem/borda/padding: o
+    /// cross esticado é a MARGIN-box (= altura do container), então o conteúdo é
+    /// `cross - margem - frame`, e a razão dá a largura daí. `inline-flex;
+    /// height:100` com item `margin:10;border:7;padding:3;aspect-ratio:1/1` dá
+    /// item 80×80 e container 100 (WPT `aspect-ratio-intrinsic-size-008`).
+    #[test]
+    fn item_flex_esticado_com_razao_subtrai_margem_e_frame() {
+        let fonte = "<div style='display:inline-flex;height:100px' id='fl'>\
+            <div style='padding:3px;border:7px solid green;margin:10px;aspect-ratio:1/1' id='it'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let fl = rect(&d, &l, "div", 0);
+        let it = rect(&d, &l, "div", 1);
+        assert_eq!((fl.w, it.w, it.h), (100.0, 80.0, 80.0), "fl={fl:?} it={it:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
