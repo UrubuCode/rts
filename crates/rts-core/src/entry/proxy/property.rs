@@ -55,7 +55,7 @@ pub(in crate::entry) fn get_on(object: u64, key: Key, receiver: u64) -> Option<u
             throw::type_error("Receiver is not a typed array or DataView");
             return Some(absent());
         }
-        return Some(forwarded_read(trap.target, key));
+        return Some(forwarded_read(trap.target, key, receiver));
     };
     let property = property_of(key);
     let answered = functions::call(
@@ -378,9 +378,24 @@ fn private_name(key: Key) -> Option<String> {
 /// what a wrapper around a wrapper is — so this asks the traps again before
 /// reading a shape. Without it the innermost handler was skipped and the read
 /// answered `undefined`, which is what a chain of three proxies reported.
-fn forwarded_read(target: u64, key: Key) -> u64 {
-    if let Some(answered) = get(target, key) {
+fn forwarded_read(target: u64, key: Key, receiver: u64) -> u64 {
+    if let Some(answered) = get_on(target, key, receiver) {
         return answered;
+    }
+    // An accessor on the target (or above it) runs with the RECEIVER as `this`:
+    // `target.[[Get]](k, proxy)` calls the getter on the proxy, which is how
+    // `proxy.__proto__` reaches the `getPrototypeOf` trap rather than the
+    // target's own prototype.
+    let getter = with_current(|context| {
+        let cell = Value(target).as_slot()?;
+        match crate::entry::accessor::resolve(context, cell, key) {
+            crate::entry::accessor::Found::Getter(getter) => Some(getter),
+            _ => None,
+        }
+    });
+    if let Some(getter) = getter {
+        let undefined = absent();
+        return functions::call(getter, receiver, undefined, undefined, undefined, undefined);
     }
     let found = with_current(|context| {
         let cell = Value(target).as_slot()?;
@@ -416,6 +431,22 @@ fn forwarded_read(target: u64, key: Key) -> u64 {
                 .copied()
         {
             return Some(super::super::array::visible(context, held));
+        }
+        // A String object's characters and `length` are own properties no shape
+        // records; `looked_up` asks the same question for an ordinary read.
+        if let Some(answer) = crate::entry::string::text::string_property(context, cell, key) {
+            return Some(answer);
+        }
+        if let Key::Name(_) = key {
+            let spelled = super::spelled_in(context, key);
+            if spelled.bytes().all(|byte| byte.is_ascii_digit()) && !spelled.is_empty() {
+                let index = context.intern_value(crate::text::Str::from_str(&spelled));
+                if let Some(answer) =
+                    crate::entry::string::text::string_element(context, cell, index)
+                {
+                    return Some(answer);
+                }
+            }
         }
         objects::read_property(context, cell, key).map(|value| value.bits())
     });

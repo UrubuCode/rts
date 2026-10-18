@@ -58,7 +58,7 @@ pub(in crate::entry) use enumerate::{level_keys, still_enumerable};
 pub(in crate::entry) use keys::{enumerable_keys, own_keys, own_names, own_symbols};
 pub(in crate::entry) use property::{delete, get, get_on, has, set_verdict, set_verdict_on};
 pub(in crate::entry) use prototype::{
-    above, extensible, inherits, prevent_extensions, prototype_of, set_prototype_verdict,
+    above, extensible, inherits, prevent_extensions, prototype_of, set_above, set_prototype_verdict,
 };
 
 use super::{Context, with_current};

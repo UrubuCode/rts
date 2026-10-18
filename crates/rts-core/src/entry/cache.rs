@@ -421,6 +421,11 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             && held.is_none()
             && !super::integrity::refuses_growth(context, object as u32)
             && context.proxy_at(object as u32).is_none()
+            // A proxy in the PROTOTYPE chain claims the write with its `set` trap,
+            // so growing the receiver here would skip it.
+            && !(context.any_proxy()
+                && super::proxy::above(context, object as u32, crate::object::Key::Name(key))
+                    .is_some())
             // A setter ANYWHERE on the chain runs instead of the property being
             // created, so growing here would silently skip it. Checking only
             // the receiver was not enough and three files said so:

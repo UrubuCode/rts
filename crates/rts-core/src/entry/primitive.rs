@@ -121,6 +121,15 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
             );
             return value;
         }
+        // GetMethod: `undefined` and `null` mean "absent" and fall through to
+        // the ordinary pair; any other non-callable value is a `TypeError`.
+        if super::throw::in_flight() {
+            return value;
+        }
+        if with_current(|context| super::objects::nullish(context, method).is_none()) {
+            super::throw::type_error("Symbol.toPrimitive is not a function");
+            return value;
+        }
     }
 
     // `Hint::Default` behaves as `Hint::Number` for every object without a

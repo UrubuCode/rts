@@ -132,9 +132,9 @@ fn resolved(key: u64, object: u64) -> bool {
     {
         return answered;
     }
-    with_current(|context| {
+    let walked = with_current(|context| -> Result<bool, (u64, Key)> {
         let Some(slot) = Value(object).as_slot() else {
-            return false;
+            return Ok(false);
         };
         // An array element is own storage that no shape records, so the index
         // question is asked BEFORE the key is turned into text —
@@ -152,9 +152,9 @@ fn resolved(key: u64, object: u64) -> bool {
         {
             // Estar dentro do comprimento não basta: um BURACO ocupa índice e
             // não existe. `0 in [,1]` é falso; `0 in [undefined,1]` é verdadeiro.
-            return elements
+            return Ok(elements
                 .get(at)
-                .is_some_and(|&held| !super::super::array::is_hole(context, held));
+                .is_some_and(|&held| !super::super::array::is_hole(context, held)));
         }
         // A typed array's elements are own storage no shape records either.
         // Only a numeric-looking key is asked; the others fall through, so
@@ -163,7 +163,7 @@ fn resolved(key: u64, object: u64) -> bool {
             && !matches!(view.kind, super::super::buffers::element::Kind::Raw)
             && let Some(at) = super::super::array::as_index(context, Value(key))
         {
-            return at < view.count();
+            return Ok(at < view.count());
         }
         // An index past `DENSE_LIMIT` never reaches the dense store — see
         // `array::DENSE_LIMIT` — so it falls through to the ordinary property
@@ -175,20 +175,29 @@ fn resolved(key: u64, object: u64) -> bool {
         // while `0 in Object("hi")` answered false, which is one object
         // disagreeing with itself.
         if super::super::string::text::string_element(context, slot, Value(key)).is_some() {
-            return true;
+            return Ok(true);
         }
         let Some(key) = property_key(context, Value(key)) else {
-            return false;
+            return Ok(false);
         };
+        // A proxy in the PROTOTYPE chain answers `[[HasProperty]]` with its own
+        // `has` trap, and a trap is user code that cannot run inside this borrow.
+        if let Some(proxy) = super::super::proxy::above(context, slot, key) {
+            return Err((proxy, key));
+        }
         // An accessor is a property the object HAS, and it is not in the
         // layout — so asking the shape alone answers false for
         // `"x" in { get x() {} }`, which is the operator getting its one job
         // wrong.
-        !matches!(
+        Ok(!matches!(
             super::super::accessor::resolve(context, slot, key),
             super::super::accessor::Found::Absent
-        )
-    })
+        ))
+    });
+    match walked {
+        Ok(answer) => answer,
+        Err((proxy, key)) => super::super::proxy::has(proxy, key).unwrap_or(false),
+    }
 }
 
 /// Whether a `with` scope resolves a name against this object.

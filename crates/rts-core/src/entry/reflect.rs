@@ -170,6 +170,12 @@ impl Reflect {
         {
             return answered;
         }
+        if let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
+            && let Some(answered) = super::proxy::set_above(target, named, value)
+        {
+            return answered;
+        }
         let lands = with_current(|context| {
             // A typed array answers for every canonical numeric key itself:
             // [[Set]] is true for an element and for an out-of-range index

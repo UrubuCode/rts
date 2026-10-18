@@ -374,6 +374,11 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
         if context.proxy_at(slot).is_some() {
             return Some(Handled::Proxy(key));
         }
+        // A proxy standing in the PROTOTYPE chain claims the write: its `set`
+        // trap is handed this object as the receiver.
+        if let Some(proxy) = super::proxy::above(context, slot, key) {
+            return Some(Handled::ProxyAbove(proxy, key));
+        }
         match resolve_store(context, slot, key) {
             Store::Setter(setter) => Some(Handled::Setter(setter)),
             Store::Refused(why) => Some(Handled::Refused(why)),
@@ -411,6 +416,18 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
             }
             value
         }
+        Some(Handled::ProxyAbove(proxy, key)) => {
+            if super::proxy::set_verdict_on(proxy, key, value, object) == Some(false)
+                && !sloppy
+                && !super::throw::in_flight()
+            {
+                super::throw::type_error(&format!(
+                    "'set' on proxy: trap returned falsish for property '{}'",
+                    super::proxy::spelled(key)
+                ));
+            }
+            value
+        }
         Some(Handled::Setter(setter)) => {
             let undefined = with_current(|context| undefined_of(context));
             super::functions::call(setter, object, value, undefined, undefined, undefined);
@@ -434,6 +451,8 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
 enum Handled {
     /// A proxy's `set` trap, with the key already resolved.
     Proxy(Key),
+    /// A proxy reached as a PROTOTYPE of the receiver, with the key resolved.
+    ProxyAbove(u64, Key),
     /// A setter found on the receiver or above it.
     Setter(u64),
     /// The language refuses this write, with the message it refuses it by.

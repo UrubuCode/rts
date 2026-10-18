@@ -218,6 +218,25 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         return value;
     }
+    // A proxy in the PROTOTYPE chain claims the write, with this object as the
+    // receiver of its `set` trap.
+    let above = with_current(|context| {
+        if !context.any_proxy() {
+            return None;
+        }
+        property_key(context, Value(key))
+    });
+    if let Some(named) = above
+        && let Some(accepted) = super::super::proxy::set_above(object, named, value)
+    {
+        if !accepted && !sloppy && !super::super::throw::in_flight() {
+            super::super::throw::type_error(&format!(
+                "'set' on proxy: trap returned falsish for property '{}'",
+                super::super::proxy::spelled(named)
+            ));
+        }
+        return value;
+    }
     // A typed array's element store coerces first (ToNumber / ToBigInt), here
     // and outside the borrow because that can run user code; a throw leaves the
     // element as it was. The expression still answers the original `value`.
