@@ -1,7 +1,14 @@
 # Lazy per-function compilation — design plan (C1)
 
-**Status:** design, NOT implemented. 2026-10-18. The single largest remaining
-RAM lever for importing a real npm library (baileys, WhatsApp).
+**Status:** design; stage 0 (measurement) DONE 2026-10-18, see §5. The single
+largest remaining RAM lever for importing a real npm library (baileys, WhatsApp).
+
+**Stage-0 measurement (2026-10-18, RTS_COMPILE_STATS, debug build):** the
+literal "~5 % run" below is NOT confirmed — measured 12.8-29 % of compiled
+functions called (moment 22 %, lodash 12.8-29 % depending on the driver). The
+decisive form holds: **~71-88 % of a library's functions never run**, and for
+short programs compile (emit_modules + cranelift place) is essentially the
+whole wall time, so lazy compilation skips most of it. Commit e3b696807.
 
 Grounded in: `.docs-dotnet/02-compilation/12-jit-vs-r2r-vs-native-aot.md`
 (the JIT Tier0-on-first-call model), issues #2881 / #2884 (C1) / #2911, and the
@@ -87,11 +94,19 @@ anyway.
 
 ## 5. Staged design
 
-**Stage 0 — measure (first commit).** Counters (behind `RTS_COMPILE_STATS=1`):
-functions lowered+emitted vs functions actually CALLED, for a real library
-(baileys / a vendored npm package / the WhatsApp page). Confirm the ~5 %
-run claim and the RAM/time split. No optimization until this is on the table
-(`perf-claim` discipline).
+**Stage 0 — measure (first commit). DONE, commit e3b696807.** Counters behind
+`RTS_COMPILE_STATS=1` (stderr, zero-cost off, output unchanged): functions
+placed in executable memory vs distinct functions whose body ran (a
+`__rts_compile_stats_enter(id)` marker), + per-unit split and emit/place/wall
+timings. MEASURED (debug, Windows): moment.min.js 345 compiled / 76 called
+(22 %); lodash 693 compiled / 89 called (12.8 %) on a 4-method driver, 697/202
+(29 %) on a wider one. Verdict: the "~5 %" premise is too strong, but **71-88 %
+never run** and compile dominates wall time — the lever is real. Caveats: debug
+inflates cranelift place vs release; small drivers; init-time code is a ~9-13 %
+floor; no baileys (OOM). Two gaps found while measuring: lodash's
+reUnicode/reUnicodeWord surrogate-pair regex is rejected; a unit whose text
+contains `document.` gets a ~376-function rts-dom facade appended (inflates
+counts).
 
 **Stage 1 — the whole-program scan.** Before compiling, a pass over all units'
 ASTs that records exactly the facts §4 lists (reassigned primordials, reachable
