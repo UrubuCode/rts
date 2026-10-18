@@ -457,13 +457,23 @@ pub(in crate::entry) fn write_back(this: u64, elements: &[u64]) {
 /// The typed array kind a constructor value builds, if it is one of the
 /// typed array classes (read off its own `name`).
 pub(in crate::entry) fn kind_of_constructor(this: u64) -> Option<Kind> {
-    let name = with_current(|context| {
-        let cell = Value(this).as_slot()?;
-        let key = context.well_known("name");
-        let found = crate::entry::objects::own_property(context, cell, key)?;
-        context.text_at(found.as_slot()?)?.to_rust()
-    })?;
-    super::typed_classes::kind_named(&name)
+    // Walks the constructor chain: `from`/`of` now live on `%TypedArray%`, so a
+    // subclass (`class F extends Float64Array`) must resolve to its typed base.
+    with_current(|context| {
+        let mut cell = Value(this).as_slot()?;
+        for _ in 0..16 {
+            let key = context.well_known("name");
+            if let Some(found) = crate::entry::objects::own_property(context, cell, key)
+                && let Some(text) = found.as_slot().and_then(|slot| context.text_at(slot))
+                && let Some(name) = text.to_rust()
+                && let Some(kind) = super::typed_classes::kind_named(&name)
+            {
+                return Some(kind);
+            }
+            cell = Value(context.prototype_at(cell)?).as_slot()?;
+        }
+        None
+    })
 }
 
 pub(in crate::entry) fn from(kind: Kind, source: u64, mapper: u64, receiver: u64) -> u64 {

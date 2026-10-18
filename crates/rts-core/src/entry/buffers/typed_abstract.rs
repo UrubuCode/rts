@@ -65,9 +65,9 @@ fn prototype_of(context: &mut Context) -> Option<u32> {
     {
         return Some(found);
     }
-    // Two slots: the tag accessor, and room for `constructor` should the
-    // remaining divergence below ever be closed.
-    let cell = native::plain_with_room(context, 6)?;
+    // Room for the ~35 shared methods, the geometry getters, the tag and
+    // `constructor`: a prototype sized at birth keeps every method inline-cacheable.
+    let cell = native::plain_with_room(context, 48)?;
     let value = Value::from_slot(cell).bits();
     // Recorded BEFORE anything else allocates, which is the order
     // `class_support::record` documents and the reason `string::prototype_of`
@@ -84,7 +84,76 @@ fn prototype_of(context: &mut Context) -> Option<u32> {
     native::getter(context, cell, "byteLength", byte_length_getter as native::Native);
     native::getter(context, cell, "byteOffset", byte_offset_getter as native::Native);
     native::getter(context, cell, "length", length_getter as native::Native);
+
+    // `%TypedArray%.prototype.toString` IS `Array.prototype.toString` (identity),
+    // which joins through the receiver's own `join`.
+    if let Some(array) = crate::entry::array_proto::prototype_of(context) {
+        let key = context.well_known("toString");
+        if let Some(found) = objects::read_property(context, array, key) {
+            objects::put(context, cell, key, found.bits());
+            native::hidden(context, cell, key);
+        }
+    }
+
+    // `%TypedArray%` itself: an abstract constructor. The registry entry is
+    // already rooted (made == prototype above), so the allocation below cannot
+    // free the prototype; once the constructor exists the entry is updated.
+    let ctor = native::callable(context, abstract_constructor as native::Native);
+    native::name_of(context, ctor, "TypedArray");
+    native::length_of(context, ctor, 0);
+    if let Some(ctor_cell) = Value(ctor).as_slot() {
+        let prototype_key = context.well_known("prototype");
+        objects::put(context, ctor_cell, prototype_key, value);
+        native::pinned(context, ctor_cell, prototype_key);
+        if let Some(function) = crate::entry::function_proto::prototype_of(context) {
+            context.set_prototype(ctor_cell, Value::from_slot(function).bits());
+        }
+        native::species(context, ctor);
+        let constructor_key = context.well_known("constructor");
+        objects::put(context, cell, constructor_key, ctor);
+        native::hidden(context, cell, constructor_key);
+    }
+    if let Some(entry) = context.classes.iter_mut().find(|entry| entry.name == NAME) {
+        entry.made = ctor;
+    }
     Some(cell)
+}
+
+/// `%TypedArray%` called or constructed directly.
+extern "C" fn abstract_constructor(
+    _e: u64,
+    _this: u64,
+    _a0: u64,
+    _a1: u64,
+    _a2: u64,
+    _a3: u64,
+) -> u64 {
+    crate::entry::throw::type_error("Abstract class TypedArray not directly constructable");
+    with_current(|context| objects::undefined_of(context))
+}
+
+/// The own members of a concrete prototype that belong on `%TypedArray%.prototype`.
+const SHARED_METHODS: &[&str] = &[
+    "at", "copyWithin", "entries", "every", "fill", "filter", "find", "findIndex", "findLast",
+    "findLastIndex", "forEach", "includes", "indexOf", "join", "keys", "lastIndexOf", "map",
+    "reduce", "reduceRight", "reverse", "set", "slice", "some", "sort", "subarray", "toReversed",
+    "toSorted", "toString", "values", "with", "get", "setAt", symbol::ITERATOR,
+];
+
+/// Moves one own data property from `from` to `to` (keeping the first holder's
+/// value if `to` already has it) and removes it from `from`.
+fn relocate(context: &mut Context, from: u32, to: u32, name: &str) {
+    let key = context.well_known(name);
+    let Some(machine) = objects::machine_key(key) else {
+        return;
+    };
+    if objects::own_property(context, to, key).is_none()
+        && let Some(held) = objects::own_property(context, from, key)
+    {
+        objects::put(context, to, key, held.bits());
+        native::hidden(context, to, key);
+    }
+    crate::entry::computed::remove_own(context, from, machine);
 }
 
 /// Puts the shared prototype under one concrete class's prototype.
@@ -92,7 +161,7 @@ fn prototype_of(context: &mut Context) -> Option<u32> {
 /// Called from each class's wrapper in [`super::typed_classes`] rather than from
 /// the `#[rtse::class]` expansion, because the attribute can only name a parent
 /// that is itself a declared class — see this module's header.
-pub(in crate::entry) fn link(context: &mut Context, class: &'static str) {
+pub(in crate::entry) fn link(context: &mut Context, class: &'static str, made: u64) {
     let Some(concrete) =
         class_support::prototype(context, class).and_then(|value| Value(value).as_slot())
     else {
@@ -102,6 +171,26 @@ pub(in crate::entry) fn link(context: &mut Context, class: &'static str) {
         return;
     };
     context.set_prototype(concrete, Value::from_slot(shared).bits());
+    for name in SHARED_METHODS {
+        relocate(context, concrete, shared, name);
+    }
+    // The tag is an own data property on the concrete prototype only so the
+    // shared accessor need not be consulted; the language has just the accessor.
+    let tag = context.well_known(symbol::TO_STRING_TAG);
+    if let Some(machine) = objects::machine_key(tag) {
+        crate::entry::computed::remove_own(context, concrete, machine);
+    }
+    if let Some(ctor) = class_support::made(context, NAME).and_then(|value| Value(value).as_slot())
+        && let Some(own) = Value(made).as_slot()
+    {
+        context.set_prototype(own, Value::from_slot(ctor).bits());
+        relocate(context, own, ctor, "from");
+        relocate(context, own, ctor, "of");
+        let species = context.well_known(symbol::SPECIES);
+        if let Some(machine) = objects::machine_key(species) {
+            crate::entry::computed::remove_own(context, own, machine);
+        }
+    }
 }
 
 /// `get %TypedArray%.prototype[Symbol.toStringTag]`.

@@ -462,13 +462,14 @@ macro_rules! declare {
                 // class a program never named: `t.subarray()` answers a
                 // `Uint8Array` in a program that never wrote the word, and its
                 // species would have been missing exactly there.
-                super::super::native::species(context, made);
+                // (Now `%TypedArray%`'s own getter, installed once by
+                // `typed_abstract`; the concrete class inherits it.)
                 // And puts `%TypedArray%.prototype` under this class's own.
                 // Here rather than through `#[rtse::class(extends = …)]`
                 // because that option reaches a parent through the parent's
                 // registration function, and the shared prototype is declared
                 // by no class — see `super::typed_abstract`.
-                super::typed_abstract::link(context, $js);
+                super::typed_abstract::link(context, $js, made);
                 made
             }
         )+
