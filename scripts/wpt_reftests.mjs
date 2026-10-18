@@ -24,6 +24,7 @@
 // conta PASSA COM CONTEÚDO; `passam-vazio` e `falha-parcial` são os outros
 // dois, sempre nomeados à parte, nunca somados a `passam`.
 import { execFile, spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
 import { inflateSync } from "node:zlib";
@@ -190,13 +191,22 @@ function rasterizar(htmlPath, png) {
 // os contava como erro (os "310 de 870"). Um encravamento real de um ficheiro
 // e apanhado pelo watchdog: mata o processo, e o que ficou por fazer cai na
 // segunda passagem EM SERIE (que ja existia para os stragglers).
+const POOL = Math.max(1, Number(opt("jobs", String(Math.min(8, Math.max(2, Math.floor((availableParallelism?.() ?? 4) / 2)))))));
 function rasterizarLote(pares) {
-  return new Promise((resolve) => {
-    const feitos = new Set();
+  // Um POOL de `--batch` persistentes, não um só: o processo único amortiza o
+  // arranque mas rasteriza em SÉRIE, e numa pasta grande/pesada (css-grid, 1600
+  // ficheiros) o layout serial fica mais lento que os N processos antigos. O
+  // pool tem as duas coisas — poucos arranques (um por worker) E paralelismo.
+  // `jobs` = metade das threads, tecto 8, como o corredor por-ficheiro usava.
+  const WATCHDOG = 30000; // sem um marcador novo por 30 s num worker => encrave
+  const feitos = new Set();
+  const n = Math.min(POOL, Math.max(1, pares.length));
+  const fatias = Array.from({ length: n }, () => []);
+  pares.forEach((p, i) => fatias[i % n].push(p)); // round-robin
+  const worker = (fatia) => new Promise((resolve) => {
     const proc = spawn(RASTER, ["--batch"], { env: RASTER_ENV });
     let buf = "";
     let ocioso;
-    const WATCHDOG = 30000; // sem um marcador novo por 30 s => assume encrave
     const rearma = () => {
       clearTimeout(ocioso);
       ocioso = setTimeout(() => { try { proc.kill(); } catch { /* ja morreu */ } }, WATCHDOG);
@@ -211,12 +221,13 @@ function rasterizarLote(pares) {
         rearma();
       }
     });
-    proc.on("close", () => { clearTimeout(ocioso); resolve(feitos); });
+    proc.on("close", () => { clearTimeout(ocioso); resolve(); });
     proc.stdin.on("error", () => { /* fechou antes de acabarmos de escrever */ });
-    for (const { html, png } of pares) proc.stdin.write(`${html}\t${png}\n`);
+    for (const { html, png } of fatia) proc.stdin.write(`${html}\t${png}\n`);
     proc.stdin.end();
     rearma();
   });
+  return Promise.all(fatias.map(worker)).then(() => feitos);
 }
 // `nao_rasterizaram` guarda os NOMES: um teste que ENCRAVA (timeout do raster)
 // não entra em `piores`, e uma comparação por nome entre dois relatórios
