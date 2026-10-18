@@ -613,6 +613,17 @@ pub(crate) fn layout_block(
     // MAIN SIZE de coluna (`forced_outer_h_hard`) precisa de entrar ANTES —
     // e sem passar pelo `.max(content_h)` mais abaixo, que é a parte que
     // protege o stretch e que o encolhimento precisa de ignorar.
+    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
+    // em dois sítios: a transferência `aspect-ratio`→altura abaixo e o piso de
+    // conteúdo mais à frente. Computado uma vez aqui.
+    let parent_display = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .and_then(|pcss| pcss.effective_display());
+    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
+    let parent_is_flex_or_grid =
+        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
     let explicit_content_h = if forced_outer_h_hard {
         forced_outer_h.map(|oh| {
             let mv = margin_top + margin_bottom;
@@ -627,10 +638,24 @@ pub(crate) fn layout_block(
                     h
                 }
             })
-            // `aspect-ratio`: without a declared height, the width transfers
-            // through the ratio (`measure::aspect_ratio`, shared with the grid).
+            // `aspect-ratio`: without a declared height, the height transfers
+            // from the (already resolved) width through the ratio
+            // (`measure::aspect_ratio`). A shrink-to-fit box with auto width —
+            // a FLOAT, an inline-block, an abspos — resolved its width from the
+            // content first, so the ratio gives the height from that width: a
+            // `float; aspect-ratio:1/1` around a `width:100` child is 100 tall,
+            // not 0 (WPT `block-aspect-ratio-019` and the 0.977% family).
+            //
+            // Skipped only where the height is governed otherwise: a GRID item
+            // (the grid resolves the ratio against its track, not this width —
+            // WPT `grid-aspect-ratio-021`) and a flex item with an IMPOSED
+            // height (`forced_outer_h`, taken by the arm just below; an
+            // unstretched flex item has none and does want the ratio).
             .or_else(|| {
-                if shrink_to_fit && css.width.is_none() {
+                if shrink_to_fit
+                    && css.width.is_none()
+                    && (parent_is_grid || forced_outer_h.is_some())
+                {
                     None
                 } else {
                     crate::layout::measure::aspect_ratio::height_for_width(
@@ -993,12 +1018,6 @@ pub(crate) fn layout_block(
     // `block-aspect-ratio-009`): a razão dá o tamanho PREFERIDO, o conteúdo
     // cresce-o. Excluídos os itens de FLEX/GRID — a altura deles vem do
     // contentor, não desta transferência.
-    let parent_is_flex_or_grid = dom
-        .node(id)
-        .parent
-        .and_then(|p| dom.computed_style_idx(p))
-        .and_then(|pcss| pcss.effective_display())
-        .is_some_and(|d| d.is_flex_container() || d.is_grid_container());
     // `overflow` não-visível (hidden/auto/scroll) DESLIGA o piso automático: o
     // conteúdo que não cabe é cortado/rolado, a razão vence (mesma regra que
     // `flex::limits::automatic_min`; WPT `block-aspect-ratio-010`/`-011`/`-012`,

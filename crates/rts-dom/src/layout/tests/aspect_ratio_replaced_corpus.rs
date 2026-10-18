@@ -209,3 +209,17 @@ fn block_aspect_ratio_floored_by_content_unless_overflow_clips() {
     let (dom, list) = geometria(clips, 800.0);
     assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "overflow:hidden => razão vence, conteúdo cortado");
 }
+
+/// A shrink-to-fit box (float/inline-block) with `aspect-ratio` and auto height
+/// takes its height from the content-resolved width through the ratio: a
+/// `float; aspect-ratio:1/1` around a `width:100` child is 100 tall, not 0
+/// (WPT `css-sizing/aspect-ratio/block-aspect-ratio-019`). The old guard
+/// skipped the transfer for every auto width, catching floats too.
+#[test]
+fn float_aspect_ratio_transfers_width_to_height() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div id="t" style="float:left;aspect-ratio:1/1">
+      <div style="width:100px"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
