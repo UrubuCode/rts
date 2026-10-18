@@ -92,19 +92,25 @@ Mapping:
    there." A two-field object paying a 128-byte cell today is pure RAM; per-
    region size classes cut it. This rides the same mechanism.
 
-## 4. The measured cost, stated up front
+## 4. The measured cost (stage 0 DONE, commit 762566773, 2026-10-18)
 
-`Sharded` is "one more load and one more mask than the single form" on **every**
-reference-to-address computation. `address.rs` is explicit that whether this is
-worth it "is a MEASUREMENT nobody has taken, and it should be taken before the
-work rather than after." So the **first** commit is a perf-claim: run the
-existing corpus / the probe on a `Sharded`-addressed build vs the `Single` one
-and measure the per-access cost on hot field reads (area 04's ~4.5 ns IC hit is
-the row to watch). If the cost is unacceptable globally, the fallback is
-**hybrid**: the main program stays `Single` and only dynamically loaded /
-collectible regions are `Sharded` behind a tag check — but that needs the
-reference to tell "am I in the base region" cheaply, which is itself a design
-point. Measure before choosing.
+Measured in release with the probe (`fr_shard_sel` vs `fr_single_sel`, 200M
+trips, min-of-5): a Sharded field read costs **+0.23 ns (~1 cycle)** over
+Single with a run-time reference, and is equal with a constant reference (the
+mask/shift fold). One-stride form confirmed (compile-time constant stride, one
+for all shards). **So a field read is cheap enough for Sharded to be global.**
+
+BUT the gating cost is NOT the read. `Sharded` sets `cursor()` and `runs()` to
+`None` (`mem/address.rs`), which **disables inline cell-allocation and inline
+run reads** — allocation would fall from the inline bump (~5-7 ns) to the
+runtime door (~45 ns), a regression that violates "new method >= old".
+
+**VERDICT: hybrid.** The base region stays `Single` (keeps inline alloc); only
+loaded / dynamic / collectible regions are `Sharded`. The .NET-inspired path to
+eventually-global is a **per-region allocation cursor** (the per-ALC allocation
+context, a gen0 bump pointer per LoaderAllocator) so a `Sharded` region keeps
+O(1) inline alloc — lifting the `cursor()==None` restriction is its own
+sub-task, not a blocker for the hybrid start.
 
 ## 5. The hard parts (where the work actually is)
 
@@ -136,8 +142,10 @@ trimming, not regions. Keep the two paths explicit (the same split as
 
 ## 7. Staging
 
-0. **Measure the `Sharded` per-access cost** (perf-claim; probe + corpus,
-   `Sharded` vs `Single` on hot reads). Decide global vs hybrid. S.
+0. **Measure the `Sharded` per-access cost** — DONE (commit 762566773): +0.23 ns
+   / ~1 cycle per field read; verdict HYBRID because Sharded disables inline
+   alloc (cursor()==None). See §4. The per-region allocation cursor (to let
+   Sharded regions keep inline alloc) is a sub-task under stage 3.
 1. **Region-tagged references in rts-codegen** (Ctx mints references with a
    selector; the base region is selector 0). The enabling change. M/L.
 2. **Region-per-module for dynamic `import()`/`require()`** — the smallest real
