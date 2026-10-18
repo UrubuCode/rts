@@ -41,6 +41,13 @@ impl DataView {
     /// by calling the program's own constructor, which needs the context.
     #[construct]
     fn build(this: u64, buffer: u64, offset: u64, length: u64) -> u64 {
+        // `DataView(buffer)` without `new`: under `new` the machine hands a
+        // fresh cell as `this`; an ordinary call does not (the typed-array
+        // constructors make the same test).
+        if Value(this).as_slot().is_none() {
+            crate::entry::throw::type_error("Constructor DataView requires 'new'");
+            return super::undefined();
+        }
         let offset = super::optional_number(offset);
         let length = super::optional_number(length);
         let built = with_current(|context| {
