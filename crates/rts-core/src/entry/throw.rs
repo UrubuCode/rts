@@ -577,7 +577,37 @@ pub(in crate::entry) fn stack_text_of(context: &Context, frames: &[u64]) -> Stri
         {
             lines.push_str("\n    at ");
             lines.push_str(name);
+            // The raw source position, where the code map knows one. A frame off
+            // `callees` yields only the function's ENTRY address, so this names
+            // where the function is DEFINED, not the exact call site a return
+            // address off the machine stack would give — the difference the
+            // machine walk adds once it can start (`machine_trace`). A raw
+            // position that pinpoints the function in a minified bundle is the
+            // half a reader needs, and it is the honest one to carry without a
+            // machine-stack walk: `callable_at` has no call site to offer.
+            if let Some(position) = position_of(context, code) {
+                use std::fmt::Write as _;
+                let _ = write!(lines, ":{position}");
+            }
         }
     }
     lines
+}
+
+/// The raw source position a compiled function begins at, if the map knows one.
+///
+/// Read from [`Context::code_map`], the same table a machine-stack trace would
+/// attribute through — seeded by the host at placement, absent in a program the
+/// map was never installed for, which yields a nameless-position frame rather
+/// than a wrong one. The FIRST known run of the function is its opening, which
+/// is the most a logical frame can point at: `callees` names the callable, and a
+/// callable's only address is where its code starts.
+fn position_of(context: &Context, code: u64) -> Option<u32> {
+    let (range, _) = context.code_map.as_ref()?.at(code as usize)?;
+    range
+        .positions
+        .positions()
+        .first()
+        .filter(|position| position.is_known())
+        .map(|position| position.raw())
 }

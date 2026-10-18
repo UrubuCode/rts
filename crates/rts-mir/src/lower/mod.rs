@@ -106,6 +106,13 @@ pub fn lower(
         let mut nothing_observed = true;
         for inst in &func.block(block).insts {
             let held = func.inst(*inst);
+            // Where this op came from, carried onto every machine instruction it
+            // becomes, so a stack trace can place the frame running it. The
+            // position is already on the MIR instruction — the language put it
+            // there while lowering its tree — and this is the one place it
+            // crosses into the machine, which is why rule 3 keeps the mention of
+            // the machine builder here and nowhere else.
+            into.at(held.at);
             let lowered = match &held.op {
                 Op::Const(Const::Declared(index)) => {
                     ops.declared(into, *index).map_err(Unlowerable::Language)?

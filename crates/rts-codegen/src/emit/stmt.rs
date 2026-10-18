@@ -28,6 +28,11 @@ pub fn emit_stmt(
     loops: &mut Loops,
     statement: &Stmt,
 ) -> EmitResult<bool> {
+    // Every instruction this statement emits is attributed to where the
+    // statement is, so a stack trace can place the frame running it. The
+    // machine carries the number and never reads it (`rts-cranelift::observe`);
+    // `emit_expr` moves it finer as nested expressions are lowered.
+    builder.at(statement.at);
     match &statement.kind {
         // The value is discarded and the expression is still emitted: an
         // expression statement exists for its side effects, and dropping it

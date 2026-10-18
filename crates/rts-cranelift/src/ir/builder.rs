@@ -175,6 +175,19 @@ impl<'a> FuncBuilder<'a> {
         }
     }
 
+    /// Says where in the client's program the instructions emitted next come
+    /// from.
+    ///
+    /// Opaque here — this layer never reads the number, only carries it onto
+    /// each instruction so a stack trace can place a frame (`observe`). A client
+    /// calls it as it enters each statement or expression; what it emits until
+    /// the next call inherits that place, and the default of unset is honest for
+    /// code that belongs to no single place. Forwards to the one cursor on the
+    /// function so every builder method stamps it without each one having to.
+    pub fn at(&mut self, position: crate::fault::Position) {
+        self.func.set_position_cursor(position);
+    }
+
     /// Which block instructions are currently being appended to.
     ///
     /// A builder that can be moved must be able to say where it is. Without
