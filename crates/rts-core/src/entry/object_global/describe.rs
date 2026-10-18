@@ -510,6 +510,20 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
                 Descriptor::Accessor(pair.0.unwrap_or(absent), pair.1.unwrap_or(absent));
             return Some((found, attributes));
         }
+        // A typed array keeps `length`, `byteLength`, `byteOffset` and `buffer`
+        // in own slots so compiled code can read them, but the language makes
+        // them accessors on `%TypedArray%.prototype`: they are NOT own
+        // properties, and `getOwnPropertyDescriptor(t, "length")` is `undefined`.
+        if let Some(view) = context.view_at(cell)
+            && (super::super::buffers::typed_array_name(view.kind).is_some()
+                || super::super::buffers::is_raw(view.kind))
+            && matches!(
+                context.interner.text(key).map(|text| text.to_rust_lossy()).as_deref(),
+                Some("length" | "byteLength" | "byteOffset" | "buffer")
+            )
+        {
+            return None;
+        }
         // Own rather than inherited: a descriptor describes what the object
         // itself has, and reporting a prototype's property as own is what would
         // make a copy through `defineProperties` flatten a chain.

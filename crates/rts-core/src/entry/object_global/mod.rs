@@ -350,6 +350,9 @@ extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3
         {
             return true;
         }
+        if super::buffers::is_inherited_fact(context, cell, key) {
+            return false;
+        }
         super::objects::own_property(context, cell, key).is_some()
     });
     Value::from_bool(owns).bits()

@@ -104,7 +104,7 @@ pub(in crate::entry) use atomics::ATOMICS_TYPES;
 pub(in crate::entry) use data_view::DATA_VIEW_TYPES;
 pub(in crate::entry) use shared_array_buffer::SHARED_ARRAY_BUFFER_TYPES;
 pub(in crate::entry) use atomics::register_atomics;
-pub(in crate::entry) use data_view::register_data_view;
+use data_view::register_data_view as register_data_view_class;
 pub(in crate::entry) use shared_array_buffer::shared_array_buffer;
 // The argument rules, re-exported rather than moved at the call sites: every
 // member reads them as `super::range` and `super::optional_number`, and where
@@ -117,7 +117,7 @@ pub(in crate::entry) use bounds::{as_count, optional_number, range, to_index, un
 pub(in crate::entry) use typed_classes::{
     big_int64_array, big_uint64_array, float32_array, float64_array, int8_array, int16_array,
     int32_array, uint8_array, uint8_clamped_array, uint16_array,
-    uint32_array,
+    uint32_array, named as typed_array_name,
 };
 
 use element::Kind;
@@ -783,3 +783,36 @@ pub(in crate::entry) fn element_word(context: &Context, value: u64, kind: Kind) 
     Some(element::to_bits(number, kind))
 }
 
+
+/// `DataView`, with the three accessors the language puts on its prototype.
+pub(in crate::entry) fn register_data_view(context: &mut Context) -> u64 {
+    let made = register_data_view_class(context);
+    typed_abstract::dataview_accessors(context);
+    made
+}
+
+/// Whether a view kind is a `DataView`'s.
+pub(in crate::entry) fn is_raw(kind: Kind) -> bool {
+    matches!(kind, Kind::Raw)
+}
+
+/// Whether `key` on this cell is one of the four facts a view keeps in an own
+/// slot for compiled code but the language makes accessors on the prototype
+/// (`length` for a typed array; `byteLength`, `byteOffset`, `buffer` for either
+/// a typed array or a `DataView`). Reflection treats these as NOT own.
+pub(in crate::entry) fn is_inherited_fact(context: &Context, cell: u32, key: crate::object::Key) -> bool {
+    let Some(view) = context.view_at(cell) else {
+        return false;
+    };
+    let crate::object::Key::Name(machine) = key else {
+        return false;
+    };
+    let Some(text) = context.interner.text(machine) else {
+        return false;
+    };
+    match text.to_rust_lossy().as_str() {
+        "length" => !matches!(view.kind, Kind::Raw),
+        "byteLength" | "byteOffset" | "buffer" => true,
+        _ => false,
+    }
+}

@@ -520,6 +520,9 @@ fn owns(this: u64, key: u64) -> bool {
         let Some(key) = own_key(context, key) else {
             return false;
         };
+        if super::buffers::is_inherited_fact(context, cell, key) {
+            return false;
+        }
         if super::objects::own_property(context, cell, key).is_some() {
             return true;
         }

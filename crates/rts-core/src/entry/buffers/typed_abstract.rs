@@ -67,7 +67,7 @@ fn prototype_of(context: &mut Context) -> Option<u32> {
     }
     // Two slots: the tag accessor, and room for `constructor` should the
     // remaining divergence below ever be closed.
-    let cell = native::plain_with_room(context, 2)?;
+    let cell = native::plain_with_room(context, 6)?;
     let value = Value::from_slot(cell).bits();
     // Recorded BEFORE anything else allocates, which is the order
     // `class_support::record` documents and the reason `string::prototype_of`
@@ -80,6 +80,10 @@ fn prototype_of(context: &mut Context) -> Option<u32> {
         context.set_prototype(cell, Value::from_slot(parent).bits());
     }
     native::getter(context, cell, symbol::TO_STRING_TAG, to_string_tag as native::Native);
+    native::getter(context, cell, "buffer", buffer_getter as native::Native);
+    native::getter(context, cell, "byteLength", byte_length_getter as native::Native);
+    native::getter(context, cell, "byteOffset", byte_offset_getter as native::Native);
+    native::getter(context, cell, "length", length_getter as native::Native);
     Some(cell)
 }
 
@@ -121,4 +125,88 @@ extern "C" fn to_string_tag(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
             None => objects::undefined_of(context),
         }
     })
+}
+
+/// The four facts a typed array reports, as `get %TypedArray%.prototype.X`.
+///
+/// An instance here keeps them as own data slots (see [`super::attach`]) so
+/// compiled code reads them without asking the runtime; the language makes them
+/// accessors on this object. These getters are the language's half: they are
+/// what `Object.getOwnPropertyDescriptor(%TypedArray%.prototype, "length").get`
+/// answers, and what `.call(receiver)` runs. They read the receiver's own slot,
+/// so a detached or resized buffer's stamped value is what comes back. A
+/// receiver that is not one of the eight typed arrays is a `TypeError`, which is
+/// the specification's and unlike the tag getter above.
+fn reflect_fact(this: u64, name: &str) -> u64 {
+    let fact = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let view = context.view_at(cell)?;
+        typed_classes::named(view.kind)?;
+        let key = context.well_known(name);
+        objects::own_property(context, cell, key).map(|held| held.bits())
+    });
+    match fact {
+        Some(bits) => bits,
+        None => {
+            crate::entry::throw::type_error(&format!(
+                "Receiver is not a typed array (get {name})"
+            ));
+            with_current(|context| objects::undefined_of(context))
+        }
+    }
+}
+
+extern "C" fn length_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    reflect_fact(this, "length")
+}
+extern "C" fn byte_length_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    reflect_fact(this, "byteLength")
+}
+extern "C" fn byte_offset_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    reflect_fact(this, "byteOffset")
+}
+extern "C" fn buffer_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    reflect_fact(this, "buffer")
+}
+
+fn dv_fact(this: u64, name: &str) -> u64 {
+    let fact = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let view = context.view_at(cell)?;
+        if !matches!(view.kind, super::Kind::Raw) {
+            return None;
+        }
+        let key = context.well_known(name);
+        objects::own_property(context, cell, key).map(|held| held.bits())
+    });
+    match fact {
+        Some(bits) => bits,
+        None => {
+            crate::entry::throw::type_error(&format!("Receiver is not a DataView (get {name})"));
+            with_current(|context| objects::undefined_of(context))
+        }
+    }
+}
+
+extern "C" fn dv_byte_length(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    dv_fact(this, "byteLength")
+}
+extern "C" fn dv_byte_offset(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    dv_fact(this, "byteOffset")
+}
+extern "C" fn dv_buffer(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    dv_fact(this, "buffer")
+}
+
+/// `DataView.prototype`'s three accessors; see [`reflect_fact`] for why an
+/// instance still keeps own slots.
+pub(in crate::entry) fn dataview_accessors(context: &mut Context) {
+    let Some(cell) =
+        class_support::prototype(context, "DataView").and_then(|value| Value(value).as_slot())
+    else {
+        return;
+    };
+    native::getter(context, cell, "buffer", dv_buffer as native::Native);
+    native::getter(context, cell, "byteLength", dv_byte_length as native::Native);
+    native::getter(context, cell, "byteOffset", dv_byte_offset as native::Native);
 }
