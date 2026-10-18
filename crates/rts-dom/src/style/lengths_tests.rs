@@ -329,6 +329,21 @@ mod palavras_chave_intrinsecas {
         assert_eq!((s.w, s.h), (100.0, 100.0), "max-height: {s:?}");
     }
 
+    /// Um `<object type="image/svg+xml" data="data:image/svg+xml,…">` é um SVG
+    /// embutido: a caixa é 100×100 (width + aspect-ratio) e pinta a cor de
+    /// DENTRO do SVG (verde), não o placeholder cinza — WPT
+    /// `aspect-ratio/replaced-element-006`.
+    #[test]
+    fn object_svg_data_uri_tem_tamanho_e_cor_do_svg() {
+        let data = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 5 1' style='background-color: green'%3E%3C/svg%3E";
+        let fonte = format!(
+            "<object type=\"image/svg+xml\" data=\"{data}\" style='width:100px;aspect-ratio:1/1' id='o'></object>"
+        );
+        let (d, l) = geometria(&fonte, 1280.0);
+        let o = rect(&d, &l, "object", 0);
+        assert_eq!((o.w, o.h), (100.0, 100.0), "{o:?}");
+    }
+
     /// Um `<img src="data:image/svg+xml,…">` PERCENT-ENCODED com a cor na raiz
     /// `<svg style='background-color: green'>` pinta a caixa verde: a caixa é
     /// 100×100 (width + aspect-ratio) e verde (não o placeholder cinza) — WPT

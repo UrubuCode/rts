@@ -247,6 +247,26 @@ pub(crate) fn layout_block(
                     return r;
                 }
             }
+            // Um `<object type="image/svg+xml" data="data:image/svg+xml,…">` é
+            // um SVG embutido: mesma caixa replaced que um `<svg>`, dimensionada
+            // pelo `width`/`aspect-ratio` do próprio objecto, pintada com a cor
+            // de dentro do SVG (WPT `replaced-element-006`). Um `<object>` que
+            // aponte para outra coisa (um PNG) não entra aqui e continua a não
+            // pintar — carregar esse recurso é outro trabalho.
+            if tag == "object" {
+                let is_svg = dom.node(id).attr("type").as_deref() == Some("image/svg+xml")
+                    || dom
+                        .node(id)
+                        .attr("data")
+                        .is_some_and(|d| d.starts_with("data:image/svg+xml,"));
+                if is_svg {
+                    if let Some(r) =
+                        layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list)
+                    {
+                        return r;
+                    }
+                }
+            }
             css
         }
         // Texto solto ao nível de bloco: uma linha com a fonte do PAI
