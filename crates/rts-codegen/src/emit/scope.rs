@@ -89,6 +89,11 @@ pub enum Alias {
     /// A name this module exports. The binding holds the value, as any local
     /// does; an assignment to it also writes the namespace an importer reads.
     Export,
+    /// The self-binding of a NAMED FUNCTION EXPRESSION. Its own name lives in a
+    /// scope enclosing the parameters and is immutable: a write is dropped in
+    /// sloppy code and throws a `TypeError` in strict code. A declaration of the
+    /// same spelling (parameter, `var`, `let`) suspends this like any alias.
+    Immutable,
 }
 
 impl Binding {

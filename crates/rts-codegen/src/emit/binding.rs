@@ -234,6 +234,22 @@ pub(super) fn lexical_write(
         let namespace = storage_read(builder, scope, ctx, name)?;
         return super::property::emit_write(builder, ctx, namespace, property, value);
     }
+    // THE SELF-BINDING OF A NAMED FUNCTION EXPRESSION IS IMMUTABLE: strict code
+    // throws, sloppy code drops the write and the assignment still evaluates to
+    // the assigned value.
+    if matches!(scope.alias_of(name), Some(super::scope::Alias::Immutable)) {
+        if ctx.sloppy {
+            return Ok(value);
+        }
+        let type_error = ctx.names.intern("TypeError");
+        let constructor = super::globals::force_read(builder, ctx, type_error)?;
+        let message = super::expr::string_literal(builder, ctx, "Assignment to constant variable.")?;
+        let error = super::call::construct_value(builder, ctx, constructor, &[message])?;
+        builder.throw(super::protect::JS_THROW, error);
+        let unreached = builder.create_block();
+        builder.switch_to(unreached);
+        return Ok(super::expr::undefined(builder, ctx));
+    }
     // AN EXPORTED NAME IS WRITTEN HERE AND REPUBLISHED, which is the other half
     // of a live binding: the importer reads this module's namespace at its use,
     // so an assignment the module makes after its body ran has to reach that

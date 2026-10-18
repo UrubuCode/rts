@@ -1199,6 +1199,7 @@ fn emit_body_into(
     if let Some(name) = self_name {
         let running = expr::call(&mut builder, ctx, RuntimeOp::RunningFunction, &[])?[0];
         binding::declare(&mut builder, &mut scope, ctx, name, running)?;
+        scope.set_alias(name, super::scope::Alias::Immutable);
     }
 
     // The first four come from the convention's slots, which is the whole of the
@@ -1571,7 +1572,12 @@ pub fn hoist_vars(
         // `[Replaceable]` e IGNORA), lia de volta o `window`, e o laco nunca
         // terminava. Foi o que impediu o React 18 de montar, com o erro a
         // aparecer trinta ficheiros a jusante.
-        if !scope.declared_in_function(name) {
+        // A named function expression's own name is declared in the function
+        // layer too, but a `var` of the same spelling is a NEW writable binding
+        // that shadows it (`binding::declare` drops the immutable alias).
+        let shadows_own_name =
+            matches!(scope.alias_of(name), Some(super::scope::Alias::Immutable));
+        if !scope.declared_in_function(name) || shadows_own_name {
             let value = expr::undefined(builder, ctx);
             binding::declare(builder, scope, ctx, name, value)?;
         }

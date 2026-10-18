@@ -1020,6 +1020,30 @@ impl Lowering<'_> {
         self.write_binding(binding, value, of, at)
     }
 
+    /// `bind` for an ASSIGNMENT written in the program. The name a function
+    /// expression binds for its own body is immutable: sloppy code drops the
+    /// write, strict code throws, and this stage does not build the throw -- it
+    /// refuses, and the function is emitted by the stage that does.
+    fn bind_assigned(
+        &mut self,
+        name: Name,
+        value: ValueId,
+        of: Type,
+        at: &Expr,
+    ) -> Result<(), Unsupported> {
+        if let Some(binding) = self.resolution.binding_in(self.scope, name) {
+            if self.resolution.binding(binding).origin == crate::names::resolve::Origin::OwnName {
+                if self.sloppy {
+                    return Ok(());
+                }
+                return Err(Unsupported::Expression(
+                    "an assignment to the name a function expression binds for itself",
+                ));
+            }
+        }
+        self.bind(name, value, of, at)
+    }
+
     /// Writes a binding already resolved: its environment slot, or its value.
     fn write_binding(
         &mut self,

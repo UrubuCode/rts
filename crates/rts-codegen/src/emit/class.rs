@@ -324,6 +324,8 @@ pub(super) fn emit_class(
     // then answered `undefined` and calling it became a `TypeError`.
     if let Some(name) = class.name {
         binding::declare(builder, &mut inner, ctx, name, constructor)?;
+        // Immutable inside the body, expression or declaration alike.
+        inner.set_alias(name, super::scope::Alias::Immutable);
     }
 
     for (index, element) in class.body.iter().enumerate() {
