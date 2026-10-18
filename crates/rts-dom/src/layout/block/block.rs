@@ -876,7 +876,13 @@ pub(crate) fn layout_block(
     let min_height_is_definite = css
         .effective_display()
         .is_some_and(|d| d.is_flex_container() || d.is_grid_container());
-    let avail_children = explicit_content_h
+    // Um `forced_outer_h` imposto como main de flex (hard) com `avail_h`
+    // INDEFINIDO é content-based: dimensiona a caixa, mas NÃO é CB definido para
+    // o `height:%` dos filhos (Flexbox §4.1, WPT `percentage-heights-008`). O
+    // flex só passa `avail_h` definido quando o `it.h` o é (ver `column.rs`).
+    // Exclui-se só do `avail_children`; o tamanho usa o `explicit_content_h`.
+    let forced_is_indefinite = forced_outer_h_hard && avail_h.is_none();
+    let avail_children = (if forced_is_indefinite { None } else { explicit_content_h })
         .or(mxh_pre)
         .or(if min_height_is_definite { mnh_pre } else { None });
     // O limiar de QUEBRA do `flex-wrap` numa coluna é uma pergunta MAIS

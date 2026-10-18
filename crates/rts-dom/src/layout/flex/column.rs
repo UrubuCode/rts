@@ -471,7 +471,34 @@ pub(in crate::layout) fn layout_children_column(
             // horizontal). A mesma altura vira o containing block (`avail`)
             // dos NETOS com `height:100%` — é o item resolvido, cresceu ou
             // encolheu, que eles têm de ver.
-            let avail = Some(it.h);
+            // `avail` (o CB da `height:%` dos netos) é DEFINIDO exceto quando o
+            // `it.h` é puramente CONTENT-based: sem altura absoluta própria, sem
+            // razão de aspeto (que deriva uma altura), e num container de main
+            // INDEFINIDO. Só nesse caso o `height:50%` de um neto é `auto`
+            // (Flexbox §4.1, WPT `percentage-heights-008`); um `height:100px`
+            // (WPT `intrinsic-percent-replaced-027`) ou um `aspect-ratio` (WPT
+            // `flex-aspect-ratio-032/033`) ainda dão um CB definido. `forced_h`
+            // (tamanho imposto) mantém-se SEMPRE `it.h`.
+            let own_definite = {
+                let r = ResolveCtx {
+                    parent_content_w: content_w,
+                    node_font_size: font_px(&ccss, font_size),
+                    root_font_size: crate::style::root_font_size(),
+                    viewport_w: ctx.viewport_w,
+                    viewport_h: ctx.viewport_h,
+                };
+                ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some()
+                    || ccss.aspect_ratio.is_some()
+                    // `flex-basis` ABSOLUTO dá um main definido (WPT
+                    // `percentage-heights-007`: `flex: 0 0 100px` → o filho
+                    // `height:100%` vê um CB de 100, não `auto`).
+                    || ccss.flex_basis.and_then(|b| crate::style::dimensao_absoluta(b, &r)).is_some()
+                    // `min-height` ABSOLUTO idem num item de flex (Flexbox §4.1):
+                    // `min-block-size:100px` fixa o main em ≥100, definido para o
+                    // filho `height:100%` (WPT `percentage-heights-019`).
+                    || ccss.min_height.and_then(|m| crate::style::dimensao_absoluta(m, &r)).is_some()
+            };
+            let avail = (own_definite || container_content_h.is_some()).then_some(it.h);
             let forced_h = Some(it.h);
             // `layout_block_reusing`: mesmo raciocínio do flex-row em
             // `row.rs` — o container refaz a distribuição toda vez, o item

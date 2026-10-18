@@ -283,6 +283,21 @@ mod palavras_chave_intrinsecas {
         assert_eq!((fl.w, it.w, it.h), (100.0, 80.0, 80.0), "fl={fl:?} it={it:?}");
     }
 
+    /// `height:%` de um item num column flex de altura CONTENT-based (sem altura
+    /// própria, sem razão/flex-basis/min-height, e container sem altura) resolve
+    /// para `auto` (Flexbox §4.1): um `height:50%` numa coluna sem altura dá 0,
+    /// não metade do conteúdo (WPT `css-flexbox/percentage-heights-008`).
+    #[test]
+    fn height_percent_em_coluna_content_based_e_auto() {
+        let fonte = "<div style='display:flex;flex-direction:column'>\
+            <div style='display:flex;flex-direction:column'>\
+            <div style='height:100px;width:100px'></div>\
+            <div style='height:50%;background:red' id='pct'></div></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let pct = rect(&d, &l, "div", 3);
+        assert_eq!(pct.h, 0.0, "{pct:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
