@@ -163,6 +163,17 @@ impl Regions {
         STRIDE
     }
 
+    /// The region and cell a foreign reference names: the slow path's decode.
+    ///
+    /// `None` for anything that is not a foreign reference (a base reference
+    /// included -- it is not this table's to resolve) and for a region this
+    /// table does not hold. Compiled code never calls this; it only ever
+    /// misses its `TAG_REFERENCE` guard on such a word.
+    pub fn resolve(&self, value: crate::value::Value) -> Option<(&Region, u32)> {
+        let (region, cell) = value.as_foreign()?;
+        Some((self.regions.get(region as usize)?, cell))
+    }
+
     /// The table and the regions, separately.
     ///
     /// Split rather than lent because they have different destinations: the
@@ -227,6 +238,19 @@ mod tests {
         for (index, region) in regions.iter().enumerate() {
             assert_eq!(listed[index], region.base());
         }
+    }
+
+    #[test]
+    fn a_foreign_reference_resolves_to_its_region_and_cell() {
+        use crate::value::Value;
+        let regions = Regions::new(4, 8).expect("a power of two");
+        let foreign = Value::from_foreign(2, 5).expect("fits");
+        let (region, cell) = regions.resolve(foreign).expect("region 2 is held");
+        assert_eq!(region.index(), 2);
+        assert_eq!(cell, 5);
+        // Not this table's to resolve, or no such region.
+        assert!(regions.resolve(Value::from_slot(5)).is_none());
+        assert!(regions.resolve(Value::from_foreign(9, 0).unwrap()).is_none());
     }
 
     #[test]

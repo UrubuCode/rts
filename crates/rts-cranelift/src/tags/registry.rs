@@ -3,7 +3,7 @@
 //! Clients declare how many value kinds and singletons they need and receive
 //! encodings. Nothing here records who asked.
 
-use super::{PAYLOAD_MASK, TAG_COUNT, TAG_MASK, TAG_RESERVED_COUNT, TAG_SINGLETON, encode};
+use super::{PAYLOAD_MASK, TAG_COUNT, TAG_FOREIGN_REF, TAG_RESERVED_COUNT, TAG_SINGLETON, encode};
 
 /// A singleton's number.
 ///
@@ -102,7 +102,7 @@ impl TagRegistry {
     /// decision with its own justification, not something a declaration should
     /// trigger silently.
     pub fn declare_kind(&mut self) -> Result<ValueKind, TagError> {
-        if u64::from(self.next_tag) > TAG_MASK {
+        if self.next_tag >= TAG_FOREIGN_REF {
             return Err(TagError::TagSpaceExhausted {
                 capacity: TAG_COUNT,
             });
@@ -119,7 +119,7 @@ impl TagRegistry {
 
     /// How many tags remain unassigned.
     pub fn tags_remaining(&self) -> u8 {
-        TAG_COUNT.saturating_sub(self.next_tag)
+        TAG_FOREIGN_REF.saturating_sub(self.next_tag)
     }
 }
 
@@ -157,6 +157,21 @@ mod tests {
         assert!(is_encoded(word));
         assert_eq!(tag_of(word), crate::tags::TAG_SINGLETON);
         assert_eq!(payload_of(word), 2);
+    }
+
+    #[test]
+    fn a_client_is_never_issued_the_foreign_reference_tag() {
+        let mut reg = TagRegistry::new();
+        let mut issued = Vec::new();
+        while let Ok(kind) = reg.declare_kind() {
+            issued.push(kind.tag());
+        }
+        assert!(!issued.contains(&TAG_FOREIGN_REF));
+        assert_eq!(
+            issued.first().copied(),
+            Some(TAG_RESERVED_COUNT),
+            "client numbering (symbol, bigint) must not move"
+        );
     }
 
     #[test]

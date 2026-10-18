@@ -95,7 +95,7 @@ pub fn to_boolean(
         // A symbol reaches here too and is always truthy — which the caller
         // answers by saying it is not falsy, rather than by this layer learning
         // that one of the language's kinds is a symbol.
-        Kind::Reference(_) | Kind::Client { .. } => !falsy_on_heap(value),
+        Kind::Reference(_) | Kind::Foreign { .. } | Kind::Client { .. } => !falsy_on_heap(value),
     }
 }
 
@@ -121,7 +121,9 @@ pub fn to_number(value: Value, singletons: Singletons) -> Option<f64> {
         // see, and a symbol does not convert at all. `None` is the same honest
         // absence in all three cases: guessing zero is how a conversion that
         // should have run a `valueOf` becomes a wrong number nobody traces back.
-        Kind::Singleton(_) | Kind::Reference(_) | Kind::Client { .. } => None,
+        Kind::Singleton(_) | Kind::Reference(_) | Kind::Foreign { .. } | Kind::Client { .. } => {
+            None
+        }
     }
 }
 

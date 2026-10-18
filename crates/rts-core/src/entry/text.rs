@@ -92,6 +92,9 @@ pub(super) fn to_text(context: &Context, value: Value) -> Option<Str> {
             .bigint_at(payload)
             .map(|held| Str::from_str(&held.to_decimal())),
         Kind::Client { .. } => None,
+        // A foreign cell is not resolved here yet (region-per-module, stage 2);
+        // the same absence an object gets.
+        Kind::Foreign { .. } => None,
     }
 }
 

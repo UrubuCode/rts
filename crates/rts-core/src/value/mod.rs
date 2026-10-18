@@ -40,8 +40,8 @@
 //! bits and are `===`, while two `NaN`s can have identical bits and are not.
 
 use rts_cranelift::tags::{
-    BOOL_FALSE, BOOL_TRUE, TAG_BOOL, TAG_INT32, TAG_REFERENCE, TAG_SINGLETON, decode_double,
-    encode, encode_double, is_encoded, payload_of, tag_of,
+    BOOL_FALSE, BOOL_TRUE, TAG_BOOL, TAG_FOREIGN_REF, TAG_INT32, TAG_REFERENCE, TAG_SINGLETON,
+    decode_double, encode, encode_double, is_encoded, payload_of, tag_of,
 };
 
 mod convert;
@@ -49,6 +49,12 @@ mod equality;
 
 pub use convert::{Kinds, Singletons, to_boolean, to_int32, to_number, to_uint32};
 pub use equality::{same_value, same_value_zero, strict_equals};
+
+/// How many low payload bits a foreign reference spends on the cell.
+const FOREIGN_CELL_BITS: u32 = 32;
+const FOREIGN_CELL_MASK: u64 = (1 << FOREIGN_CELL_BITS) - 1;
+/// The 48-bit payload leaves sixteen bits for the region.
+const FOREIGN_REGION_MAX: u32 = 0xFFFF;
 
 /// One JavaScript value, as the program holds it.
 ///
@@ -77,6 +83,17 @@ pub enum Kind {
     Singleton(u32),
     /// Something on the heap, identified by its slot.
     Reference(u64),
+    /// Something on the heap of a region other than the base one.
+    ///
+    /// Never produced while a program has a single region. Compiled code cannot
+    /// see this kind: its reference guard tests for exactly `TAG_REFERENCE`, so
+    /// a foreign word takes the slow path and the runtime decodes it here.
+    Foreign {
+        /// Which region, never zero (zero is the base region).
+        region: u32,
+        /// The cell within that region.
+        cell: u32,
+    },
     /// A kind the **language** declared, carrying whatever payload it chose.
     ///
     /// # Why this is not four more variants
@@ -138,6 +155,27 @@ impl Value {
         Value(encode(TAG_REFERENCE, u64::from(slot)))
     }
 
+    /// A reference to a cell of a non-base region.
+    ///
+    /// `None` for region zero (that is the base region, whose references are
+    /// [`Self::from_slot`]) or a region number the payload cannot hold. Refused
+    /// rather than folded, so a foreign word can never alias a base one.
+    pub fn from_foreign(region: u32, cell: u32) -> Option<Self> {
+        if region == 0 || region > FOREIGN_REGION_MAX {
+            return None;
+        }
+        let payload = (u64::from(region) << FOREIGN_CELL_BITS) | u64::from(cell);
+        Some(Value(encode(TAG_FOREIGN_REF, payload)))
+    }
+
+    /// The `(region, cell)` this names, if it is a foreign reference.
+    pub fn as_foreign(self) -> Option<(u32, u32)> {
+        match self.kind() {
+            Kind::Foreign { region, cell } => Some((region, cell)),
+            _ => None,
+        }
+    }
+
     /// Whether this is an encoded pattern rather than a genuine double.
     pub fn is_boxed(self) -> bool {
         is_encoded(self.0)
@@ -154,6 +192,10 @@ impl Value {
             TAG_BOOL => Kind::Bool,
             TAG_SINGLETON => Kind::Singleton(payload as u32),
             TAG_REFERENCE => Kind::Reference(payload),
+            TAG_FOREIGN_REF => Kind::Foreign {
+                region: (payload >> FOREIGN_CELL_BITS) as u32,
+                cell: (payload & FOREIGN_CELL_MASK) as u32,
+            },
             tag => Kind::Client { tag, payload },
         }
     }
@@ -221,6 +263,7 @@ impl core::fmt::Debug for Value {
             Kind::Bool => write!(f, "Value({})", payload_of(self.0) == BOOL_TRUE),
             Kind::Singleton(id) => write!(f, "Value(singleton {id})"),
             Kind::Reference(slot) => write!(f, "Value(ref {slot})"),
+            Kind::Foreign { region, cell } => write!(f, "Value(foreign {region}:{cell})"),
             Kind::Client { tag, payload } => write!(f, "Value(kind {tag} of {payload})"),
         }
     }
@@ -251,6 +294,43 @@ mod tests {
     /// exactly what this test needs to violate on purpose.
     fn decode_double_unchecked(bits: u64) -> f64 {
         f64::from_bits(bits)
+    }
+
+    #[test]
+    fn a_foreign_reference_round_trips_and_is_not_a_base_reference() {
+        let foreign = Value::from_foreign(3, 0xDEAD_BEEF).expect("fits");
+        assert_eq!(
+            foreign.kind(),
+            Kind::Foreign {
+                region: 3,
+                cell: 0xDEAD_BEEF
+            }
+        );
+        assert_eq!(foreign.as_foreign(), Some((3, 0xDEAD_BEEF)));
+        // The property inline code depends on: the base guard is an equality on
+        // TAG_REFERENCE, which this word must fail.
+        assert_eq!(tag_of(foreign.0), TAG_FOREIGN_REF);
+        assert_ne!(tag_of(foreign.0), TAG_REFERENCE);
+        assert_eq!(foreign.as_slot(), None, "never readable as a base slot");
+
+        // Extremes survive.
+        let widest = Value::from_foreign(0xFFFF, u32::MAX).expect("fits");
+        assert_eq!(widest.as_foreign(), Some((0xFFFF, u32::MAX)));
+    }
+
+    #[test]
+    fn a_base_reference_is_unaffected_by_the_foreign_kind() {
+        let base = Value::from_slot(42);
+        assert_eq!(base.kind(), Kind::Reference(42));
+        assert_eq!(base.as_slot(), Some(42));
+        assert_eq!(base.as_foreign(), None);
+        assert_eq!(base.bits(), encode(TAG_REFERENCE, 42), "bits unchanged");
+    }
+
+    #[test]
+    fn region_zero_and_oversized_regions_are_refused() {
+        assert_eq!(Value::from_foreign(0, 5), None, "zero is the base region");
+        assert_eq!(Value::from_foreign(0x1_0000, 5), None);
     }
 
     #[test]

@@ -90,6 +90,20 @@ pub const BOOL_FALSE: u64 = 0;
 /// The payload a machine `true` carries.
 pub const BOOL_TRUE: u64 = 1;
 
+/// A reference to an object in a region other than the base one.
+///
+/// The payload is `(region << 32) | cell`, decoded by the runtime and never by
+/// compiled code: every inline access guards on exactly [`TAG_REFERENCE`] (an
+/// equality on the tag, `lower::value::test`), so a word carrying this tag misses
+/// that guard and takes the slow path, where `rts-core` decodes it. That is what
+/// lets the base region keep `Addressing::Single` and its inline allocation
+/// unchanged while a loaded region lives beside it.
+///
+/// The TOP tag, so the client numbering that starts at [`TAG_RESERVED_COUNT`]
+/// (symbol 4, bigint 5) does not move; [`TagRegistry::declare_kind`] stops short
+/// of it.
+pub const TAG_FOREIGN_REF: u8 = 7;
+
 /// How many tags this layer reserves before a client's first one.
 pub const TAG_RESERVED_COUNT: u8 = 4;
 

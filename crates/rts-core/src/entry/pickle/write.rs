@@ -293,6 +293,9 @@ impl Writer<'_> {
                 self.out.push(OP_STR);
                 self.string(text);
             }
+            ValueKind::Foreign { .. } => {
+                return Err("pickle: cannot serialize a value of this kind".into());
+            }
             ValueKind::Client { .. } => {
                 if let Some(spelled) = self.symbol_text(bits) {
                     self.out.push(OP_SYMBOL);

@@ -113,6 +113,9 @@ fn type_name_of(context: &mut Context, value: u64) -> TypeName {
             // is no honest answer, and `"undefined"` is the one that makes a
             // wiring mistake look like a value.
             Kind::Client { .. } => TypeName::Unknown,
+            // Never produced until a module is placed in its own region (stage
+            // 2). Unknown rather than a guess at object vs function vs string.
+            Kind::Foreign { .. } => TypeName::Unknown,
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
