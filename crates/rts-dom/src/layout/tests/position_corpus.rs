@@ -142,3 +142,25 @@ fn absoluto_estica_e_o_relativo_ancestral_colapsa_com_o_primeiro_filho() {
     afirma_rect(&dom, &list, "irmao-normal", (50.0, 270.0, 90.0, 25.0));
     afirma_rect(&dom, &list, "raiz-abs", (0.0, 400.0, 200.0, 100.0));
 }
+
+/// An out-of-flow box centred by a flex container's `justify-content:center`
+/// must not bleed outside its containing block. A 100px-wide absolute box
+/// inside a 40px inner flex (`justify-content:center`) would centre to a
+/// negative x (`+(40-100)/2` off the inner flex's start); css-align-3
+/// §abspos-sizing keeps a centred abspos box within the CB, so the start edge
+/// is clamped to the CB start. WPT `css-position/position-absolute-center-001`.
+const ABSPOS_FLEX_CENTER: &str = r#"<!DOCTYPE html>
+<div id="cb" style="position:relative;width:100px;height:100px;display:flex;flex-direction:row">
+  <div id="inner" style="display:flex;justify-content:center;margin:10px;height:100px;flex-grow:1">
+    <div id="abs" style="position:absolute;top:0;width:100px;height:100px"></div>
+  </div>
+  <div style="height:100px;flex-grow:1"></div>
+</div>"#;
+
+#[test]
+fn abspos_centrado_em_flex_nao_sai_do_containing_block() {
+    let (dom, list) = geometria_800(ABSPOS_FLEX_CENTER);
+    // O bloco-container está em x=8 (margem do body); o abs de 100px, centrado
+    // no inner flex de 40px, cairia em x=-12 — fica preso à borda do CB (x=8).
+    afirma_rect(&dom, &list, "abs", (8.0, 8.0, 100.0, 100.0));
+}
