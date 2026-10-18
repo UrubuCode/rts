@@ -114,13 +114,22 @@ sub-task, not a blocker for the hybrid start.
 
 ## 5. The hard parts (where the work actually is)
 
-- **Cross-region references must carry the region.** Today a reference is a
-  region-local index. Making exports usable across regions means the selector
-  bits travel with every reference that can escape its region — the
-  `address.rs` `Sharded` form already defines the encoding, but `rts-codegen`
-  mints references without a region tag in single mode (`live.rs`: "letting a
-  compilation START its numbering at an offset ... is a change to rts-codegen's
-  Ctx"). This is the core change.
+- **Cross-region references must carry the region.** (Recon 2026-10-18
+  corrected the earlier framing.) References are minted at RUNTIME in
+  `rts-core/src/heap/region/mod.rs` (`Region::compose` = `(cell << selector_bits)
+  | index`), NOT in rts-codegen — a Ctx "region" field would be dead code. And
+  the selector is in the LOW bits, so a base reference is `cell` under Single
+  but `cell << k` under Sharded: they are NOT bit-compatible, so "base Single +
+  extra regions Sharded in one reference space" cannot work by stealing bits.
+  **Design: a distinct boxed tag for foreign references.** A loaded region's
+  objects carry `TAG_FOREIGN_REF` = `(region << k) | cell`; base-region objects
+  keep `TAG_REFERENCE` + Single addressing + inline alloc UNCHANGED. Base inline
+  field read/write/element/barrier already guard on the reference tag, so a
+  foreign reference misses the guard and takes a runtime slow path that decodes
+  `(region, cell)` via `Region`/`Regions` — correct-but-slow (the "door"),
+  never silently wrong. PREREQUISITE (verify first, stage 1b): every inline
+  reference access guards on `TAG_REFERENCE` and has a safe slow-path miss edge
+  (field read/write, element runs, and `gc::crossing_is_possible` barrier).
 - **Collectible regions need the collector to track per-region liveness.** .NET
   does a two-phase unload keyed on the GC proving the ALC dead; rts's collector
   "does not know about code" (`live.rs`). Freeing a region safely needs a
@@ -146,8 +155,15 @@ trimming, not regions. Keep the two paths explicit (the same split as
    / ~1 cycle per field read; verdict HYBRID because Sharded disables inline
    alloc (cursor()==None). See §4. The per-region allocation cursor (to let
    Sharded regions keep inline alloc) is a sub-task under stage 3.
-1. **Region-tagged references in rts-codegen** (Ctx mints references with a
-   selector; the base region is selector 0). The enabling change. M/L.
+1. **Foreign-reference tag in rts-core/rts-cranelift** (NOT rts-codegen — recon
+   2026-10-18). The enabling change, three parts: (1b) VERIFY every inline
+   reference access in rts-cranelift guards on TAG_REFERENCE with a safe
+   slow-path miss edge (field read/write, element runs, gc barrier) — the
+   prerequisite; (1a) add a `TAG_FOREIGN_REF` value kind in rts-core and a
+   `Regions` decode `(region, cell)` for the slow path (single-region programs
+   never produce it, so they are byte-identical); (1c) make the region base
+   table runtime-extendable so a loaded region registers its base without
+   recompiling base code. M/L.
 2. **Region-per-module for dynamic `import()`/`require()`** — the smallest real
    capability win; place a loaded file in its own region, hand back tagged
    exports; cross-region calls take the door. M.
