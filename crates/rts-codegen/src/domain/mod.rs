@@ -286,6 +286,9 @@ impl Js {
         // written on `PRIMS` three lines below and holds here identically.
         RuntimeOp::MapNewDirect,
         RuntimeOp::SetNewDirect,
+        // APPENDED (position is the index): an object pattern's rest, in one call that
+        // interleaves descriptor and read per key -- `lower/object_rest.rs`.
+        RuntimeOp::ObjectRest,
     ];
 
     /// The index the IR carries for an entry point.

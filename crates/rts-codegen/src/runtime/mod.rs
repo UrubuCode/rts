@@ -1212,6 +1212,9 @@ pub enum RuntimeOp {
     /// The object an `async function*` call answers: `GeneratorNew`'s frame under the
     /// async generator's prototype, so its steps answer promises. **Appended**.
     AsyncGeneratorNew,
+    /// The rest object of an object pattern: `(source, excluded keys array)`.
+    /// **Appended**.
+    ObjectRest,
 }
 
 impl RuntimeOp {
@@ -1360,6 +1363,7 @@ impl RuntimeOp {
         RuntimeOp::F64ToBits,
         RuntimeOp::F64FromBits,
         RuntimeOp::AsyncGeneratorNew,
+        RuntimeOp::ObjectRest,
     ];
 
     /// The linker name the runtime must define.
@@ -1399,6 +1403,7 @@ impl RuntimeOp {
             RuntimeOp::DelegateStep => "__rts_delegate_step",
             RuntimeOp::ModulePublishAll => "__rts_module_publish_all",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
+            RuntimeOp::ObjectRest => "__rts_object_rest",
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
@@ -1619,6 +1624,7 @@ impl RuntimeOp {
             // re-exporting from. Neither is a value.
             RuntimeOp::ModulePublishAll => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ObjectRest => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
             // A key number is an `I64` and not a value: it is what the compiler
             // resolves a name to, and every accessor entry point takes one.
             RuntimeOp::KeyNumber => (vec![UNPROVEN], vec![Repr::I64]),

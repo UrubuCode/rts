@@ -330,8 +330,13 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // `f64FromBits`): each allocates or reads a bigint, which is the heap clause of
     // the membership rule. They are two rows because the argument and result
     // shapes differ (f64 -> bigint, bigint -> f64), which one selector cannot carry.
+    //
+    // Moved to 139 for `ObjectRest` (`{ a, ...rest } = x`): it allocates the rest
+    // object and runs a proxy's traps, so the heap clause. It must be one call and
+    // not a graph loop because `CopyDataProperties` interleaves a descriptor and a
+    // read per key, which a loop over `OwnKeys` (all descriptors first) cannot.
     assert!(
-        CORE_ENTRY_COUNT <= 138,
+        CORE_ENTRY_COUNT <= 139,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

@@ -39,7 +39,7 @@ mod typed;
 
 use copy::held;
 pub(in crate::entry) use define::{define, define_read, define_reported};
-pub(in crate::entry) use copy::each_enumerable_own;
+pub(in crate::entry) use copy::{each_enumerable_own, each_enumerable_own_except};
 pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 /// `ToPropertyDescriptor`, for the one caller outside this module: a proxy's
 /// `getOwnPropertyDescriptor` trap, whose answer goes through the round trip the

@@ -1442,6 +1442,53 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     target
 }
 
+/// `...rest` of an object pattern: a fresh object holding the source's own
+/// enumerable properties less the `excluded` keys (an array of key values).
+///
+/// `CopyDataProperties` is one loop -- `[[OwnPropertyKeys]]` once, then per key
+/// `[[GetOwnProperty]]` and `[[Get]]` alternating -- and an excluded key is
+/// neither described nor read. The loop is the shared `each_enumerable_own_except`,
+/// so a proxy's handler sees the order every other engine shows it.
+#[rtse::entry("__rts_object_rest")]
+pub fn object_rest(source: u64, excluded: u64) -> u64 {
+    let keys: Vec<Key> = with_current(|context| {
+        let held: Vec<u64> = Value(excluded)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .map(<[u64]>::to_vec)
+            .unwrap_or_default();
+        held.into_iter()
+            .filter_map(|value| super::computed::property_key(context, Value(value)))
+            .collect()
+    });
+    let mut guard = super::rooted::Rooted::new();
+    let rest = object_new(0);
+    guard.values().push(rest);
+    super::object_global::each_enumerable_own_except(source, &keys, |key| {
+        let value = super::computed::get_indexed(source, key);
+        if super::throw::in_flight() {
+            return;
+        }
+        super::computed::set_indexed(rest, key, value, 0);
+    });
+    // The string walk above never reports a symbol key on an ordinary source (a
+    // proxy's listing already carried them), so they follow, as a spread does.
+    if !super::proxy::is_proxy(source) && !super::throw::in_flight() {
+        let symbols = with_current(|context| super::array::symbol_keyed(context, source));
+        for (key, value) in symbols {
+            if keys.contains(&key) {
+                continue;
+            }
+            with_current(|context| {
+                if let Some(cell) = Value(rest).as_slot() {
+                    put(context, cell, key, value);
+                }
+            });
+        }
+    }
+    rest
+}
+
 /// The symbol half of a spread, which no fast path changes.
 fn copy_symbol_keyed(target: u64, source: u64) {
     let symbols = with_current(|context| super::array::symbol_keyed(context, source));

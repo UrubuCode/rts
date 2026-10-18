@@ -47,7 +47,18 @@ pub(super) fn held(array: u64) -> Option<Vec<u64>> {
 /// A closure and not a returned list, because a list is what forces the wrong
 /// order: the caller's work for key *a* has to happen before the descriptor of
 /// key *b* is asked for.
-pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u64)) {
+pub(in crate::entry) fn each_enumerable_own(object: u64, visit: impl FnMut(u64)) {
+    each_enumerable_own_except(object, &[], visit);
+}
+
+/// [`each_enumerable_own`] less the `excluded` keys, which are filtered BEFORE
+/// the descriptor is asked for -- `CopyDataProperties` never describes or reads an
+/// excluded key, so a proxy's trap log and a getter under it both stay quiet.
+pub(in crate::entry) fn each_enumerable_own_except(
+    object: u64,
+    excluded: &[crate::object::Key],
+    mut visit: impl FnMut(u64),
+) {
     let filter = super::super::proxy::is_proxy(object);
     let listed = match filter {
         true => super::super::proxy::own_keys(object).unwrap_or(object),
@@ -60,6 +71,14 @@ pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u
         return;
     };
     for name in names {
+        if !excluded.is_empty() {
+            let key = with_current(|context| {
+                super::super::computed::property_key(context, Value(name))
+            });
+            if key.is_some_and(|key| excluded.contains(&key)) {
+                continue;
+            }
+        }
         if filter {
             let described = super::describe_of(object, name);
             // Rule 8: the descriptor came from a handler, so it may not have

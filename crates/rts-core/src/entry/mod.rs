@@ -213,7 +213,7 @@ pub use host_class::{declare_host_class, describe_callable, error_prototype};
 pub use pattern::array_pattern_direct;
 pub use text_walk::text_walk;
 pub use objects::{
-    get_property, get_super_property, object_new, object_spread, set_property,
+    get_property, get_super_property, object_new, object_rest, object_spread, set_property,
     set_super_property,
 };
 pub use promise::{async_start, drain_microtasks, promise_await, promise_new, promise_settle, settled};

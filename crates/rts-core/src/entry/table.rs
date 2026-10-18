@@ -106,7 +106,7 @@ use super::functions::{
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
-    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
+    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_REST_ENTRY, OBJECT_SPREAD_ENTRY,
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
@@ -864,6 +864,9 @@ pub enum CoreEntry {
     /// [`super::async_generator_new`] -- the object an `async function*` call answers:
     /// `GeneratorNew`'s frame under the async generator's prototype. Allocates.
     AsyncGeneratorNew = 137,
+
+    /// [`super::object_rest`] -- the rest object of an object pattern.
+    ObjectRest = 138,
 }
 
 /// How many entry points exist.
@@ -871,7 +874,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 138;
+pub const CORE_ENTRY_COUNT: usize = 139;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -1017,6 +1020,7 @@ impl CoreEntry {
         CoreEntry::F64ToBits,
         CoreEntry::F64FromBits,
         CoreEntry::AsyncGeneratorNew,
+        CoreEntry::ObjectRest,
     ];
 
     /// The number a call site holds.
@@ -1170,6 +1174,7 @@ impl CoreEntry {
             CoreEntry::F64ToBits => F64_TO_BITS_ENTRY,
             CoreEntry::F64FromBits => F64_FROM_BITS_ENTRY,
             CoreEntry::AsyncGeneratorNew => ASYNC_GENERATOR_NEW_ENTRY,
+            CoreEntry::ObjectRest => OBJECT_REST_ENTRY,
         }
     }
 

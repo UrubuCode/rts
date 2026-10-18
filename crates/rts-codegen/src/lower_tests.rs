@@ -2056,9 +2056,8 @@ fn a_rest_target_owes_no_close_because_the_iterator_ended_itself() {
     assert_eq!(nullish(&stopping), 1, "the pattern stopped, so it closes");
 }
 
-/// An object rest reads the source's own keys once and never reads a key the pattern
-/// named: one `OwnKeys`, one `FieldRead` for the named `a`, and the copy's reads go
-/// through the key the loop holds.
+/// An object rest is one `ObjectRest` call (descriptor and read interleaved per key, the
+/// excluded keys passed in), and the only `FieldRead` is the named `a`.
 #[test]
 fn an_object_rest_walks_the_own_keys_and_skips_what_was_named() {
     let lowered = only("function f(o) { const { a, ...rest } = o; return rest; }").expect("covered");
@@ -2076,7 +2075,7 @@ fn an_object_rest_walks_the_own_keys_and_skips_what_was_named() {
         })
         .collect();
     assert_eq!(
-        entries.iter().filter(|held| **held == crate::runtime::RuntimeOp::OwnKeys).count(),
+        entries.iter().filter(|held| **held == crate::runtime::RuntimeOp::ObjectRest).count(),
         1
     );
     let field_reads = lowered
