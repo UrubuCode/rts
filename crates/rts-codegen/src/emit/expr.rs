@@ -480,6 +480,10 @@ pub fn emit_expr(
             // — which is why this is decided in the language layer.
             Ok(undefined(builder, ctx))
         }
+        ExprKind::NewTarget if scope.held_new_target().is_some() => {
+            let held = scope.held_new_target().expect("checked");
+            super::binding::read(builder, scope, ctx, held)
+        }
         ExprKind::NewTarget => Ok(call(builder, ctx, RuntimeOp::NewTarget, &[])?[0]),
         ExprKind::ImportMeta => super::module::emit_import_meta(builder, ctx),
         ExprKind::ImportCall { specifier, options } => {

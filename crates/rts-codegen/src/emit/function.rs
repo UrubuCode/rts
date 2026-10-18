@@ -799,6 +799,13 @@ pub(super) fn emit_body(
     if hands_this_to_an_arrow {
         candidates.push(held_this);
     }
+    // `new.target` for the arrows inside, by the same route and for the same
+    // reason: an arrow's is the enclosing function's.
+    let held_new_target = ctx.names.intern("__rts_new_target");
+    let hands_new_target = !captures_this && capture::arrow_reads_new_target(body);
+    if hands_new_target {
+        candidates.push(held_new_target);
+    }
     // TWICE, AND THE SECOND TIME IS NOT A CORRECTION OF THE FIRST.
     //
     // A name reaches an environment because some nested function mentions it.
@@ -848,6 +855,9 @@ pub(super) fn emit_body(
     // mentions alone would leave the arrow with nothing reachable.
     if hands_this_to_an_arrow {
         captured.insert(held_this);
+    }
+    if hands_new_target {
+        captured.insert(held_new_target);
     }
     // A derived constructor holds `this` in its own environment, so it has one
     // whether or not anything else is captured — the name is added here rather
@@ -1169,6 +1179,10 @@ fn emit_body_into(
         scope.mark_module_body();
     }
     scope.set_this(receiver, captures_this);
+    if captures_this {
+        let held = ctx.names.intern("__rts_new_target");
+        scope.set_held_new_target(reachable.iter().any(|(name, _)| *name == held).then_some(held));
+    }
     if let Some(name) = late_this {
         // DECLARED only where this function owns the name. A derived constructor
         // does: `this` does not exist in one until `super()` returns, so the
@@ -1303,6 +1317,11 @@ fn emit_body_into(
     if !captures_this && capture::arrow_reads_this(body) {
         let held_this = ctx.names.intern("__rts_this");
         binding::declare(&mut builder, &mut scope, ctx, held_this, receiver)?;
+    }
+    if !captures_this && capture::arrow_reads_new_target(body) {
+        let held = ctx.names.intern("__rts_new_target");
+        let current = expr::call(&mut builder, ctx, RuntimeOp::NewTarget, &[])?[0];
+        binding::declare(&mut builder, &mut scope, ctx, held, current)?;
     }
 
     let named = ctx.names.intern("arguments");

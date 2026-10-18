@@ -1634,6 +1634,75 @@ fn this_in_expr(expr: &Expr, found: &mut bool) {
     });
 }
 
+/// Whether an arrow inside this body reads `new.target`. The twin of
+/// [`arrow_reads_this`]: an arrow's `new.target` is the enclosing function's, so
+/// that function hands its own over as the name `__rts_new_target`. The walk
+/// descends through arrows and stops at a plain function or class, which answer
+/// for their own.
+pub(super) fn arrow_reads_new_target(body: &[Stmt]) -> bool {
+    let mut found = false;
+    for statement in body {
+        nt_stmt(statement, false, &mut found);
+    }
+    found
+}
+
+fn nt_function(function: &Function, found: &mut bool) {
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                nt_stmt(statement, true, found);
+            }
+        }
+        FunctionBody::Expression(value) => nt_expr(value, true, found),
+    }
+}
+
+fn nt_stmt(statement: &Stmt, in_arrow: bool, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => nt_stmt(inner, in_arrow, found),
+        StmtChild::Expr(expr) => nt_expr(expr, in_arrow, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                nt_expr(value, in_arrow, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                nt_stmt(inner, in_arrow, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            if function.captures_this {
+                nt_function(function, found);
+            }
+        }
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn nt_expr(expr: &Expr, in_arrow: bool, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if in_arrow && matches!(expr.kind, ExprKind::NewTarget) {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => nt_expr(inner, in_arrow, found),
+        Child::Function(function) => {
+            if function.captures_this {
+                nt_function(function, found);
+            }
+        }
+        Child::Class(_) => {}
+    });
+}
+
 /// What is still nested code inside an omitted helper's initialiser.
 ///
 /// Nothing, today: the initialiser IS the function, and `omit::helper_bindings`
