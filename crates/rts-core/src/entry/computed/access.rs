@@ -140,7 +140,18 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
         // is the whole point of a computed read: `o[k]` and `o.x` name the same
         // property, so one of them finding a getter and the other reading a
         // slot would make which spelling was written decide what a property IS.
-        super::super::accessor::resolve(context, slot, key)
+        let found = super::super::accessor::resolve(context, slot, key);
+        // A miss on the GLOBAL OBJECT asks the lazy build before it is a miss,
+        // exactly as the named read in `objects` does: `globalThis["Uint8Array"]`
+        // otherwise answered `undefined` for every global nothing had spelled bare.
+        if matches!(found, super::super::accessor::Found::Absent)
+            && context.globals == Some(slot)
+            && let crate::object::Key::Name(named) = key
+            && let Some(made) = super::super::global::supply(context, named)
+        {
+            return super::super::accessor::Found::Value(made);
+        }
+        found
     });
     if let Some(refusal) = refusal {
         super::super::throw::type_error(&refusal);
