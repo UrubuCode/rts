@@ -164,3 +164,25 @@ fn abspos_centrado_em_flex_nao_sai_do_containing_block() {
     // no inner flex de 40px, cairia em x=-12 — fica preso à borda do CB (x=8).
     afirma_rect(&dom, &list, "abs", (8.0, 8.0, 100.0, 100.0));
 }
+
+/// A plain block flex item sized by its content takes the width of its widest
+/// LINE, not its widest child: three inline `<canvas>`es side by side make the
+/// item 150 wide, not 50 (one). Before, an imposed flex main height was fed
+/// back through the children's ratios and the item reported one child's width
+/// (WPT `css-flexbox/flexbox-flex-basis-content-004a`); the non-row transfer
+/// now sums an inline run instead of taking its max.
+const FLEX_COL_INLINE_CANVASES: &str = r#"<!DOCTYPE html>
+<div style="display:flex;flex-direction:column;align-items:flex-start;height:1px">
+  <div id="item"><canvas width="50" height="10"></canvas><canvas width="50" height="10"></canvas><canvas width="50" height="10"></canvas></div>
+</div>"#;
+
+#[test]
+fn item_de_flex_coluna_mede_a_linha_inteira_de_canvases_inline() {
+    let (dom, list) = geometria_800(FLEX_COL_INLINE_CANVASES);
+    let r = rect(&dom, &list, "#item", 0);
+    assert!(
+        perto(r.w, 150.0),
+        "#item: largura {:?}, esperado 150 (3 canvases de 50 lado a lado)",
+        r.w
+    );
+}

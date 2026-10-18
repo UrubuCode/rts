@@ -302,9 +302,17 @@ pub(in crate::layout) fn transferred_intrinsic_width(
         .unwrap_or(0.0)
         .max(0.0);
     let mut sum = 0.0f32;
-    let mut max_w = 0.0f32;
     let mut count: usize = 0;
     let mut some_transferred = false;
+    // For the NON-row (block) case the width is the widest LINE, not the widest
+    // single child: inline-level children (default `<canvas>`, `<img>`) share
+    // one line and SUM, a block-level child takes a line of its own. Measured
+    // as a running widest-line so a plain block with three inline canvases
+    // reports 51 (three side by side), not 17 (one) — WPT
+    // `flexbox-flex-basis-content-004a`. A single child gives line == child,
+    // so the common one-replaced-child case is unchanged.
+    let mut line = 0.0f32;
+    let mut widest = 0.0f32;
     for &child in &dom.node(id).children {
         if is_out_of_flow(dom, child) {
             continue;
@@ -325,10 +333,14 @@ pub(in crate::layout) fn transferred_intrinsic_width(
             count += 1;
         }
         sum += w;
-        if w > max_w {
-            max_w = w;
+        if crate::layout::float::float::close_run(dom, child) {
+            widest = widest.max(line).max(w);
+            line = 0.0;
+        } else {
+            line += w;
         }
     }
+    widest = widest.max(line);
     if !some_transferred {
         // nenhum filho precisava da regra — o caminho cached decide igual,
         // e ele é o que os outros milhares de contentores já usam.
@@ -337,6 +349,6 @@ pub(in crate::layout) fn transferred_intrinsic_width(
     if is_row {
         Some(sum + (count.saturating_sub(1)) as f32 * gap)
     } else {
-        Some(max_w)
+        Some(widest)
     }
 }
