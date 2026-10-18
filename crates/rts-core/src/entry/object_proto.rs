@@ -482,7 +482,7 @@ pub(in crate::entry) fn extends_class(context: &mut Context, mut cell: u32, name
 /// Written once because two members ask it and they must not drift: the whole
 /// content of `propertyIsEnumerable`'s documentation is that it answers the same
 /// as `hasOwnProperty` here, and two bodies is where that stops being true.
-fn owns(this: u64, key: u64) -> bool {
+pub(super) fn owns(this: u64, key: u64) -> bool {
     if let Some(owned) = super::proxy::owns(this, key) {
         return owned;
     }
@@ -490,6 +490,17 @@ fn owns(this: u64, key: u64) -> bool {
         let Some(cell) = Value(this).as_slot() else {
             return false;
         };
+        // A typed array's elements live in its buffer, not in `elements_at`; an
+        // integer-indexed key is own iff in range, and a canonical numeric key
+        // that is not an index (`-1`, `1.5`) is never a property at all.
+        if super::buffers::is_element_key(context, cell, Value(key)) {
+            return match super::array::as_index(context, Value(key)) {
+                Some(at) => context
+                    .view_at(cell)
+                    .is_some_and(|view| at < view.count()),
+                None => false,
+            };
+        }
         // An array element is own storage that no shape records, so the index
         // question is asked before the key is turned into text —
         // `ToPropertyKey` would turn `0` into `"0"` and lose it.

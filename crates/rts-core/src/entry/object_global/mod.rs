@@ -335,27 +335,9 @@ extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64
 /// and it answers for a key holding `undefined`, which is why it cannot be
 /// written as a read compared against `undefined`.
 extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(owned) = super::proxy::owns(object, name) {
-        return Value::from_bool(owned).bits();
-    }
-    let owns = with_current(|context| {
-        let Some(cell) = Value(object).as_slot() else {
-            return false;
-        };
-        let Some(key) = key_for(context, name) else {
-            return false;
-        };
-        if let Key::Name(named) = key
-            && context.accessor_at(cell, named.index() as u32).is_some()
-        {
-            return true;
-        }
-        if super::buffers::is_inherited_fact(context, cell, key) {
-            return false;
-        }
-        super::objects::own_property(context, cell, key).is_some()
-    });
-    Value::from_bool(owns).bits()
+    // The same body as `hasOwnProperty`: index/element/string-unit storage,
+    // symbol keys, ToPropertyKey, accessors and the typed-array geometry hide.
+    Value::from_bool(super::object_proto::owns(object, name)).bits()
 }
 
 /// `Object.is(a, b)` — SameValue.
