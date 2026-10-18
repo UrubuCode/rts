@@ -579,30 +579,48 @@ pub(crate) fn layout_block(
                             })
                         })
                         .flatten();
-                    let auto_w = def_h
-                        .and_then(|h| {
-                            crate::layout::measure::aspect_ratio::width_for_height(
-                                &css,
-                                h,
-                                padding_h + border_h,
-                                frame_v_l,
-                            )
-                        })
-                        .unwrap_or_else(|| (avail_w - frame).max(0.0));
-                    // O MÁXIMO transferido de `max-height` capa a largura-auto,
-                    // mas NÃO abaixo do min-content (WPT `block-aspect-ratio-043`
-                    // — o máximo transferido não corta o mínimo de conteúdo).
-                    match transferred_max_w {
-                        Some(tmax) => {
-                            let content_min = (crate::table::min_content(
-                                dom,
-                                id,
-                                font_for_content,
-                                ctx,
-                            ) - frame)
-                                .max(0.0);
-                            auto_w.min(tmax).max(content_min)
+                    let from_ratio = def_h.and_then(|h| {
+                        crate::layout::measure::aspect_ratio::width_for_height(
+                            &css,
+                            h,
+                            padding_h + border_h,
+                            frame_v_l,
+                        )
+                    });
+                    // O min-content é o PISO (min-width:auto) tanto da largura
+                    // derivada da razão (WPT `block-aspect-ratio-015`: `height:
+                    // 100; ratio 1/2` com filho `width:100` é 100, não os 50 da
+                    // razão) quanto do MÁXIMO transferido de `max-height` (WPT
+                    // `-043`: o máximo transferido não corta o mínimo de
+                    // conteúdo). Só se calcula quando a razão entra em jogo.
+                    //
+                    // MAS só com overflow VISÍVEL: num contentor de scroll
+                    // (`overflow:hidden`/`auto`/`scroll`) o mínimo automático é
+                    // ZERO, não o conteúdo (CSS Sizing 3 §min-size-auto), e o
+                    // conteúdo que não cabe é cortado — `aspect-ratio:1/1;
+                    // overflow:hidden` com um filho de 500px fica na razão (100),
+                    // não alarga para 500 (WPT `block-aspect-ratio-018`).
+                    let vis = |o: Option<crate::scrollbar::Overflow>| {
+                        matches!(
+                            o.unwrap_or(crate::scrollbar::Overflow::Visible),
+                            crate::scrollbar::Overflow::Visible | crate::scrollbar::Overflow::Clip
+                        )
+                    };
+                    let piso_de_conteudo = vis(css.overflow_x) && vis(css.overflow_y);
+                    let content_min = || {
+                        if piso_de_conteudo {
+                            (crate::table::min_content(dom, id, font_for_content, ctx) - frame)
+                                .max(0.0)
+                        } else {
+                            0.0
                         }
+                    };
+                    let auto_w = match from_ratio {
+                        Some(r) => r.max(content_min()),
+                        None => (avail_w - frame).max(0.0),
+                    };
+                    match transferred_max_w {
+                        Some(tmax) => auto_w.min(tmax).max(content_min()),
                         None => auto_w,
                     }
                 }
