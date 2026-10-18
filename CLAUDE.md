@@ -297,7 +297,11 @@ carries `num`, `math`, `hint`, `time`, `gc`, `atomic` and `operators` — the
 symbols that opt an object into operator overloading
 (`[operators.add](other, reversed)`); only an object declaring one is
 overloaded, never a method merely NAMED `add`, and `tsc` still flags the
-operator expression. `docs/engine/operator-overloading.md`. Still wanted from
+operator expression. `docs/engine/operator-overloading.md`. When both operands are
+provably instances of one class that defines the method, `emit/operator_direct.rs`
+(2026-10-16) compiles `a OP b` to the direct method call; it is byte-identical to the
+runtime protocol and is a correctness/ergonomics feature, with NO measurable speed gain
+(the method call dominates, the dispatch it removes is small). Still wanted from
 what the old engine provided: `io`, `buffer`, `net`, `fs`, `process`. `rts:serde` is
 back — the pickle, RTSP v2, reading v1 saves too: class instances and top-level
 functions by name (AOT included), schema versions. `docs/engine/pickle.md` is the
@@ -667,7 +671,9 @@ the new engine's rules, not this one with a path changed.
 
 ## Repository map
 
-**Twenty-four crates, counted on 2026-10-03 rather than carried forward.** Every
+**Twenty-five crates, counted on 2026-10-18 (`ls crates | wc -l`); it was twenty-four
+on 2026-10-03, and the one added since is `rts-corelib` (listed in the block
+below).** Every
 one of them is on the path a program takes — and `rts-profile` was added and
 deleted the same day for failing exactly that test, which is the rule working
 rather than a mistake tidied up. Sixteen
@@ -690,6 +696,10 @@ crates/
                      front end's, which is why it is not inside either
   rts-codegen/       the language: JS/TS tree, parser bridge, emit, type pass
   rts-core/          the runtime: values, heap, objects, coercion, entry points
+  rts-corelib/       the neutral catalogue of machine primitives (`rts:core`) that
+                     each front end maps its own names onto and lowers DIRECTLY —
+                     no namespace object, no install. Added 2026-10-15; absent
+                     from this block until 2026-10-18
   rts-host/          where the three meet, and where a program runs
   rts-macro/         #[rtse::entry] / #[rtse::class] — declare one, derive it
   rts-std/           the `rts:` surface, and the globals

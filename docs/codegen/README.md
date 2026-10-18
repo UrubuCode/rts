@@ -225,6 +225,21 @@ already documents for itself. This harness inherits them deliberately.
 | [`native-call-floor.md`](native-call-floor.md) | is what a built-in costs the Rust that implements it | **no** — ~35 ns of getting there; a hash probe costs the same as an integer compare |
 | [`machine-primitives.md`](machine-primitives.md) | what does the machine itself cost, and is any of the 35 ns its fault | **no** — its call is 1.1 ns; the probe could not say until its rows stopped being one operation behind an indirect call |
 
+**Status of the index, 2026-10-18.** The "settled" column is the date and verdict
+of each experiment and is left as it was; several documents have since gained a
+"Status as of 2026-10-18" block at the top saying what the tree has moved past
+(`plan.md`, `plan-2026-09-27.md`, `native-call-floor.md`, `the-missing-pass.md`,
+`object-model.md`, `element-load.md`, `entry-tax.md`), and the dated measurement
+logs (`measurements.md`, `action-table-…`, `where-the-gap-is-…`,
+`what-a-property-costs-…`, `inlining-survey-…`) carry a "Superseded" note. Three
+index rows read differently now, without being wrong: `the-missing-pass.md` — the
+`ToInt32`-of-a-constant is folded and integer arithmetic is range-typed;
+`element-load.md` — the raw `ElementLoad` is still refused, but an inline,
+GC-sound indexed read exists as `Terminator::RunRead`; `native-call-floor.md` —
+the ~35 ns toll is the door, and a light leaf module function no longer goes
+through it. The `describe_frames` clause of the `element-load.md` row was not
+re-checked.
+
 ---
 
 ## What is not here

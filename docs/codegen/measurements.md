@@ -3,6 +3,17 @@
 The table of record. Every other document in this tree points at a row of it,
 and a claim that something got faster is a claim that a row here moved.
 
+> **Superseded as a current table, 2026-10-18 — kept as the 2026-08-26 record.**
+> Every row below is the binary at `673b9c0c`; many have moved by an order of
+> magnitude since (a qualifying module function call ~27 -> ~2 ns, `instanceof`
+> 116 -> ~25-32 ns, `a[i]` ~14.6 -> 5.5 ns, a non-escaping `new C()` ~80 -> 4.5 ns,
+> poly2 method calls ~60 -> ~32 ns; see `plan-2026-09-27.md` and the status notes
+> in `plan.md`, `native-call-floor.md` and `object-model.md`). The root
+> `README.md` carries a CI-regenerated benchmark block (`BENCH_STATS`); re-run
+> `bench/analytic.ts` against a kept baseline binary before quoting any absolute
+> from here. The ratio column's caveat (rows under ~1.2 ns on node/bun are dead-code
+> elimination) is a property of the instrument and still holds.
+
 **How it was produced.** `bench/analytic.ts`, one file, no imports, run under
 three runtimes on one machine within the same ten minutes:
 

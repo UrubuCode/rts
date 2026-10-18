@@ -2,6 +2,35 @@
 
 **No. It is the ~35 ns of getting there.** Settled 2026-08-28, over `b83eac1a`.
 
+> **Status as of 2026-10-18 (checked against the tree; the 08-28 measurements below
+> stand as history of that tree).** The finding — a built-in's cost is the way in,
+> not its Rust body — is unchanged. What has moved is the call path this document
+> proposes to change:
+>
+> - **A direct call to a known function exists (the "Stage 3" below).**
+>   `f9298d814` (2026-10-15) lowers a call to a statically resolved module
+>   `function` as `Callee::Func` -> `ops.call_func` -> an `Inst::FuncAddr` + direct
+>   machine call, never `__rts_call_counted`. The commit measured 22.3 -> 7.0 ns;
+>   a re-measure on 2026-10-16 priced a non-inlined module function at ~1.8 ns net
+>   against the 1.6 ns machine floor. The ~27 ns "plain JS call" of §1a / §7 is
+>   now the cost of the DOOR only, i.e. of a genuinely dynamic or indirect call.
+>   **Scope, so it is not over-read:** the proof in `emit/direct_call.rs` admits a
+>   function declared once, never reassigned, light, captureless, a leaf, with at
+>   most four plain parameters; a method, a capturing closure, an import (cross-
+>   module) or a function that reads `arguments` still takes the door. Its stated
+>   regression: an implicit throw inside such a leaf yields a `.stack` without that
+>   frame.
+> - **The light door (partly "Stage 2").** `emit/light_call.rs` (2026-09-29, see
+>   `plan-2026-09-27.md`) lets a function that reads none of its argument record
+>   skip the two argument stacks: `ic call mono` 37.5 -> 23.8 ns. The activation
+>   record of §3a-i / §5b was NOT built; the stacks are skipped, not merged.
+> - **Method dispatch is cached further than the table here shows.** Deep-inherited
+>   methods (`3aeffa8eb`) and poly2 method sites (`4b5fb8fbc`, a 2-entry duplex
+>   cache) run at mono speed; poly4 / megamorphic sites still thrash (~71 ns) and
+>   need a 3+-entry cell. The plain mono property read is ~4.5 ns.
+> - Still true, checked: the machine has no `StackSlot` (`grep` over
+>   `crates/rts-cranelift/src` is empty, §8.3).
+
 The premise this document was opened to test, in the form it was put: *the
 engine's problem is purely the Rust symbols, so the way to fix it is to make
 those symbol bodies faster.* The first half names the right rows. The second
@@ -64,7 +93,8 @@ The difference is 9× and nothing else changes:
 | `two(x) { const y = x + 1; return y }` — two statements, **called** | **26.72** |
 
 Same semantics, same call site, same loop. So **a plain JavaScript function call
-in this engine costs about 27 ns**, which is beside a method's 23 and a
+in this engine costs about 27 ns** *(2026-08-28; since 2026-10-15 a qualifying
+module function is a direct call at ~2 ns — see the status note at the top)*, which is beside a method's 23 and a
 built-in's 33 rather than an order below them — and the "static call" was never
 the cheap control it was read as. Every ablation table below still stands, since
 it was used as a control precisely because it does not move; what changes is the
@@ -719,7 +749,11 @@ stage 1 took about 2 of it — but §5b is the first attempt on the remainder an
 it was REFUTED, so what is left here is smaller than it looks and needs a shape
 that does not move the failure path.
 
-**Stage 3 — a direct call to a statically known callee (~16 ns).** The big one,
+**Stage 3 — a direct call to a statically known callee (~16 ns).** *(LANDED for
+a restricted class of callee, `f9298d814`, 2026-10-15 — see the status note at the
+top; the text below is the 08-28 proposal, kept for its reasoning. The stack-trace
+keystone paragraph that follows was NOT cleared: the direct call simply accepts a
+`.stack` without the leaf's frame, as a stated regression.)* The big one,
 and §7's expired sentence is what has been blocking it. `emit/inline.rs` already
 proves exactly what this needs — *which* function a name denotes, that nothing
 shadows it, that no other declaration spells it — and then uses that proof only

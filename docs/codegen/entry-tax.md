@@ -8,6 +8,18 @@ inside the call shape the engine actually emits and gets ~1.0, prices the
 rest of the door, and refutes three more candidates — including one that was
 implemented in full and reverted.
 
+> **Status as of 2026-10-18.** The verdict (the `RefCell<Vec<Context>>` is not the
+> 16-30 ns band) is a settled record and was not contradicted. Forward-looking
+> statements inside the ten parts are dated by their part: "a direct `Inst::Call`
+> to a statically-proven callee is the only item that turns a 20 ns row into a
+> single-digit one" (part two) has since been built for light, captureless leaf
+> module functions (`f9298d814`, 2026-10-15, ~2 ns); "`Inst::ElementLoad`,
+> `CallIndirect`, `IntArith` and `Alloc` are declared and lowered with zero
+> producers" describes 2026-08-21 (the inline indexed read now has a producer in
+> `Terminator::RunRead`, `275ac27a2`; `ElementLoad` still has none in
+> `rts-codegen`); and part ten's "a method's `this`: guard plus inlined body,
+> priced, designed, and not built" was NOT re-checked against the tree.
+
 This is the first document in this tree and it says no on purpose. Rule 1 of
 `README.md` exists because of what this investigation would have cost if it had
 been done in the usual order.

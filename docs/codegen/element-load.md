@@ -10,6 +10,19 @@ This document exists because the next person to read `Inst::ElementLoad` will
 have the same idea, and the reason it fails is not visible from either side of
 the code.
 
+> **Status as of 2026-10-18 — the refusal stands; the goal was reached another
+> way.** Everything below is still the correct account of why the raw-address
+> `ElementLoad` was withdrawn (a base address derived from the array is not a root
+> the conservative scan can see). It is not a statement that an inline indexed read
+> is impossible: `275ac27a2` (2026-10-15) added `Terminator::RunRead { owner, index,
+> hit, miss }`, which takes the TAGGED owner as an operand so liveness keeps the
+> array rooted across the load, and reaches the elements through a `RunTable` the
+> runtime publishes (`rts-cranelift/src/mem/runs.rs`, `rts-core/src/heap/runs.rs`).
+> `arr[i]` on a proved reference owner went 9.66 -> 5.52 ns (its own measurement,
+> release, own process, flat control). `Inst::ElementLoad` itself still has no
+> producer in `rts-codegen` (grep, 2026-10-18). The `describe_frames` remark in the
+> `README.md` index row was not re-checked.
+
 ---
 
 ## What is there
