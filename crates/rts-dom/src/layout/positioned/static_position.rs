@@ -288,13 +288,6 @@ pub(in crate::layout) fn static_position_flex(
             .align_items
             .unwrap_or(crate::style::AlignItems::Stretch),
     );
-    let main = |start: f32, size: f32, item: f32| match justify {
-        crate::style::JustifyContent::FlexEnd => start + size - item,
-        crate::style::JustifyContent::Center
-        | crate::style::JustifyContent::SpaceAround
-        | crate::style::JustifyContent::SpaceEvenly => start + (size - item) / 2.0,
-        _ => start,
-    };
     // `safe`: fall back to the CB start when the ALIGNED POSITION overflows
     // the true containing block — not when the item is merely bigger than
     // the CB. The two diverge whenever the CB (`cb_start`/`cb_size`, from
@@ -314,6 +307,24 @@ pub(in crate::layout) fn static_position_flex(
         } else {
             pos
         }
+    };
+    // The MAIN axis gets the same containing-block clamp as the cross axis:
+    // css-align-3 §abspos-sizing says the available space for a centred abspos
+    // box is twice the distance from the static-position centre to the CLOSEST
+    // containing-block edge, so a centred box never overflows the CB. When the
+    // flex container is narrower than the item (a 100px box in a 40px inner
+    // flex), naive centring puts it at `18 + (40-100)/2 = -12`, bleeding left
+    // of the 100px containing block at x=8 and painting green outside it (WPT
+    // `position-absolute-center-001`). Clamping the start edge to the CB keeps
+    // the box inside, which is what that rule guarantees.
+    let main = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match justify {
+        crate::style::JustifyContent::FlexEnd => start + size - item,
+        crate::style::JustifyContent::Center
+        | crate::style::JustifyContent::SpaceAround
+        | crate::style::JustifyContent::SpaceEvenly => {
+            safe_fallback(start + (size - item) / 2.0, item, cb_start, cb_size)
+        }
+        _ => start,
     };
     let cross = |start: f32, size: f32, item: f32, cb_start: f32, cb_size: f32| match align {
         crate::style::AlignItems::FlexEnd | crate::style::AlignItems::LastBaseline => {
@@ -337,11 +348,11 @@ pub(in crate::layout) fn static_position_flex(
                 containing_block.x,
                 containing_block.w,
             ),
-            main(content.y, content.h, outer_h),
+            main(content.y, content.h, outer_h, containing_block.y, containing_block.h),
         )
     } else {
         (
-            main(content.x, content.w, outer_w),
+            main(content.x, content.w, outer_w, containing_block.x, containing_block.w),
             cross(
                 content.y,
                 content.h,
