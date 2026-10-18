@@ -92,6 +92,19 @@ mod palavras_chave_intrinsecas {
         assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
     }
 
+    /// Uma `width` DEFINIDA vence o mínimo TRANSFERIDO pela razão a partir de
+    /// `min-height` (CSS Sizing 4 §5.1): `width:100; aspect-ratio:2/1;
+    /// max-width:150; min-height:100` fica 100×100 — a altura usada é 100, a
+    /// razão pede 200 de largura de volta, mas a `width:100` declarada vence
+    /// (WPT `block-aspect-ratio-048`). Antes o transferido (150) ganhava.
+    #[test]
+    fn width_definida_vence_o_minimo_transferido_pela_razao() {
+        let fonte = "<div style='background:green;width:100px;aspect-ratio:2/1;max-width:150px;min-height:100px' id='alvo'></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
+    }
+
     /// `aspect-ratio: auto <ratio>` (em qualquer ordem) parseia a razão e marca
     /// o flag `auto`; `auto` sozinho não declara razão.
     #[test]
