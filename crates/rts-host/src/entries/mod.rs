@@ -199,6 +199,9 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::ObjectRest => (CoreEntry::ObjectRest, {
             rts_core::entry::object_rest as extern "C" fn(u64, u64) -> u64 as *const u8
         }),
+        RuntimeOp::SetFunctionNameFromKey => (CoreEntry::SetFunctionNameFromKey, {
+            rts_core::entry::set_function_name_from_key as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+        }),
         RuntimeOp::KeyNumber => (CoreEntry::KeyNumber, {
             rts_core::entry::key_number as extern "C" fn(u64) -> i64 as *const u8
         }),

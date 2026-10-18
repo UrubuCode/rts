@@ -360,6 +360,18 @@ pub(super) fn emit_class(
                 let closure =
                     function::emit_closure_method(builder, &inner, ctx, &method.function)?;
                 ctx.in_static_method = enclosing;
+                // A COMPUTED key names the method at run time (`"[Symbol.iterator]"`,
+                // `"get " + text`): the key was evaluated once in the key pass above.
+                if let (ClassKey::Public(PropertyKey::Computed(_)), Some(key)) =
+                    (&method.key, computed[index])
+                {
+                    let prefix = match method.kind {
+                        MethodKind::Normal => "",
+                        MethodKind::Getter => "get ",
+                        MethodKind::Setter => "set ",
+                    };
+                    super::object::name_from_key(builder, ctx, closure, key, prefix)?;
+                }
                 let target = if method.is_static {
                     constructor
                 } else {
@@ -423,6 +435,15 @@ pub(super) fn emit_class(
                             _ => None,
                         };
                         let produced = super::emit_expr(builder, &mut inner, ctx, value)?;
+                        if let (ClassKey::Public(PropertyKey::Computed(_)), Some(key)) =
+                            (&field.key, computed[index])
+                            && matches!(
+                                &value.kind,
+                                crate::syntax::ExprKind::Function(function) if function.name.is_none()
+                            )
+                        {
+                            super::object::name_from_key(builder, ctx, produced, key, "")?;
+                        }
                         if let Some(held) = nested {
                             let _ = ctx.take_lent_name();
                             ctx.restore_lent_name(held);

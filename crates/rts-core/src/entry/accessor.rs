@@ -429,6 +429,53 @@ pub fn set_function_name(target: u64, value: u64) -> u64 {
     target
 }
 
+/// `SetFunctionName(F, key, prefix)` for a COMPUTED key -- `{ [k]: () => {} }`,
+/// `{ get [s]() {} }`, `class { static [Symbol.iterator]() {} }`.
+///
+/// A written key's name is known to the compiler and is lent to the closure; a
+/// computed one is a value, so the name is made here, at run time:
+/// a symbol is `"[" + description + "]"` (and `""` when it has NO description,
+/// while `Symbol("")` is `"[]"` -- both probed against Node), anything else is
+/// its `ToPropertyKey` text. `prefix` is `"get "`, `"set "` or `""`.
+#[rtse::entry]
+pub fn set_function_name_from_key(target: u64, key: u64, prefix: u64) -> u64 {
+    // An object key runs its `toString`, which is user code and cannot run inside
+    // the borrow below -- the same hoist `key_number` makes.
+    let key = if with_current(|context| super::primitive::is_object_in(context, key)) {
+        super::primitive::to_primitive(key, crate::coerce::Hint::String)
+    } else {
+        key
+    };
+    with_current(|context| {
+        let Some(cell) = Value(target).as_slot() else {
+            return;
+        };
+        let spelled = match context.symbol_of(key) {
+            Some(symbol) => match &symbol.description {
+                Some(text) => format!("[{text}]"),
+                None => String::new(),
+            },
+            None => match super::text::to_text(context, Value(key)) {
+                Some(text) => text.to_rust_lossy(),
+                None => return,
+            },
+        };
+        let lead = super::text::to_text(context, Value(prefix))
+            .map(|text| text.to_rust_lossy())
+            .unwrap_or_default();
+        // A symbol with no description is named `""` whatever the prefix: the
+        // specification's SetFunctionName applies the prefix to the empty name, so
+        // a nameless symbol's getter is `"get "`.
+        let full = format!("{lead}{spelled}");
+        let value = context.intern_value(crate::text::Str::from_str(&full)).bits();
+        let name = context.well_known("name");
+        super::native::hidden(context, cell, name);
+        super::objects::put(context, cell, name, value);
+        super::native::introspective(context, cell, name);
+    });
+    target
+}
+
 /// `class C { k = 1; }` — an instance field, DEFINED and enumerable.
 ///
 /// [`define_method`]'s sibling, and the two differ in one line: a method is

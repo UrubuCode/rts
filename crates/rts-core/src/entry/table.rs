@@ -58,7 +58,7 @@ use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
 use super::accessor::{
     DEFINE_FIELD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_METHOD_ENTRY, DEFINE_SETTER_ENTRY,
-    SET_FUNCTION_NAME_ENTRY,
+    SET_FUNCTION_NAME_ENTRY, SET_FUNCTION_NAME_FROM_KEY_ENTRY,
 };
 use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
@@ -867,6 +867,9 @@ pub enum CoreEntry {
 
     /// [`super::object_rest`] -- the rest object of an object pattern.
     ObjectRest = 138,
+
+    /// [`super::set_function_name_from_key`] -- a function's `name` from a computed key.
+    SetFunctionNameFromKey = 139,
 }
 
 /// How many entry points exist.
@@ -874,7 +877,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 139;
+pub const CORE_ENTRY_COUNT: usize = 140;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -1021,6 +1024,7 @@ impl CoreEntry {
         CoreEntry::F64FromBits,
         CoreEntry::AsyncGeneratorNew,
         CoreEntry::ObjectRest,
+        CoreEntry::SetFunctionNameFromKey,
     ];
 
     /// The number a call site holds.
@@ -1175,6 +1179,7 @@ impl CoreEntry {
             CoreEntry::F64FromBits => F64_FROM_BITS_ENTRY,
             CoreEntry::AsyncGeneratorNew => ASYNC_GENERATOR_NEW_ENTRY,
             CoreEntry::ObjectRest => OBJECT_REST_ENTRY,
+            CoreEntry::SetFunctionNameFromKey => SET_FUNCTION_NAME_FROM_KEY_ENTRY,
         }
     }
 

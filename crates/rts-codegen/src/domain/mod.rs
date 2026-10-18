@@ -289,6 +289,8 @@ impl Js {
         // APPENDED (position is the index): an object pattern's rest, in one call that
         // interleaves descriptor and read per key -- `lower/object_rest.rs`.
         RuntimeOp::ObjectRest,
+        // APPENDED: a computed key's function name -- `emit/object.rs`.
+        RuntimeOp::SetFunctionNameFromKey,
     ];
 
     /// The index the IR carries for an entry point.

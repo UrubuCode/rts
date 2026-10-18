@@ -53,6 +53,23 @@ pub(super) fn accessor_name(
     ctx.names.intern(&spelled)
 }
 
+/// `SetFunctionName(function, key, prefix)` for a COMPUTED key, whose text exists only at
+/// run time: `{ [k]: () => {} }`, `{ get [s]() {} }`, a class's `static [k]() {}`.
+/// One call after the closure is made; the written-key case is lent a name instead.
+pub(super) fn name_from_key(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    key: ValueId,
+    prefix: &str,
+) -> EmitResult<()> {
+    let function = tagged(builder, function);
+    let key = tagged(builder, key);
+    let prefix = super::expr::string_literal(builder, ctx, prefix)?;
+    call(builder, ctx, RuntimeOp::SetFunctionNameFromKey, &[function, key, prefix])?;
+    Ok(())
+}
+
 /// `enumerable` is the caller's, and the two callers disagree on purpose: an
 /// object literal's accessor is enumerable and a class body's is not, which is
 /// the same split `DefineMethod` draws for an ordinary member. Both passed
@@ -196,7 +213,17 @@ pub(super) fn emit_object(
                 {
                     ctx.lend_name(*name);
                 }
+                let anonymous_function = matches!(
+                    &value.kind,
+                    crate::syntax::ExprKind::Function(function) if function.name.is_none()
+                );
                 let value = emit_expr(builder, scope, ctx, value)?;
+                // A COMPUTED key names an anonymous function too, but only at run
+                // time: `{ [k]: () => {} }` is `ToString(k)` and a symbol is
+                // `"[description]"`.
+                if let (true, Some(computed)) = (anonymous_function, computed_key) {
+                    name_from_key(builder, ctx, value, computed, "")?;
+                }
                 // Anything the initialiser did not take is dropped: a lent name
                 // that outlived its initialiser would be picked up by the next
                 // function emitted anywhere, which is a wrong name rather than a
@@ -217,6 +244,9 @@ pub(super) fn emit_object(
                     }
                     None => super::function::emit_closure_method(builder, scope, ctx, function)?,
                 };
+                if let Some(computed) = computed_key {
+                    name_from_key(builder, ctx, value, computed, "")?;
+                }
                 let _ = ctx.take_lent_name();
                 (key, value)
             }
@@ -242,6 +272,15 @@ pub(super) fn emit_object(
                     }
                     None => super::function::emit_closure_method(builder, scope, ctx, function)?,
                 };
+                if let Some(computed) = computed_key {
+                    name_from_key(
+                        builder,
+                        ctx,
+                        closure,
+                        computed,
+                        if is_getter { "get " } else { "set " },
+                    )?;
+                }
                 match key {
                     PropertyKey::Named(name) => {
                         // ENUMERABLE: an object literal's accessor is, and this

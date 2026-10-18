@@ -336,7 +336,7 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // not a graph loop because `CopyDataProperties` interleaves a descriptor and a
     // read per key, which a loop over `OwnKeys` (all descriptors first) cannot.
     assert!(
-        CORE_ENTRY_COUNT <= 139,
+        CORE_ENTRY_COUNT <= 140,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );
