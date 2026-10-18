@@ -308,11 +308,14 @@ pub(in crate::layout) fn layout_children_column(
     let n = items.len();
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
-    // `wrap_definite_h`, não `container_content_h`: o mesmo limiar do
-    // DESPACHO do wrap (nunca `min-height` — um PISO não é um TECTO, e
-    // tratá-lo como tal encolhia itens que já o excediam em vez de deixar
-    // o contentor crescer acima dele — `flexbox-flex-wrap-vert-002`, WPT).
+    // `wrap_definite_h` exclui `min-height` (um PISO não é TECTO: não encolhe
+    // itens que já o excedem — `flexbox-flex-wrap-vert-002`, WPT). MAS quando o
+    // conteúdo CABE no main que o `min-height` define (`container_content_h` já
+    // o inclui), esse é o main e os itens CRESCEM para o preencher: um `flex:1`
+    // numa coluna `min-height:100` sem altura enche os 100 (WPT
+    // `percentage-heights-010`). Só com `>= sum_h` (cresce, nunca encolhe).
     let free = wrap_definite_h
+        .or_else(|| container_content_h.filter(|ch| *ch >= sum_h + total_gap))
         .map(|ch| ch - sum_h - total_gap)
         .unwrap_or(0.0);
     // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
