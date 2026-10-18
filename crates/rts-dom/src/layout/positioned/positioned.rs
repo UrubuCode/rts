@@ -245,10 +245,15 @@ pub(in crate::layout) fn layout_out_of_flow(
             &css, content_w, frame_h, frame_v,
         ) {
             // border-box height for positioning; outer (incl. margin) forced
-            // into the real layout below so the painted height matches.
+            // into the real layout below so the painted height matches. The
+            // ratio height is FLOORED by the measured content height `h` (the
+            // box's min-content, already computed with the abspos aspect-ratio
+            // minimum in `block.rs`): `width:100;aspect-ratio:2/1` with a 100px
+            // child is 100 tall, not the ratio's 50 (WPT `abspos-012`).
             Some(content_h) => {
+                let bb_h = (content_h + frame_v).max(h);
                 let margin_v = css.margin.resolve_v(&resolve);
-                (content_h + frame_v, Some(content_h + frame_v + margin_v))
+                (bb_h, Some(bb_h + margin_v))
             }
             None => (h, forced_outer_h),
         }

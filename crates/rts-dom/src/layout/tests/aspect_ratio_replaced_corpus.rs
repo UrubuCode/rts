@@ -123,3 +123,21 @@ fn abspos_aspect_ratio_transfers_width_to_height() {
     let (dom, list) = geometria(html, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
 }
+
+/// An out-of-flow box with a DEFINITE width and `aspect-ratio` gets its height
+/// from the ratio, but the content's min-content height FLOORS it (the abspos
+/// aspect-ratio minimum, CSS Sizing 4 §5.1): `width:100;aspect-ratio:2/1` with
+/// a 100px-tall child is 100 tall, not the ratio's 50 (WPT
+/// `css-sizing/aspect-ratio/abspos-012`). With no tall content the ratio wins.
+#[test]
+fn abspos_aspect_ratio_height_is_floored_by_content() {
+    use crate::table::tests::geometria;
+    let floored = r#"<body style="margin:0"><div style="position:relative">
+      <div id="t" style="width:100px;aspect-ratio:2/1;position:absolute"><div style="height:100px"></div></div></div></body>"#;
+    let (dom, list) = geometria(floored, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+    let empty = r#"<body style="margin:0"><div style="position:relative">
+      <div id="t" style="width:100px;aspect-ratio:2/1;position:absolute"></div></div></body>"#;
+    let (dom, list) = geometria(empty, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 50.0));
+}
