@@ -148,6 +148,28 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::MaxContent => "max-content".into(),
         Dimension::MinContent => "min-content".into(),
         Dimension::FitContent => "fit-content".into(),
+        // `fit-content(L)`: o argumento com a MESMA reconstrução do calc — um
+        // só termo vira `fit-content(100px)`, vários `fit-content(calc(...))`.
+        Dimension::FitContentLength(c) => {
+            let mut parts: Vec<String> = Vec::new();
+            for (v, u) in [
+                (c.px, "px"),
+                (c.pct, "%"),
+                (c.em, "em"),
+                (c.rem, "rem"),
+                (c.vw, "vw"),
+                (c.vh, "vh"),
+            ] {
+                if v != 0.0 {
+                    parts.push(format!("{v}{u}"));
+                }
+            }
+            match parts.len() {
+                0 => "fit-content(0px)".into(),
+                1 => format!("fit-content({})", parts[0]),
+                _ => format!("fit-content(calc({}))", parts.join(" + ")),
+            }
+        }
         // calc: reconstrói a forma canônica com os termos não-zero.
         Dimension::Calc(c) => {
             let mut parts: Vec<String> = Vec::new();

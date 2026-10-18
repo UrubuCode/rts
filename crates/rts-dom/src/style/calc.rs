@@ -32,7 +32,10 @@ enum CalcVal {
 }
 
 /// Parseia o MIOLO de um `calc(...)` (sem o `calc(` e `)`), ou `None` se inválido.
-fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
+/// `pub(crate)` para `fit-content(<length-percentage>)`, cujo argumento é a MESMA
+/// gramática de comprimento linear e precisa do [`CalcLen`] cru (não embrulhado
+/// em `Dimension::Calc`) para o seu próprio keyword.
+pub(crate) fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
     let toks: Vec<char> = inner.chars().collect();
     let mut pos = 0usize;
     let v = calc_expr(&toks, &mut pos)?;
