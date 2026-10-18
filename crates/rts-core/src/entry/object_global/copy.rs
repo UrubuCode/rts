@@ -104,6 +104,9 @@ pub(super) extern "C" fn assign(
     a2: u64,
     a3: u64,
 ) -> u64 {
+    if !super::coercible(target, "Object.assign") {
+        return target;
+    }
     for source in [source, a2, a3] {
         // An absent argument arrives as `undefined`, and `undefined` has no own
         // keys — so the same skip serves both the spec's rule (a null or

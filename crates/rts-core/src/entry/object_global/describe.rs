@@ -288,6 +288,9 @@ extern "C" fn get_own_property_names(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyNames") {
+        return object;
+    }
     super::super::array::own_names(object)
 }
 
@@ -310,6 +313,9 @@ extern "C" fn get_own_property_descriptor(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyDescriptor") {
+        return object;
+    }
     describe_of(object, name)
 }
 
@@ -327,6 +333,9 @@ extern "C" fn get_own_property_symbols(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertySymbols") {
+        return object;
+    }
     // A proxy's `ownKeys` is its `[[OwnPropertyKeys]]`; its own cell holds no
     // symbols to walk.
     if let Some(answered) = super::super::proxy::own_symbols(object) {
@@ -376,6 +385,9 @@ extern "C" fn get_own_property_descriptors(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyDescriptors") {
+        return object;
+    }
     let made = super::super::objects::object_new(0);
     // Every own key, `own_names` rather than `own_keys`: a property made
     // non-enumerable through `defineProperty` is exactly the one this walk

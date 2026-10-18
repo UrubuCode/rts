@@ -486,6 +486,17 @@ pub(super) fn owns(this: u64, key: u64) -> bool {
     if let Some(owned) = super::proxy::owns(this, key) {
         return owned;
     }
+    // ToPropertyKey on an OBJECT key runs its `toString`/`@@toPrimitive`, which is
+    // user code and so happens before the borrow below. A symbol is an
+    // object-looking client value but not an object, and stays itself.
+    let key = if with_current(|context| super::primitive::is_object_in(context, key)) {
+        super::primitive::to_primitive(key, crate::coerce::Hint::String)
+    } else {
+        key
+    };
+    if super::throw::in_flight() {
+        return false;
+    }
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return false;
