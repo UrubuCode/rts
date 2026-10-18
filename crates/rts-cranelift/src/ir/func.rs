@@ -461,6 +461,12 @@ impl Function {
             caches,
             block_regions,
             positions,
+            // A transient cursor used only WHILE building (it stamps each
+            // instruction's position into `positions`, which IS keyed above).
+            // Its final value is not part of the function's identity or output,
+            // so it is deliberately ignored here — the same decision `const_at`
+            // takes, for the same reason.
+            position_cursor: _,
         } = self;
         let relative: Vec<u32> = positions
             .iter()
