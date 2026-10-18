@@ -35,6 +35,20 @@ pub(in crate::layout) fn resolve(
         Some(crate::style::Dimension::MaxContent) => {
             Some(content_natural_width(dom, id, font_size, ctx))
         }
+        // `min-width: fit-content` / `max-width: fit-content` (CSS Sizing 3): o
+        // tamanho fit-content, `max(min-content, min(max-content, disponível))`.
+        // Com base indefinida (medição intrínseca) não há contra o quê encolher,
+        // logo é o max-content. `min-width:fit-content; width:10` sobre um
+        // conteúdo de 100 dá 100, não 10 (WPT `fit-content-min-inline-size`).
+        Some(crate::style::Dimension::FitContent) => {
+            let mc = content_natural_width(dom, id, font_size, ctx);
+            let minc = crate::table::min_content(dom, id, font_size, ctx);
+            Some(if rc.parent_content_w.is_finite() {
+                mc.min(rc.parent_content_w).max(minc)
+            } else {
+                mc
+            })
+        }
         // `min-width: stretch` / `max-width: stretch` (CSS Sizing 4): o tamanho
         // de esticar é o espaço disponível no eixo (`parent_content_w`). Só com
         // base FINITA — numa medição intrínseca (base indefinida/infinita) o
