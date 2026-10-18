@@ -52,6 +52,9 @@ pub(super) extern "C" fn concat(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a
 /// `true` is read as an array-like even though nothing else here would call it
 /// one.
 fn spread(item: u64) -> Option<Vec<u64>> {
+    if with_current(|context| Value(item).as_slot().is_some_and(|cell| context.proxy_at(cell).is_some())) {
+        return spread_proxy(item);
+    }
     let decided = with_current(|context| {
         let cell = Value(item).as_slot()?;
         // A data read. A getter on `Symbol.isConcatSpreadable` would be user
@@ -91,7 +94,7 @@ fn spread(item: u64) -> Option<Vec<u64>> {
     match decided {
         Spread::Elements(elements) => Some(elements),
         // Outside the borrow above, because every index read is a `Get`.
-        Spread::Like => Some(super::like::values_of(item)),
+        Spread::Like => Some(super::like::values_of(item, false)),
     }
 }
 
@@ -101,4 +104,24 @@ enum Spread {
     Elements(Vec<u64>),
     /// Something that claims a `length`, which still has to be read by index.
     Like,
+}
+
+/// A proxy item: the flag is a `Get` through its trap, and the array-like read
+/// asks `has` before every `get`, so both traps see what the program sees.
+fn spread_proxy(item: u64) -> Option<Vec<u64>> {
+    let key = with_current(|context| {
+        context.well_known_text(&format!("{}isConcatSpreadable", super::super::symbol::PREFIX))
+    });
+    let flag = super::super::computed::get_indexed(item, key);
+    if throw::in_flight() {
+        return Some(Vec::new());
+    }
+    let spreads = with_current(|context| {
+        if !absent(context, flag) {
+            super::super::primitives::to_boolean_in(context, flag)
+        } else {
+            super::construct::array_in(context, item).unwrap_or(false)
+        }
+    });
+    spreads.then(|| super::like::values_of(item, true))
 }

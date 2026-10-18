@@ -65,7 +65,7 @@ pub(in crate::entry) extern "C" fn from(
     // getter, a `Symbol.iterator` method, or the mapper.
     match source(items) {
         Source::Like => {
-            let elements = like::values_of(items);
+            let elements = like::values_of(items, false);
             if throw::in_flight() {
                 return nothing();
             }
