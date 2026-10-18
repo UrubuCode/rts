@@ -12,9 +12,9 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 632,
+    "passing": 658,
     "total": 870,
-    "pct": 72.6,
+    "pct": 75.6,
     "by_subfolder": {
       "balance": {
         "passing": 22,
@@ -55,7 +55,7 @@
         "total": 58
       },
       "aspect-ratio": {
-        "passing": 23,
+        "passing": 40,
         "total": 53
       },
       "gap": {
@@ -63,7 +63,7 @@
         "total": 46
       },
       "percentage": {
-        "passing": 21,
+        "passing": 28,
         "total": 39
       },
       "baseline": {
@@ -83,7 +83,7 @@
         "total": 32
       },
       "basis": {
-        "passing": 23,
+        "passing": 25,
         "total": 30
       },
       "table": {
