@@ -16,6 +16,17 @@ the experimental ones are specced here. Parity target: Node.js **25.x**.
 > `dgram`, `net`, `fs`. See [`node_completed.md`](./node_completed.md) for the
 > full 100%-vs-partial breakdown, the cross-cutting engine blockers, and the
 > Phase A→E roadmap (finish one module to 100% before the next).
+>
+> **Status as of 2026-10-18 (verified by running):** all 42 `node:` modules
+> import, and a spot-check of representative APIs in each matches Node. Several
+> gaps `node_completed.md` named on 2026-09-02 have since closed (`url` throws on a
+> bad constructor argument, `assert` deep-compares `Map`/`Set`, `events.once`/`on`,
+> `http`/`net`/`fetch` loopback, `child_process.exec`/`spawn`, `fs` callbacks).
+> Still absent or partial: `crypto` asymmetric tier + `subtle`, `http2.createSecureServer`,
+> `node:test` default export/`mock`, `process` `exit`/`uncaughtException` handlers,
+> `worker_threads` messaging, and the globals `WebSocket`/`URLPattern`/`BroadcastChannel`.
+> The dated block at the top of [`node_completed.md`](./node_completed.md) has the
+> table; these are spot checks, not full-surface audits.
 
 ## Read first
 

@@ -8,7 +8,7 @@
 | Node.js version | 25.x |
 | Stability | 2 - Stable |
 | Tier | P1 |
-| Status | [x] **Implemented** — `crates/rts-node/src/net/`. `isIP`/`isIPv4`/`isIPv6`, **`BlockList`**, **`SocketAddress`**, **`Server`** and **`Socket`** over real TCP (+ `createServer`/`connect`/`createConnection`, the Happy-Eyeballs racer and its config pair). NOT here: the `stream.Duplex` surface `Socket` inherits in Node (`pipe`/`read`/…) — `node:stream` does not exist yet; IPC (Unix sockets / named pipes) and `fd`/`onread`/`signal`/`lookup`, all REFUSED rather than faked. See §8. |
+| Status | [x] **Implemented** — `crates/rts-node/src/net/`. `isIP`/`isIPv4`/`isIPv6`, **`BlockList`**, **`SocketAddress`**, **`Server`** and **`Socket`** over real TCP (+ `createServer`/`connect`/`createConnection`, the Happy-Eyeballs racer and its config pair). NOT here: the `stream.Duplex` surface `Socket` inherits in Node (`pipe`/`read`/…) — `node:stream` does not exist yet; IPC (Unix sockets / named pipes) and `fd`/`onread`/`signal`/`lookup`, all REFUSED rather than faked. See §8. *(2026-10-18, verified by running: `node:stream` now exists, and a `net.createServer`/`net.connect` loopback echo matches Node.)* |
 | Import forms | `import net from 'node:net'`; `import { Server, Socket, BlockList, SocketAddress, connect, createConnection, createServer, isIP, isIPv4, isIPv6 } from 'node:net'`; `const net = require('node:net')` |
 | Globals exposed | none (all access is via the `node:net` module import; no ambient globals) |
 
