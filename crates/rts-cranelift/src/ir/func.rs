@@ -289,6 +289,36 @@ impl Function {
         values
     }
 
+    /// Inserts, at the very start of the entry block, a call to `callee` with one
+    /// scalar constant argument.
+    ///
+    /// Exists for the host's `RTS_COMPILE_STATS` instrumentation (a first-entry
+    /// marker per function); nothing in a normal compilation calls it. The callee
+    /// must take one parameter of `repr` and return nothing.
+    pub fn prepend_marker_call(&mut self, callee: super::funcs::FuncId, repr: Repr, bits: u64) {
+        let decl = ConstDecl::Scalar {
+            repr,
+            bits: super::consts::ScalarBits(bits),
+        };
+        let constant = self.push_const(decl);
+        let entry = self.entry;
+        let before = self.blocks[entry.index()].insts.len();
+        let value = self.push_inst(entry, Inst::Const(constant), &[repr])[0];
+        self.push_inst(
+            entry,
+            Inst::Call {
+                callee,
+                args: vec![value],
+            },
+            &[],
+        );
+        // `push_inst` appended; rotate the two new instructions to the front.
+        let insts = &mut self.blocks[entry.index()].insts;
+        let mut marker = insts.split_off(before);
+        marker.append(insts);
+        *insts = marker;
+    }
+
     /// Says where in the client's program an instruction came from.
     ///
     /// Optional, and silent when omitted. An instruction with no position is not

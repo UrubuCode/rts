@@ -294,6 +294,8 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         })
         .collect();
 
+    crate::compile_stats::note_start();
+    let emit_clock = std::time::Instant::now();
     let emitted = {
         let mut ctx = rts_codegen::emit::Ctx::new(
             &model, &mut funcs, &mut calls, &mut keys, &mut names, &types,
@@ -305,6 +307,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
             other => other?,
         }
     };
+    crate::compile_stats::add_time(crate::compile_stats::Phase::Emit, emit_clock.elapsed());
     // The last unit is the entry — the file the caller named — and everything
     // before it is a dependency the loader ordered.
     let mut entries = emitted.entries;

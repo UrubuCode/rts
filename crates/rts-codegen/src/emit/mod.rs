@@ -127,6 +127,7 @@ mod wrap;
 
 pub use dynamic::{Survey, Wanted, dynamic_specifiers, specifiers, survey, survey_statements};
 pub use eval::emit_eval_program;
+pub use function::JS_FUNCTIONS_EMITTED;
 pub use expr::emit_expr;
 pub use loops::Loops;
 pub use page::emit_page_program;
@@ -1477,6 +1478,11 @@ pub struct Emitted {
     pub entries: Vec<FuncId>,
 }
 
+/// `(specifier, is_std, first FuncId index, one-past-last)` per emitted unit, for the host's
+/// `RTS_COMPILE_STATS` report. Pushed once per unit per `emit_modules`; never read otherwise.
+pub static UNIT_FUNCTION_RANGES: std::sync::Mutex<Vec<(String, bool, usize, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+
 /// Emits several modules into one program.
 pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // LOWERED FIRST, ALL OF THEM, then emitted. It was one loop that lowered a
@@ -1795,6 +1801,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         let entry = units.last().map_or("", |last| last.specifier.as_str());
         ctx.module_key = registers.then(|| serde_names::module_key(&unit.specifier, entry));
         ctx.names_top_level = true;
+        let first_function = ctx.funcs.len();
         entries.push(emit_unit(
             body,
             imports,
@@ -1803,6 +1810,13 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
             (whole_program_math, whole_program_json, whole_program_statics),
             ctx,
         )?);
+        // `RTS_COMPILE_STATS`: which FuncId range this unit's functions occupy.
+        UNIT_FUNCTION_RANGES.lock().unwrap_or_else(|e| e.into_inner()).push((
+            unit.specifier.clone(),
+            unit.origin == Origin::Std,
+            first_function,
+            ctx.funcs.len(),
+        ));
     }
     let last = *entries.last().ok_or(EmitError::Unsupported {
         construct: "a program with no modules",

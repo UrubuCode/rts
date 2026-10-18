@@ -319,6 +319,10 @@ fn closure_code(
     )
 }
 
+/// Count of JavaScript function bodies emitted in this process (a relaxed atomic bump per
+/// function; read by the host's `RTS_COMPILE_STATS` report).
+pub static JS_FUNCTIONS_EMITTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Emits a function's body as a machine function, and answers its id.
 fn emit_function(
     ctx: &mut Ctx,
@@ -590,6 +594,8 @@ fn emit_function(
             ctx.direct_targets.insert(name, id);
         }
     }
+    // `RTS_COMPILE_STATS`: how many JavaScript function bodies were lowered+emitted.
+    JS_FUNCTIONS_EMITTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     ctx.function_names
         .push((id, text.clone(), arity, has_prototype, constructs));
     ctx.pending.push((id, emitted));

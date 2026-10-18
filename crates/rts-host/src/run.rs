@@ -196,6 +196,7 @@ impl Compiled {
             eprint!("{census}");
         }
         self.described = outcome.described;
+        crate::compile_stats::report_once();
         outcome.value
     }
 
@@ -535,6 +536,7 @@ fn run_region(
         // place a throw can still be in flight is here, with nobody left to ask.
         if let Some((tag, described)) = rts_core::entry::pending() {
             eprintln!("rts: uncaught exception (tag {tag}): {described}");
+            crate::compile_stats::report_once();
             // `exit`, not `abort`: this is a program ending because of something
             // the program did, and a core dump describes the engine rather than
             // the fault. Same choice the runtime used to make, in the one place
@@ -1045,6 +1047,18 @@ pub(crate) fn place(
         .iter()
         .map(|(op, _)| (op.symbol(), resolve(*op).1))
         .collect();
+    if let Some(id) = prepared.stats {
+        placing.push(Placing {
+            id,
+            name: crate::compile_stats::SYMBOL,
+            visibility: Visibility::Expected,
+            body: None,
+        });
+        outside.push((
+            crate::compile_stats::SYMBOL,
+            crate::compile_stats::enter as extern "C" fn(i64) as *const u8,
+        ));
+    }
 
     // The machine's own entry points, which it dials without being asked: a
     // program that allocates calls `rts_alloc`, and a cached read that misses
@@ -1145,6 +1159,8 @@ pub(crate) struct Prepared {
     pub frames: Vec<(rts_cranelift::ir::FuncId, rts_core::entry::FrameShape)>,
     pub expected: Vec<(RuntimeOp, rts_cranelift::ir::FuncId)>,
     pub names_for_placing: Vec<String>,
+    /// `RTS_COMPILE_STATS` only: the marker callee every function was instrumented to call.
+    pub stats: Option<rts_cranelift::ir::FuncId>,
 }
 
 /// Rewrites every generator body, collects the runtime operations this program
@@ -1252,6 +1268,7 @@ pub(crate) fn prepare(
         frames,
         expected,
         names_for_placing,
+        stats: None,
     })
 }
 
@@ -1269,7 +1286,13 @@ pub(crate) fn assemble(
     // program compiled from source text: it has no file to describe.
     module_metas: Vec<crate::graph::ModuleMeta>,
 ) -> Result<Compiled, HostError> {
-    let prepared = prepare(emitted, funcs, types, calls)?;
+    let stats_on = crate::compile_stats::enabled();
+    let stats_clock = std::time::Instant::now();
+    let mut prepared = prepare(emitted, funcs, types, calls)?;
+    if stats_on {
+        crate::compile_stats::instrument(&mut prepared);
+        crate::compile_stats::add_time(crate::compile_stats::Phase::Prepare, stats_clock.elapsed());
+    }
 
     // The heaps compiled code will address, made here rather than by a runtime
     // context, because a base — or the table of them — is a NUMBER baked into
@@ -1310,7 +1333,11 @@ pub(crate) fn assemble(
         }
     };
 
+    let place_clock = std::time::Instant::now();
     let placed = place(&prepared, bases)?;
+    if stats_on {
+        crate::compile_stats::add_time(crate::compile_stats::Phase::Place, place_clock.elapsed());
+    }
 
     // Now the addresses exist, so the two address-keyed tables can be built:
     // what each function is called, for a stack trace, and what each generator's

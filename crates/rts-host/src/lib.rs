@@ -37,6 +37,7 @@
 
 pub mod describe;
 pub mod prove;
+mod compile_stats;
 mod entries;
 #[cfg(feature = "inspector")]
 pub mod inspector;

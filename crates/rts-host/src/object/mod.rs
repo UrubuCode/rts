@@ -298,6 +298,7 @@ fn place(
         frames,
         expected,
         names_for_placing,
+        stats: _,
     } = prepare(front.emitted, front.funcs, front.types, front.calls)?;
 
     let mut placing: Vec<Placing<'_>> = expected
