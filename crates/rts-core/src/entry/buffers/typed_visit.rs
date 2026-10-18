@@ -65,7 +65,7 @@ pub(in crate::entry) fn brand(this: u64, method: &str) -> bool {
     let (typed, detached) = with_current(|context| match super::view_of(context, this) {
         Some(view) => (
             super::typed_classes::named(view.kind).is_some(),
-            context.buffer_detached(view.buffer),
+            context.buffer_detached(view.buffer) || super::view_out_of_bounds(context, &view),
         ),
         None => (false, false),
     });
@@ -127,6 +127,7 @@ pub(super) fn built(kind: Kind, values: &[u64]) -> u64 {
             offset: 0,
             length: values.len() * size,
             kind,
+            tracking: false,
         };
         if let Some(window) = super::window_mut(context, &view) {
             for (at, word) in words.iter().enumerate() {

@@ -147,7 +147,9 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
             } else if with_current(|context| context.typed_iterator_methods.contains(&method)) {
                 // The primordial iterator: reading the elements is its result, but a
                 // detached buffer is a TypeError, not an empty walk.
-                let detached = with_current(|context| context.buffer_detached(view.buffer));
+                let detached = with_current(|context| {
+                    context.buffer_detached(view.buffer) || super::buffers::view_out_of_bounds(context, &view)
+                });
                 if detached {
                     super::throw::type_error("Cannot perform %TypedArray%.prototype.values on a detached ArrayBuffer");
                     Vec::new()

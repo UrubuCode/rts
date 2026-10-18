@@ -144,9 +144,21 @@ pub(in crate::entry) struct View {
     pub(in crate::entry) length: usize,
     /// How those bytes are read.
     pub(in crate::entry) kind: Kind,
+    /// Built over a resizable buffer with no explicit length: `length` follows
+    /// the buffer when it is resized.
+    pub(in crate::entry) tracking: bool,
 }
 
 impl View {
+    /// Whether the view no longer fits a buffer of `size` bytes. A tracking view
+    /// only needs its offset to be inside; a fixed one needs its whole window.
+    pub(in crate::entry) fn out_of_bounds(&self, size: usize) -> bool {
+        match self.tracking {
+            true => self.offset > size,
+            false => self.offset.saturating_add(self.length) > size,
+        }
+    }
+
     /// How many elements the view holds.
     pub(in crate::entry) fn count(&self) -> usize {
         self.length / self.kind.size()
@@ -174,6 +186,13 @@ impl Context {
     fn mark_buffer(&mut self, cell: u32, store: Slot) {
         self.buffer_of.set(cell, store);
     }
+}
+
+/// Whether a view no longer fits its buffer (a resizable one shrank under it).
+pub(in crate::entry) fn view_out_of_bounds(context: &Context, view: &View) -> bool {
+    context
+        .bytes_at(view.buffer)
+        .is_some_and(|bytes| view.out_of_bounds(bytes.len()))
 }
 
 /// The view a value names, if it names one.

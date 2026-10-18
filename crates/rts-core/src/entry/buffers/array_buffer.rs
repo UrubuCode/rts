@@ -38,6 +38,44 @@ pub(in crate::entry) fn array_buffer(context: &mut crate::entry::Context) -> u64
     made
 }
 
+/// After a resize, every view over the buffer is brought to what the language
+/// says it now is: a length-tracking view follows the new size, a fixed view
+/// that no longer fits reports 0 (and fits again, unchanged, if the buffer
+/// grows back), and a view whose start is past the end is out of bounds.
+fn restamp_views(context: &mut crate::entry::Context, buffer: u32, size: usize) {
+    for cell in context.views.references_where(buffer, |view| view.buffer == buffer) {
+        let Some(view) = context.views.copied(cell) else { continue };
+        let out = view.out_of_bounds(size);
+        let width = view.kind.size();
+        let length = match (out, view.tracking) {
+            (true, _) => 0,
+            (false, true) => (size - view.offset) / width * width,
+            (false, false) => view.length,
+        };
+        if view.tracking
+            && let Some(held) = context.views.get_mut(cell)
+        {
+            held.length = length;
+        }
+        let raw = matches!(view.kind, super::Kind::Raw);
+        if raw && out {
+            // A DataView out of bounds has no readable size: the own slots would
+            // shadow the accessors that refuse it, so they are removed.
+            for name in ["byteLength", "byteOffset"] {
+                if let crate::object::Key::Name(machine) = context.well_known(name) {
+                    crate::entry::computed::remove_own(context, cell, machine);
+                }
+            }
+            continue;
+        }
+        super::stamp(context, cell, "byteLength", length as f64);
+        super::stamp(context, cell, "byteOffset", if out { 0.0 } else { view.offset as f64 });
+        if !raw {
+            super::stamp(context, cell, "length", (length / width) as f64);
+        }
+    }
+}
+
 /// The ceiling of a resizable buffer, or `None` for a fixed-length (or detached) one.
 ///
 /// A resizable buffer is the only kind that carries own `resizable` and
@@ -173,6 +211,7 @@ impl ArrayBuffer {
             // which resolves bytes per access. Blunt, like detaching.
             context.region.runs_mut().retract_typed();
             super::stamp(context, cell, "byteLength", size as f64);
+            restamp_views(context, cell, size);
             0
         });
         match outcome {

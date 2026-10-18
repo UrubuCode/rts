@@ -260,7 +260,10 @@ fn length_of(receiver: u64) -> Option<usize> {
     // TypeError at the step (ValidateTypedArray), not a silent zero.
     let typed = with_current(|context| {
         let view = super::super::buffers::view_of(context, receiver)?;
-        Some((context.buffer_detached(view.buffer), view.count()))
+        Some((
+            context.buffer_detached(view.buffer) || super::super::buffers::view_out_of_bounds(context, &view),
+            view.count(),
+        ))
     });
     if let Some((detached, count)) = typed {
         if detached {

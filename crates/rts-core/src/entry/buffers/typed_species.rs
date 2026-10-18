@@ -204,6 +204,7 @@ fn copied(this: u64, begin: u64, end: u64) -> u64 {
             offset: 0,
             length: taken.len(),
             kind: view.kind,
+                tracking: false,
         };
         if let Some(destination) = super::window_mut(context, &fresh) {
             destination.copy_from_slice(&taken);

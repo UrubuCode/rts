@@ -1069,6 +1069,7 @@ pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
         offset: 0,
         length: source.len(),
         kind: super::buffers::element::Kind::Uint8,
+                tracking: false,
     };
     if let Some(window) = super::buffers::window_mut(context, &view) {
         window.copy_from_slice(source);

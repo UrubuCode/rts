@@ -77,6 +77,8 @@ impl DataView {
                 }
                 None => size - start,
             };
+            let tracking =
+                length.is_none() && super::array_buffer::resizable_max(context, over).is_some();
             super::attach(
                 context,
                 cell,
@@ -84,6 +86,7 @@ impl DataView {
                     buffer: over,
                     offset: start,
                     length: count,
+                    tracking,
                     kind: Kind::Raw,
                 },
             );
@@ -334,7 +337,10 @@ enum Refusal {
 /// door every get and set passes, so the check cannot drift between them.
 fn position(this: u64, at: f64, kind: Kind, writing: bool) -> Option<usize> {
     let (window, detached) = with_current(|context| match super::view_of(context, this) {
-        Some(view) => (Some(view.length), context.buffer_detached(view.buffer)),
+        Some(view) => (
+            Some(view.length),
+            context.buffer_detached(view.buffer) || super::view_out_of_bounds(context, &view),
+        ),
         None => (None, false),
     });
     if detached {

@@ -44,6 +44,7 @@ pub(in crate::entry) fn made(context: &mut Context, bytes: &[u8]) -> u64 {
         offset: 0,
         length: bytes.len(),
         kind: Kind::Uint8,
+                tracking: false,
     };
     if let Some(destination) = window_mut(context, &view) {
         destination.copy_from_slice(bytes);
@@ -101,6 +102,7 @@ pub(in crate::entry) fn from_array_buffer(
             offset,
             length,
             kind: Kind::Uint8,
+                tracking: false,
         },
     )
 }
@@ -197,6 +199,7 @@ pub(in crate::entry) fn windowed(this: u64, begin: u64, end: u64) -> u64 {
                 offset: view.offset + first * size,
                 length: (last - first) * size,
                 kind: view.kind,
+                tracking: false,
             },
         )
     })

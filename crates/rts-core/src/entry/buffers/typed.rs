@@ -126,6 +126,8 @@ pub(in crate::entry) fn construct(
                     bytes - start
                 }
             };
+            let tracking =
+                length.is_none() && super::array_buffer::resizable_max(context, over).is_some();
             super::attach(
                 context,
                 cell,
@@ -134,6 +136,7 @@ pub(in crate::entry) fn construct(
                     offset: start,
                     length: count,
                     kind,
+                    tracking,
                 },
             );
             return Value::from_slot(cell).bits();
@@ -217,6 +220,7 @@ pub(in crate::entry) fn construct(
             offset: 0,
             length: count * size,
             kind,
+            tracking: false,
         };
         if let Some(bytes) = super::window_mut(context, &view) {
             for (index, word) in values.iter().enumerate() {
@@ -633,6 +637,7 @@ pub(in crate::entry) fn subarray(this: u64, begin: u64, end: u64) -> u64 {
                 offset: view.offset + first * size,
                 length: (last - first) * size,
                 kind: view.kind,
+                tracking: false,
             },
         )
     })
@@ -967,7 +972,7 @@ fn relative_start(from: Option<f64>, count: usize) -> usize {
 /// `Array.from(detachedView)` throws rather than answering `[]`.
 fn cursor_over(this: u64, kind: crate::entry::array_proto::cursor::Kind) -> u64 {
     let state = with_current(|context| {
-        super::view_of(context, this).map(|view| context.buffer_detached(view.buffer))
+        super::view_of(context, this).map(|view| context.buffer_detached(view.buffer) || super::view_out_of_bounds(context, &view))
     });
     match state {
         None => with_current(|context| undefined_of(context)),

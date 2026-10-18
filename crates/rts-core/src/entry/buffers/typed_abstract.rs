@@ -266,7 +266,9 @@ fn dv_fact(this: u64, name: &str) -> u64 {
                 .as_slot()
                 .and_then(|cell| context.view_at(cell))
                 .is_some_and(|view| {
-                    matches!(view.kind, super::Kind::Raw) && context.buffer_detached(view.buffer)
+                    matches!(view.kind, super::Kind::Raw)
+                        && (context.buffer_detached(view.buffer)
+                            || super::view_out_of_bounds(context, &view))
                 })
         });
     if detached {

@@ -140,6 +140,7 @@ fn empty(context: &mut Context, node: &Node) -> u64 {
                 offset: 0,
                 length: bytes.len(),
                 kind: *kind,
+                tracking: false,
             };
             super::super::buffers::typed::made(context, view)
         }
