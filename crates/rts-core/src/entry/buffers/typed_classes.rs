@@ -66,6 +66,9 @@ use crate::value::Value;
 fn per_element(context: &mut Context, made: u64, size: f64) {
     if let Some(cell) = Value(made).as_slot() {
         super::stamp(context, cell, "BYTES_PER_ELEMENT", size);
+        // A constant: non-writable, non-enumerable, non-configurable.
+        let key = context.well_known("BYTES_PER_ELEMENT");
+        crate::entry::native::pinned(context, cell, key);
     }
 }
 
