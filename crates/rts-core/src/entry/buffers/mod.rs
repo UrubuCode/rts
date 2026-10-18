@@ -94,7 +94,7 @@ mod typed_abstract;
 mod typed_classes;
 mod typed_order;
 mod typed_species;
-mod typed_visit;
+pub(in crate::entry) mod typed_visit;
 
 // The declared-type consts travel with the registrations, for the same reason:
 // `entry::declared` names one class per line and cannot reach into a private

@@ -91,6 +91,9 @@ macro_rules! declare {
 
                 /// `t.at(i)` — a negative index counts from the end.
                 fn at(this: u64, index: f64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::element_at(this, index, true)
                 }
 
@@ -99,6 +102,9 @@ macro_rules! declare {
                 /// `computed::get_indexed` learns about views, and a class
                 /// nothing can read is a class nothing can test.
                 fn get(this: u64, index: f64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::element_at(this, index, false)
                 }
 
@@ -110,29 +116,44 @@ macro_rules! declare {
                 /// have left the two 64-bit classes unwritable through this
                 /// spelling while `t[i] = v` worked.
                 fn set_at(this: u64, index: f64, value: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::store_at(this, index, value)
                 }
 
                 /// `t.set(source, offset?)` — copies elements in, converting
                 /// each through this array's element type.
                 fn set(this: u64, source: u64, offset: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::copy_from(this, source, offset)
                 }
 
                 /// `t.subarray(begin, end)` — another view over the same bytes.
                 fn subarray(this: u64, begin: u64, end: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::subarray(this, begin, end)
                 }
 
                 /// `t.slice(begin, end)` — a copy, in a buffer of its own,
                 /// and in the class the species protocol names.
                 fn slice(this: u64, begin: u64, end: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_species::slice(this, begin, end)
                 }
 
                 /// `t.copyWithin(target, start, end)` — elements moved
                 /// within this same view, answering it so calls chain.
                 fn copy_within(this: u64, target: u64, start: u64, end: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_order::copy_within(this, target, start, end)
                 }
 
@@ -140,16 +161,25 @@ macro_rules! declare {
                 /// comparator is given, which is where this differs from an
                 /// array's.
                 fn sort(this: u64, compare: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_order::sort(this, compare)
                 }
 
                 /// `t.fill(value, begin, end)` — the array, so calls chain.
                 fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::fill(this, value, begin, end)
                 }
 
                 /// `t.includes(search, from)`.
                 fn includes(this: u64, search: u64, from: u64) -> bool {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::includes(this, search, from)
                 }
 
@@ -157,12 +187,18 @@ macro_rules! declare {
                 /// `includes` disagree about `NaN`. See [`typed::index_of`].
                 #[js("indexOf")]
                 fn index_of(this: u64, search: u64, from: u64) -> f64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::index_of(this, search, from)
                 }
 
                 /// `t.lastIndexOf(search, from)`.
                 #[js("lastIndexOf")]
                 fn last_index_of(this: u64, search: u64, from: u64) -> f64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::last_index_of(this, search, from)
                 }
 
@@ -175,6 +211,9 @@ macro_rules! declare {
                 /// `[object Uint8Array]` where every other engine prints its
                 /// elements.
                 fn join(this: u64, separator: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::join(this, separator)
                 }
 
@@ -182,16 +221,25 @@ macro_rules! declare {
                 /// iterator is still the installed one; otherwise it runs the protocol, and
                 /// `[Symbol.iterator]` is this same function, aliased at registration.
                 fn values(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::values(this)
                 }
 
                 /// `t.keys()`.
                 fn keys(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::keys(this)
                 }
 
                 /// `t.entries()`.
                 fn entries(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed::entries(this)
                 }
 
@@ -249,6 +297,9 @@ macro_rules! declare {
 
                 /// `t.forEach(callback, thisArg)`.
                 fn for_each(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::for_each(this, callback, receiver)
                 }
 
@@ -256,66 +307,105 @@ macro_rules! declare {
                 /// is where it differs from an array's: the answers are written
                 /// back through this class's element conversion.
                 fn map(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::map(this, callback, receiver)
                 }
 
                 /// `t.filter(callback, thisArg)`.
                 fn filter(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::filter(this, callback, receiver)
                 }
 
                 /// `t.find(callback, thisArg)`.
                 fn find(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::find(this, callback, receiver)
                 }
 
                 /// `t.findIndex(callback, thisArg)`.
                 fn find_index(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::find_index(this, callback, receiver)
                 }
 
                 /// `t.findLast(callback, thisArg)`.
                 fn find_last(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::find_last(this, callback, receiver)
                 }
 
                 /// `t.findLastIndex(callback, thisArg)`.
                 fn find_last_index(this: u64, callback: u64, receiver: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::find_last_index(this, callback, receiver)
                 }
 
                 /// `t.some(callback, thisArg)`.
                 fn some(this: u64, callback: u64, receiver: u64) -> bool {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::some(this, callback, receiver)
                 }
 
                 /// `t.every(callback, thisArg)`.
                 fn every(this: u64, callback: u64, receiver: u64) -> bool {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::every(this, callback, receiver)
                 }
 
                 /// `t.reduce(callback, initial)`.
                 fn reduce(this: u64, callback: u64, initial: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::reduce(this, callback, initial)
                 }
 
                 /// `t.reduceRight(callback, initial)`.
                 fn reduce_right(this: u64, callback: u64, initial: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::reduce_right(this, callback, initial)
                 }
 
                 /// `t.reverse()` — in place, answering the receiver.
                 fn reverse(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::reverse(this)
                 }
 
                 /// `t.toReversed()` — a copy.
                 fn to_reversed(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::to_reversed(this)
                 }
 
                 /// `t.toSorted(compare)` — a copy, over the same sort.
                 fn to_sorted(this: u64, compare: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::to_sorted(this, compare)
                 }
 
@@ -323,11 +413,17 @@ macro_rules! declare {
                 /// and a `RangeError` for an index the array does not have,
                 /// which is what separates it from `t[i] = v`.
                 fn with(this: u64, index: f64, value: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::with(this, index, value)
                 }
 
                 /// `t.toString()`.
                 fn to_string(this: u64) -> u64 {
+                    if !typed_visit::brand(this) {
+                        return Default::default();
+                    }
                     typed_visit::to_string(this)
                 }
             }

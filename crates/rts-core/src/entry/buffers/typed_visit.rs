@@ -34,11 +34,31 @@ use crate::entry::{functions, throw};
 use crate::value::Value;
 
 /// Every element of the receiver, or `None` when it is not a view at all.
-fn listed(this: u64) -> Option<Vec<u64>> {
+pub(in crate::entry) fn listed(this: u64) -> Option<Vec<u64>> {
     with_current(|context| {
         let view = super::view_of(context, this)?;
         Some(typed::elements(context, &view))
     })
+}
+
+/// Whether the receiver is a typed array (any of the eleven), as opposed to
+/// a plain array, a `DataView` or anything else.
+pub(in crate::entry) fn is_typed_array(this: u64) -> bool {
+    with_current(|context| {
+        super::view_of(context, this)
+            .is_some_and(|view| super::typed_classes::named(view.kind).is_some())
+    })
+}
+
+/// The receiver brand check every %TypedArray%.prototype method begins with:
+/// answers `true` for a typed array, and otherwise raises the `TypeError`
+/// and answers `false` so the caller returns without touching the receiver.
+pub(in crate::entry) fn brand(this: u64) -> bool {
+    if is_typed_array(this) {
+        return true;
+    }
+    throw::type_error("this is not a typed array.");
+    false
 }
 
 /// The receiver's element kind.
@@ -405,7 +425,7 @@ pub(in crate::entry) fn to_string(this: u64) -> u64 {
 }
 
 /// Writes element values back into the receiver's own window.
-fn write_back(this: u64, elements: &[u64]) {
+pub(in crate::entry) fn write_back(this: u64, elements: &[u64]) {
     with_current(|context| {
         let Some(view) = super::view_of(context, this) else {
             return;
