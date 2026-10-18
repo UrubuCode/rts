@@ -74,7 +74,21 @@ pub(in crate::layout) fn transferred(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        if let Some(used_h) = resolve_height(css.height, Some(cross_h), &resolve) {
+        // Sem `height` PRÓPRIA, um item esticado assume o cross definido do
+        // contentor (`cross_h`) como altura usada — e daí a razão dá o main
+        // (WPT `flex-aspect-ratio-009`). MAS uma margem AUTO no eixo CRUZADO
+        // (vertical numa row) desativa o stretch (CSS Flexbox §8.1), logo não há
+        // cross a assumir (WPT `flex-aspect-ratio-010`, `margin: auto 0`). O PISO
+        // de min-content do conteúdo NÃO se aplica aqui — é o `row.rs` que o
+        // junta para o item não-replaced (senão um replaced sem conteúdo também
+        // o apanharia, WPT `intrinsic-percent-replaced-027`).
+        let auto_cross_margin = css.margin.top.is_auto() || css.margin.bottom.is_auto();
+        let used_h = match resolve_height(css.height, Some(cross_h), &resolve) {
+            Some(h) => Some(h),
+            None if !auto_cross_margin => Some(cross_h),
+            None => None,
+        };
+        if let Some(used_h) = used_h.filter(|h| *h > 0.0) {
             let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
             let frame_h = css.padding.resolve_h(&resolve) + bl + br;
             let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
