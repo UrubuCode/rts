@@ -200,12 +200,31 @@ pub(in crate::layout) fn layout_out_of_flow(
         && bottom.is_some()
         && css.height.is_none()
         && (css.aspect_ratio.is_none() || !width_is_definite);
+    // `height: stretch` (o KEYWORD) com UM só inset vertical: o eixo estica
+    // entre o inset dado e a posição ESTÁTICA do bordo em falta (CSS Sizing 4 +
+    // CSS 2.1 §10.6.4) — não é o inset-stretch (que precisa dos dois) nem a
+    // altura cheia do CB. `height:stretch; bottom:100` num CB de 200 fica 100,
+    // ancorado ao static-top, não 200 deslocado para cima (WPT
+    // `css-sizing/stretch/abspos-2`).
+    let kw_stretch_h = matches!(css.height, Some(crate::style::Dimension::Stretch))
+        && (top.is_some() != bottom.is_some());
     let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
-    let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
-    let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
+    let needs_static = (left.is_none() && right.is_none())
+        || (top.is_none() && bottom.is_none())
+        || kw_stretch_h;
     let initial_static = needs_static.then(|| {
         super::static_position::static_position_of(dom, id, &css, flow_rects, ctx, 0.0, 0.0, cb)
     });
+    let forced_outer_h = if stretch_h {
+        Some((cb.h - top.unwrap() - bottom.unwrap()).max(0.0))
+    } else if kw_stretch_h {
+        // bordo em falta → static; `bottom` em falta estica até ao fundo do CB
+        // (inset efetivo 0), `top` em falta ancora no static-top.
+        let st = initial_static.map(|(_, sy)| (sy - cb.y).max(0.0)).unwrap_or(0.0);
+        Some((cb.h - top.unwrap_or(st) - bottom.unwrap_or(0.0)).max(0.0))
+    } else {
+        None
+    };
     let is_rtl = css.direction == Some(crate::style::Direction::Rtl);
     let avail_w = if left.is_none() && right.is_none() {
         if let Some((sx, _)) = initial_static {

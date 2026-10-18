@@ -779,8 +779,14 @@ pub(crate) fn layout_block(
     } else if css.height == Some(crate::style::Dimension::Stretch) {
         // `height: stretch` (CSS Sizing 4): PREENCHE a altura do containing
         // block (quando definida) em vez de ser o conteúdo — o análogo vertical
-        // do `width:stretch`. `avail_h` já é o content-box do pai.
-        avail_h.map(|h| if border_box { (h - frame_v).max(0.0) } else { h })
+        // do `width:stretch`. `avail_h` já é o content-box do pai. MAS um
+        // `forced_outer_h` imposto vence: num abspos esticado entre UM inset e o
+        // static-position, `positioned.rs` já calculou a altura exata (CB menos
+        // os insets) e passa-a aqui — sem isto o stretch tomava o CB inteiro e a
+        // caixa saía deslocada (WPT `css-sizing/stretch/abspos-2`).
+        forced_outer_h
+            .map(|oh| ((oh - (margin_top + margin_bottom)) - frame_v).max(0.0))
+            .or_else(|| avail_h.map(|h| if border_box { (h - frame_v).max(0.0) } else { h }))
     } else {
         resolve_height(css.height, avail_h, &resolve)
             .map(|h| {
