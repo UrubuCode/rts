@@ -214,6 +214,12 @@ fn absent_answer(context: &mut Context, cell: u32, key: rts_cranelift::shape::Ke
     if context.globals == Some(cell) || context.proxy_at(cell).is_some() {
         return None;
     }
+    // A wrapper (`new String("ab")`, `Object("ab")`) answers `length` and its
+    // indices from the boxed text, ahead of the shape walk, so "absent from the
+    // shape" is not "absent": remembering `undefined` here hid `.length`.
+    if context.boxed_at(cell).is_some() {
+        return None;
+    }
     let text = context.interner.text(key)?;
     if super::symbol::is_private_key(text) || crate::object::as_array_index(text).is_some() {
         return None;
@@ -435,6 +441,14 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             // write at all, so the whole pair is asked rather than the setter.
             && super::accessor::accessor_for(context, object as u32, crate::object::Key::Name(key))
                 .is_none()
+            // A read-only data property INHERITED from the chain refuses the
+            // write (`resolve_store` says so); growing the receiver here would
+            // create the own copy the language forbids.
+            && !super::reflect::inherited_readonly(
+                context,
+                object as u32,
+                crate::object::Key::Name(key),
+            )
             && let Ok(grown) = context
                 .shapes
                 .transition(shape, key, rts_cranelift::repr::Repr::Tagged)

@@ -115,6 +115,9 @@ pub(super) extern "C" fn assign(
     if !super::coercible(target, "Object.assign") {
         return target;
     }
+    // `ToObject(target)`: a primitive target is boxed (and an object is
+    // answered unchanged), so the result is the wrapper, not the bare value.
+    let target = super::make(0, 0, target, 0, 0, 0);
     for source in [source, a2, a3] {
         // An absent argument arrives as `undefined`, and `undefined` has no own
         // keys — so the same skip serves both the spec's rule (a null or

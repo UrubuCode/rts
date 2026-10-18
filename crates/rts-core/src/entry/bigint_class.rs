@@ -135,6 +135,7 @@ impl BigIntClass {
                 return with_current(|context| undefined_of(context));
             }
         }
+        let this = super::primitive_proto::unwrapped(this);
         with_current(|context| {
             let Some(held) = super::bigints::digits_of(context, this) else {
                 return undefined_of(context);
@@ -149,7 +150,7 @@ impl BigIntClass {
 
     /// `big.valueOf()` — the bigint itself.
     fn value_of(this: u64) -> u64 {
-        this
+        super::primitive_proto::unwrapped(this)
     }
 
     /// `big.toLocaleString()` — the same digits as `toString`, since there is no
@@ -164,6 +165,7 @@ impl BigIntClass {
 /// Shared by `toLocaleString` and by the base-ten arm of `toString`, so the two
 /// cannot come to disagree about how a negative sign is written.
 fn decimal(this: u64) -> u64 {
+    let this = super::primitive_proto::unwrapped(this);
     with_current(|context| match super::bigints::digits_of(context, this) {
         Some(held) => {
             let text = held.to_decimal();

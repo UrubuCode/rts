@@ -520,6 +520,23 @@ pub(in crate::entry) fn resolve_store(context: &mut Context, slot: u32, key: Key
             key_text(context, key)
         ));
     }
+    // A key the receiver does not own but INHERITS as a read-only data
+    // property (a frozen prototype, or `writable: false` up the chain) refuses
+    // the write too: `OrdinarySet` finds the property above and answers false
+    // instead of creating an own copy. Only asked when the key is absent from
+    // the receiver, so the hot path of overwriting an own property never pays.
+    if let Key::Name(named) = key {
+        if own_property(context, slot, key).is_none() {
+            if let Some(parent) = inherited_from(context, slot) {
+                if super::reflect::inherited_readonly(context, parent, key) {
+                    return Store::Refused(format!(
+                        "Cannot assign to read only property '{}' of object",
+                        key_text(context, Key::Name(named))
+                    ));
+                }
+            }
+        }
+    }
     // A key the object does not have yet is GROWTH, which all three integrity
     // levels refuse — and a sealed object refuses only that, which is why the
     // question is asked of presence rather than of the level.
