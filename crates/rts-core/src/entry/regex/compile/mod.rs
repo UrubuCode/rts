@@ -130,7 +130,7 @@ impl Engine {
         use super::translate::{
             astral_surrogate_classes, class_operators, empty_classes,
             forward_backreferences_as_empty, identity_escapes, legacy_octal_escapes,
-            unescape_solidus, wide_dot,
+            quantifiable_assertions, unescape_solidus, wide_dot,
         };
         // `class_operators` runs on what the PROGRAM wrote, before the rewrites
         // below inject Rust syntax of their own — `empty_classes` answers
@@ -159,7 +159,13 @@ impl Engine {
             // With `s` the builder below already says the whole set is allowed.
             false => wide_dot(&pattern),
         };
-        pattern
+        // A quantifier on a lookahead is Annex B's alone — with `u`/`v` it is a
+        // `SyntaxError`, so there it is left to be refused rather than rewritten.
+        // See `translate::assertions` for the rewrite and why it is exact.
+        match flags.unicode {
+            true => pattern,
+            false => quantifiable_assertions(&pattern),
+        }
     }
 
     /// Where the first match at or after `start` is, and where each group is.

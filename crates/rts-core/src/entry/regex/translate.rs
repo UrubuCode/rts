@@ -23,9 +23,11 @@
 //! `&str -> String` over pattern SYNTAX, and none of them knows that an engine
 //! exists.
 
+mod assertions;
 mod legacy;
 mod surrogates;
 
+pub(super) use assertions::quantifiable_assertions;
 pub(super) use legacy::{forward_backreferences_as_empty, legacy_octal_escapes};
 pub(super) use surrogates::astral_surrogate_classes;
 
