@@ -189,10 +189,42 @@ pub(in crate::layout) fn layout_svg_placeholder(
         (Some(w), Some(h)) => (w, h),
         (Some(w), None) => (w, eff_ratio.map(|r| w / r).unwrap_or(w)),
         (None, Some(h)) => (eff_ratio.map(|r| h * r).unwrap_or(h), h),
-        (None, None) => {
-            let h = 24.0;
-            (eff_ratio.map(|r| h * r).unwrap_or(h), h)
-        }
+        (None, None) => match eff_ratio {
+            // A replaced element with an intrinsic ratio but no intrinsic size
+            // (an `<svg viewBox>` with no width/height): the used size is the
+            // largest rectangle of that ratio fitting the default object size
+            // 300×150 (CSS Images 3 §5.3). A later min/max-width clamp, which
+            // transfers through the ratio to the other axis, narrows it — so
+            // `max-width:100px` on a 1:1 svg yields 100×100 (WPT
+            // `flex-aspect-ratio-img-column-018`/`-row-015`), not 24×24.
+            Some(r) => {
+                let h = (300.0 / r).min(150.0);
+                (h * r, h)
+            }
+            // No ratio at all (a broken/empty replaced box): keep the small
+            // placeholder rather than the full default object size.
+            None => (24.0, 24.0),
+        },
+    };
+    // When the size came purely from the default object size (both axes auto)
+    // and a ratio is in play, the element's own `max-width`/`max-height`
+    // transfer across the ratio (CSS2 §10.4): capping one axis scales the
+    // other to keep the ratio. A 1:1 svg at 150×150 with `max-width:100px`
+    // becomes 100×100, not 100×150 (WPT `flex-aspect-ratio-img-column-018`;
+    // `-row-015` is the `max-height` mirror). Only in the both-auto case —
+    // an explicit width/height or a flex-forced size owns its own clamp.
+    let (w, h) = if w0.is_none() && h0.is_none() && eff_ratio.is_some() {
+        let mw = css.max_width.and_then(|d| d.resolve(&resolve)).filter(|v| *v > 0.0);
+        let mh = css
+            .max_height
+            .and_then(|d| resolve_height(Some(d), None, &resolve))
+            .filter(|v| *v > 0.0);
+        let sx = mw.map(|m| (m / w).min(1.0)).unwrap_or(1.0);
+        let sy = mh.map(|m| (m / h).min(1.0)).unwrap_or(1.0);
+        let s = sx.min(sy);
+        (w * s, h * s)
+    } else {
+        (w, h)
     };
     let w = if forced_outer_w.is_some() {
         w

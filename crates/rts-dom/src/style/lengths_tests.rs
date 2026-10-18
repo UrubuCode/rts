@@ -310,6 +310,25 @@ mod palavras_chave_intrinsecas {
         assert_eq!((s.w, s.h), (100.0, 100.0), "{s:?}");
     }
 
+    /// Um `<svg viewBox>` SEM largura/altura próprias tem o tamanho do objecto
+    /// por omissão (300×150, CSS Images 3 §5.3) recortado à razão do viewBox —
+    /// 1:1 dá 150×150 — e o `max-width`/`max-height` próprio transfere-se pela
+    /// razão: `max-width:100px` leva-o a 100×100, não 100×150 (WPT
+    /// `flex-aspect-ratio-img-column-018`). O `-row-015` é o espelho em
+    /// `max-height`.
+    #[test]
+    fn svg_sem_tamanho_usa_default_object_size_e_max_transfere_pela_razao() {
+        let col = "<svg viewBox='0 0 1 1' style='max-width:100px;background:green' id='s'></svg>";
+        let (d, l) = geometria(col, 1280.0);
+        let s = rect(&d, &l, "svg", 0);
+        assert_eq!((s.w, s.h), (100.0, 100.0), "max-width: {s:?}");
+
+        let row = "<svg viewBox='0 0 1 1' style='max-height:100px;background:green' id='s'></svg>";
+        let (d, l) = geometria(row, 1280.0);
+        let s = rect(&d, &l, "svg", 0);
+        assert_eq!((s.w, s.h), (100.0, 100.0), "max-height: {s:?}");
+    }
+
     /// Um `<img src="data:image/svg+xml,…">` PERCENT-ENCODED com a cor na raiz
     /// `<svg style='background-color: green'>` pinta a caixa verde: a caixa é
     /// 100×100 (width + aspect-ratio) e verde (não o placeholder cinza) — WPT
