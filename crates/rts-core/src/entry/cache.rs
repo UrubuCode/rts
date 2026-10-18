@@ -452,7 +452,8 @@ fn resolve(object: u64, key: i64, cache: i64, reaches: Reaches) -> i64 {
             && let Ok(grown) = context
                 .shapes
                 .transition(shape, key, rts_cranelift::repr::Repr::Tagged)
-            && let Some(at) = context.shapes.slot_of(grown, key)
+            // `held` was none, so the key is the layout's newest property.
+            && let Some(at) = context.shapes.newest_slot(grown)
             && at < context
                 .region
                 .width_of(object as u32)

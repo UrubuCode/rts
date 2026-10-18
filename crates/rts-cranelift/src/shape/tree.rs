@@ -52,6 +52,11 @@ struct Node {
     /// Kept rather than counted, because it is asked for on every lookup and
     /// walking to the root to count is the cost the memo below exists to avoid.
     width: u32,
+    /// Whether every property of this layout is held the same way as this one.
+    ///
+    /// Lets [`ShapeTree::layout`] declare such a layout in O(1) instead of
+    /// collecting its representations by walking to the root.
+    uniform: bool,
 }
 
 /// Every layout one compilation knows about.
@@ -116,6 +121,19 @@ pub struct ShapeTree {
 }
 
 impl ShapeTree {
+    /// Layouts wider than this hand their index to the layout that extends
+    /// them instead of each keeping one. See `index_of`.
+    const SHARED_ABOVE: u32 = 32;
+
+    /// The position a property added by the transition INTO `grown` took.
+    ///
+    /// Known without any lookup: a property is appended, so it is the last one.
+    /// For a caller that has just transitioned from a layout that lacked the
+    /// key, this is the answer `slot_of(grown, key)` would give.
+    pub fn newest_slot(&self, grown: ShapeId) -> Option<u32> {
+        self.node(grown).map(|node| node.width - 1)
+    }
+
     /// A tree holding only the empty layout.
     pub fn new() -> Self {
         Self::default()
@@ -144,7 +162,11 @@ impl ShapeTree {
         key: Key,
         repr: Repr,
     ) -> Result<ShapeId, ShapeError> {
-        if let Some(existing) = self.repr_of(from, key) {
+        // Asking "is it already there" by walking to the root is O(width) per
+        // addition, so a chain of N is O(N^2) time; a wide layout asks its
+        // index instead, which `index_of` keeps for the layout being extended.
+        let present = self.width(from) <= Self::SHARED_ABOVE || self.index_of(from).contains_key(&key);
+        if let Some(existing) = if present { self.repr_of(from, key) } else { None } {
             return if existing == repr {
                 Ok(from)
             } else {
@@ -162,12 +184,14 @@ impl ShapeTree {
         }
 
         let width = self.width(from) + 1;
+        let uniform = self.node(from).is_none_or(|parent| parent.uniform && parent.repr == repr);
         let id = ShapeId(self.nodes.len() as u32);
         self.nodes.push(Node {
             parent: self.parent_of_new(from),
             key,
             repr,
             width,
+            uniform,
         });
         self.transitions.insert((parent, key, repr), id);
         Ok(id)
@@ -279,6 +303,14 @@ impl ShapeTree {
             return existing;
         }
 
+        if let Some(node) = self.node(shape)
+            && node.uniform
+        {
+            let id = types.declare_uniform(node.repr, node.width);
+            self.types.insert(shape, id);
+            return id;
+        }
+
         let fields: Vec<_> = self
             .properties(shape)
             .into_iter()
@@ -330,12 +362,38 @@ impl ShapeTree {
             self.indexes.resize_with(at + 1, || None);
         }
         if self.indexes[at].is_none() {
-            let index = self
-                .properties(shape)
-                .into_iter()
-                .enumerate()
-                .map(|(position, (key, _))| (key, position as u32))
-                .collect();
+            // A WIDE layout takes its parent's index rather than building its own.
+            //
+            // Building an object of N properties asks a question of every
+            // intermediate layout, and an index per layout is 1 + 2 + ... + N
+            // entries — measured at 3.7 GB for 20 000 properties (#2883). The
+            // layout being extended is almost always left behind, so its index
+            // is MOVED to the child and grows by the one new property: one
+            // index for the whole chain, O(N) in total.
+            //
+            // If something later asks the parent, it simply rebuilds (below);
+            // the answer is the same, so this only moves cost, never meaning.
+            // Narrow layouts keep the plain per-layout index, which is cheap
+            // and keeps small hot shapes from being rebuilt back and forth.
+            let node = self.nodes[at];
+            let stolen = match node.parent {
+                Some(parent) if node.width > Self::SHARED_ABOVE => {
+                    self.indexes.get_mut(parent.index()).and_then(Option::take)
+                }
+                _ => None,
+            };
+            let index = match stolen {
+                Some(mut index) => {
+                    index.insert(node.key, node.width - 1);
+                    index
+                }
+                None => self
+                    .properties(shape)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, (key, _))| (key, position as u32))
+                    .collect(),
+            };
             self.indexes[at] = Some(index);
         }
         self.indexes[at]

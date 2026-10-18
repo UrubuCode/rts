@@ -188,7 +188,9 @@ impl Object {
         // knows, since the value arrived as a word with nothing proved about it.
         // Narrowing is the compiler's to decide, where the evidence is.
         self.shape = shapes.transition(self.shape, machine, Repr::Tagged).ok()?;
-        let position = shapes.slot_of(self.shape, machine)?;
+        // The key was absent, so the transition appended it: its slot is the
+        // new layout's last, with no lookup (#2883).
+        let position = shapes.newest_slot(self.shape)?;
         if self.slots.len() <= position as usize {
             self.slots.resize(position as usize + 1, value);
         }

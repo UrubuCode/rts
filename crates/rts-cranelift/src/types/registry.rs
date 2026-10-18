@@ -1,6 +1,6 @@
 //! Declaration and layout computation for aggregates.
 
-use super::{AggregateLayout, FieldLayout, TypeId};
+use super::{AggregateLayout, FieldLayout, Fields, RefOffsets, TypeId};
 use crate::repr::Repr;
 
 /// Owns every aggregate layout in one compilation.
@@ -27,6 +27,11 @@ impl TypeRegistry {
     /// alignment; the aggregate's alignment is the widest of its fields, and its
     /// size is rounded up to that alignment so that arrays of it stay aligned.
     pub fn declare(&mut self, fields: &[Repr]) -> TypeId {
+        if let Some(&first) = fields.first()
+            && fields.iter().all(|&repr| repr == first)
+        {
+            return self.declare_uniform(first, fields.len() as u32);
+        }
         let mut offset: u32 = 0;
         let mut align: u32 = 1;
         let mut laid_out = Vec::with_capacity(fields.len());
@@ -48,8 +53,28 @@ impl TypeRegistry {
         self.layouts.push(AggregateLayout {
             size: round_up(offset, align),
             align,
-            fields: laid_out,
-            ref_offsets,
+            fields: Fields::Explicit(laid_out),
+            ref_offsets: RefOffsets::Explicit(ref_offsets),
+        });
+        id
+    }
+
+    /// Declares an aggregate of `count` fields that all hold `repr`, in O(1).
+    ///
+    /// The same layout [`Self::declare`] computes for a list of equal entries
+    /// (which delegates here), without the list: see [`Fields`].
+    pub fn declare_uniform(&mut self, repr: Repr, count: u32) -> TypeId {
+        let size = size_of_repr(repr);
+        let id = TypeId(self.layouts.len() as u32);
+        self.layouts.push(AggregateLayout {
+            size: count * size,
+            align: size.max(1),
+            fields: Fields::Uniform { repr, count },
+            ref_offsets: if repr.is_gc_relevant() {
+                RefOffsets::Stride { step: size, count }
+            } else {
+                RefOffsets::Explicit(Vec::new())
+            },
         });
         id
     }
@@ -100,7 +125,7 @@ impl TypeRegistry {
 }
 
 /// Size in bytes of a value with this representation, when stored in memory.
-fn size_of_repr(repr: Repr) -> u32 {
+pub(super) fn size_of_repr(repr: Repr) -> u32 {
     match repr {
         Repr::Bool => 1,
         other => other.bit_width() / 8,
@@ -129,9 +154,9 @@ mod tests {
         let id = reg.declare(&[Repr::Bool, Repr::F64, Repr::I32]);
         let layout = reg.layout(id);
 
-        assert_eq!(layout.fields[0].offset, 0);
-        assert_eq!(layout.fields[1].offset, 8, "f64 aligns to 8, not to 1");
-        assert_eq!(layout.fields[2].offset, 16);
+        assert_eq!(layout.field(0).unwrap().offset, 0);
+        assert_eq!(layout.field(1).unwrap().offset, 8, "f64 aligns to 8, not to 1");
+        assert_eq!(layout.field(2).unwrap().offset, 16);
         assert_eq!(layout.align, 8);
         assert_eq!(layout.size, 24, "size rounds up so arrays stay aligned");
     }
@@ -143,7 +168,24 @@ mod tests {
         let layout = reg.layout(id);
 
         assert!(layout.has_references());
-        assert_eq!(layout.ref_offsets, vec![8, 16]);
+        assert_eq!(layout.ref_offsets.to_vec(), vec![8, 16]);
+    }
+
+    #[test]
+    fn a_uniform_aggregate_lays_out_like_the_explicit_one() {
+        let mut reg = TypeRegistry::new();
+        let uniform = reg.declare(&[Repr::Tagged, Repr::Tagged, Repr::Tagged]);
+        let layout = reg.layout(uniform);
+        assert_eq!(layout.size, 24);
+        assert_eq!(layout.align, 8);
+        assert_eq!(layout.fields.len(), 3);
+        assert_eq!(layout.field(2).unwrap().offset, 16);
+        assert!(layout.field(3).is_none());
+        assert_eq!(layout.ref_offsets.to_vec(), vec![0, 8, 16]);
+        let bytes = reg.declare(&[Repr::Bool, Repr::Bool, Repr::Bool]);
+        assert_eq!(reg.layout(bytes).size, 3);
+        assert_eq!(reg.layout(bytes).field(2).unwrap().offset, 2);
+        assert!(!reg.layout(bytes).has_references());
     }
 
     #[test]

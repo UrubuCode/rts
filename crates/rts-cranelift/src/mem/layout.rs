@@ -77,7 +77,7 @@ impl ObjectLayout {
             traced_offsets: aggregate
                 .ref_offsets
                 .iter()
-                .map(|&offset| offset as i32 + shift)
+                .map(|offset| offset as i32 + shift)
                 .collect(),
         }
     }
