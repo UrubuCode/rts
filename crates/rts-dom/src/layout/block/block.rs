@@ -361,6 +361,17 @@ pub(crate) fn layout_block(
             v
         }
     });
+    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
+    // em três sítios da `aspect-ratio`: a largura-por-razão aqui, a altura-por-
+    // razão e o piso de conteúdo abaixo. Computado uma vez.
+    let parent_display = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .and_then(|pcss| pcss.effective_display());
+    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
+    let parent_is_flex_or_grid =
+        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
     let mut content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
@@ -480,7 +491,36 @@ pub(crate) fn layout_block(
                         None => content_based,
                     }
                 }
-                None => (avail_w - frame).max(0.0),
+                // Um bloco de largura auto normalmente ESTICA (avail_w). Mas
+                // com `aspect-ratio` e uma ALTURA definida, a largura vem da
+                // razão aplicada a essa altura (CSS Sizing 4 §5.1):
+                // `height:100;aspect-ratio:1/1` é 100 de largura, não a do pai
+                // (WPT `block-aspect-ratio-002` e a família). Itens de flex/grid
+                // ficam de fora — a largura deles vem do contentor.
+                None => {
+                    let frame_v_l = pad_top + pad_bottom + border_top + border_bottom;
+                    let def_h = (!parent_is_flex_or_grid)
+                        .then(|| {
+                            resolve_height(css.height, avail_h, &resolve).map(|h| {
+                                if border_box {
+                                    (h - frame_v_l).max(0.0)
+                                } else {
+                                    h
+                                }
+                            })
+                        })
+                        .flatten();
+                    def_h
+                        .and_then(|h| {
+                            crate::layout::measure::aspect_ratio::width_for_height(
+                                &css,
+                                h,
+                                padding_h + border_h,
+                                frame_v_l,
+                            )
+                        })
+                        .unwrap_or_else(|| (avail_w - frame).max(0.0))
+                }
             }
         };
         crate::style::clamp_size(base, mnw, mxw)
@@ -613,17 +653,6 @@ pub(crate) fn layout_block(
     // MAIN SIZE de coluna (`forced_outer_h_hard`) precisa de entrar ANTES —
     // e sem passar pelo `.max(content_h)` mais abaixo, que é a parte que
     // protege o stretch e que o encolhimento precisa de ignorar.
-    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
-    // em dois sítios: a transferência `aspect-ratio`→altura abaixo e o piso de
-    // conteúdo mais à frente. Computado uma vez aqui.
-    let parent_display = dom
-        .node(id)
-        .parent
-        .and_then(|p| dom.computed_style_idx(p))
-        .and_then(|pcss| pcss.effective_display());
-    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
-    let parent_is_flex_or_grid =
-        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
     let explicit_content_h = if forced_outer_h_hard {
         forced_outer_h.map(|oh| {
             let mv = margin_top + margin_bottom;

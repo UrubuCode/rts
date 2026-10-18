@@ -76,10 +76,12 @@ fn aspect_ratio_derives_width_from_definite_height_in_shrink_to_fit() {
     let flt = r#"<body style="margin:0"><div id="t" style="float:left;height:100px;aspect-ratio:1/2"></div></body>"#;
     let (dom, list) = geometria(flt, 800.0);
     assert_eq!(rect(&dom, &list, "#t", 0).w, 50.0, "float height×ratio");
-    // A plain block keeps width:auto = stretch (aspect-ratio does not override).
+    // A plain block with a definite height + aspect-ratio ALSO derives its
+    // auto width from the ratio (CSS Sizing 4 §5.1; WPT `block-aspect-ratio-002`
+    // expects 100×100, not the parent's width) — it does NOT stretch here.
     let blk = r#"<body style="margin:0"><div id="t" style="height:100px;aspect-ratio:0.7"></div></body>"#;
     let (dom, list) = geometria(blk, 800.0);
-    assert_eq!(rect(&dom, &list, "#t", 0).w, 800.0, "bloco: width:auto continua stretch");
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 70.0, "bloco: largura vem da razão (height×0.7)");
 }
 
 /// An out-of-flow box with BOTH insets of one axis set and that size `auto` is
@@ -220,6 +222,19 @@ fn float_aspect_ratio_transfers_width_to_height() {
     use crate::table::tests::geometria;
     let html = r#"<body style="margin:0"><div id="t" style="float:left;aspect-ratio:1/1">
       <div style="width:100px"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// A plain BLOCK with a definite height, `aspect-ratio` and auto width derives
+/// its width from the ratio instead of stretching to the parent (CSS Sizing 4
+/// §5.1; WPT `css-sizing/aspect-ratio/block-aspect-ratio-002`: `height:100;
+/// aspect-ratio:1/1` is 100×100 in an 800px body). Flex/grid items (width from
+/// the container) are excluded.
+#[test]
+fn block_auto_width_comes_from_the_ratio_when_height_is_definite() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div id="t" style="height:100px;aspect-ratio:1/1"></div></body>"#;
     let (dom, list) = geometria(html, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
 }
