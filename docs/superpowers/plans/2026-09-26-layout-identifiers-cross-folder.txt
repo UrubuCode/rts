@@ -1,0 +1,12 @@
+float/: Exclusao, banda_livre, fundo_dos_floats, fundo_do_clearfix, float_of, fecha_a_corrida, BlockFormattingContext::fundos/fundo_lado
+flex/: main_no_eixo_y, reverse_efetivo, fisico_para_eixo, largura_shrink_to_fit, tem_itens_elemento, ascent_do_contentor, baseline_no_layout, altura_conteudo_sem_height, pseudo::largura, distribuir_align_content, e_auto_ou_ausente, hipotetico_para_quebra, min_automatico, precisa_de_forced_w_no_stretch, limites_do_item, pseudo::medir/pintar, filhos_flex_em_fluxo, linhas_por_largura, CaixaGerada fields
+block/: sequencia_do_fluxo, pelo_estilo, overflow_estabelece, tem_conteudo_para_fragmento, em_contexto_inline, tag_de, margin_left_usado, CaixaGerada(+fields caixa/gerada/arestas/linhas/fonte), linhas_do_texto, da_arvore, altura_das_linhas, resolve_arestas, montar, pintar, Arestas.valores, BlockFormattingContext::{banda_livre,fundos,fundo_lado}
+block/ stale comments elsewhere: flex/pseudo.rs:70 (`pseudo_block.rs::medir` -> measure_pseudo), inline/inline_fragments.rs:294 (PassoDoFluxo -> FlowStep)
+positioned/: aplica_offset_relativo, offset_do_inline, desloca_desde, e_display_none
+grid/: GridAutoFlow.coluna (style/grid_lines.rs)
+measure/: usa_ahem
+fragment/: Fragment.caixa (~190 files), linha_directa, ultima_linha, ancoras_estaticas, mesma_sequencia_de_filhos
+fragment/ stale comment elsewhere: block/bfc.rs:38 (`costurar` -> stitch)
+replaced/: base_e_altura_do_item, largura_intrinseca_transferida, layout_button, layout_input, medida_do_input, MedidaDoInput, tamanho_natural_controlo, inline_widget_size
+inline/: hyphen::sem_shy, line_baseline::{marca,descarta,limpa,colhe_do_bloco,total_da_costura,regista_do_fragmento}, line_inline_block::ascent_do_item, run_font::Fontes(+uniforme), segment::{aplicar_elipse,elipse_pedida}, static_anchor::todas
+inline/ stale comments elsewhere: positioned/relative.rs:98 (fragmento_do_dono -> owner_fragment), tests/pseudo_caixa_gerada_corpus.rs:79 (ascent_do_gerado -> generated_ascent)
