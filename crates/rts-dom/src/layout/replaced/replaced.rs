@@ -11,19 +11,58 @@ use super::*;
 /// fill=.../></svg>` sem inventar suporte para paths, transforms ou texto.
 fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
     let src = dom.node(id).attr("src")?;
-    let svg = src.strip_prefix("data:image/svg+xml,")?;
-    let rect = svg.get(svg.find("<rect")?..)?;
-    let end = rect.find('>')?;
-    let tag = &rect[..end];
-    let marker = "fill=";
-    let at = tag.find(marker)? + marker.len();
-    let quote = *tag.as_bytes().get(at)?;
-    if quote != b'\'' && quote != b'"' {
-        return None;
+    let raw = src.strip_prefix("data:image/svg+xml,")?;
+    // O corpo de uma `data:image/svg+xml,…` vem muitas vezes PERCENT-ENCODED
+    // (`%3Csvg…%3E`); sem descodificar, nem `<rect` nem `<svg …>` se encontram
+    // (WPT `replaced-element-004`). Descodificação mínima: só os escapes que
+    // aparecem nestes fixtures (`<`, `>`, espaço, `#`, `%`), suficiente para
+    // achar a cor — não é um descodificador de URL geral.
+    let svg_owned;
+    let svg: &str = if raw.contains('%') {
+        svg_owned = raw
+            .replace("%3C", "<")
+            .replace("%3E", ">")
+            .replace("%20", " ")
+            .replace("%23", "#")
+            .replace("%25", "%");
+        &svg_owned
+    } else {
+        raw
+    };
+    // O valor de `nome='…'`/`nome="…"` no trecho `tag` (uma abertura de tag).
+    let attr = |tag: &str, nome: &str| -> Option<String> {
+        let marker = format!("{nome}=");
+        let at = tag.find(&marker)? + marker.len();
+        let quote = *tag.as_bytes().get(at)?;
+        if quote != b'\'' && quote != b'"' {
+            return None;
+        }
+        let value = &tag[at + 1..];
+        Some(value[..value.find(quote as char)?].to_string())
+    };
+    // 1) Uma `<rect ... fill=...>` que preenche (o caso comum).
+    if let Some(rect) = svg.find("<rect").and_then(|i| svg.get(i..)) {
+        if let Some(tag) = rect.find('>').and_then(|e| rect.get(..e)) {
+            if let Some(c) = attr(tag, "fill").and_then(|v| crate::style::parse_color(&v)) {
+                return Some(c);
+            }
+        }
     }
-    let value = &tag[at + 1..];
-    let value = &value[..value.find(quote as char)?];
-    crate::style::parse_color(value)
+    // 2) A própria raiz `<svg ...>`: um `fill=` ou `background-color:` no
+    //    `style=` preenche a caixa (WPT `aspect-ratio/replaced-element-004`:
+    //    `<svg style='background-color: green'>` sem `<rect>`).
+    let svg_tag = svg.get(..svg.find('>')?)?;
+    if let Some(c) = attr(svg_tag, "fill").and_then(|v| crate::style::parse_color(&v)) {
+        return Some(c);
+    }
+    let style = attr(svg_tag, "style")?;
+    let bg = style.split(';').find_map(|decl| {
+        let (k, v) = decl.split_once(':')?;
+        (k.trim().eq_ignore_ascii_case("background-color")
+            || k.trim().eq_ignore_ascii_case("background"))
+        .then(|| v.trim())
+    })?;
+    crate::style::parse_color(bg)
 }
 
 thread_local! {
