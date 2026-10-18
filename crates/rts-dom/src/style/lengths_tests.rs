@@ -239,6 +239,21 @@ mod palavras_chave_intrinsecas {
         assert_eq!((a.y, a.w, a.h), (0.0, 100.0, 100.0), "{a:?}");
     }
 
+    /// Um replaced com `height:100%` + `aspect-ratio` converte a altura
+    /// percentual (contra a altura DEFINIDA do pai) em largura intrínseca, e
+    /// isso chega à medição de largura shrink-to-fit do pai: um `#float{height:
+    /// 100px}` à volta de um `<canvas height:100%>` 1:1 fica 100 de largura, não
+    /// 0 (WPT `intrinsic-percent-replaced-001`). É o threading de altura pela
+    /// recursão intrínseca sem cache.
+    #[test]
+    fn altura_percentual_de_replaced_vira_largura_intrinseca_do_pai() {
+        let fonte = "<div style='float:left;height:100px' id='f'>\
+            <canvas width='10' height='10' style='height:100%'></canvas></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let f = rect(&d, &l, "div", 0);
+        assert!((f.w - 100.0).abs() < 1.5, "{f:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
