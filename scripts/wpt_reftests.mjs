@@ -191,7 +191,7 @@ function rasterizar(htmlPath, png) {
 // os contava como erro (os "310 de 870"). Um encravamento real de um ficheiro
 // e apanhado pelo watchdog: mata o processo, e o que ficou por fazer cai na
 // segunda passagem EM SERIE (que ja existia para os stragglers).
-const POOL = Math.max(1, Number(opt("jobs", String(Math.min(8, Math.max(2, Math.floor((availableParallelism?.() ?? 4) / 2)))))));
+const POOL = Math.max(1, Number(opt("jobs", String(Math.min(4, Math.max(1, Math.floor((availableParallelism?.() ?? 4) / 4)))))));
 function rasterizarLote(pares) {
   // Um POOL de `--batch` persistentes, não um só: o processo único amortiza o
   // arranque mas rasteriza em SÉRIE, e numa pasta grande/pesada (css-grid, 1600
