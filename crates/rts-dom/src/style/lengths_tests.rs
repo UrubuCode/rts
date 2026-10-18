@@ -79,6 +79,21 @@ mod palavras_chave_intrinsecas {
         );
     }
 
+    /// O espelho em `max-content`: `width:max-content` num pai de
+    /// `<div height:100px; aspect-ratio:1/1>` também é 100 (WPT
+    /// `aspect-ratio/intrinsic-size-002`).
+    #[test]
+    fn aspect_ratio_com_altura_contribui_para_o_max_content() {
+        let fonte = "<div style='width:max-content;height:100px' id='alvo'>\
+            <div style='height:100px;aspect-ratio:1/1'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert!(
+            (a.w - 100.0).abs() < 1.0,
+            "max-content tem de transferir a razão: {a:?}"
+        );
+    }
+
     /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.
     #[test]
     fn max_content_mede_o_conteudo_e_transborda_o_pai() {

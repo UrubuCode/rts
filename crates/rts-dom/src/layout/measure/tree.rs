@@ -481,6 +481,28 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             // chaveada só por `id`: cachear aqui misturaria a resposta de um
             // fragmento com a do outro (ver o comentário da função).
             let content = intrinsic_content_width_no_cache(dom, tree, id, box_id, f, ctx);
+            // Um bloco NÃO-replaced com altura DEFINIDA e `aspect-ratio` tem uma
+            // largura max-content de altura×razão mesmo com conteúdo vazio (CSS
+            // Sizing 4 §5) — espelho do piso de min-content em
+            // `table/widths/mod.rs`. `width:max-content` num pai de
+            // `<div height:100px; aspect-ratio:1/1>` dá 100 (WPT
+            // `aspect-ratio/intrinsic-size-002`).
+            let content = {
+                let non_pct = |d: Option<crate::style::Dimension>| match d {
+                    Some(crate::style::Dimension::Percent(_)) | None => None,
+                    Some(d) => d.resolve(&resolve),
+                };
+                let rf = non_pct(css.height).and_then(|h| {
+                    let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+                    let frame_h = css.padding.resolve_h_intrinseco(&resolve) + bl + br;
+                    let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
+                    let content_h = if border_box { (h - frame_v).max(0.0) } else { h };
+                    crate::layout::measure::aspect_ratio::width_for_height(
+                        &css, content_h, frame_h, frame_v,
+                    )
+                });
+                content.max(rf.unwrap_or(0.0))
+            };
             crate::style::clamp_size(content, mnw, mxw) + frame
         }
         // A loose text node: its own lines under its parent element's style —
