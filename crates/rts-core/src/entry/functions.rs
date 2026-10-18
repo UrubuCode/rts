@@ -322,6 +322,10 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // constructs); its prototype is born empty, not at the cached
         // `constructor`-bearing layout.
         let is_generator = has_prototype && described.is_some_and(|(_, _, _, constructs)| !constructs);
+        // Generator / async / async generator, from the top bits of the arity;
+        // decides the function's own `[[Prototype]]` at the end.
+        let kind = described
+            .and_then(|(_, arity, _, _)| super::generator::intrinsics::Kind::of_arity(arity));
         let prototype_ty = if is_generator {
             empty_ty
         } else {
@@ -393,7 +397,12 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
                 // `%GeneratorPrototype%` rather than `Object.prototype`. The
                 // property on the function stays writable. Checked against
                 // Node 2026-10-18.
-                super::generator::link_function_prototype(context, cell, prototype);
+                super::generator::link_function_prototype(
+                    context,
+                    cell,
+                    prototype,
+                    kind == Some(super::generator::intrinsics::Kind::AsyncGenerator),
+                );
                 super::external::release(context, held_prototype);
             } else {
             match (
@@ -440,6 +449,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // the alternative: it costs two more operands on every closure ever
         // made, where this costs a lookup only.
         if let Some((name, arity, _, _)) = described {
+            let arity = arity & super::generator::intrinsics::ARITY_MASK;
             let key = context.well_known("name");
             // `key_text_value` and NOT `intern_value`, which despite its name
             // does not intern: its own documentation says it "inserts into the
@@ -497,6 +507,9 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // being asked to describe.
         if held_template.is_none() {
             context.record_callable_template(template_at, cell, &owned);
+        }
+        if let Some(kind) = kind {
+            super::generator::intrinsics::link_function(context, cell, kind);
         }
         super::external::release(context, held);
         made

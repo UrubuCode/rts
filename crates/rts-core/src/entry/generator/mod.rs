@@ -84,6 +84,7 @@
 //! `emit/delegate.rs` emits.
 
 mod delegate;
+pub(in crate::entry) mod intrinsics;
 mod numbering;
 mod resume;
 
@@ -568,7 +569,7 @@ fn register_async(context: &mut Context) {
             .intern_value(crate::text::Str::from_str("AsyncGenerator"))
             .bits();
         super::objects::put(context, cell, tag, value);
-        super::native::hidden(context, cell, tag);
+        super::native::tagged(context, cell, tag);
     }
 }
 
@@ -627,22 +628,15 @@ fn made(context: &mut Context) -> Option<u32> {
 /// `function` is the generator function's cell, `prototype` the already-written
 /// object. Registers `Generator` on first use, as `made` does — a program that
 /// creates a generator function is a program that uses generators.
-pub(in crate::entry) fn link_function_prototype(context: &mut Context, function: u32, prototype: u32) {
-    let parent = match context.generator_result_prototype {
-        Some(parent) => Some(parent),
-        None => {
-            let found = match super::class_support::prototype(context, "Generator") {
-                Some(found) => Some(found),
-                None => {
-                    register(context);
-                    super::class_support::prototype(context, "Generator")
-                }
-            };
-            if found.is_some() {
-                context.generator_result_prototype = found;
-            }
-            found
-        }
+pub(in crate::entry) fn link_function_prototype(
+    context: &mut Context,
+    function: u32,
+    prototype: u32,
+    asynchronous: bool,
+) {
+    let parent = match asynchronous {
+        true => async_generator_prototype(context),
+        false => generator_prototype(context),
     };
     if let Some(parent) = parent {
         context.set_prototype(prototype, parent);
@@ -652,6 +646,33 @@ pub(in crate::entry) fn link_function_prototype(context: &mut Context, function:
     // said non-writable; Node 2026-10-18 says `true/false/false` for a
     // generator, so nothing is recorded.)
     let _ = function;
+}
+
+/// `%Generator%`, registering it on first use.
+pub(in crate::entry) fn generator_prototype(context: &mut Context) -> Option<u64> {
+    if let Some(parent) = context.generator_result_prototype {
+        return Some(parent);
+    }
+    let found = match super::class_support::prototype(context, "Generator") {
+        Some(found) => Some(found),
+        None => {
+            register(context);
+            super::class_support::prototype(context, "Generator")
+        }
+    };
+    if found.is_some() {
+        context.generator_result_prototype = found;
+    }
+    found
+}
+
+/// `%AsyncGenerator%`, registering it on first use.
+pub(in crate::entry) fn async_generator_prototype(context: &mut Context) -> Option<u64> {
+    if let Some(found) = super::class_support::prototype(context, "AsyncGenerator") {
+        return Some(found);
+    }
+    register_async(context);
+    super::class_support::prototype(context, "AsyncGenerator")
 }
 
 /// Installs the class, and the one member its attribute cannot name.
@@ -681,7 +702,7 @@ pub(in crate::entry) fn register(context: &mut Context) -> u64 {
         let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
         let value = context.intern_value(crate::text::Str::from_str("Generator")).bits();
         super::objects::put(context, cell, tag, value);
-        super::native::hidden(context, cell, tag);
+        super::native::tagged(context, cell, tag);
     }
     // `%GeneratorPrototype%` sits on `%IteratorPrototype%`, which is what makes
     // `g().map(f)` a thing at all — it was a `TypeError` for as long as the

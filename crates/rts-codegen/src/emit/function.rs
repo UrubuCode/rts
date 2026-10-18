@@ -554,6 +554,22 @@ fn emit_function(
             .take_while(|parameter| parameter.default.is_none())
             .count() as u32
     });
+    // The function's KIND rides in the arity's top bits (`rts_core` masks them
+    // off before it is `f.length`): 1 generator, 2 async, 3 async generator.
+    // The runtime needs it to give the closure the right intrinsic
+    // `[[Prototype]]` (%GeneratorFunction.prototype% and its siblings), and
+    // `has_prototype`/`constructs` alone cannot tell the three apart — an
+    // async function and an arrow both have neither, an async generator and a
+    // generator both have the one. A third table, or a wider tuple threaded
+    // through five crates and the object-file manifest, would answer the same
+    // question twice.
+    let kind: u32 = match (function.is_async, function.is_generator) {
+        (false, false) => 0,
+        (false, true) => 1,
+        (true, false) => 2,
+        (true, true) => 3,
+    };
+    let arity = (arity & 0x0FFF_FFFF) | (kind << 28);
     // Its own name, or the one a binding lent it: `const f = function () {}`
     // is called `f`, which is NamedEvaluation. Taken rather than read, so a
     // function nested inside that initialiser does not inherit it — see
