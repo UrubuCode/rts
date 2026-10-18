@@ -170,7 +170,7 @@ pub fn emit_stmt(
                         // anonymous definition — `const f = cond ? g : h` names
                         // nothing, and neither does a call that happens to
                         // answer a function.
-                        if anonymous_definition(expr) {
+                        if anonymous_definition(expr) || anonymous_default(ctx, expr) {
                             ctx.lend_name(*name);
                         }
                         let produced = emit_expr(builder, scope, ctx, expr)?;
@@ -560,6 +560,24 @@ pub(super) fn anonymous_definition(expr: &Expr) -> bool {
         ExprKind::Class(class) => class.name.is_none(),
         _ => false,
     }
+}
+
+/// Whether a binding's value is a parameter's DEFAULT as `bind_parameters`
+/// desugars it -- `__rts_param_N === undefined ? <default> : __rts_param_N` --
+/// with an anonymous definition as the default. `function f(cb = () => {})`
+/// names that arrow `cb` (NamedEvaluation of the default), but the desugared
+/// initialiser is a conditional, which `anonymous_definition` rightly refuses.
+pub(super) fn anonymous_default(ctx: &super::Ctx, expr: &Expr) -> bool {
+    let ExprKind::Conditional {
+        then_branch,
+        else_branch,
+        ..
+    } = &expr.kind
+    else {
+        return false;
+    };
+    matches!(&else_branch.kind, ExprKind::Ident(held) if ctx.names.text(*held).starts_with("__rts_param_"))
+        && anonymous_definition(then_branch)
 }
 
 /// Emits `with (object) body`.

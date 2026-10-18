@@ -410,7 +410,25 @@ pub(super) fn emit_class(
             // already linked — which is what lets `static all = new X()` work.
             ClassElement::Field(field) if field.is_static => {
                 let value = match &field.value {
-                    Some(value) => super::emit_expr(builder, &mut inner, ctx, value)?,
+                    Some(value) => {
+                        // NamedEvaluation, as an instance field gets: `static h
+                        // = function () {}` is called `h`. A computed or private
+                        // key lends nothing here (the former needs a runtime name).
+                        let nested = match &field.key {
+                            ClassKey::Public(PropertyKey::Named(name))
+                                if super::stmt::anonymous_definition(value) =>
+                            {
+                                Some(ctx.lend_name_nested(*name))
+                            }
+                            _ => None,
+                        };
+                        let produced = super::emit_expr(builder, &mut inner, ctx, value)?;
+                        if let Some(held) = nested {
+                            let _ = ctx.take_lent_name();
+                            ctx.restore_lent_name(held);
+                        }
+                        produced
+                    }
                     None => expr::undefined(builder, ctx),
                 };
                 write_member(
