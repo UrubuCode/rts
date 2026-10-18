@@ -935,6 +935,9 @@ pub struct Context {
     /// anything. Nothing has to remember to clear it, which is the property a
     /// protector cell would not have.
     pub(super) array_iterator_method: Option<u64>,
+    /// Each typed-array class's installed `values` (its `[Symbol.iterator]`), as installed;
+    /// `iterate` reads a view directly only when its iterator is one of these.
+    pub(super) typed_iterator_methods: Vec<u64>,
     /// `%ArrayIteratorPrototype%.next` as it was installed, for the same reason
     /// and read the same way.
     ///
@@ -1624,6 +1627,7 @@ impl Context {
             array_prototype_building: false,
             generator_result_prototype: None,
             array_iterator_method: None,
+            typed_iterator_methods: Vec::new(),
             array_cursor_next: None,
             array_cursor_prototype: None,
             list_cursor_prototype: None,

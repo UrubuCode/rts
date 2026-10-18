@@ -69,7 +69,7 @@ use crate::value::Value;
 
 /// Which of the three views a cursor answers.
 #[derive(Clone, Copy)]
-pub(super) enum Kind {
+pub(in crate::entry) enum Kind {
     /// `a.keys()` — the indices.
     Keys = 1,
     /// `a.values()`, and `a[Symbol.iterator]()`, which is the same function.
@@ -127,7 +127,7 @@ impl ArrayCursor {
 ///
 /// The receiver is HELD, not read: nothing is walked here, so `a.entries()` on a
 /// million-element array costs one object rather than a million pairs.
-pub(super) fn over(receiver: u64, kind: Kind) -> u64 {
+pub(in crate::entry) fn over(receiver: u64, kind: Kind) -> u64 {
     with_current(|context| {
         let prototype = match super::super::class_support::prototype(context, "ArrayCursor") {
             Some(prototype) => prototype,
@@ -256,6 +256,19 @@ fn kind_of(this: u64) -> Option<Kind> {
 /// same `{ done: true }` to the program, and the compiled call site above
 /// re-raises what is in flight.
 fn length_of(receiver: u64) -> Option<usize> {
+    // A typed array: its element count right now. A detached buffer is a
+    // TypeError at the step (ValidateTypedArray), not a silent zero.
+    let typed = with_current(|context| {
+        let view = super::super::buffers::view_of(context, receiver)?;
+        Some((context.buffer_detached(view.buffer), view.count()))
+    });
+    if let Some((detached, count)) = typed {
+        if detached {
+            throw::type_error("Cannot perform %ArrayIteratorPrototype%.next on a detached ArrayBuffer");
+            return None;
+        }
+        return Some(count);
+    }
     let direct = with_current(|context| {
         Value(receiver)
             .as_slot()

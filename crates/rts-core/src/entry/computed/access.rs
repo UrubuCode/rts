@@ -198,7 +198,7 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
     // and outside the borrow because that can run user code; a throw leaves the
     // element as it was. The expression still answers the original `value`.
     let original = value;
-    let value = match super::super::buffers::store_kind(object) {
+    let value = match super::super::buffers::store_kind_for_key(object, key) {
         Some(kind) => match super::super::buffers::coerce_for_store(value, kind) {
             Some(coerced) => coerced,
             None => return original,

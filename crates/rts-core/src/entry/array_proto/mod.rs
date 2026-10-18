@@ -38,7 +38,7 @@ mod construct;
 pub(in crate::entry) use construct::array_in;
 mod direct;
 pub use direct::{ARRAY_PUSH_DIRECT_ENTRY, array_push_direct};
-mod cursor;
+pub(in crate::entry) mod cursor;
 mod generic;
 pub(super) mod iterate;
 mod joining;

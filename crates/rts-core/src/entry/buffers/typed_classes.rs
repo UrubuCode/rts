@@ -178,36 +178,10 @@ macro_rules! declare {
                     typed::join(this, separator)
                 }
 
-                /// `t.values()`. `for`-`of` and spread reach a typed array's
-                /// elements directly — `iterate::iterate` knows a view — so
-                /// no `[Symbol.iterator]` member is installed here; only this
-                /// named method, which the elder engine's tests reach through
-                /// `[...t.values()]`.
+                /// `t.values()`. `iterate::iterate` reads a view directly only while its
+                /// iterator is still the installed one; otherwise it runs the protocol, and
+                /// `[Symbol.iterator]` is this same function, aliased at registration.
                 fn values(this: u64) -> u64 {
-                    typed::values(this)
-                }
-
-                /// `t[Symbol.iterator]()` — the same iterator `values()` gives.
-                ///
-                /// # Why this is here after all
-                ///
-                /// [`typed::values`]'s own note says no `Symbol.iterator` member
-                /// is installed, because `for`-`of` and spread reach a view's
-                /// elements directly. That was true and was not enough:
-                /// `const [a, b] = t` does NOT go through either. Array
-                /// destructuring reads `Symbol.iterator` off the source, and
-                /// when it is absent falls back to `Iterator.from(t)`, which
-                /// treats the value ITSELF as the iterator — so `next` was
-                /// `undefined` and a destructuring that every other engine runs
-                /// ended the program.
-                ///
-                /// It is a member rather than a special case in that fallback
-                /// because a typed array genuinely HAS this method in the
-                /// language, and a program can read it: teaching one caller
-                /// about views would have left `t[Symbol.iterator]` answering
-                /// `undefined` to everybody else.
-                #[js("@@iterator")]
-                fn iterator(this: u64) -> u64 {
                     typed::values(this)
                 }
 
@@ -362,6 +336,19 @@ macro_rules! declare {
             pub(in crate::entry) fn $wrapper(context: &mut Context) -> u64 {
                 let made = $generated(context);
                 per_element(context, made, $size);
+                // `t[Symbol.iterator]` IS `t.values` -- the same function object,
+                // read back from the installed prototype rather than minted twice, so
+                // `t[Symbol.iterator] === t.values` holds as it does in the language.
+                if let Some(proto) = crate::entry::class_support::prototype(context, $js)
+                    && let Some(cell) = Value(proto).as_slot()
+                {
+                    let named = context.well_known("values");
+                    let key = context.well_known(crate::entry::symbol::ITERATOR);
+                    if let Some(found) = crate::entry::objects::read_property(context, cell, named) {
+                        crate::entry::objects::put(context, cell, key, found.bits());
+                        context.typed_iterator_methods.push(found.bits());
+                    }
+                }
                 // `C[Symbol.species]`, which the specification puts once on
                 // `%TypedArray%` and lets the eleven inherit. It is installed
                 // per class here because this engine has no `%TypedArray%`

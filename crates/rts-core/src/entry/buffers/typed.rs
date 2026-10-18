@@ -941,55 +941,40 @@ fn relative_start(from: Option<f64>, count: usize) -> usize {
     }
 }
 
+/// The iterator `values()`, `keys()` and `entries()` answer: the SAME
+/// `%ArrayIteratorPrototype%` cursor an array uses, held over the view and
+/// stepped live, so an element written mid-walk is seen and a buffer detached
+/// mid-walk ends the walk with a `TypeError`.
+///
+/// A detached buffer is refused here too (`ValidateTypedArray`), which is why
+/// `Array.from(detachedView)` throws rather than answering `[]`.
+fn cursor_over(this: u64, kind: crate::entry::array_proto::cursor::Kind) -> u64 {
+    let state = with_current(|context| {
+        super::view_of(context, this).map(|view| context.buffer_detached(view.buffer))
+    });
+    match state {
+        None => with_current(|context| undefined_of(context)),
+        Some(true) => {
+            crate::entry::throw::type_error("Cannot perform %TypedArray%.prototype.values on a detached ArrayBuffer");
+            with_current(|context| undefined_of(context))
+        }
+        Some(false) => crate::entry::array_proto::cursor::over(this, kind),
+    }
+}
+
 /// `t.values()` — an iterator over the elements.
-///
-/// # Why the borrow ends before `over`
-///
-/// `list_iterator::over` takes its own [`with_current`] borrow to build the
-/// iterator object, and this function's own borrow — taken to read the
-/// view's bytes — has to be gone before that call or the second `RefCell`
-/// borrow aborts the process: a `with_current` inside a `with_current` is
-/// exactly the shape rule 8's neighbouring rule (the crate doc's borrow
-/// discipline) forbids, and there is no unwinding across this boundary to
-/// turn the mistake into a panic that could be caught.
 pub(in crate::entry) fn values(this: u64) -> u64 {
-    let Some(elements) = with_current(|context| {
-        super::view_of(context, this).map(|view| elements(context, &view))
-    }) else {
-        return with_current(|context| undefined_of(context));
-    };
-    let listed = with_current(|context| crate::entry::array::built_in(context, elements));
-    crate::entry::list_iterator::over(listed, "Array Iterator")
+    cursor_over(this, crate::entry::array_proto::cursor::Kind::Values)
 }
 
 /// `t.keys()` — an iterator over the indices.
 pub(in crate::entry) fn keys(this: u64) -> u64 {
-    let Some(count) = with_current(|context| super::view_of(context, this).map(|view| view.count())) else {
-        return with_current(|context| undefined_of(context));
-    };
-    let indices = (0..count).map(|at| Value::from_f64(at as f64).bits()).collect();
-    let listed = with_current(|context| crate::entry::array::built_in(context, indices));
-    crate::entry::list_iterator::over(listed, "Array Iterator")
+    cursor_over(this, crate::entry::array_proto::cursor::Kind::Keys)
 }
 
 /// `t.entries()` — an iterator over `[index, element]` pairs.
 pub(in crate::entry) fn entries(this: u64) -> u64 {
-    let Some(values) = with_current(|context| {
-        super::view_of(context, this).map(|view| elements(context, &view))
-    }) else {
-        return with_current(|context| undefined_of(context));
-    };
-    let pairs: Vec<u64> = values
-        .into_iter()
-        .enumerate()
-        .map(|(index, value)| {
-            with_current(|context| {
-                crate::entry::array::built_in(context, vec![Value::from_f64(index as f64).bits(), value])
-            })
-        })
-        .collect();
-    let listed = with_current(|context| crate::entry::array::built_in(context, pairs));
-    crate::entry::list_iterator::over(listed, "Array Iterator")
+    cursor_over(this, crate::entry::array_proto::cursor::Kind::Entries)
 }
 
 /// A new instance of the view's own class, over these bytes.

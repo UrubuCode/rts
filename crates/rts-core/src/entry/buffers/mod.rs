@@ -631,6 +631,17 @@ pub(in crate::entry) fn store_kind(object: u64) -> Option<Kind> {
     })
 }
 
+/// [`store_kind`], but only when `key` names an ELEMENT (a number or a canonical
+/// numeric string). A symbol or a name like `"foo"` is an ordinary property of
+/// the view and its value must not be run through `ToNumber`.
+pub(in crate::entry) fn store_kind_for_key(object: u64, key: u64) -> Option<Kind> {
+    super::with_current(|context| {
+        let cell = Value(object).as_slot()?;
+        let view = context.view_at(cell)?;
+        (view.kind != Kind::Raw && is_canonical_numeric(context, Value(key))).then_some(view.kind)
+    })
+}
+
 /// The element-store coercion, run OUTSIDE every borrow because it can run user
 /// code: `ToNumber` for a numeric kind, `ToBigInt` for a bigint one. Answers the
 /// value to store (a double or a bigint), or `None` when it threw — the throw is

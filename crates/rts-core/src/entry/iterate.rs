@@ -120,7 +120,7 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
         // zero elements — a loop that silently ran empty rather than walking
         // the view.
         if let Some(view) = super::buffers::view_of(context, value) {
-            return Found::Values(super::buffers::typed::elements(context, &view));
+            return Found::View(view);
         }
         // Before the text check and before the protocol, because a collection's
         // elements are already held here: asking it for them through two calls
@@ -140,6 +140,27 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
 
     let values = match found {
         Found::Values(values) => values,
+        Found::View(view) => {
+            let method = iterator_method(value);
+            if super::throw::in_flight() {
+                Vec::new()
+            } else if with_current(|context| context.typed_iterator_methods.contains(&method)) {
+                // The primordial iterator: reading the elements is its result, but a
+                // detached buffer is a TypeError, not an empty walk.
+                let detached = with_current(|context| context.buffer_detached(view.buffer));
+                if detached {
+                    super::throw::type_error("Cannot iterate a typed array over a detached ArrayBuffer");
+                    Vec::new()
+                } else {
+                    with_current(|context| super::buffers::typed::elements(context, &view))
+                }
+            } else {
+                protocol(value).unwrap_or_else(|| {
+                    refuse(value);
+                    Vec::new()
+                })
+            }
+        }
         // Each pair becomes its own array, which allocates — so it happens here
         // rather than inside the borrow that read the table.
         // Rooted as they are built: every pair is an allocation, and the pairs
@@ -385,6 +406,9 @@ enum Found {
     Pairs(Vec<(u64, u64)>),
     /// Code points that still have to become strings.
     Text(Vec<Vec<u16>>),
+    /// A typed array, whose elements are read directly only while its iterator is
+    /// the installed one.
+    View(super::buffers::View),
     /// Not something this engine iterates.
     Nothing,
 }
