@@ -86,6 +86,10 @@ pub fn emit_expr(
     ctx: &mut Ctx,
     expr: &Expr,
 ) -> EmitResult<ValueId> {
+    // Finer than the statement: the instructions an expression emits are placed
+    // where the expression is, so a trace points inside the line rather than at
+    // its start. Opaque to the machine, which only carries it (`observe`).
+    builder.at(expr.at);
     match &expr.kind {
         ExprKind::Literal(literal) => emit_literal(builder, ctx, literal),
 

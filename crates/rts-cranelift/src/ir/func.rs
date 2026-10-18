@@ -132,6 +132,18 @@ pub struct Function {
     caches: u32,
     block_regions: Vec<Option<RegionId>>,
     positions: Vec<crate::fault::Position>,
+    /// The position stamped on the next instruction pushed.
+    ///
+    /// A cursor rather than an argument on `push_inst` because a client emits an
+    /// instruction from dozens of call sites and threading a position through
+    /// every one of them is the discipline rule 8 (`rts-cranelift/README.md`)
+    /// says a client will eventually forget — and a forgotten position is a
+    /// frame a stack trace cannot place, not a crash. The client sets this once
+    /// per statement or expression it is lowering; everything emitted until it
+    /// moves carries that place. `UNKNOWN` until set, which is the honest state
+    /// for a client that says nothing — including `rts-mir`, which does not set
+    /// it, so its instructions stay unplaced rather than inheriting a lie.
+    position_cursor: crate::fault::Position,
 }
 
 impl Function {
@@ -153,6 +165,7 @@ impl Function {
             caches: 0,
             block_regions: Vec::new(),
             positions: Vec::new(),
+            position_cursor: crate::fault::Position::UNKNOWN,
         };
 
         let entry = func.push_block();
@@ -354,7 +367,7 @@ impl Function {
             .iter()
             .map(|&repr| self.push_value(repr, ValueOrigin::InstResult(inst_id)))
             .collect();
-        self.positions.push(crate::fault::Position::UNKNOWN);
+        self.positions.push(self.position_cursor);
         self.insts[inst_id.index()].results = values.clone();
         self.blocks[block.index()].insts.push(inst_id);
         values
@@ -367,6 +380,15 @@ impl Function {
     /// inventing one would be worse than admitting it.
     pub fn set_position(&mut self, inst: InstId, position: crate::fault::Position) {
         self.positions[inst.index()] = position;
+    }
+
+    /// Moves the cursor every later [`Self::push_inst`] stamps.
+    ///
+    /// The client calls this as it enters each piece of the program it is
+    /// lowering, so the instructions that piece emits carry its place. See the
+    /// `position_cursor` field for why it is a cursor and not a parameter.
+    pub fn set_position_cursor(&mut self, position: crate::fault::Position) {
+        self.position_cursor = position;
     }
 
     /// Where an instruction came from, if anywhere.
