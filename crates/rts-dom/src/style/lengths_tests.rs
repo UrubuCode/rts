@@ -145,6 +145,20 @@ mod palavras_chave_intrinsecas {
         assert!((a.w - 100.0).abs() < 1.0, "039: {a:?}");
     }
 
+    /// `max-width:max-content` com `box-sizing:border-box` NÃO desconta a
+    /// moldura duas vezes: a palavra-chave já resolve para conteúdo, então o
+    /// padding soma-se por cima — `padding:0 20px` sobre um conteúdo de 50 dá
+    /// 90, não 10 (WPT `border-box-and-max-content-001`).
+    #[test]
+    fn max_content_border_box_nao_desconta_moldura_em_duplicado() {
+        let fonte = "<div style='border:1px solid red;width:max-content'>\
+            <div style='max-width:max-content;box-sizing:border-box;padding:10px 20px' id='item'>\
+            <div style='width:50px;height:50px'></div></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let item = rect(&d, &l, "div", 1);
+        assert_eq!(item.w, 90.0, "{item:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT

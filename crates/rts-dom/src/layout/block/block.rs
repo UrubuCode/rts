@@ -343,6 +343,33 @@ pub(crate) fn layout_block(
     let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
     let parent_is_flex_or_grid =
         parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
+    // O ajuste de `border-box` desconta a moldura de um `min`/`max-width`, que
+    // em `border-box` INCLUI padding+borda. MAS uma palavra-chave INTRÍNSECA
+    // (`max-content`/`min-content`/`fit-content`/`stretch`) já resolve para
+    // espaço de CONTEÚDO (é a largura que o conteúdo pede, sem moldura) — aí
+    // descontar a moldura conta-a-se em duplicado e a caixa sai estreita demais
+    // (WPT `border-box-and-max-content-001`: `max-width:max-content;
+    // box-sizing:border-box;padding:0 20px` sobre um conteúdo de 50 dava 10, não
+    // os 50 de conteúdo + 40 de padding = 90).
+    let is_keyword = |d: Option<crate::style::Dimension>| {
+        matches!(
+            d,
+            Some(
+                crate::style::Dimension::MaxContent
+                    | crate::style::Dimension::MinContent
+                    | crate::style::Dimension::FitContent
+                    | crate::style::Dimension::FitContentLength(_)
+                    | crate::style::Dimension::Stretch
+            )
+        )
+    };
+    let bb_adjust = |v: f32, d: Option<crate::style::Dimension>| {
+        if border_box && !is_keyword(d) {
+            (v - (padding_h + border_h)).max(0.0)
+        } else {
+            v
+        }
+    };
     let mxw = crate::layout::measure::intrinsic_min_max::resolve(
         css.max_width,
         dom,
@@ -351,13 +378,7 @@ pub(crate) fn layout_block(
         ctx,
         &resolve,
     )
-    .map(|v| {
-        if border_box {
-            (v - (padding_h + border_h)).max(0.0)
-        } else {
-            v
-        }
-    });
+    .map(|v| bb_adjust(v, css.max_width));
     // O MÁXIMO de largura TRANSFERIDO de um `max-height` definido pela razão
     // (CSS Sizing 4 §5.1). NÃO é um `max-width` qualquer: ao contrário deste,
     // NÃO corta abaixo do mínimo de conteúdo (WPT `block-aspect-ratio-043`) e
@@ -382,13 +403,7 @@ pub(crate) fn layout_block(
         ctx,
         &resolve,
     )
-    .map(|v| {
-        if border_box {
-            (v - (padding_h + border_h)).max(0.0)
-        } else {
-            v
-        }
-    })
+    .map(|v| bb_adjust(v, css.min_width))
     .or_else(|| {
         let mnh = resolve_height(css.min_height, avail_h, &resolve)?;
         let transferido = crate::layout::measure::aspect_ratio::width_for_height(
