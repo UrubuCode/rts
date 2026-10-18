@@ -479,12 +479,39 @@ pub(super) fn min_content_na_arvore(
                     m = m.max(w);
                 }
             }
+            // Um bloco NÃO-replaced com altura DEFINIDA e `aspect-ratio` tem uma
+            // largura transferida (altura×razão, CSS Sizing 4 §5) que é o seu
+            // min-content, mesmo com conteúdo vazio: `width:min-content` num pai
+            // de `<div height:100px; aspect-ratio:1/1>` é 100, não 0 (WPT
+            // `aspect-ratio/intrinsic-size-001..`). O replaced já saiu acima com
+            // `largura_min_content_por_razao`; este é o caso não-replaced, em
+            // espaço de CONTEÚDO (o `+ frame` abaixo junta-lhe a moldura).
+            let ratio_floor = {
+                let non_pct = |d: Option<crate::style::Dimension>| match d {
+                    Some(crate::style::Dimension::Percent(_)) | None => None,
+                    Some(d) => d.resolve(&resolve),
+                };
+                non_pct(css.height).and_then(|h| {
+                    let border = css.border_width.unwrap_or(0.0);
+                    let frame_h = css.padding.resolve_h(&resolve) + 2.0 * border;
+                    let frame_v = css.padding.resolve_v(&resolve) + 2.0 * border;
+                    let content_h = if css.border_box.unwrap_or(false) {
+                        (h - frame_v).max(0.0)
+                    } else {
+                        h
+                    };
+                    crate::layout::measure::aspect_ratio::width_for_height(
+                        &css, content_h, frame_h, frame_v,
+                    )
+                })
+            };
+            let conteudo = m.max(linha).max(ratio_floor.unwrap_or(0.0));
             if floor_width {
-                let piso = (m.max(linha) + frame).max(declarada.unwrap_or(0.0));
+                let piso = (conteudo + frame).max(declarada.unwrap_or(0.0));
                 // teto nunca abaixo do `width` declarado (ordem de `clamp_size`).
                 max_width_cap.map_or(piso, |mx| piso.min(mx.max(declarada.unwrap_or(0.0))))
             } else {
-                m.max(linha) + frame
+                conteudo + frame
             }
         }
         _ => 0.0,
