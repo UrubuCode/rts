@@ -135,11 +135,34 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let h = match css.height {
+        let own = match css.height {
             Some(crate::style::Dimension::Percent(p)) => cb_h.map(|c| (c * p / 100.0).max(0.0)),
             Some(d) => crate::style::dimensao_absoluta(d, &r),
             None => None,
-        }?;
+        };
+        let h = match own {
+            Some(h) => h,
+            // Sem `height` própria, um ITEM de flex-ROW esticado (align stretch,
+            // o default) toma a altura de CONTEÚDO do container como a sua (o
+            // cross definido) — e é essa que os seus filhos `height:%` veem. Sem
+            // isto, um `<canvas height:100%>` dentro de um item esticado de um
+            // `inline-flex; height:100` media 0 (natural), não 100 (WPT
+            // `css-flexbox/aspect-ratio-intrinsic-size-001`). Só flex-ROW: numa
+            // coluna o stretch é no eixo da LARGURA, não da altura.
+            None => {
+                let stretched = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p)).is_some_and(|pc| {
+                    pc.effective_display().is_some_and(|d| d.is_flex_container())
+                        && pc.flex_direction.is_none_or(|f| !f.is_column())
+                        && css.align_self.or(pc.align_items).unwrap_or(crate::style::AlignItems::Stretch)
+                            == crate::style::AlignItems::Stretch
+                });
+                if stretched {
+                    cb_h?
+                } else {
+                    return None;
+                }
+            }
+        };
         let fv = {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&css);
             css.padding.resolve_v(&r) + bt + bb
