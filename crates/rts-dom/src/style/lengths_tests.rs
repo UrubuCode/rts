@@ -63,6 +63,22 @@ mod palavras_chave_intrinsecas {
         );
     }
 
+    /// Um bloco não-replaced com altura definida e `aspect-ratio` contribui
+    /// `altura×razão` para o min-content do pai: `width:min-content` num pai de
+    /// `<div height:100px; aspect-ratio:1/1>` dá 100, não 0 (WPT
+    /// `aspect-ratio/intrinsic-size-001`).
+    #[test]
+    fn aspect_ratio_com_altura_contribui_para_o_min_content() {
+        let fonte = "<div style='width:min-content;height:100px' id='alvo'>\
+            <div style='height:100px;aspect-ratio:1/1'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert!(
+            (a.w - 100.0).abs() < 1.0,
+            "a largura transferida pela razão tem de ser o min-content: {a:?}"
+        );
+    }
+
     /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.
     #[test]
     fn max_content_mede_o_conteudo_e_transborda_o_pai() {

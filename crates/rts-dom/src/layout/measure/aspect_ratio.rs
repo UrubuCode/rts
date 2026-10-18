@@ -17,7 +17,7 @@ use super::*;
 
 /// The preferred aspect ratio (width / height) `css` declares, or `None` for
 /// `auto` and for a degenerate ratio, which Sizing 4 §5.1 treats as `auto`.
-pub(in crate::layout) fn declared_ratio(css: &ComputedStyle) -> Option<f32> {
+pub(crate) fn declared_ratio(css: &ComputedStyle) -> Option<f32> {
     css.aspect_ratio.filter(|r| *r > 0.0 && r.is_finite())
 }
 
@@ -39,7 +39,7 @@ pub(in crate::layout) fn height_for_width(
 
 /// The content width the ratio gives a box whose content height is
 /// `content_h` — the other direction of [`height_for_width`].
-pub(in crate::layout) fn width_for_height(
+pub(crate) fn width_for_height(
     css: &ComputedStyle,
     content_h: f32,
     frame_h: f32,
