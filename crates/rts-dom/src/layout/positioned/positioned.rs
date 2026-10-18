@@ -398,6 +398,9 @@ pub(crate) fn resolve_height(
 ) -> Option<f32> {
     match d? {
         crate::style::Dimension::Percent(p) => avail_h.map(|h| (h * p / 100.0).max(0.0)),
+        // `stretch` (CSS Sizing 4) na ALTURA: o tamanho de esticar é a altura
+        // disponível do containing block — `None` quando indefinida, como a `%`.
+        crate::style::Dimension::Stretch => avail_h.map(|h| h.max(0.0)),
         // `calc(...)` num contexto de ALTURA: o componente `%` resolve contra a
         // ALTURA do containing block (avail_h), NÃO a largura — o `resolve`
         // genérico usa parent_content_w e daria `calc(100% - 560px)` = 1000-560
