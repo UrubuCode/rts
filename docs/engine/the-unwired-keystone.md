@@ -79,6 +79,21 @@ a visible regression rather than an optimisation.
 So the direct call needs stack traces to come from the machine stack instead —
 which is `CodeMap` plus frame descriptors, both of which exist.
 
+> **Status as of 2026-10-18 — SUPERSEDED for the direct call itself.** The direct
+> call was built WITHOUT waiting for machine-derived stack traces: a light,
+> captureless, plain-parameter module function with at most four arguments now
+> lowers to a direct `FuncAddr` call (`emit/direct_call.rs`; MIR side
+> `Callee::Func` in `rts-mir/src/lower/mod.rs` → `machine/ops.rs::call_func`;
+> commits `f9298d814` ~22 → ~7 ns, `97de1592f`, `95ae41974`). It resolves this
+> section's dilemma by accepting the cost its header comment names: a throw inside
+> a direct-called body carries a trace *without that frame* — "cosmetic, only
+> `stack`". So "stack traces block the direct call" no longer holds; the missing
+> frame in `new Error().stack` is the accepted price. Methods, capturing
+> closures and imports still take the door (`callees` is still pushed there), so
+> the `callees` paragraph below remains true for them. The rest of this document
+> (precise roots, the unjoined `PositionMap`, the walker) was not re-checked
+> today; the 2026-10-03 corrections inside it are the latest state known.
+
 The same list is what `docs/codegen/native-call-floor.md` §3a prices at 7.3–10.2
 ns per call and §5b records a refuted attempt at removing. **`callees` is not
 removable while it is the only thing that knows what is running.**

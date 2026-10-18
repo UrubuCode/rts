@@ -8,6 +8,19 @@ of it that is genuinely hard.
 
 It depends entirely on `four-stages.md`. Nothing here is schedulable before E3.
 
+> **Status as of 2026-10-18 (checked against the tree).** The lateral fall is
+> still a plan: there is no `DeoptPoint`, no `guard/` pairing check, no
+> `deopt/remat` — `rts-mir/src/guard.rs` exists as a single file and the only
+> `ResumeLabel` users are the frame/suspension code. What HAS changed is D4's
+> premise: scalar replacement is now real for class instances
+> (`emit/class_layout`, 80 → 4.5 ns), so "scalar replacement and deoptimisation
+> are mutually exclusive without D4" is a live constraint rather than a
+> hypothetical one. Separately, int32 range typing is done as
+> `Type::Ranged(lo,hi)` in `rts-codegen/src/domain/mod.rs` (`219248373`), and
+> `(a|0)+(b|0)|0` lowers to a wrapping i32 op with no fall; whether that removes
+> the need for the guard this document uses as its example `x` is always int32
+> was not analysed.
+
 ---
 
 ## What a deoptimiser is, for the record

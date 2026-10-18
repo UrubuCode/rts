@@ -235,6 +235,16 @@ materialised without the runtime, a global resolved across the one compilation.
 The oracle becomes worth building when a report like the one above is dominated
 by sites that are genuinely polymorphic — and the same command answers that.
 
+> **Status as of 2026-10-18.** The `calls 0 direct` figure above is the 2026-10-03
+> measurement and is kept as history. The static step this section ranked first
+> has since been built: a light, captureless module function with at most four
+> plain parameters lowers to a direct `FuncAddr` call (`emit/direct_call.rs`;
+> `f9298d814`, ~22 → ~7 ns), so that count would no longer be zero. The `prove`
+> table was NOT re-run against the current tree, so the 831/76% figures are
+> unverified today. Methods, capturing closures and imported callees still take
+> the door, which is the residual population the "call door" writer below
+> addresses; that conclusion is unchanged.
+
 Running it before building is the honesty floor's "verify the input" applied to
 a design rather than to a number. And one correction worth recording, because it
 was stated the other way round earlier the same day: **a TypeScript annotation is
