@@ -114,8 +114,18 @@ impl Edges {
         if modo_pct() == ModoPct::SoWidth {
             return self.resolve_h(ctx);
         }
+        // No sizing de CONTEÚDO (min/max-content) uma percentagem de margem
+        // resolve contra ZERO (CSS Sizing 3 §percentage-sizing): `margin-left:
+        // calc(10% + 100px)` contribui 100, não 10%×viewport + 100 (WPT
+        // `calc-margins-block`). Resolve-se cada lado com `parent_content_w: 0`
+        // — o termo px/em/rem/vw/vh fica, o percentual anula-se.
+        let zero_cb = ResolveCtx { parent_content_w: 0.0, ..*ctx };
         let um = |s: &Side| match s {
-            Side::Len(d) => dimensao_absoluta(*d, ctx).unwrap_or(0.0),
+            // `resolve` (não `dimensao_absoluta`) de propósito: queremos o termo
+            // ABSOLUTO do `calc(10% + 100px)` (= 100) com a % anulada por
+            // `parent_content_w: 0`, ao passo que `dimensao_absoluta` descarta o
+            // calc inteiro quando tem componente percentual.
+            Side::Len(d) => d.resolve(&zero_cb).unwrap_or(0.0),
             _ => 0.0,
         };
         um(&self.left) + um(&self.right)

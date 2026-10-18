@@ -213,6 +213,19 @@ mod palavras_chave_intrinsecas {
         assert_eq!((item.w, item.h), (100.0, 100.0), "{item:?}");
     }
 
+    /// No sizing de CONTEÚDO (min-content) a % de uma margem resolve contra ZERO
+    /// (CSS Sizing 3): `width:min-content` com filho `margin-left:calc(10% +
+    /// 100px)` dá 100, não 10%×viewport + 100 (WPT `calc-margins-block`). O
+    /// termo absoluto do calc fica; o percentual anula-se.
+    #[test]
+    fn margem_percentual_resolve_contra_zero_no_min_content() {
+        let fonte = "<div style='width:min-content;height:100px' id='p'>\
+            <div style='margin-left:calc(10% + 100px)'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let p = rect(&d, &l, "div", 0);
+        assert_eq!(p.w, 100.0, "{p:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT

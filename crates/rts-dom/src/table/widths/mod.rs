@@ -364,8 +364,12 @@ pub(super) fn min_content_na_arvore(
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
-            let frame = css.padding.resolve_h(&resolve)
-                + css.margin.resolve_h(&resolve)
+            // Margem e padding em PERCENTAGEM resolvem contra ZERO no sizing de
+            // conteúdo (CSS Sizing 3): `margin-left:calc(10% + 100px)` contribui
+            // 100, não 10%×viewport + 100 (WPT `calc-margins-block`). Por isso a
+            // variante `_intrinseco`, que anula o termo percentual.
+            let frame = css.padding.resolve_h_intrinseco(&resolve)
+                + css.margin.resolve_h_intrinseco(&resolve)
                 + 2.0 * css.border_width.unwrap_or(0.0);
             // Uma caixa REPLACED não encolhe abaixo da sua largura — e esta linha
             // dizia-o num comentário enquanto o código só o cumpria quando a
