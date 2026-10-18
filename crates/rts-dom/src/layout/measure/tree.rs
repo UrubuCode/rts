@@ -115,7 +115,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
         );
     }
 
-    match box_id {
+    let content_w = match box_id {
         // O chamador já tem a caixa em mãos (um fragmento específico, ou o
         // caso ubíquo de um nó com uma caixa só, resolvido no `match` de
         // baixo antes de chegar aqui recursivamente): usa exatamente essa.
@@ -153,7 +153,38 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
                 .map(|&c| intrinsic_content_width_general(dom, tree, id, c, font, ctx))
                 .fold(0.0, f32::max),
         },
-    }
+    };
+    // O max-content PRÓPRIO de uma caixa não-replaced com `aspect-ratio` e uma
+    // altura DEFINIDA é, no mínimo, a largura transferida (altura×razão, CSS
+    // Sizing 4 §5), mesmo com conteúdo vazio: `max-width:max-content;
+    // height:500; aspect-ratio:1` resolve o max-content para 500 (via a razão),
+    // não 0 (WPT `border-box-and-max-content-002`). Espelho do piso de
+    // min-content em `table/widths/mod.rs`, aqui no caminho max-content. Só
+    // altura NÃO-percentual (uma % sem base resolvida aqui seria `auto`).
+    let ratio_floor = dom.computed_style_idx(id).and_then(|css| {
+        let resolve = ResolveCtx {
+            parent_content_w: ctx.viewport_w,
+            node_font_size: font,
+            root_font_size: crate::layout::DEFAULT_FONT_SIZE,
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let non_pct = |d: Option<crate::style::Dimension>| match d {
+            Some(crate::style::Dimension::Percent(_)) | None => None,
+            Some(d) => d.resolve(&resolve),
+        };
+        let h = non_pct(css.height)?;
+        let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+        let frame_h = css.padding.resolve_h_intrinseco(&resolve) + bl + br;
+        let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
+        let content_h = if css.border_box == Some(true) {
+            (h - frame_v).max(0.0)
+        } else {
+            h
+        };
+        crate::layout::measure::aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v)
+    });
+    content_w.max(ratio_floor.unwrap_or(0.0))
 }
 
 /// O corpo "geral" de [`intrinsic_content_width`]: soma (flex-row) ou maior

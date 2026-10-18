@@ -159,6 +159,19 @@ mod palavras_chave_intrinsecas {
         assert_eq!(item.w, 90.0, "{item:?}");
     }
 
+    /// O max-content PRÓPRIO de uma caixa com `aspect-ratio` e altura definida é
+    /// a largura transferida, mesmo vazia: `max-width:max-content; height:500;
+    /// aspect-ratio:1; box-sizing:border-box` dá 500×500, não 40 (WPT
+    /// `border-box-and-max-content-002`).
+    #[test]
+    fn max_content_proprio_inclui_a_largura_transferida_pela_razao() {
+        let fonte = "<div style='border:1px solid red;width:max-content'>\
+            <div style='max-width:max-content;height:500px;aspect-ratio:1;padding:10px 20px;box-sizing:border-box' id='item'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let item = rect(&d, &l, "div", 1);
+        assert_eq!((item.w, item.h), (500.0, 500.0), "{item:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
