@@ -172,16 +172,19 @@ fn carregar_stylesheets(dom: &mut Dom, base_dir: &Path) {
     }
 }
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let (Some(entrada), Some(saida)) = (args.get(1), args.get(2)) else {
-        eprintln!("uso: claude-raster <pagina.html> <saida.png>");
-        std::process::exit(2);
+/// Rasteriza UMA fixture para `saida` (+ os três sidecars). A store de fontes
+/// entra por parâmetro para ser carregada UMA vez e reusada pelo modo
+/// `--batch` — carregá-la por ficheiro era ~90 ms de arranque × milhares, o
+/// grosso do tempo da régua (o layout em si é ~17 ms). Em erro de leitura,
+/// RETORNA em vez de `exit` para não derrubar um batch inteiro por um ficheiro.
+fn rasterize_one(entrada: &str, saida: &str, store: &std::sync::Arc<rts_text::FontStore>) {
+    let html = match std::fs::read_to_string(entrada) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("não li {entrada}: {e}");
+            return;
+        }
     };
-    let html = std::fs::read_to_string(entrada).unwrap_or_else(|e| {
-        eprintln!("não li {entrada}: {e}");
-        std::process::exit(2);
-    });
     let mut dom: Dom = rts_dom::parse_html_to_dom(&html);
     // `<meta name="fixar-hash" content="alvo">` (mesmo mecanismo de
     // `examples/claude-css-runner.ts`, régua de N): este rasterizador não
@@ -197,7 +200,7 @@ fn main() {
         .unwrap_or_else(|| Path::new("."));
     carregar_imagens(&mut dom, base_dir);
     carregar_stylesheets(&mut dom, base_dir);
-    let measurer = rts_text::adapter::RealMeasurer::new(text::font_store());
+    let measurer = rts_text::adapter::RealMeasurer::new(std::sync::Arc::clone(store));
     let ctx = layout::LayoutCtx {
         viewport_w: W as f32,
         viewport_h: H as f32,
@@ -439,6 +442,45 @@ fn main() {
         "rts-raster: {pintados} itens pintados, {saltados_imagem} imagem (mascaradas, sem handle table aqui)"
     );
     eprintln!("rts-raster: {texto_pintado} text items painted, {masked} masked");
+}
+
+/// Single: `claude-raster <in.html> <out.png>`. Batch: `claude-raster --batch`,
+/// lendo `in.html<TAB>out.png` por linha do stdin e escrevendo `OK<TAB>out.png`
+/// ou `ERR<TAB>out.png` por linha (com flush) — um processo, uma store, sem o
+/// arranque por ficheiro. Um pânico num ficheiro vira `ERR` e o batch segue.
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let store = text::font_store();
+    if args.get(1).map(|a| a == "--batch").unwrap_or(false) {
+        use std::io::{BufRead, Write};
+        let stdin = std::io::stdin();
+        let mut out = std::io::stdout();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            let line = line.trim_end_matches(['\r', '\n']);
+            if line.is_empty() {
+                continue;
+            }
+            let mut parts = line.splitn(2, '\t');
+            let (Some(entrada), Some(saida)) = (parts.next(), parts.next()) else {
+                let _ = writeln!(out, "ERR\t{line}");
+                let _ = out.flush();
+                continue;
+            };
+            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                rasterize_one(entrada, saida, &store)
+            }))
+            .is_ok();
+            let _ = writeln!(out, "{}\t{saida}", if ok { "OK" } else { "ERR" });
+            let _ = out.flush();
+        }
+        return;
+    }
+    let (Some(entrada), Some(saida)) = (args.get(1), args.get(2)) else {
+        eprintln!("uso: claude-raster <pagina.html> <saida.png>  |  --batch  (stdin: in.html<TAB>out.png por linha)");
+        std::process::exit(2);
+    };
+    rasterize_one(entrada, saida, &store);
 }
 
 fn shift(r: Rect, dx: f32, dy: f32) -> Rect {

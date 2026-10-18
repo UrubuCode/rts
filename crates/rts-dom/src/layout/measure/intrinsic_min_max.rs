@@ -35,6 +35,11 @@ pub(in crate::layout) fn resolve(
         Some(crate::style::Dimension::MaxContent) => {
             Some(content_natural_width(dom, id, font_size, ctx))
         }
+        // `min-width: stretch` / `max-width: stretch` (CSS Sizing 4): o tamanho
+        // de esticar é o espaço disponível no eixo (`parent_content_w`). Só com
+        // base FINITA — numa medição intrínseca (base indefinida/infinita) o
+        // stretch não tem contra o quê esticar, como uma percentagem ali.
+        Some(crate::style::Dimension::Stretch) => rc.parent_content_w.is_finite().then_some(rc.parent_content_w),
         other => other.and_then(|d| d.resolve(rc)),
     }
 }

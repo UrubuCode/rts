@@ -44,6 +44,15 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     {
         return Some(Dimension::FitContent);
     }
+    // `stretch` e os aliases antigos `-webkit-fill-available`/`fill-available`:
+    // o tamanho de esticar (CSS Sizing 4). Resolve como keyword; o layout aplica.
+    if v.eq_ignore_ascii_case("stretch")
+        || v.eq_ignore_ascii_case("-webkit-fill-available")
+        || v.eq_ignore_ascii_case("fill-available")
+        || v.eq_ignore_ascii_case("-moz-available")
+    {
+        return Some(Dimension::Stretch);
+    }
     // `calc(...)` — expressão linear reduzida no parse (resolve tarde).
     let low_full = v.to_ascii_lowercase();
     if let Some(inner) = low_full
@@ -333,6 +342,7 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
     }
     Some(match d {
         Dimension::Auto => Dimension::Auto,
+        Dimension::Stretch => Dimension::Stretch,
         // `-max-content`/`-min-content` não existem em CSS; sem sinal é o
         // que `auto` já faz.
         Dimension::MaxContent => Dimension::MaxContent,

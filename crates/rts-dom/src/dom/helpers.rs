@@ -114,3 +114,28 @@ pub(in crate::dom) fn nth_casa(a: i32, b: i32, n: i32) -> bool {
     let k = (n - b) / a;
     k >= 0 && a * k + b == n
 }
+
+impl Dom {
+    pub(crate) fn override_computed_style(
+        &self,
+        idx: NodeIdx,
+        style: crate::style::ComputedStyle,
+    ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
+        let prev = self.computed_style_idx(idx);
+        let rc = std::rc::Rc::new(style);
+        memo_put(&mut self.computed_memo.borrow_mut(), idx, self.nodes.len(), &rc);
+        prev
+    }
+
+    pub(crate) fn restore_computed_style(
+        &self,
+        idx: NodeIdx,
+        prev: Option<std::rc::Rc<crate::style::ComputedStyle>>,
+    ) {
+        if let Some(prev) = prev {
+            memo_put(&mut self.computed_memo.borrow_mut(), idx, self.nodes.len(), &prev);
+        } else {
+            memo_forget(&mut self.computed_memo.borrow_mut(), idx);
+        }
+    }
+}

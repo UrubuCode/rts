@@ -172,9 +172,34 @@ pub(in crate::layout) fn layout_out_of_flow(
     // mesmo "auto" para este efeito, e é o `Option` do valor DECLARADO que a
     // spec chama de "auto" no §10.6.4 — testar o resolvido re-abriria a
     // pergunta que o `is_none()` já fecha.
-    let stretch_w = left.is_some() && right.is_some() && css.width.is_none();
-    let stretch_h =
-        top.is_some() && bottom.is_some() && css.height.is_none() && css.aspect_ratio.is_none();
+    // The width stretches between `left`/`right` UNLESS an EXPLICIT height is
+    // present with an `aspect-ratio` — then the ratio derives the width from
+    // that height and wins over the inset stretch (the mirror of `stretch_h`
+    // below; WPT `abspos-006`, `height:100;aspect-ratio:1/1;left:0;right:0` is
+    // 100 wide, not the 500 between the insets). It yields only to an explicit
+    // height, not an inset-stretched one, so a box stretched on BOTH axes still
+    // stretches the width and takes the height from the ratio (WPT `abspos-003`).
+    let stretch_w = left.is_some()
+        && right.is_some()
+        && css.width.is_none()
+        && (css.aspect_ratio.is_none() || css.height.is_none());
+    // Both insets of an axis + auto size => that axis is stretched between the
+    // insets (CSS 2.1 §10.6.4). With an `aspect-ratio`, the height still
+    // stretches UNLESS the width is already definite — then the ratio derives
+    // the height from that width and wins over the inset stretch (CSS Sizing 4
+    // §5.1). So:
+    //   - width auto  (`top:0;bottom:0;left:0;aspect-ratio:2/1`): the inset
+    //     height is used and the ratio sizes the auto width from it (WPT
+    //     `abspos-004`); the old `aspect_ratio.is_none()` guard left it 0 tall.
+    //   - width definite (`width:100;aspect-ratio:1/1;top:0;bottom:0;...`): the
+    //     ratio gives the height (100), not the inset stretch (WPT `abspos-005`),
+    //     which is exactly what that guard protected — kept here by the
+    //     `!width_is_definite` arm.
+    let width_is_definite = css.width.is_some() || stretch_w;
+    let stretch_h = top.is_some()
+        && bottom.is_some()
+        && css.height.is_none()
+        && (css.aspect_ratio.is_none() || !width_is_definite);
     let forced_outer_w = stretch_w.then(|| (cb.w - left.unwrap() - right.unwrap()).max(0.0));
     let forced_outer_h = stretch_h.then(|| (cb.h - top.unwrap() - bottom.unwrap()).max(0.0));
     let needs_static = (left.is_none() && right.is_none()) || (top.is_none() && bottom.is_none());
@@ -209,6 +234,75 @@ pub(in crate::layout) fn layout_out_of_flow(
         true,
         ctx,
     );
+    // An out-of-flow box with an `aspect-ratio`, auto height, and a height NOT
+    // stretched between insets takes its height from the resolved width through
+    // the ratio (CSS Sizing 4 §5.1): an abspos `aspect-ratio:1/1` with a
+    // `width:100` child is 100 wide AND 100 tall, where the general
+    // shrink-to-fit path leaves it 0 tall (WPT `css-sizing/aspect-ratio/
+    // abspos-007`). Scoped to the abspos path on purpose — a flex/grid item's
+    // height is governed by its container, not by this transfer, and that path
+    // never reaches here.
+    let (w, forced_outer_w, h, forced_outer_h) = if css.aspect_ratio.is_some()
+        && css.height.is_none()
+        && !stretch_h
+        && forced_outer_h.is_none()
+    {
+        let [bt, brd_r, bb_b, brd_l] = crate::style::borders::used_widths(&css);
+        let frame_h = css.padding.resolve_h(&resolve) + brd_l + brd_r;
+        let frame_v = css.padding.resolve_v(&resolve) + bt + bb_b;
+        let margin_h = css.margin.resolve_h(&resolve);
+        let margin_v = css.margin.resolve_v(&resolve);
+        let content_w = (w - frame_h).max(0.0);
+        match crate::layout::measure::aspect_ratio::height_for_width(
+            &css, content_w, frame_h, frame_v,
+        ) {
+            // border-box height for positioning; outer (incl. margin) forced
+            // into the real layout below so the painted height matches. The
+            // ratio height is FLOORED by the measured content height `h` (the
+            // box's min-content, already computed with the abspos aspect-ratio
+            // minimum in `block.rs`): `width:100;aspect-ratio:2/1` with a 100px
+            // child is 100 tall, not the ratio's 50 (WPT `abspos-012`).
+            Some(content_h) => {
+                let content_h = content_h.max((h - frame_v).max(0.0));
+                // A `min-height`/`max-height` TRANSFERS through the ratio to the
+                // width (CSS Sizing 4 §5.1): clamp the height, and when the
+                // clamp bites re-derive the width from the clamped height — so
+                // an `inset:0; max-height:100px; aspect-ratio:1/1` box in a
+                // 200-wide block is 100×100, not the 200 the inset stretch gave
+                // (WPT `abspos-021`/`-008`). `%` of max/min-height is against the
+                // containing block's height, like `height` itself.
+                let to_content = |v: f32| {
+                    if css.border_box.unwrap_or(false) {
+                        (v - frame_v).max(0.0)
+                    } else {
+                        v
+                    }
+                };
+                let max_hc = resolve_height(css.max_height, Some(cb.h), &resolve).map(to_content);
+                let min_hc = resolve_height(css.min_height, Some(cb.h), &resolve).map(to_content);
+                let clamped_h = crate::style::clamp_size(content_h, min_hc, max_hc);
+                if (clamped_h - content_h).abs() > 0.01 {
+                    // the constraint bit → the width follows the clamped height.
+                    let new_cw = crate::layout::measure::aspect_ratio::width_for_height(
+                        &css, clamped_h, frame_h, frame_v,
+                    )
+                    .unwrap_or(content_w);
+                    (
+                        new_cw + frame_h,
+                        Some(new_cw + frame_h + margin_h),
+                        clamped_h + frame_v,
+                        Some(clamped_h + frame_v + margin_v),
+                    )
+                } else {
+                    let bb_h = content_h + frame_v;
+                    (w, forced_outer_w, bb_h, Some(bb_h + margin_v))
+                }
+            }
+            None => (w, forced_outer_w, h, forced_outer_h),
+        }
+    } else {
+        (w, forced_outer_w, h, forced_outer_h)
+    };
     // Os offsets são RELATIVOS ao container: soma a origem do containing block.
     // Sem NENHUM dos dois insets de um eixo, a posição não é a origem do
     // containing block — é a STATIC POSITION (CSS 2.1 §10.3.7/§10.6.4): onde
@@ -304,6 +398,9 @@ pub(crate) fn resolve_height(
 ) -> Option<f32> {
     match d? {
         crate::style::Dimension::Percent(p) => avail_h.map(|h| (h * p / 100.0).max(0.0)),
+        // `stretch` (CSS Sizing 4) na ALTURA: o tamanho de esticar é a altura
+        // disponível do containing block — `None` quando indefinida, como a `%`.
+        crate::style::Dimension::Stretch => avail_h.map(|h| h.max(0.0)),
         // `calc(...)` num contexto de ALTURA: o componente `%` resolve contra a
         // ALTURA do containing block (avail_h), NÃO a largura — o `resolve`
         // genérico usa parent_content_w e daria `calc(100% - 560px)` = 1000-560

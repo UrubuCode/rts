@@ -199,6 +199,12 @@ pub enum Dimension {
     MinContent,
     /// `fit-content` — shrink-to-fit sizing keyword.
     FitContent,
+    /// `stretch` (CSS Sizing 4) — o tamanho de "esticar" (preencher o espaço
+    /// disponível no eixo). Para a LARGURA de um bloco em fluxo normal já é o
+    /// que `auto` dá; difere de `auto` num contexto shrink-to-fit (float,
+    /// abspos, inline-block) e na ALTURA (preenche em vez de ser o conteúdo).
+    /// Resolve `None` como os outros keywords — o layout é que o aplica.
+    Stretch,
     /// `calc(...)` linear reduzido no parse ([`CalcLen`]). Não cruza a ABI de
     /// faixas (`to_abi` → `-1`, corte documentado — o TS não empacota calc).
     Calc(CalcLen),
@@ -246,7 +252,7 @@ impl Dimension {
             // segundo). Responder `None` aqui é o mesmo que o `auto` faz, e é o
             // que faz um chamador sem contexto cair no seu caminho de fallback em
             // vez de inventar um número.
-            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent => return None,
+            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::Stretch => return None,
             Dimension::Px(v) => v,
             // A percentage whose basis is not a FINITE number has no basis at
             // all, and CSS says what that computes to: `auto` (CSS 2.1 §10.2
@@ -350,7 +356,7 @@ impl Dimension {
             // quem o ler não sabe distinguir os dois, e a alternativa (uma
             // faixa nova) obrigaria o lado TS a saber medir conteúdo, que é
             // o que ele não pode fazer.
-            Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent => return -1,
+            Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::Stretch => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

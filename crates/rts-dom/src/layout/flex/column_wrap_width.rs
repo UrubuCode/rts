@@ -113,17 +113,17 @@ pub(in crate::layout) fn max_content_width(
             child_font,
             ctx,
         );
-        let (cross, _) = measure_block(
-            dom,
-            child,
-            box_id,
-            ctx.viewport_w,
-            Some(container_content_h),
-            None,
-            None,
-            true,
-            ctx,
-        );
+        // A contribuição CRUZADA (largura) do item para a `max-content` do
+        // contentor é a sua PRÓPRIA `max-content` outer — não a largura que
+        // `measure_block` daria com a viewport como disponível. A diferença só
+        // aparece quando o `width` do item é INDEFINIDO contra este contentor
+        // (percentagem ou `auto`): `measure_block(viewport_w)` resolvia
+        // `width:100%` para 1000 px, o item enchia a coluna e empurrava o
+        // irmão para uma segunda coluna, dando ao contentor 140 px onde o
+        // Chrome dá 100 (WPT `col-wrap-012/015/016/017`). `intrinsic_outer_
+        // width` trata a percentagem como `auto` (o conteúdo decide) e já
+        // clampa por min/max-width — exatamente o que este passo quer.
+        let cross = crate::layout::intrinsic_outer_width(dom, child, font_size, ctx);
         items.push((main, cross));
     }
     if items.is_empty() {

@@ -154,3 +154,30 @@ fn min_height_zero_no_item_nao_e_limiar_de_wrap_para_o_seu_proprio_column_wrap()
         "3o item por baixo do 2o"
     );
 }
+
+// WPT `css-flexbox/intrinsic-size/col-wrap-012` (e 015/016/017, mesma causa):
+// durante o passo de `max-content` do contentor, um item com `width:100%`
+// (indefinido contra um contentor cuja largura ainda se calcula) tem de
+// contribuir com a sua PRÓPRIA max-content, não com a largura da viewport.
+// Antes: a largura cruzada do item1 era medida com a viewport como disponível
+// (`measure_block(viewport_w)`), `width:100%` dava 1000px, o item2 ia para uma
+// 2ª coluna e o contentor saía a 140px onde o Chrome dá 100 (quadrado verde).
+#[test]
+fn col_wrap_max_content_trata_largura_percentual_do_item_como_conteudo() {
+    const HTML: &str = r#"<style>body{margin:0}
+  .grandchild{float:left;width:50px;height:50px}</style>
+<body>
+<div id="f" style="display:flex;flex-flow:column wrap;width:max-content;height:100px">
+  <div id="it1" style="width:100%;flex:0 0 auto;min-height:0">
+    <div class="grandchild"></div><div class="grandchild"></div>
+  </div>
+  <div id="it2" style="width:90px;height:50px;flex:0 0 auto;min-height:0"></div>
+</div></body>"#;
+    let (dom, list) = geometria(HTML, 1000.0);
+    // Os dois itens (50px de altura cada) cabem nos 100px → UMA coluna só;
+    // a coluna tem a largura do maior item (it1 = os dois floats = 100px),
+    // então o contentor `max-content` mede 100, não 140 nem 1000.
+    assert_eq!(rect(&dom, &list, "#f", 0).w, 100.0, "contentor = 1 coluna de 100px");
+    assert_eq!(rect(&dom, &list, "#it1", 0).w, 100.0, "width:100% resolve contra os 100px, nao a viewport");
+    assert_eq!(rect(&dom, &list, "#it2", 0).y, 50.0, "it2 fica na MESMA coluna, por baixo de it1");
+}

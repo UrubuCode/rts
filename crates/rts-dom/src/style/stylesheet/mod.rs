@@ -321,6 +321,7 @@ impl Stylesheet {
 use super::{Combinator, CompoundSelector, Position, PseudoElement, SimpleSelector};
 use super::{props, ruleindex, selector, vars};
 
+mod cascade_decls;
 mod media;
 mod property;
 mod revert;
@@ -330,4 +331,5 @@ mod supports;
 
 pub use media::{MediaContext, MediaQuery, PrefersColorScheme};
 pub use property::{CustomPropertyRegistry, PropertySyntax, RegisteredProperty};
+pub use cascade_decls::{LayerAxes, RuleAxes};
 pub use rules::*;

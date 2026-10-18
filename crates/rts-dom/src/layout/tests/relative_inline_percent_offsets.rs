@@ -74,3 +74,69 @@ fn relative_inline_percent_top_in_an_auto_height_block_is_auto() {
     assert_eq!(y(pct) - base, 0.0);
     assert_eq!(y(with_bottom) - base, -10.0);
 }
+
+/// A BLOCK child that breaks a relative inline ancestor moves by the inline's
+/// offset too (WPT `position-relative-001`): a `<span top:100% left:100%>`
+/// (100% of the 100×100 owning block = +100,+100) around a green block that
+/// is itself `relative -100px,-100px` lands the block back at the block's
+/// origin. Before the fix only the block's own offset applied, so it sat at
+/// (-100,-100) from where it should be.
+#[test]
+fn a_block_breaking_a_relative_inline_moves_by_the_inline_offset() {
+    let html = r#"<body style="margin:0"><div style="width:100px;height:100px">
+  <span style="position:relative;top:100%;left:100%">
+    <div id="alvo" style="width:100px;height:100px;position:relative;top:-100px;left:-100px"></div>
+  </span></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r = rect(&dom, &list, "#alvo", 0);
+    assert_eq!((r.x, r.y), (0.0, 0.0));
+}
+
+/// Guard: a plain in-flow block whose parent is a block is NOT touched by the
+/// inline-offset shift (the walk stops at the first block), and an OUT-OF-FLOW
+/// block under a relative inline keeps taking its position from the static
+/// position, not this shift (covered together with the nested-percentage test
+/// above, which uses a `position:fixed` target).
+#[test]
+fn a_plain_block_child_is_unaffected_by_the_inline_offset_shift() {
+    let html = r#"<body style="margin:0"><div style="width:200px">
+  <div style="position:relative;top:30px;left:40px"><div id="alvo" style="width:20px;height:20px"></div></div>
+</div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    let r = rect(&dom, &list, "#alvo", 0);
+    assert_eq!((r.x, r.y), (40.0, 30.0));
+}
+
+/// A relative BLOCK's percentage inset is `auto` (no shift) when the owning
+/// block's height is INDEFINITE — a `min-height`-only parent is NOT definite
+/// (CSS 2.1 §10.5). WPT `position-relative-006` (`top:-10000%`) and `-007`
+/// (`top:calc(10px + 10%)`, the whole calc goes auto because the percentage
+/// cannot resolve) both expect the green block at the parent's origin.
+/// `min-height` was being treated as a definite height for ALL children, so
+/// the inset resolved against it; now it only counts inside a flex/grid
+/// container (Flexbox §4.1), never a plain block.
+#[test]
+fn relative_block_percent_inset_is_auto_under_indefinite_min_height() {
+    for top in ["top:-10000%", "top:calc(10px + 10%)"] {
+        let html = format!(
+            "<body style=\"margin:0\"><div style=\"width:100px;min-height:100px\">\
+             <div id=\"alvo\" style=\"width:100px;height:100px;position:relative;{top}\"></div></div></body>"
+        );
+        let (dom, list) = geometria(&html, 800.0);
+        assert_eq!(rect(&dom, &list, "#alvo", 0).y, 0.0, "{top} devia ser auto (altura indefinida)");
+    }
+}
+
+/// `height:%` of a child resolves to `auto` under a plain BLOCK parent whose
+/// height is only a `min-height` (not definite, CSS 2.1 §10.5) — but STILL
+/// resolves inside a flex container, where `min-height` is definite
+/// (Flexbox §4.1, pinned separately by `flex_coluna_shrink_corpus`).
+#[test]
+fn child_height_percent_under_min_height_only_block_is_auto_but_flex_keeps_it() {
+    let block = r#"<body style="margin:0"><div style="width:100px;min-height:100px"><div id="alvo" style="width:100px;height:50%"></div></div></body>"#;
+    let (dom, list) = geometria(block, 800.0);
+    assert_eq!(rect(&dom, &list, "#alvo", 0).h, 0.0, "bloco: height:% vira auto sob min-height");
+    let flex = r#"<body style="margin:0"><div style="display:flex;width:100px;min-height:100px"><div id="alvo" style="width:100px;height:50%"></div></div></body>"#;
+    let (dom, list) = geometria(flex, 800.0);
+    assert_eq!(rect(&dom, &list, "#alvo", 0).h, 50.0, "flex: min-height continua definida (§4.1)");
+}

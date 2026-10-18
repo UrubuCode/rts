@@ -23,10 +23,10 @@
 // `<script>` que o outro precisa, texto/imagem mascarados). `passam` agora só
 // conta PASSA COM CONTEÚDO; `passam-vazio` e `falha-parcial` são os outros
 // dois, sempre nomeados à parte, nunca somados a `passam`.
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve, join } from "node:path";
-import { availableParallelism } from "node:os";
 import { inflateSync } from "node:zlib";
 
 const args = process.argv.slice(2);
@@ -181,6 +181,54 @@ const RASTER_ENV = AHEM ? { ...process.env, RTS_AHEM: AHEM } : process.env;
 function rasterizar(htmlPath, png) {
   return new Promise((res) => execFile(RASTER, [htmlPath, png], { timeout: 20000, env: RASTER_ENV }, (err) => res(!err)));
 }
+// UM processo para TODAS as rasterizacoes (`claude-raster --batch`): a store de
+// fontes e o arranque do runtime custavam ~90 ms POR ficheiro quando cada um
+// tinha o seu processo — o grosso do tempo da regua, com o layout em si a ~17
+// ms. Aqui carregam-se UMA vez e cada par `html<TAB>png` entra pelo stdin; o
+// raster responde `OK`/`ERR<TAB>png` por linha. Devolve o Set dos PNG que
+// sairam OK. Correr em serie dentro de um processo tambem APAGA a saturacao de
+// CPU que, com N processos em voo, empurrava testes lentos para la do timeout e
+// os contava como erro (os "310 de 870"). Um encravamento real de um ficheiro
+// e apanhado pelo watchdog: mata o processo, e o que ficou por fazer cai na
+// segunda passagem EM SERIE (que ja existia para os stragglers).
+const POOL = Math.max(1, Number(opt("jobs", String(Math.min(4, Math.max(1, Math.floor((availableParallelism?.() ?? 4) / 4)))))));
+function rasterizarLote(pares) {
+  // Um POOL de `--batch` persistentes, não um só: o processo único amortiza o
+  // arranque mas rasteriza em SÉRIE, e numa pasta grande/pesada (css-grid, 1600
+  // ficheiros) o layout serial fica mais lento que os N processos antigos. O
+  // pool tem as duas coisas — poucos arranques (um por worker) E paralelismo.
+  // `jobs` = metade das threads, tecto 8, como o corredor por-ficheiro usava.
+  const WATCHDOG = 30000; // sem um marcador novo por 30 s num worker => encrave
+  const feitos = new Set();
+  const n = Math.min(POOL, Math.max(1, pares.length));
+  const fatias = Array.from({ length: n }, () => []);
+  pares.forEach((p, i) => fatias[i % n].push(p)); // round-robin
+  const worker = (fatia) => new Promise((resolve) => {
+    const proc = spawn(RASTER, ["--batch"], { env: RASTER_ENV });
+    let buf = "";
+    let ocioso;
+    const rearma = () => {
+      clearTimeout(ocioso);
+      ocioso = setTimeout(() => { try { proc.kill(); } catch { /* ja morreu */ } }, WATCHDOG);
+    };
+    proc.stdout.on("data", (chunk) => {
+      buf += chunk.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const linha = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        const sep = linha.indexOf("\t");
+        if (sep > 0 && linha.slice(0, sep) === "OK") feitos.add(linha.slice(sep + 1));
+        rearma();
+      }
+    });
+    proc.on("close", () => { clearTimeout(ocioso); resolve(); });
+    proc.stdin.on("error", () => { /* fechou antes de acabarmos de escrever */ });
+    for (const { html, png } of fatia) proc.stdin.write(`${html}\t${png}\n`);
+    proc.stdin.end();
+    rearma();
+  });
+  return Promise.all(fatias.map(worker)).then(() => feitos);
+}
 // `nao_rasterizaram` guarda os NOMES: um teste que ENCRAVA (timeout do raster)
 // não entra em `piores`, e uma comparação por nome entre dois relatórios
 // contava-o como GANHO — foi assim que um `flex-aspect-ratio-resize-001` a
@@ -201,20 +249,6 @@ const guardadas = [];
 // So as PIORES falhas ficam em imagem: ninguem abre 283 pares de PNG, abre-se
 // meia duzia — os que mais divergem.
 const PNG_TOP = Number(opt("png-top", "20"));
-// N rasterizacoes em voo, e nao uma de cada vez. Cada uma custa ~90 ms de
-// trabalho (medido) num processo proprio, portanto o corredor passava quase
-// todo o tempo a espera de um unico CPU de dezasseis. METADE das threads do
-// sistema, com tecto de 8: o timeout do raster mede tempo de RELOGIO, e saturar
-// a maquina empurra testes lentos para la dele — foi assim que uma medicao deu
-// 310 erros em 870. A rede que torna isto seguro e a segunda passagem EM SERIE,
-// que distingue "estava lento" de "encravou".
-const JOBS = Math.max(1, Number(opt("jobs", String(Math.min(8, Math.max(2, Math.floor((availableParallelism?.() ?? 4) / 2)))))));
-async function paraCada(itens, n, fn) {
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, itens.length) }, async () => {
-    for (;;) { const k = i++; if (k >= itens.length) return; await fn(itens[k]); }
-  }));
-}
 // Os PNG de um teste que PASSA sao apagados: sao dois ficheiros identicos que
 // ninguem vai abrir, e sao a maioria. Guardados, uma varredura do `css` inteiro
 // (24 104 reftests) deixa ~50 mil imagens — 103 GB numa pasta so, medido em
@@ -316,22 +350,26 @@ function julga(t, nome, a, b) {
     if (SEM_PNG) apaga(a, b); else guardadas.push({ pct: d.pct, a, b });
   }
 }
-await paraCada(lista, JOBS, async (t) => {
-  // O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva
-  // dois testes de subpastas diferentes podem partilhar o basename, e o nome
-  // é a chave da comparação "que reftests perdi" entre dois relatórios —
-  // duas linhas com a mesma chave tornariam essa comparação ambígua sem
-  // falhar em lado nenhum.
+// Os planos (nome relativo + os dois PNG) de todos os testes de uma vez.
+// O nome é RELATIVO à pasta, não o `basename`: com a varredura recursiva dois
+// testes de subpastas diferentes podem partilhar o basename, e o nome é a
+// chave da comparação "que reftests perdi" entre dois relatórios — duas linhas
+// com a mesma chave tornariam essa comparação ambígua. O PNG achata o nome
+// (`/`→`__`): a chave leva "/" desde a varredura recursiva, e `join` com ele
+// criaria subpastas inexistentes.
+const planos = lista.map((t) => {
   const nome = relative(pasta, t.teste).split("\\").join("/").replace(/\.(html|xht)$/, "");
-  // O ficheiro PNG achata o nome: a chave leva "/" desde que a varredura
-  // passou a ser recursiva, e `join` com ele criaria subpastas que nao
-  // existem — o raster falharia a escrever e o teste contaria como erro.
   const plano = nome.split("/").join("__");
-  const a = join(OUT, plano + ".teste.png"), b = join(OUT, plano + ".ref.png");
-  const [okA, okB] = await Promise.all([rasterizar(t.teste, a), rasterizar(t.ref, b)]);
-  if (!okA || !okB) { paraRepetir.push({ t, nome, a, b }); return; }
-  julga(t, nome, a, b);
+  return { t, nome, a: join(OUT, plano + ".teste.png"), b: join(OUT, plano + ".ref.png") };
 });
+// Um processo rasteriza os dois lados de todos os testes (ver `rasterizarLote`).
+const pares = [];
+for (const p of planos) pares.push({ html: p.t.teste, png: p.a }, { html: p.t.ref, png: p.b });
+const feitos = await rasterizarLote(pares);
+for (const p of planos) {
+  if (feitos.has(p.a) && feitos.has(p.b)) julga(p.t, p.nome, p.a, p.b);
+  else paraRepetir.push(p);
+}
 
 // Segunda passagem, EM SERIE e ja sem o resto da varredura a competir. O
 // timeout do raster mede tempo de RELOGIO, portanto uma maquina ocupada empurra
