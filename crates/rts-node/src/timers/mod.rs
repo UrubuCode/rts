@@ -537,13 +537,20 @@ pub fn source() -> entry::Pending {
         // between "does not hold the program open" and "will never fire": the
         // first is what `unref` means, and `Blocked` is pumped on every pass
         // while contributing no deadline.
-        let waiting = table.values().any(|timer| !timer.refed);
+        let waiting = table
+            .values()
+            .filter(|timer| !timer.refed)
+            .map(|timer| timer.deadline)
+            .min();
         (soonest, waiting)
     });
     match (soonest, unrefed) {
         (Some(deadline), _) => entry::Pending::In(deadline.saturating_duration_since(now)),
-        (None, true) => entry::Pending::Blocked,
-        (None, false) => entry::Pending::Idle,
+        // An unrefed timer's deadline is real: the loop must not sleep past it
+        // (it fires while something else keeps the program alive). It used to
+        // be delivered by the 1 ms `Blocked` poll.
+        (None, Some(deadline)) => entry::Pending::BlockedIn(deadline.saturating_duration_since(now)),
+        (None, None) => entry::Pending::Idle,
     }
 }
 

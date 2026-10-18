@@ -340,6 +340,7 @@ extern "C" fn worker_ctor(_e: u64, this: u64, source: u64, options: u64, _c: u64
                     )),
                     stopping: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
                     finished: false,
+                    waker: entry::loop_waker(),
                 },
             );
             id

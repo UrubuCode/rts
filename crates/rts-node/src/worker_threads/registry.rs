@@ -67,6 +67,9 @@ pub(super) struct WorkerEntry {
     /// doc says so rather than implying a kill.
     pub(super) stopping: Arc<AtomicBool>,
     pub(super) finished: bool,
+    /// The PARENT thread's loop waker: [`deposit`] wakes it after queueing, so
+    /// the parent's loop does not sleep to its deadline with a message waiting.
+    pub(super) waker: entry::LoopWaker,
 }
 
 static WORKERS: Mutex<Option<HashMap<u64, WorkerEntry>>> = Mutex::new(None);
@@ -129,6 +132,7 @@ pub(super) fn start(
                 outbox: Arc::clone(&outbox),
                 stopping: Arc::clone(&stopping),
                 finished: false,
+                waker: entry::loop_waker(),
             },
         );
     });
@@ -163,11 +167,16 @@ pub(super) fn start(
 
 /// Queues something for the parent to deliver.
 pub(super) fn deposit(id: u64, event: WorkerEvent) {
-    with_workers(|table| {
-        if let Some(entry) = table.get_mut(&id) {
+    let waker = with_workers(|table| {
+        table.get_mut(&id).map(|entry| {
             entry.inbox.push_back(event);
-        }
+            entry.waker.clone()
+        })
     });
+    // After the push and OUTSIDE the table lock.
+    if let Some(waker) = waker {
+        waker.wake();
+    }
 }
 
 /// Delivers every queued event, oldest first per worker, with the table lock
@@ -241,7 +250,8 @@ pub fn source() -> entry::Pending {
             .any(|entry| !entry.finished)
     });
     match running {
-        true => entry::Pending::In(std::time::Duration::from_micros(200)),
+        // Safety-net poll only: `deposit` wakes the parent's loop.
+        true => entry::Pending::In(std::time::Duration::from_millis(100)),
         false => entry::Pending::Idle,
     }
 }

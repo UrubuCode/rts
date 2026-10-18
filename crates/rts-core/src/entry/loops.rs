@@ -92,6 +92,15 @@ pub enum Pending {
     /// Pumped on every pass and does NOT hold the program open; see the module
     /// doc for why that is the choice rather than an omission.
     Blocked,
+    /// Like [`Pending::Blocked`] -- pumped on every pass, does NOT hold the
+    /// program open -- but with a known deadline the loop must not sleep past.
+    ///
+    /// For an `unref()`ed timer or `AbortSignal.timeout`: they fire on time while
+    /// something else keeps the loop alive. Before the loop waker these were
+    /// `Blocked` and were delivered by the 1 ms [`BLOCKED_CAP`] poll; now a plain
+    /// `Blocked` may sleep long (a real event wakes the loop), so a source whose
+    /// work is due at a TIME has to say so.
+    BlockedIn(Duration),
 }
 
 /// Delivers what is due for one source, and says when it wants to be asked
@@ -125,10 +134,14 @@ pub fn declare_loop_source(context: &mut Context, name: &'static str, source: So
 /// and called `process.exit`. A socket connected in the first millisecond and
 /// its `'connect'` was never delivered.
 ///
-/// A cap rather than a wake-up: nothing here can be notified by a background
-/// thread, because waiting at all is the host's (see [`Rest`]) and this crate
-/// must exist on targets with no threads to be notified from.
-const BLOCKED_CAP: Duration = Duration::from_millis(1);
+/// UPDATE (area 10 #1): this used to be 1 ms because nothing could notify the
+/// loop. Background threads now call [`LoopWaker::wake`] after every deposit
+/// and the host's [`Rest`] is [`LoopWaker::wait`], so the cap is a SAFETY NET
+/// against a deposit path that forgets to wake, not the delivery latency. A
+/// source whose work is due at a time uses [`Pending::BlockedIn`] instead.
+/// (Waiting is still the host's, and this crate still only holds the handle, so
+/// it keeps existing on targets with no threads.)
+const BLOCKED_CAP: Duration = Duration::from_millis(50);
 
 /// Asks every source to deliver, and answers how long the caller may wait.
 ///
@@ -177,10 +190,17 @@ fn one_pass() -> Option<Duration> {
     });
     let mut soonest: Option<Duration> = None;
     let mut blocked = false;
+    let mut blocked_until: Option<Duration> = None;
     for source in sources {
         match source() {
             Pending::Idle => {}
             Pending::Blocked => blocked = true,
+            Pending::BlockedIn(wait) => {
+                blocked_until = Some(match blocked_until {
+                    Some(held) => held.min(wait),
+                    None => wait,
+                });
+            }
             Pending::In(wait) => {
                 soonest = Some(match soonest {
                     Some(held) => held.min(wait),
@@ -189,7 +209,7 @@ fn one_pass() -> Option<Duration> {
             }
         }
     }
-    wait_for(soonest, blocked)
+    wait_for(soonest, blocked, blocked_until)
 }
 
 /// The two answers combined into the one duration a caller waits.
@@ -202,11 +222,19 @@ fn one_pass() -> Option<Duration> {
 /// answered `In` is what ends a program whose only outstanding work is unrefed.
 /// What the cap does is bound the wait of a program that IS open, so that
 /// "pumped on every pass" means passes soon enough to matter.
-fn wait_for(soonest: Option<Duration>, blocked: bool) -> Option<Duration> {
-    match (soonest, blocked) {
-        (Some(wait), true) => Some(wait.min(BLOCKED_CAP)),
-        (soonest, _) => soonest,
+fn wait_for(
+    soonest: Option<Duration>,
+    blocked: bool,
+    blocked_until: Option<Duration>,
+) -> Option<Duration> {
+    let mut wait = soonest?;
+    if blocked {
+        wait = wait.min(BLOCKED_CAP);
     }
+    if let Some(until) = blocked_until {
+        wait = wait.min(until);
+    }
+    Some(wait)
 }
 
 #[cfg(test)]
@@ -218,14 +246,49 @@ mod tests {
         // The measured defect: a socket's source answered `Blocked` while a
         // `setTimeout(f, 15_000)` was the only other work, so the host slept
         // fifteen seconds between pumps and the timer ran first on waking.
-        let waited = wait_for(Some(Duration::from_secs(15)), true);
+        let waited = wait_for(Some(Duration::from_secs(15)), true, None);
         assert_eq!(waited, Some(BLOCKED_CAP));
+    }
+
+    #[test]
+    fn a_blocked_deadline_bounds_the_wait_without_the_cap() {
+        let until = Duration::from_millis(7);
+        assert_eq!(wait_for(Some(Duration::from_secs(15)), false, Some(until)), Some(until));
+        // ...and never holds the program open by itself.
+        assert_eq!(wait_for(None, false, Some(until)), None);
     }
 
     #[test]
     fn a_nearer_deadline_than_the_cap_is_kept() {
         let soon = Duration::from_micros(200);
-        assert_eq!(wait_for(Some(soon), true), Some(soon));
+        assert_eq!(wait_for(Some(soon), true, None), Some(soon));
+    }
+
+    #[test]
+    fn a_wake_before_the_wait_is_not_lost() {
+        let waker = LoopWaker::new();
+        waker.wake();
+        let started = std::time::Instant::now();
+        waker.wait(Duration::from_secs(10));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // The flag is consumed: the next wait really waits.
+        let started = std::time::Instant::now();
+        waker.wait(Duration::from_millis(30));
+        assert!(started.elapsed() >= Duration::from_millis(25));
+    }
+
+    #[test]
+    fn a_wake_from_another_thread_ends_the_wait() {
+        let waker = LoopWaker::new();
+        let remote = waker.clone();
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            remote.wake();
+        });
+        let started = std::time::Instant::now();
+        waker.wait(Duration::from_secs(10));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        handle.join().unwrap();
     }
 
     #[test]
@@ -234,13 +297,13 @@ mod tests {
         // on: a source with no deadline does not keep a program running by
         // itself. This is also what keeps `promise::machine`'s deadlock
         // detector able to fire at all — see the module doc's second reader.
-        assert_eq!(wait_for(None, true), None);
+        assert_eq!(wait_for(None, true, None), None);
     }
 
     #[test]
     fn an_unblocked_deadline_is_untouched() {
         let far = Duration::from_secs(15);
-        assert_eq!(wait_for(Some(far), false), Some(far));
+        assert_eq!(wait_for(Some(far), false, None), Some(far));
     }
 }
 
@@ -262,6 +325,144 @@ pub type Rest = fn(Duration);
 /// Installs the host's waiter.
 pub fn declare_rest(context: &mut Context, rest: Rest) {
     context.rest = Some(rest);
+    // Registers this thread's waker NOW, before any program code can start a
+    // background thread: `wake_thread(owner)` finds the owner only if its slot
+    // already exists, and a deposit that found none would be a lost wakeup.
+    let _ = loop_waker();
+}
+
+/// An interruptible wait for the loop thread, wakeable from any thread.
+///
+/// # The synchronization, and why a wakeup cannot be lost
+///
+/// One `Mutex<bool>` (the "signalled" flag) and one `Condvar`. [`wake`] sets the
+/// flag UNDER the lock and then notifies; [`wait`] takes the lock, and only
+/// sleeps while the flag is still clear, via `wait_timeout_while` (which
+/// re-checks the predicate with the lock held, so spurious wakeups are
+/// harmless). The flag is consumed (cleared) as `wait` returns.
+///
+/// So the two orders both work: a `wake` that lands BEFORE `wait` leaves the
+/// flag set and `wait` returns at once; one that lands DURING `wait` flips the
+/// predicate under the lock the waiter re-acquires. The mutex gives the
+/// release/acquire edge that publishes the depositor's queue push to the loop
+/// thread -- no `Relaxed` anywhere.
+///
+/// `rts-core` stays thread-free in the sense that matters: it only holds the
+/// handle. The host injects the actual wait through [`Rest`], and a background
+/// thread is handed a clone by the module that spawns it ([`loop_waker`]).
+///
+/// [`wake`]: LoopWaker::wake
+/// [`wait`]: LoopWaker::wait
+#[derive(Clone)]
+pub struct LoopWaker(std::sync::Arc<WakerState>);
+
+struct WakerState {
+    signalled: std::sync::Mutex<bool>,
+    parked: std::sync::Condvar,
+    /// Counters for `RTS_LOOP_STATS`: waits entered, and waits cut short.
+    waits: std::sync::atomic::AtomicU64,
+    woken: std::sync::atomic::AtomicU64,
+}
+
+impl LoopWaker {
+    fn new() -> LoopWaker {
+        LoopWaker(std::sync::Arc::new(WakerState {
+            signalled: std::sync::Mutex::new(false),
+            parked: std::sync::Condvar::new(),
+            waits: std::sync::atomic::AtomicU64::new(0),
+            woken: std::sync::atomic::AtomicU64::new(0),
+        }))
+    }
+
+    /// Tells the loop thread something was deposited. Callable from any thread;
+    /// call it AFTER the deposit is visible (queued under its own lock).
+    pub fn wake(&self) {
+        let mut signalled = self.0.signalled.lock().unwrap_or_else(|e| e.into_inner());
+        *signalled = true;
+        self.0.parked.notify_one();
+    }
+
+    /// Waits up to `limit`, returning at once if a wake is pending or arrives.
+    pub fn wait(&self, limit: Duration) {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.0.waits.fetch_add(1, SeqCst);
+        let guard = self.0.signalled.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut guard, _) = self
+            .0
+            .parked
+            .wait_timeout_while(guard, limit, |signalled| !*signalled)
+            .unwrap_or_else(|e| e.into_inner());
+        if *guard {
+            self.0.woken.fetch_add(1, SeqCst);
+        }
+        *guard = false;
+    }
+
+    /// `(waits entered, waits ended by a wake)` for `RTS_LOOP_STATS`.
+    pub fn stats(&self) -> (u64, u64) {
+        use std::sync::atomic::Ordering::SeqCst;
+        (self.0.waits.load(SeqCst), self.0.woken.load(SeqCst))
+    }
+}
+
+/// Thread -> waker, so a module that records only an `owner: ThreadId` per
+/// handle (ws, http2, napi) can still wake the owner's loop. Entries are removed
+/// when the owning thread's waker is dropped with the thread.
+static BY_THREAD: std::sync::Mutex<Vec<(std::thread::ThreadId, LoopWaker)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The thread-local slot: registers itself on first use, unregisters on thread exit.
+struct Slot {
+    waker: LoopWaker,
+    thread: std::thread::ThreadId,
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut table = BY_THREAD.lock().unwrap_or_else(|e| e.into_inner());
+        table.retain(|(thread, _)| *thread != self.thread);
+    }
+}
+
+thread_local! {
+    static WAKER: Slot = {
+        let waker = LoopWaker::new();
+        let thread = std::thread::current().id();
+        BY_THREAD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((thread, waker.clone()));
+        Slot { waker, thread }
+    };
+}
+
+/// This thread's waker. A module that is about to spawn a background thread
+/// calls it ON THE LOOP THREAD and moves the clone into the spawned closure;
+/// the host's [`Rest`] waits on the same one.
+pub fn loop_waker() -> LoopWaker {
+    WAKER.with(|slot| slot.waker.clone())
+}
+
+/// Wakes the loop of `owner` -- for a deposit made on a thread other than the
+/// one that will consume it, by a module that stored only the owner's
+/// `ThreadId`. A no-op when `owner` is the calling thread (it is already
+/// running) or has no loop (never asked for a waker, or exited).
+///
+/// Call it AFTER the deposit is visible, as with [`LoopWaker::wake`].
+pub fn wake_thread(owner: std::thread::ThreadId) {
+    if owner == std::thread::current().id() {
+        return;
+    }
+    let waker = {
+        let table = BY_THREAD.lock().unwrap_or_else(|e| e.into_inner());
+        table
+            .iter()
+            .find(|(thread, _)| *thread == owner)
+            .map(|(_, waker)| waker.clone())
+    };
+    if let Some(waker) = waker {
+        waker.wake();
+    }
 }
 
 /// Waits, and says whether anything could.

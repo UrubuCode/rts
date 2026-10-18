@@ -392,13 +392,13 @@ pub(super) fn write_now(id: u64, bytes: &[u8]) -> std::io::Result<()> {
 /// trip over loopback is not noticeably slower than Node's and long enough that
 /// the cost is a sleep rather than a spin — a pump is a scan of two small maps.
 ///
-/// The alternative, and the reason it is not here: a condition variable the
-/// reader threads notify and the host waits on. That is the right shape and it
-/// puts the WAITING in `rts-core`, whose `entry::loops` doc states the opposite
-/// rule — `std::thread::sleep` is kept out of that crate because its membership
-/// test is "exists on every target, wasm included". Changing where the waiting
-/// lives is a change to that rule, so it is not smuggled in here.
-const POLL: std::time::Duration = std::time::Duration::from_millis(1);
+/// UPDATE (area 10 #1): the reader/accept/connect threads now call
+/// `entry::LoopWaker::wake()` after every deposit, and the host's `Rest` is an
+/// interruptible `LoopWaker::wait`, so this is no longer the delivery latency --
+/// it is only the SAFETY-NET poll should some deposit path ever miss a wake.
+/// The waiting still lives in the host (`Rest`); `rts-core` only holds the
+/// `Clone+Send` handle, so the availability rule above is kept.
+const POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// This module as a loop source: deliver what its background threads queued,
 /// then say whether any is still live.

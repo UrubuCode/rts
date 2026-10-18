@@ -145,7 +145,7 @@ pub use sys::{sys_memory, sys_text};
 pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
 pub use arguments::{argument_slot, arguments_count, arguments_object};
-pub use loops::{Pending, Rest, Source, declare_loop_source, declare_rest, pump_sources};
+pub use loops::{LoopWaker, Pending, Rest, loop_waker, wake_thread, Source, declare_loop_source, declare_rest, pump_sources};
 pub use bitwise::{
     bit_and, bit_not, bit_or, bit_xor, exponent, number_exponent, shift_left, shift_right,
     shift_right_unsigned,

@@ -405,7 +405,7 @@ fn run_region(
     // reported a promise only time could settle as a deadlock. So
     // `await new Promise(r => setTimeout(r, 5))`, the standard way to wait,
     // ended the program with "this promise cannot settle".
-    rts_core::entry::declare_rest(&mut context, |wait| std::thread::sleep(wait));
+    rts_core::entry::declare_rest(&mut context, |wait| rts_core::entry::loop_waker().wait(wait));
     {
         let _timing = rts_cranelift::probe::Phase::start("install-std");
         rts_std::install(&mut context);
@@ -493,7 +493,10 @@ fn run_region(
         // Microtasks first and again inside: a reaction must not run in the
         // entry point that queued it, and a source may start work — a worker, a
         // timer — from inside one.
+        let stats = std::env::var_os("RTS_LOOP_STATS").is_some();
+        let mut iterations: u64 = 0;
         loop {
+            iterations += 1;
             rts_core::entry::drain_microtasks();
             // A throw the program never caught ENDS it, exactly as it does in
             // Node — before the loop asks a source for anything. Without this
@@ -514,7 +517,13 @@ fn run_region(
             // `std::thread::sleep` is not something every target has and
             // `rts-core`'s membership rule is availability. See
             // `entry::loops`.
-            std::thread::sleep(wait);
+            // Interruptible: a background deposit calls `wake()` on this
+            // thread's `LoopWaker` and the wait returns at once.
+            rts_core::entry::loop_waker().wait(wait);
+        }
+        if stats {
+            let (waits, woken) = rts_core::entry::loop_waker().stats();
+            eprintln!("rts-loop-stats: iterations={iterations} waits={waits} woken={woken}");
         }
         rts_core::entry::drain_microtasks();
         // An uncaught throw, reported where this program ends.

@@ -374,6 +374,7 @@ pub(super) extern "C" fn spawn(_e: u64, _this: u64, command_value: u64, args_val
 /// Polls the child for exit, off the JS thread — see the module doc for why
 /// it never calls into JS itself.
 fn spawn_waiter(id: u64) {
+    let waker = entry::loop_waker();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_millis(20));
@@ -395,6 +396,7 @@ fn spawn_waiter(id: u64) {
                 }
             });
             if done {
+                waker.wake();
                 break;
             }
         }

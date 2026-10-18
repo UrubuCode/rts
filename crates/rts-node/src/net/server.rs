@@ -145,6 +145,7 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
     registry::with_servers(|table| {
         table.insert(id, ServerEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), listening: false, closed: false, stop: stop.clone(), local_addr: None, refed: true });
     });
+    let waker = entry::loop_waker();
     std::thread::spawn(move || match TcpListener::bind((host.as_str(), port)) {
         Ok(listener) => {
             let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_default();
@@ -153,13 +154,17 @@ extern "C" fn listen(_e: u64, this: u64, a: u64, b: u64, c: u64, _d: u64) -> u64
                     entry.queue.push_back(ServerEvent::Listening { local });
                 }
             });
-            accept_loop(id, listener, stop);
+            waker.wake();
+            accept_loop(id, listener, stop, waker);
         }
-        Err(error) => registry::with_servers(|table| {
-            if let Some(entry) = table.get_mut(&id) {
-                entry.queue.push_back(ServerEvent::ListenFailed(error.to_string()));
-            }
-        }),
+        Err(error) => {
+            registry::with_servers(|table| {
+                if let Some(entry) = table.get_mut(&id) {
+                    entry.queue.push_back(ServerEvent::ListenFailed(error.to_string()));
+                }
+            });
+            waker.wake();
+        }
     });
     this
 }
@@ -241,7 +246,7 @@ fn bind_target(a: u64, b: u64, c: u64) -> Option<(u16, String, u64)> {
     Some((port, named.unwrap_or(any_port), callback))
 }
 
-fn accept_loop(id: u64, listener: TcpListener, stop: Arc<AtomicBool>) {
+fn accept_loop(id: u64, listener: TcpListener, stop: Arc<AtomicBool>, waker: entry::LoopWaker) {
     loop {
         match listener.accept() {
             Ok((stream, addr)) => {
@@ -255,6 +260,7 @@ fn accept_loop(id: u64, listener: TcpListener, stop: Arc<AtomicBool>) {
                         entry.queue.push_back(ServerEvent::Accepted(stream, addr.to_string()));
                     }
                 });
+                waker.wake();
             }
             Err(error) => {
                 if stop.load(Ordering::SeqCst) {
@@ -265,6 +271,7 @@ fn accept_loop(id: u64, listener: TcpListener, stop: Arc<AtomicBool>) {
                         entry.queue.push_back(ServerEvent::Error(error.to_string()));
                     }
                 });
+                waker.wake();
                 return;
             }
         }

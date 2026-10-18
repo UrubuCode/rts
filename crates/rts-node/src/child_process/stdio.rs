@@ -161,6 +161,7 @@ pub(super) fn writable(context: &mut entry::Context, id: u64) -> u64 {
 /// drains, which is the classic deadlock `capture.rs` already documents solving
 /// the same way for the synchronous side.
 pub(super) fn drain<R: Read + Send + 'static>(id: u64, fd: Fd, mut source: R) {
+    let waker = entry::loop_waker();
     std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
         loop {
@@ -174,10 +175,12 @@ pub(super) fn drain<R: Read + Send + 'static>(id: u64, fd: Fd, mut source: R) {
                         // listener that cannot exist.
                         return;
                     }
+                    waker.wake();
                 }
             }
         }
         super::spawn_async::queue_end(id, fd);
+        waker.wake();
     });
 }
 

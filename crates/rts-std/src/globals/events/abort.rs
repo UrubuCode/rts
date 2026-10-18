@@ -477,8 +477,11 @@ fn pump() -> Pending {
     for signal in due {
         signal_abort(signal, entry::undefined_value(), TIMEOUT_ERROR);
     }
-    match DEADLINES.with(|table| table.borrow().is_empty()) {
-        true => Pending::Idle,
-        false => Pending::Blocked,
+    // `BlockedIn` and not `Blocked`: the deadline is real, and a plain `Blocked`
+    // no longer polls every millisecond (the loop is woken by events instead),
+    // so the timeout would fire late.
+    match DEADLINES.with(|table| table.borrow().iter().map(|(at, _)| *at).min()) {
+        None => Pending::Idle,
+        Some(at) => Pending::BlockedIn(at.saturating_duration_since(Instant::now())),
     }
 }

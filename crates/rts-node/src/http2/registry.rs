@@ -27,6 +27,8 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use rts_core::entry;
+
 use super::session::{Connection, Event, Side};
 
 /// One thing a session's reader thread observed, in native data only.
@@ -208,11 +210,16 @@ fn translate(event: Event, stop: &mut bool) -> Option<Queued> {
 }
 
 pub(super) fn deposit(id: u64, queued: Queued) {
-    with_sessions(|table| {
-        if let Some(entry) = table.get_mut(&id) {
+    let owner = with_sessions(|table| {
+        table.get_mut(&id).map(|entry| {
             entry.queue.push_back(queued);
-        }
+            entry.owner
+        })
     });
+    // After the push, outside the lock; a no-op on the owner's own thread.
+    if let Some(owner) = owner {
+        entry::wake_thread(owner);
+    }
 }
 
 /// Starts a server on `address`, answering its id.

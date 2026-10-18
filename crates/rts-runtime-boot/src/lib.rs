@@ -458,7 +458,7 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
     // front end into every compiled binary for a feature most programs never
     // touch. `--embed-compiler` is the opt-in that carries it, via `extra`
     // below.
-    rts_core::entry::declare_rest(&mut context, |wait: Duration| std::thread::sleep(wait));
+    rts_core::entry::declare_rest(&mut context, |wait: Duration| rts_core::entry::loop_waker().wait(wait));
     // What `require("./x")` and `import("./x")` name. The JIT host installs a
     // resolver that reads the disk; this one reads the answers the loader
     // already found — see `resolver`'s own header for why, and for the one
@@ -584,7 +584,10 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
         // The event loop: drain what is queued, ask every registered source to
         // deliver, wait, repeat — the same loop `run_region` runs, for the same
         // reason (an earlier AOT shipped without it and starved every timer).
+        let stats = std::env::var_os("RTS_LOOP_STATS").is_some();
+        let mut iterations: u64 = 0;
         loop {
+            iterations += 1;
             rts_core::entry::drain_microtasks();
             // A throw the program never caught ENDS it, before the loop asks a
             // source for anything. `run_region` grew this line for a spawned
@@ -597,7 +600,11 @@ pub fn run(_argc: i32, _argv: *const *const i8, extra: Option<fn(&mut Context)>)
             let Some(wait) = rts_core::entry::pump_sources() else {
                 break;
             };
-            std::thread::sleep(wait);
+            rts_core::entry::loop_waker().wait(wait);
+        }
+        if stats {
+            let (waits, woken) = rts_core::entry::loop_waker().stats();
+            eprintln!("rts-loop-stats: iterations={iterations} waits={waits} woken={woken}");
         }
         rts_core::entry::drain_microtasks();
 

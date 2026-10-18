@@ -180,6 +180,9 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
         table.insert(id, SocketEntry { owner: std::thread::current().id(), instance: this, queue: Default::default(), stream: None, pending: Vec::new(), closed: false, refed: true });
     });
     entry::with_runtime(|context| super::common::set_bool(context, this, "connecting", true));
+    // Taken HERE, on the loop thread: the clone is what the background thread
+    // wakes after it deposits (the loop would otherwise sleep to its deadline).
+    let waker = entry::loop_waker();
     std::thread::spawn(move || {
         match TcpStream::connect((host.as_str(), port)) {
             Ok(stream) => {
@@ -192,15 +195,19 @@ pub(super) extern "C" fn connect(_e: u64, this: u64, a: u64, b: u64, c: u64, _d:
                         entry.queue.push_back(SocketEvent::Connected { local, remote });
                     }
                 });
+                waker.wake();
                 if let Some(reader) = reader {
-                    spawn_reader(id, reader);
+                    spawn_reader(id, reader, waker);
                 }
             }
-            Err(error) => registry::with_sockets(|table| {
-                if let Some(entry) = table.get_mut(&id) {
-                    entry.queue.push_back(SocketEvent::ConnectFailed(error.to_string()));
-                }
-            }),
+            Err(error) => {
+                registry::with_sockets(|table| {
+                    if let Some(entry) = table.get_mut(&id) {
+                        entry.queue.push_back(SocketEvent::ConnectFailed(error.to_string()));
+                    }
+                });
+                waker.wake();
+            }
         }
     });
     this
@@ -300,7 +307,7 @@ enum Shape {
 
 /// Reads until EOF/error, pushing each chunk — never calls into JS itself;
 /// see the module doc's "WHEN a listener runs" section.
-fn spawn_reader(id: u64, mut stream: TcpStream) {
+fn spawn_reader(id: u64, mut stream: TcpStream, waker: entry::LoopWaker) {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 16384];
         loop {
@@ -322,15 +329,19 @@ fn spawn_reader(id: u64, mut stream: TcpStream) {
                             entry.queue.push_back(SocketEvent::Closed { had_error: false });
                         }
                     });
+                    waker.wake();
                     return;
                 }
-                Ok(n) => registry::with_sockets(|table| {
-                    if let Some(entry) = table.get_mut(&id)
-                        && !entry.closed
-                    {
-                        entry.queue.push_back(SocketEvent::Data(buffer[..n].to_vec()));
-                    }
-                }),
+                Ok(n) => {
+                    registry::with_sockets(|table| {
+                        if let Some(entry) = table.get_mut(&id)
+                            && !entry.closed
+                        {
+                            entry.queue.push_back(SocketEvent::Data(buffer[..n].to_vec()));
+                        }
+                    });
+                    waker.wake();
+                }
                 Err(error) => {
                     registry::with_sockets(|table| {
                         if let Some(entry) = table.get_mut(&id) {
@@ -338,6 +349,7 @@ fn spawn_reader(id: u64, mut stream: TcpStream) {
                             entry.queue.push_back(SocketEvent::Closed { had_error: true });
                         }
                     });
+                    waker.wake();
                     return;
                 }
             }
@@ -369,7 +381,7 @@ pub(super) fn adopt(stream: TcpStream, remote: String) -> u64 {
         table.insert(id, SocketEntry { owner: std::thread::current().id(), instance, queue: Default::default(), stream: Some(stream), pending: Vec::new(), closed: false, refed: true });
     });
     if let Some(reader) = reader {
-        spawn_reader(id, reader);
+        spawn_reader(id, reader, entry::loop_waker());
     }
     instance
 }

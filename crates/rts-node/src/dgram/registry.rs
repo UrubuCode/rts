@@ -133,6 +133,7 @@ pub(super) fn pump() {
 /// rather than blocking in `recv_from` forever with no way to wake it (UDP
 /// has no `shutdown()` the way TCP does).
 pub(super) fn spawn_reader(id: u64, socket: UdpSocket) {
+    let waker = entry::loop_waker();
     std::thread::spawn(move || {
         let _ = socket.set_read_timeout(Some(std::time::Duration::from_millis(200)));
         let mut buffer = [0u8; 65535];
@@ -142,17 +143,20 @@ pub(super) fn spawn_reader(id: u64, socket: UdpSocket) {
                 return;
             }
             match socket.recv_from(&mut buffer) {
-                Ok((count, from)) => with_sockets(|table| {
-                    if let Some(entry) = table.get_mut(&id)
-                        && !entry.closed
-                    {
-                        entry.queue.push_back(DgramEvent::Message {
-                            data: buffer[..count].to_vec(),
-                            address: from.ip().to_string(),
-                            port: from.port(),
-                        });
-                    }
-                }),
+                Ok((count, from)) => {
+                    with_sockets(|table| {
+                        if let Some(entry) = table.get_mut(&id)
+                            && !entry.closed
+                        {
+                            entry.queue.push_back(DgramEvent::Message {
+                                data: buffer[..count].to_vec(),
+                                address: from.ip().to_string(),
+                                port: from.port(),
+                            });
+                        }
+                    });
+                    waker.wake();
+                }
                 Err(error)
                     if error.kind() == std::io::ErrorKind::WouldBlock
                         || error.kind() == std::io::ErrorKind::TimedOut =>
@@ -167,6 +171,7 @@ pub(super) fn spawn_reader(id: u64, socket: UdpSocket) {
                             entry.queue.push_back(DgramEvent::Error(error.to_string()));
                         }
                     });
+                    waker.wake();
                     return;
                 }
             }

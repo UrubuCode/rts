@@ -184,6 +184,9 @@ fn classify(event: &Event) -> (&'static str, Option<String>) {
 }
 
 fn start_fs_watch(id: u64, path: &str, recursive: bool) -> Option<RecommendedWatcher> {
+    // On the loop thread (the caller is a native): the clone is moved into the
+    // notify callback, which runs on notify's own thread.
+    let waker = entry::loop_waker();
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         let Ok(event) = result else { return };
         let (event_type, filename) = classify(&event);
@@ -194,6 +197,7 @@ fn start_fs_watch(id: u64, path: &str, recursive: bool) -> Option<RecommendedWat
                 entry.queue.push_back(Queued::Fs { event_type, filename });
             }
         });
+        waker.wake();
     })
     .ok()?;
     // Linux (inotify) does not support a recursive subscription at all —
@@ -275,6 +279,7 @@ fn metadata_changed(a: &std::fs::Metadata, b: &std::fs::Metadata) -> bool {
 }
 
 fn spawn_poll(id: u64, path: String, interval: Duration, stop: Arc<AtomicBool>, mut previous: Option<std::fs::Metadata>) {
+    let waker = entry::loop_waker();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(interval);
@@ -294,6 +299,7 @@ fn spawn_poll(id: u64, path: String, interval: Duration, stop: Arc<AtomicBool>, 
                         entry.queue.push_back(Queued::Stat { curr, prev });
                     }
                 });
+                waker.wake();
             }
             previous = current;
         }

@@ -281,19 +281,28 @@ mod reader;
 use self::reader::{ler_ate_fechar, mascara};
 
 pub(super) fn push(id: u64, event: Event) {
-    with_conns(|table| {
-        if let Some(conn) = table.get_mut(&id) {
+    let owner = with_conns(|table| {
+        table.get_mut(&id).map(|conn| {
             conn.queue.push_back(event);
-        }
+            conn.owner
+        })
     });
+    // After the push, outside the lock; a no-op on the owner's own thread.
+    if let Some(owner) = owner {
+        entry::wake_thread(owner);
+    }
 }
 
 fn push_server(id: u64, event: ServerEvent) {
-    with_servers(|table| {
-        if let Some(server) = table.get_mut(&id) {
+    let owner = with_servers(|table| {
+        table.get_mut(&id).map(|server| {
             server.queue.push_back(event);
-        }
+            server.owner
+        })
     });
+    if let Some(owner) = owner {
+        entry::wake_thread(owner);
+    }
 }
 
 /// Fecha do lado nativo: sem por onde escrever, e CONTADA como fechada.
