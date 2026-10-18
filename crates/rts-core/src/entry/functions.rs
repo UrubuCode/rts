@@ -317,7 +317,16 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // O layout que o prototype ATINGE quando já é conhecido, e o vazio na
         // primeira vez — que é a vez em que ele passa a ser conhecido. Ver
         // `Context::prototype_layout` para o número que isto vale.
-        let prototype_ty = context.prototype_layout.unwrap_or(empty_ty);
+        // A function that has a `prototype` yet refuses `new` is a generator
+        // (an async function has none, an arrow/method has none, a class
+        // constructs); its prototype is born empty, not at the cached
+        // `constructor`-bearing layout.
+        let is_generator = has_prototype && described.is_some_and(|(_, _, _, constructs)| !constructs);
+        let prototype_ty = if is_generator {
+            empty_ty
+        } else {
+            context.prototype_layout.unwrap_or(empty_ty)
+        };
         if let Some(prototype) = has_prototype
             .then(|| {
                 super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, prototype_ty)
@@ -378,6 +387,15 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // celula destas realmente atingiu. Uma celula nascida ao layout
             // certo e uma que ja esta na forma final, logo o que falta e so a
             // escrita do valor.
+            if is_generator {
+                // A GENERATOR's `prototype` is not an ordinary function's: it
+                // has NO own `constructor`, it inherits from
+                // `%GeneratorPrototype%` rather than `Object.prototype`. The
+                // property on the function stays writable. Checked against
+                // Node 2026-10-18.
+                super::generator::link_function_prototype(context, cell, prototype);
+                super::external::release(context, held_prototype);
+            } else {
             match (
                 context.prototype_layout,
                 context.prototype_constructor_slot,
@@ -408,6 +426,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             }
             super::native::hidden(context, prototype, constructor);
             super::external::release(context, held_prototype);
+            }
         }
         // `f.name` and `f.length`, which every function has and this wrote
         // neither of: `(function foo(a, b){}).name` read `undefined` and

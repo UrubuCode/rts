@@ -595,6 +595,39 @@ fn made(context: &mut Context) -> Option<u32> {
     Some(cell)
 }
 
+/// Finishes a generator function's own `prototype` object: it inherits from
+/// `%GeneratorPrototype%` (no `constructor`).
+///
+/// `function` is the generator function's cell, `prototype` the already-written
+/// object. Registers `Generator` on first use, as `made` does — a program that
+/// creates a generator function is a program that uses generators.
+pub(in crate::entry) fn link_function_prototype(context: &mut Context, function: u32, prototype: u32) {
+    let parent = match context.generator_result_prototype {
+        Some(parent) => Some(parent),
+        None => {
+            let found = match super::class_support::prototype(context, "Generator") {
+                Some(found) => Some(found),
+                None => {
+                    register(context);
+                    super::class_support::prototype(context, "Generator")
+                }
+            };
+            if found.is_some() {
+                context.generator_result_prototype = found;
+            }
+            found
+        }
+    };
+    if let Some(parent) = parent {
+        context.set_prototype(prototype, parent);
+    }
+    // The function's own `prototype` stays {writable: true, enumerable: false,
+    // configurable: false} — the derived default. (The brief for this change
+    // said non-writable; Node 2026-10-18 says `true/false/false` for a
+    // generator, so nothing is recorded.)
+    let _ = function;
+}
+
 /// Installs the class, and the one member its attribute cannot name.
 ///
 /// `Symbol.iterator` answering the generator itself is what makes `for (const x
