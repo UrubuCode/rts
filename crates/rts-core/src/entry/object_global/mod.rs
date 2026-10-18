@@ -246,6 +246,18 @@ extern "C" fn get_prototype_of(_e: u64, _this: u64, object: u64, _a1: u64, _a2: 
     if !coercible(object, "Object.getPrototypeOf") {
         return object;
     }
+    // `ToObject` first: a number, boolean, symbol or bigint reads the prototype
+    // of its wrapper class. (Strings are cells and resolve in the chain walk.)
+    let wrapper = with_current(|context| {
+        if super::primitive::is_object_in(context, object) {
+            return None;
+        }
+        super::primitive_proto::prototype_of(context, Value(object))
+            .map(|cell| Value::from_slot(cell).bits())
+    });
+    if let Some(found) = wrapper {
+        return found;
+    }
     super::chain::get_prototype(object)
 }
 

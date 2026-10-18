@@ -54,9 +54,17 @@ pub(super) fn store_on(target: u64, key: Key, value: u64, receiver: u64) -> bool
     // A DATA property — present or absent — is written on the receiver rather
     // than on the target, and through `[[GetOwnProperty]]`/`[[DefineOwnProperty]]`
     // so that a proxy receiver sees both of its traps.
-    let Some(_) = Value(receiver).as_slot() else {
+    // The target's own (or inherited) read-only data property refuses the
+    // store before the receiver is consulted; a primitive receiver cannot
+    // receive a property at all.
+    let blocked = with_current(|context| {
+        Value(target)
+            .as_slot()
+            .is_some_and(|cell| super::reflect::inherited_readonly(context, cell, key))
+    });
+    if blocked || !with_current(|context| super::primitive::is_object_in(context, receiver)) {
         return false;
-    };
+    }
     let property = super::proxy::property_of(key);
     let existing = super::object_global::describe_of(receiver, property);
     // Rule 8: the descriptor may have come from a trap that threw.

@@ -1722,6 +1722,15 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
             // A `.bind()`-produced function has no OWN `prototype`, so the one
             // to allocate against is its target's — walked through, because a
             // bound function may itself bind another one.
+            //
+            // Only when the bound function IS the callee (`new bound()`), where
+            // `[[Construct]]` substitutes the target. As an explicit
+            // `newTarget` of `Reflect.construct(Other, [], bound)` there is no
+            // substitution: `bound.prototype` is `undefined` and the default
+            // applies.
+            if Value(target).as_slot() != Value(callee).as_slot() {
+                break Value(undefined_of(context));
+            }
             let next = context
                 .bound_at(resolved)
                 .and_then(|bound| Value(bound.target).as_slot())?;
@@ -1733,10 +1742,25 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
         // may be the same cell when nothing substituted a target.
         let prototype = match prototype.as_slot() {
             Some(_) => prototype,
-            None => Value(callee)
-                .as_slot()
-                .and_then(|own| super::objects::read_property(context, own, key))
-                .filter(|found| found.as_slot().is_some())?,
+            None => {
+                // The default is the intrinsic of the base-most constructor: a
+                // function or class the program wrote falls back to
+                // `Object.prototype`; a built-in keeps its own `prototype`.
+                let written = Value(callee)
+                    .as_slot()
+                    .and_then(|own| context.callable_at(own))
+                    .is_some_and(|(code, _)| context.described_at(code).is_some());
+                let own = match written {
+                    true => None,
+                    false => Value(callee)
+                        .as_slot()
+                        .and_then(|own| super::objects::read_property(context, own, key))
+                        .filter(|found| found.as_slot().is_some()),
+                };
+                own.or_else(|| {
+                    super::object_proto::prototype_of(context).map(Value::from_slot)
+                })?
+            }
         };
 
         let shape = context.shapes.root();
