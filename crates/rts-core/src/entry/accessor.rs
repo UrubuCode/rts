@@ -662,3 +662,44 @@ pub(super) fn accessor_for(
     }
     None
 }
+
+/// The message V8 gives for every poison-pill read or write.
+const POISON_MESSAGE: &str = "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them";
+
+/// `%ThrowTypeError%` -- the getter and setter of every poison-pill accessor.
+extern "C" fn throw_poison(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    super::throw::type_error(POISON_MESSAGE);
+    with_current(|context| undefined_of(context))
+}
+
+/// Installs the throwing `callee` accessor on a STRICT function's `arguments`
+/// object, and answers the object.
+///
+/// Only emitted where the program mentions `callee` at all: it costs a function
+/// cell per call, and a program that never names it cannot observe the lack.
+#[rtse::entry]
+pub fn strict_callee(arguments: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(arguments).as_slot() else {
+            return arguments;
+        };
+        let key = context.well_known("callee");
+        let number = super::modules::member_key(context, "callee");
+        let thrower = super::native::callable(context, throw_poison);
+        context.define_accessor_and_invalidate(cell, number, Some(thrower), Some(thrower));
+        super::native::hidden(context, cell, key);
+        arguments
+    })
+}
+
+/// Installs the `caller` and `arguments` poison accessors on `Function.prototype`,
+/// which is where a strict (or built-in, or bound) function inherits them from.
+pub(super) fn install_function_poison(context: &mut Context, cell: u32) {
+    let thrower = super::native::callable(context, throw_poison);
+    for name in ["caller", "arguments"] {
+        let key = context.well_known(name);
+        let number = super::modules::member_key(context, name);
+        context.define_accessor_and_invalidate(cell, number, Some(thrower), Some(thrower));
+        super::native::hidden(context, cell, key);
+    }
+}

@@ -1347,6 +1347,9 @@ fn emit_body_into(
             // a callable instead — the wrong direction to be wrong in.
             if ctx.sloppy {
                 super::nonstrict::define_callee(&mut builder, ctx, all)?;
+            } else if ctx.names.find("callee").is_some() {
+                // Strict: the poison accessor, only where the program names `callee`.
+                expr::call(&mut builder, ctx, RuntimeOp::StrictCallee, &[all])?;
             }
             binding::declare(&mut builder, &mut scope, ctx, named, all)?;
         }

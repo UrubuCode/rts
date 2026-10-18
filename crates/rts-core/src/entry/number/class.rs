@@ -324,7 +324,14 @@ fn written(value: u64) -> bool {
 /// would make one function answer for two `[[Data]]` slots.
 fn receiver_number(this: u64) -> f64 {
     refuse_proxy(this, "Number");
-    class_support::this_number(primitive_proto::unwrapped(this))
+    let primitive = primitive_proto::unwrapped(this);
+    // `thisNumberValue`: a number, or a wrapper holding one, and nothing else --
+    // `Number.prototype.toFixed.call("1.5")` is a `TypeError`, not `1.50`.
+    let value = Value(primitive);
+    if value.as_f64().is_none() && value.as_i32().is_none() {
+        throw::type_error("Number.prototype.toString requires that 'this' be a Number");
+    }
+    class_support::this_number(primitive)
 }
 
 /// A Proxy has no `[[NumberData]]`/`[[BooleanData]]` slot, however faithfully its

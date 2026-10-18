@@ -507,6 +507,7 @@ pub(in crate::entry) fn make_prototype_callable(context: &mut Context, cell: u32
     let value = Value::from_slot(cell).bits();
     super::native::name_of(context, value, "");
     super::native::length_of(context, value, 0);
+    super::accessor::install_function_poison(context, cell);
 }
 
 /// The body `%Function.prototype%` has: take anything, answer `undefined`.

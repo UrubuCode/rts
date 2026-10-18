@@ -239,7 +239,7 @@ mod type_of;
 
 pub use accessor::{
     define_accessor_in, define_field, define_getter, define_method, define_setter,
-    set_function_name, set_function_name_from_key,
+    set_function_name, set_function_name_from_key, strict_callee,
 };
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};

@@ -335,8 +335,10 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // object and runs a proxy's traps, so the heap clause. It must be one call and
     // not a graph loop because `CopyDataProperties` interleaves a descriptor and a
     // read per key, which a loop over `OwnKeys` (all descriptors first) cannot.
+    // Moved to 141 for `StrictCallee` (a strict arguments object's throwing `callee`): it
+    // allocates a function cell and defines an accessor -- heap work, not arithmetic.
     assert!(
-        CORE_ENTRY_COUNT <= 140,
+        CORE_ENTRY_COUNT <= 141,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

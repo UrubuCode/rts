@@ -291,6 +291,8 @@ impl Js {
         RuntimeOp::ObjectRest,
         // APPENDED: a computed key's function name -- `emit/object.rs`.
         RuntimeOp::SetFunctionNameFromKey,
+        // APPENDED: a strict arguments object's throwing `callee`.
+        RuntimeOp::StrictCallee,
     ];
 
     /// The index the IR carries for an entry point.
