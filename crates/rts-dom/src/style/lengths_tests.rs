@@ -198,6 +198,21 @@ mod palavras_chave_intrinsecas {
         assert!((item.w - 100.0).abs() < 1.0, "{item:?}");
     }
 
+    /// Num item de COLUMN flex com `aspect-ratio` e sem height, o min-content do
+    /// conteúdo é piso da altura (main) sobre a razão: `width:100;
+    /// aspect-ratio:2/1; flex-basis:0` com filho `height:100` fica 100 de alto,
+    /// não os 50 da razão (WPT `flex-aspect-ratio-004`). O caminho de bloco
+    /// aplica isto mas exclui itens de flex, daí o piso no `column_shrink`.
+    #[test]
+    fn min_content_e_piso_da_altura_na_coluna_flex_com_razao() {
+        let fonte = "<div style='display:flex;flex-direction:column'>\
+            <div style='background:green;width:100px;aspect-ratio:2/1;flex-basis:0' id='item'>\
+            <div style='height:100px'></div></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let item = rect(&d, &l, "div", 1);
+        assert_eq!((item.w, item.h), (100.0, 100.0), "{item:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT

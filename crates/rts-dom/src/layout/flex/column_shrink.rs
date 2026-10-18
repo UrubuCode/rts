@@ -88,6 +88,32 @@ pub(in crate::layout) fn min_main_auto(
         return 0.0;
     }
     if ccss.height.is_none() {
+        // Sem `height`, `natural_h` já é a altura medida do item. MAS quando ela
+        // veio da RAZÃO (largura definida + `aspect-ratio`), o min-content do
+        // CONTEÚDO ainda a piso (a "content size suggestion" de §4.5): um item de
+        // coluna `width:100; aspect-ratio:2/1; flex-basis:0` com um filho de
+        // 100px é 100 de alto, não os 50 da razão (WPT `flex-aspect-ratio-004`).
+        // O caminho de bloco (`block.rs`) aplica isto mas EXCLUI itens de flex,
+        // por isso o piso tem de vir aqui. Replaced não tem conteúdo de caixa.
+        let replaced = matches!(
+            &dom.node(id).kind,
+            crate::dom::NodeKind::Element { tag }
+                if matches!(tag.as_str(), "img" | "canvas" | "video" | "svg" | "object" | "embed" | "iframe")
+        );
+        if ccss.aspect_ratio.is_some() && !replaced {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(ccss);
+            let content = content_height_without_height(
+                dom,
+                box_id,
+                ccss,
+                resolve.parent_content_w,
+                resolve.node_font_size,
+                ctx,
+            ) + bt
+                + bb
+                + ccss.padding.resolve_v(resolve);
+            return natural_h.max(content);
+        }
         return natural_h;
     }
     // `height` DECLARADO: candidato (d) do `min-height:auto` (Flexbox §4.5,
