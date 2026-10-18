@@ -10,7 +10,9 @@ use super::*;
 /// comum de fixtures e ícones de estado `data:image/svg+xml,<svg><rect
 /// fill=.../></svg>` sem inventar suporte para paths, transforms ou texto.
 fn embedded_svg_rect_fill_color(dom: &Dom, id: NodeIdx) -> Option<u32> {
-    let src = dom.node(id).attr("src")?;
+    // Um `<img>` traz o SVG em `src=`; um `<object type="image/svg+xml">` em
+    // `data=` — a mesma `data:image/svg+xml,…`, lida do mesmo modo.
+    let src = dom.node(id).attr("src").or_else(|| dom.node(id).attr("data"))?;
     let raw = src.strip_prefix("data:image/svg+xml,")?;
     // O corpo de uma `data:image/svg+xml,…` vem muitas vezes PERCENT-ENCODED
     // (`%3Csvg…%3E`); sem descodificar, nem `<rect` nem `<svg …>` se encontram
@@ -235,10 +237,15 @@ pub(in crate::layout) fn layout_svg_placeholder(
         return None;
     }
     let rect = Rect::new(x + ml, y + mt, w, h);
-    let (color, radius) = if let Some(color) = css
+    // A cor própria do elemento (`background`) vence; faltando ela, um
+    // `<object data="data:image/svg+xml,…">`/`<img>` com a cor DENTRO do SVG
+    // pinta essa cor (WPT `replaced-element-006`: `<object>` svg verde), e só
+    // então o placeholder cinza.
+    let embedded_fill = css
         .bg
         .filter(|_| !crate::paint::decor::deve_suprimir_fundo(css))
-    {
+        .or_else(|| embedded_svg_rect_fill_color(dom, id));
+    let (color, radius) = if let Some(color) = embedded_fill {
         (color, css.corner_radius.map(Corners::same).unwrap_or(Corners::ZERO))
     } else {
         (0xE8EAEDFF, Corners::same(2.0))
