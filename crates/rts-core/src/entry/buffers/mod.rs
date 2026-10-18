@@ -94,7 +94,7 @@ mod typed_abstract;
 mod typed_classes;
 mod typed_order;
 mod typed_species;
-mod typed_visit;
+pub(in crate::entry) mod typed_visit;
 
 // The declared-type consts travel with the registrations, for the same reason:
 // `entry::declared` names one class per line and cannot reach into a private
@@ -104,7 +104,7 @@ pub(in crate::entry) use atomics::ATOMICS_TYPES;
 pub(in crate::entry) use data_view::DATA_VIEW_TYPES;
 pub(in crate::entry) use shared_array_buffer::SHARED_ARRAY_BUFFER_TYPES;
 pub(in crate::entry) use atomics::register_atomics;
-pub(in crate::entry) use data_view::register_data_view;
+use data_view::register_data_view as register_data_view_class;
 pub(in crate::entry) use shared_array_buffer::shared_array_buffer;
 // The argument rules, re-exported rather than moved at the call sites: every
 // member reads them as `super::range` and `super::optional_number`, and where
@@ -117,7 +117,7 @@ pub(in crate::entry) use bounds::{as_count, optional_number, range, to_index, un
 pub(in crate::entry) use typed_classes::{
     big_int64_array, big_uint64_array, float32_array, float64_array, int8_array, int16_array,
     int32_array, uint8_array, uint8_clamped_array, uint16_array,
-    uint32_array,
+    uint32_array, named as typed_array_name,
 };
 
 use element::Kind;
@@ -144,9 +144,21 @@ pub(in crate::entry) struct View {
     pub(in crate::entry) length: usize,
     /// How those bytes are read.
     pub(in crate::entry) kind: Kind,
+    /// Built over a resizable buffer with no explicit length: `length` follows
+    /// the buffer when it is resized.
+    pub(in crate::entry) tracking: bool,
 }
 
 impl View {
+    /// Whether the view no longer fits a buffer of `size` bytes. A tracking view
+    /// only needs its offset to be inside; a fixed one needs its whole window.
+    pub(in crate::entry) fn out_of_bounds(&self, size: usize) -> bool {
+        match self.tracking {
+            true => self.offset > size,
+            false => self.offset.saturating_add(self.length) > size,
+        }
+    }
+
     /// How many elements the view holds.
     pub(in crate::entry) fn count(&self) -> usize {
         self.length / self.kind.size()
@@ -176,6 +188,13 @@ impl Context {
     }
 }
 
+/// Whether a view no longer fits its buffer (a resizable one shrank under it).
+pub(in crate::entry) fn view_out_of_bounds(context: &Context, view: &View) -> bool {
+    context
+        .bytes_at(view.buffer)
+        .is_some_and(|bytes| view.out_of_bounds(bytes.len()))
+}
+
 /// The view a value names, if it names one.
 pub(in crate::entry) fn view_of(context: &Context, value: u64) -> Option<View> {
     context.view_at(Value(value).as_slot()?)
@@ -201,6 +220,32 @@ pub(in crate::entry) fn window_mut<'a>(
     context.bytes_at_mut(view.buffer)?.get_mut(range)
 }
 
+/// Keeps a cell visible to the conservative stack scan across allocating calls.
+///
+/// The scan roots a word only if it is an ENCODED reference Value; a bare `u32`
+/// slot index in a Rust local is invisible, so a cell held that way is swept by
+/// a collection the next allocation triggers. This writes the encoded Value to a
+/// stack slot with a volatile store and [`Pin::release`] reads it back, so the
+/// compiler must keep the encoded word in the frame for the whole span.
+pub(in crate::entry) struct Pin(u64);
+
+impl Pin {
+    #[inline(always)]
+    pub(in crate::entry) fn new(cell: u32) -> Self {
+        let mut held = 0u64;
+        // SAFETY: `held` is a live local; the volatile store only pins it in memory.
+        unsafe { std::ptr::write_volatile(&mut held, Value::from_slot(cell).bits()) };
+        Self(held)
+    }
+
+    /// Ends the pin; the read keeps the stack word alive up to here.
+    #[inline(always)]
+    pub(in crate::entry) fn release(mut self) {
+        // SAFETY: reading a live local.
+        std::hint::black_box(unsafe { std::ptr::read_volatile(&mut self.0) });
+    }
+}
+
 /// A new `ArrayBuffer` of `length` zero bytes, as a cell.
 ///
 /// The prototype comes from the class's own registration, so a buffer made by
@@ -210,6 +255,7 @@ pub(in crate::entry) fn window_mut<'a>(
 /// name `ArrayBuffer`.
 pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Option<u32> {
     let cell = super::native::plain(context)?;
+    let pin = Pin::new(cell);
     // ASKED first, registered only if the answer is no.
     //
     // `class_support`'s table is a `Vec` scanned by comparing class NAMES, and
@@ -241,6 +287,7 @@ pub(in crate::entry) fn new_buffer(context: &mut Context, length: usize) -> Opti
         context.set_prototype(cell, prototype);
     }
     install_internal_bytes(context, cell, length);
+    pin.release();
     Some(cell)
 }
 
@@ -344,6 +391,7 @@ pub(in crate::entry) fn flag(context: &mut Context, cell: u32, name: &str, value
 /// already makes.
 pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     context.views.set(cell, view);
+    publish_view(context, cell, &view);
 
     // ONE shape, not four. These properties are always the same names in the
     // same order for a given kind, so every typed array ever made walks the
@@ -410,6 +458,62 @@ pub(in crate::entry) fn attach(context: &mut Context, cell: u32, view: View) {
     }
 }
 
+/// Makes the run table say where a typed array's elements are, so compiled code
+/// reads `t[i]` without calling in.
+///
+/// # Why this row stays true
+///
+/// It names bytes owned by the view's buffer, and there are exactly two ways
+/// those stop being there. The buffer is DETACHED, which frees them while other
+/// views of the buffer still exist -- [`Context::detach_buffer`] retracts every
+/// typed row and stops publishing. Or the buffer dies, which cannot happen under
+/// a live view because the view's side-table edge keeps it reachable; and when
+/// the view dies its row is retracted in `release`. A buffer's bytes are never
+/// resized in place (every writer is a same-length `copy_from_slice`), so the
+/// address cannot move.
+///
+/// A kind the machine has no load for (`DataView`, the bigint arrays) and a
+/// window not wholly inside the bytes get an EMPTY row, which is the runtime.
+fn publish_view(context: &mut Context, cell: u32, view: &View) {
+    use rts_cranelift::mem::RunTable;
+    let number = context.region.cell_of_reference(cell);
+    let kind = match view.kind {
+        Kind::Float64 => RunTable::KIND_F64,
+        Kind::Float32 => RunTable::KIND_F32,
+        Kind::Int32 => RunTable::KIND_I32,
+        Kind::Uint32 => RunTable::KIND_U32,
+        Kind::Int16 => RunTable::KIND_I16,
+        Kind::Uint16 => RunTable::KIND_U16,
+        Kind::Int8 => RunTable::KIND_I8,
+        Kind::Uint8 => RunTable::KIND_U8,
+        Kind::Uint8Clamped => RunTable::KIND_U8_CLAMPED,
+        Kind::BigInt64 | Kind::BigUint64 | Kind::Raw => 0,
+    };
+    let start = match kind {
+        0 => None,
+        _ => {
+            let bytes = context.bytes_at(view.buffer);
+            match bytes {
+                Some(bytes) if !context.buffer_detached(view.buffer) => view
+                    .offset
+                    .checked_add(view.length)
+                    .filter(|end| *end <= bytes.len())
+                    .map(|_| bytes.as_ptr().wrapping_add(view.offset)),
+                _ => None,
+            }
+        }
+    };
+    match start {
+        Some(start) => {
+            context
+                .region
+                .runs_mut()
+                .publish_typed(number, start, view.count(), kind as u64);
+        }
+        None => context.region.runs_mut().retract(number),
+    }
+}
+
 /// One numeric property, by name.
 pub(in crate::entry) fn stamp(context: &mut Context, cell: u32, name: &str, value: f64) {
     let key = context.well_known(name);
@@ -432,6 +536,10 @@ pub(in crate::entry) fn stamp(context: &mut Context, cell: u32, name: &str, valu
 /// [`super::computed::get_indexed`]'s, which already holds one.
 pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value) -> Option<u64> {
     let view = context.view_at(cell)?;
+    // A DataView is an ordinary object: an index is a plain property.
+    if view.kind == Kind::Raw {
+        return None;
+    }
     let at = super::array::as_index(context, key)?;
     let absent = undefined_of(context);
     if at >= view.count() {
@@ -454,6 +562,71 @@ pub(in crate::entry) fn indexed_get(context: &mut Context, cell: u32, key: Value
     })
 }
 
+/// Whether `key` is a number, or a string that is the canonical spelling of
+/// one (`"1.5"`, `"-1"`, `"NaN"`, `"-0"`) — the keys a typed array never
+/// stores as properties.
+pub(in crate::entry) fn is_canonical_numeric(context: &Context, key: Value) -> bool {
+    if key.numeric().is_some() {
+        return true;
+    }
+    let Some(slot) = key.as_slot() else {
+        return false;
+    };
+    let Some(text) = context.text_at(slot) else {
+        return false;
+    };
+    if *text == crate::text::Str::from_str("-0") {
+        return true;
+    }
+    let number = crate::coerce::string_to_number(text);
+    crate::coerce::number_to_string(number) == *text
+}
+
+/// Whether `cell` is a non-raw typed array and `key` is a canonical numeric key,
+/// i.e. one of its integer-indexed keys (in range or not).
+pub(in crate::entry) fn is_element_key(context: &Context, cell: u32, key: Value) -> bool {
+    context
+        .view_at(cell)
+        .is_some_and(|view| view.kind != Kind::Raw && is_canonical_numeric(context, key))
+}
+
+/// Whether reading `key` off the view `target` with this `receiver` must throw.
+///
+/// An instance keeps `length`, `byteLength`, `byteOffset` and `buffer` as own
+/// data slots (see [`attach`]), where the language makes them accessors on the
+/// prototype that brand-check their receiver. A read whose receiver is not a
+/// view — a Proxy forwarding with `Reflect.get(t, k, r)` — is therefore one the
+/// language refuses, and the own slot would have answered it.
+pub(in crate::entry) fn fact_receiver_refused(
+    context: &Context,
+    target: u32,
+    key: crate::object::Key,
+    receiver: u64,
+) -> bool {
+    if Value(receiver).as_slot() == Some(target) {
+        return false;
+    }
+    let Some(view) = context.view_at(target) else {
+        return false;
+    };
+    let crate::object::Key::Name(name) = key else {
+        return false;
+    };
+    let Some(text) = context.interner.text(name).and_then(|text| text.to_rust()) else {
+        return false;
+    };
+    let raw = view.kind == Kind::Raw;
+    let named = match raw {
+        true => matches!(text.as_str(), "byteLength" | "byteOffset" | "buffer"),
+        false => matches!(text.as_str(), "length" | "byteLength" | "byteOffset" | "buffer"),
+    };
+    named
+        && !Value(receiver)
+            .as_slot()
+            .and_then(|cell| context.view_at(cell))
+            .is_some_and(|other| (other.kind == Kind::Raw) == raw)
+}
+
 /// `t[i] = v` — whether the write was a view's and is finished.
 ///
 /// `true` for any index-shaped key on a view, including one out of range: the
@@ -464,13 +637,24 @@ pub(in crate::entry) fn indexed_set(
     cell: u32,
     key: Value,
     value: u64,
+    refusal: &mut Option<String>,
 ) -> bool {
     let Some(view) = context.view_at(cell) else {
         return false;
     };
-    let Some(at) = super::array::as_index(context, key) else {
+    if view.kind == Kind::Raw {
         return false;
+    }
+    let Some(at) = super::array::as_index(context, key) else {
+        // A CanonicalNumericIndexString that is not a valid index (fractional,
+        // negative, NaN, infinite, "-0", past 2^32-2) is still a view's key:
+        // [[Set]] ignores it and creates no property.
+        // A DataView is an ordinary object, not an integer-indexed one.
+        return view.kind != Kind::Raw && is_canonical_numeric(context, key);
     };
+    if at >= view.count() {
+        return true;
+    }
     let kind = view.kind;
     // Read before the mutable borrow, because both halves need the context: a
     // bigint's digits are in the slab and a number's conversion may read a
@@ -480,12 +664,111 @@ pub(in crate::entry) fn indexed_set(
     // still — the key was a view's, so no property is created — and the element
     // keeps what it held.
     let Some(word) = element_word(context, value, kind) else {
+        // Raised by the caller, outside the borrow. Only a number or a bigint
+        // crossing the two families is a `TypeError`; a string or an object
+        // still leaves the element alone, as before.
+        let held_bigint = super::bigints::digits_of(context, value).is_some();
+        if kind.is_bigint() {
+            if let Some(number) = Value(value).numeric() {
+                *refusal = Some(format!(
+                    "Cannot convert {} to a BigInt",
+                    crate::coerce::number_to_string(number).to_rust().unwrap_or_default()
+                ));
+            }
+        } else if held_bigint {
+            *refusal = Some("Cannot convert a BigInt value to a number".to_string());
+        }
         return true;
     };
     if let Some(bytes) = window_mut(context, &view) {
         element::write_word(bytes, at * kind.size(), kind, word, true);
     }
     true
+}
+
+/// The kind of the non-raw typed-array view `object` is, if it is one.
+pub(in crate::entry) fn store_kind(object: u64) -> Option<Kind> {
+    super::with_current(|context| {
+        let cell = Value(object).as_slot()?;
+        let view = context.view_at(cell)?;
+        (view.kind != Kind::Raw).then_some(view.kind)
+    })
+}
+
+/// [`store_kind`], but only when `key` names an ELEMENT (a number or a canonical
+/// numeric string). A symbol or a name like `"foo"` is an ordinary property of
+/// the view and its value must not be run through `ToNumber`.
+pub(in crate::entry) fn store_kind_for_key(object: u64, key: u64) -> Option<Kind> {
+    super::with_current(|context| {
+        let cell = Value(object).as_slot()?;
+        let view = context.view_at(cell)?;
+        (view.kind != Kind::Raw && is_canonical_numeric(context, Value(key))).then_some(view.kind)
+    })
+}
+
+/// The element-store coercion, run OUTSIDE every borrow because it can run user
+/// code: `ToNumber` for a numeric kind, `ToBigInt` for a bigint one. Answers the
+/// value to store (a double or a bigint), or `None` when it threw — the throw is
+/// in flight and the element must be left alone.
+pub(in crate::entry) fn coerce_for_store(value: u64, kind: Kind) -> Option<u64> {
+    if !kind.is_bigint() {
+        if Value(value).numeric().is_some() {
+            return Some(value);
+        }
+        let number = super::class_support::to_number(value);
+        if super::throw::in_flight() {
+            return None;
+        }
+        return Some(Value::from_f64(number).bits());
+    }
+    let primitive = super::primitive::to_primitive(value, crate::coerce::Hint::Number);
+    if super::throw::in_flight() {
+        return None;
+    }
+    // Ok(value) | Err((is_syntax, message))
+    let verdict: Result<u64, (bool, String)> = super::with_current(|context| {
+        if super::bigints::digits_of(context, primitive).is_some() {
+            return Ok(primitive);
+        }
+        if let Some(flag) = Value(primitive).as_bool() {
+            return Ok(context.bigint_value(crate::bigint::BigInt::from_i64(i64::from(flag))));
+        }
+        if let Some(number) = Value(primitive).numeric() {
+            let shown = crate::coerce::number_to_string(number).to_rust().unwrap_or_default();
+            return Err((false, format!("Cannot convert {shown} to a BigInt")));
+        }
+        if let Some(cell) = Value(primitive).as_slot()
+            && !super::symbol::is_symbol(context, primitive)
+            && let Some(text) = context.text_at(cell).and_then(|text| text.to_rust())
+        {
+            let trimmed = text.trim_matches(|ch: char| ch.is_whitespace() || ch == '\u{FEFF}');
+            let parsed = match trimmed.is_empty() {
+                true => Some(crate::bigint::BigInt::zero()),
+                false => crate::bigint::BigInt::parse(trimmed),
+            };
+            return match parsed {
+                Some(held) => Ok(context.bigint_value(held)),
+                None => Err((true, format!("Cannot convert {text} to a BigInt"))),
+            };
+        }
+        let shown = match super::objects::nullish(context, primitive) {
+            Some(name) => name.to_string(),
+            None if super::symbol::is_symbol(context, primitive) => "Symbol()".to_string(),
+            None => "value".to_string(),
+        };
+        Err((false, format!("Cannot convert {shown} to a BigInt")))
+    });
+    match verdict {
+        Ok(word) => Some(word),
+        Err((true, message)) => {
+            super::throw::syntax_error(&message);
+            None
+        }
+        Err((false, message)) => {
+            super::throw::type_error(&message);
+            None
+        }
+    }
 }
 
 /// The value a bigint element reads as, from the word it holds.
@@ -556,3 +839,36 @@ pub(in crate::entry) fn element_word(context: &Context, value: u64, kind: Kind) 
     Some(element::to_bits(number, kind))
 }
 
+
+/// `DataView`, with the three accessors the language puts on its prototype.
+pub(in crate::entry) fn register_data_view(context: &mut Context) -> u64 {
+    let made = register_data_view_class(context);
+    typed_abstract::dataview_accessors(context);
+    made
+}
+
+/// Whether a view kind is a `DataView`'s.
+pub(in crate::entry) fn is_raw(kind: Kind) -> bool {
+    matches!(kind, Kind::Raw)
+}
+
+/// Whether `key` on this cell is one of the four facts a view keeps in an own
+/// slot for compiled code but the language makes accessors on the prototype
+/// (`length` for a typed array; `byteLength`, `byteOffset`, `buffer` for either
+/// a typed array or a `DataView`). Reflection treats these as NOT own.
+pub(in crate::entry) fn is_inherited_fact(context: &Context, cell: u32, key: crate::object::Key) -> bool {
+    let Some(view) = context.view_at(cell) else {
+        return false;
+    };
+    let crate::object::Key::Name(machine) = key else {
+        return false;
+    };
+    let Some(text) = context.interner.text(machine) else {
+        return false;
+    };
+    match text.to_rust_lossy().as_str() {
+        "length" => !matches!(view.kind, Kind::Raw),
+        "byteLength" | "byteOffset" | "buffer" => true,
+        _ => false,
+    }
+}

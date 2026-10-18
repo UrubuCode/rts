@@ -102,6 +102,131 @@ impl Lowering<'_> {
         }))
     }
 
+    /// Whether `name` is an unshadowed `rts:core` import here.
+    pub(super) fn is_core_import(&self, name: crate::names::Name) -> bool {
+        // The resolution declares an import in the module scope, so "not shadowed" is
+        // that the name resolves here to the same binding it does at the top.
+        self.callees.core_import(name).is_some()
+            && self.resolution.binding_in(self.scope, name)
+                == self.resolution.binding_in(self.resolution.module(), name)
+            && !self.outer.is_some_and(|outer| outer(name).is_some())
+    }
+
+    /// `imul(a, b)` where `imul` is imported from `"rts:core"`, as the direct op
+    /// for its primitive; the twin of `emit/core_call.rs`. `None` for any other call.
+    pub(super) fn core_intrinsic(
+        &mut self,
+        callee: &Expr,
+        arguments: &[Spreadable],
+        at: &Expr,
+    ) -> Result<Option<ValueId>, Unsupported> {
+        let ExprKind::Ident(name) = &callee.kind else {
+            return Ok(None);
+        };
+        // A same-module `@intrinsic` function is a real binding, so unlike an import it
+        // is "unshadowed" when the name resolves HERE to the binding it has at the module
+        // top (the emitter twin proves the same by declared-once, `register_intrinsics`).
+        let bound = if let Some(primitive) = self.callees.intrinsic_fn(*name)
+            && let here = self.resolution.binding_in(self.scope, *name)
+            && here.is_some()
+            && here == self.resolution.binding_in(self.resolution.module(), *name)
+        {
+            crate::runtime::core_names::Bound::Core(primitive)
+        } else if self.is_core_import(*name) {
+            self.callees.core_import(*name).expect("just asked")
+        } else {
+            return Ok(None);
+        };
+        let primitive = match bound {
+            crate::runtime::core_names::Bound::Core(primitive) => primitive,
+            crate::runtime::core_names::Bound::Sys(sys) => {
+                if arguments.len() != sys.arity() {
+                    return Err(Unsupported::Expression("an rts:sys call with the wrong number of arguments"));
+                }
+                if let Some(text) = sys.constant() {
+                    return Ok(Some(self.literal(&Literal::String(text.into()), at)?));
+                }
+                let selector = self.domain.constant(JsConst::Count(sys.selector() as u32));
+                let selector = self.declared(selector, at);
+                let op = if sys.is_text() {
+                    crate::runtime::RuntimeOp::SysText
+                } else {
+                    crate::runtime::RuntimeOp::SysMemory
+                };
+                return Ok(Some(self.entry(op, vec![selector], at)));
+            }
+        };
+        // The 64-bit pattern does not fit a number exactly, so `f64ToBits` answers a
+        // bigint (`F64ToBits`) and `f64FromBits` reads one (`F64FromBits`).
+        if matches!(primitive, rts_corelib::CorePrimitive::F64ToBits | rts_corelib::CorePrimitive::F64FromBits) {
+            if arguments.len() != 1 {
+                return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+            }
+            let Spreadable::Single(argument) = &arguments[0] else {
+                return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+            };
+            let value = self.expression(argument)?;
+            return Ok(Some(if primitive == rts_corelib::CorePrimitive::F64ToBits {
+                let number = self.prim(JsPrim::ToNumber, vec![value], at);
+                self.entry(crate::runtime::RuntimeOp::F64ToBits, vec![number], at)
+            } else {
+                self.entry(crate::runtime::RuntimeOp::F64FromBits, vec![value], at)
+            }));
+        }
+        // The library-call members take the door `Math.<name>` takes, selector first.
+        if let Some(name) = primitive.math_direct_name() {
+            let (door, which, arity) = match crate::runtime::math_direct::unary_index(name) {
+                Some(which) => (crate::runtime::RuntimeOp::MathDirect1, which, 1),
+                None => (
+                    crate::runtime::RuntimeOp::MathDirect2,
+                    crate::runtime::math_direct::binary_index(name).expect("a direct member"),
+                    2,
+                ),
+            };
+            if arguments.len() != arity {
+                return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+            }
+            let mut args = Vec::with_capacity(arity + 1);
+            let selector = self.domain.constant(JsConst::Count(which as u32));
+            args.push(self.declared(selector, at));
+            for argument in arguments {
+                let Spreadable::Single(argument) = argument else {
+                    return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+                };
+                let value = self.expression(argument)?;
+                args.push(self.prim(JsPrim::ToNumber, vec![value], at));
+            }
+            return Ok(Some(self.entry(door, args, at)));
+        }
+        let (op, arity) = match primitive {
+            rts_corelib::CorePrimitive::I32Mul => (JsPrim::MathImul, 2),
+            rts_corelib::CorePrimitive::Clz32 => (JsPrim::MathClz32, 1),
+            rts_corelib::CorePrimitive::Fround => (JsPrim::MathFround, 1),
+            rts_corelib::CorePrimitive::Sqrt => (JsPrim::MathSqrt, 1),
+            rts_corelib::CorePrimitive::Floor => (JsPrim::MathFloor, 1),
+            rts_corelib::CorePrimitive::Ceil => (JsPrim::MathCeil, 1),
+            rts_corelib::CorePrimitive::Trunc => (JsPrim::MathTrunc, 1),
+            rts_corelib::CorePrimitive::Abs => (JsPrim::MathAbs, 1),
+            rts_corelib::CorePrimitive::Sign => (JsPrim::MathSign, 1),
+            rts_corelib::CorePrimitive::Round => (JsPrim::MathRound, 1),
+            rts_corelib::CorePrimitive::Min => (JsPrim::MathMin, 2),
+            rts_corelib::CorePrimitive::Max => (JsPrim::MathMax, 2),
+            _ => return Err(Unsupported::Expression("an rts:core primitive with no lowering")),
+        };
+        if arguments.len() != arity {
+            return Err(Unsupported::Expression("an rts:core call with the wrong number of arguments"));
+        }
+        let mut numbers = Vec::with_capacity(arity);
+        for argument in arguments {
+            let Spreadable::Single(argument) = argument else {
+                return Err(Unsupported::Expression("a spread argument in an rts:core call"));
+            };
+            let value = self.expression(argument)?;
+            numbers.push(self.prim(JsPrim::ToNumber, vec![value], at));
+        }
+        Ok(Some(self.prim(op, numbers, at)))
+    }
+
     /// `Math.PI` and its siblings as the number, under the same proof, or `None`
     /// for a read this does not decide. The table of values is `emit/math`'s,
     /// asked here so the two emitters cannot disagree about a digit.
@@ -179,7 +304,7 @@ impl Lowering<'_> {
                 false => value,
             });
         }
-        let numeric = |held: &Self, value: ValueId| matches!(held.type_of(value), Type::Int32 | Type::Double);
+        let numeric = |held: &Self, value: ValueId| matches!(held.type_of(value), Type::Int32 | Type::Ranged(..) | Type::Double);
         let prim = match shape {
             Static::IsArray => {
                 return Ok(Some(self.entry(crate::runtime::RuntimeOp::ArrayIsArray, values, at)));
@@ -297,7 +422,7 @@ impl Lowering<'_> {
             plain.push(argument);
         }
         let receiver = self.expression(object)?;
-        if matches!(self.type_of(receiver), Type::Int32 | Type::Double) {
+        if matches!(self.type_of(receiver), Type::Int32 | Type::Ranged(..) | Type::Double) {
             let argument = match plain.first() {
                 Some(argument) => self.expression(argument)?,
                 None => self.singleton_at(crate::values::Singleton::Undefined, at),

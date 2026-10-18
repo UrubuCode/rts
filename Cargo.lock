@@ -4909,6 +4909,7 @@ dependencies = [
 name = "rts-codegen"
 version = "0.1.0"
 dependencies = [
+ "rts-corelib",
  "rts-cranelift",
  "rts-mir",
  "swc_common",
@@ -4931,6 +4932,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rts-corelib"
+version = "0.1.0"
+
+[[package]]
 name = "rts-cranelift"
 version = "0.1.0"
 dependencies = [
@@ -4944,6 +4949,7 @@ dependencies = [
  "object 0.39.0",
  "rayon",
  "rustc-hash 2.1.2",
+ "sha2 0.10.9",
 ]
 
 [[package]]

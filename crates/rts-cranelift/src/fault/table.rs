@@ -75,6 +75,12 @@ impl FaultTable {
         Self { faults }
     }
 
+    /// Rebuilds a table from faults already ordered by offset, as the
+    /// compiled-code cache stores them.
+    pub(crate) fn from_sorted(faults: Vec<Fault>) -> Self {
+        Self { faults }
+    }
+
     /// What stops at an address, if anything does.
     pub fn at(&self, offset: u32) -> Option<Fault> {
         self.faults

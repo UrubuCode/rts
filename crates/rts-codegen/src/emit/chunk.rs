@@ -133,6 +133,8 @@ fn close(run: &mut Vec<Stmt>, out: &mut Vec<Stmt>, made: &mut usize, ctx: &mut C
         is_async: false,
         is_generator: false,
         advertised_length: None,
+        intrinsic: None,
+        inline: false,
         at,
     };
     out.push(Stmt {

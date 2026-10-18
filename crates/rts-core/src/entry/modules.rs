@@ -258,7 +258,18 @@ pub fn declare_module_entry(context: &mut Context, specifier: &str, entry: Modul
         // Never over a module already built or already registered by a host:
         // `node:fs` is not a file of this program, and a compiled module that
         // somehow shares a specifier with one must not displace it.
-        Some(held) if held.namespace.is_some() || held.provided => {}
+        Some(held) if held.namespace.is_some() => {}
+        // A LAZY host module nobody has built yet is a promise, not a module:
+        // a compiled body for the same specifier (a `node:` module authored in
+        // TypeScript and compiled with the program) replaces the promise, so the
+        // compiled one is what every name resolves to. An EAGER host module has
+        // a namespace and is caught by the arm above.
+        Some(held) if held.provided && held.build.is_some() => {
+            held.build = None;
+            held.provided = false;
+            held.entry = Some(entry);
+        }
+        Some(held) if held.provided => {}
         Some(held) => held.entry = Some(entry),
         None => context.modules.push(Registered {
             specifier: specifier.to_owned(),
@@ -628,7 +639,9 @@ pub fn make_namespace(context: &mut Context, members: &[(&str, Provided)]) -> u6
     let Some(cell) = super::native::plain(context) else {
         return undefined_of(context);
     };
+    let pin = super::buffers::Pin::new(cell);
     super::native::install_host(context, cell, members);
+    pin.release();
     Value::from_slot(cell).bits()
 }
 
@@ -806,6 +819,18 @@ pub fn declare_global(context: &mut Context, name: &str, value: u64) {
     };
     let key = context.well_known(name);
     super::objects::put(context, object, key, value);
+    // Node lists only these among the global object's own keys. Every other
+    // global it installs — `Buffer`, `process`, `console`, `URL`, `Event` — is
+    // non-enumerable, so `Object.keys(globalThis)` and `for`-`in` over it must
+    // not walk the engine's own names (`EventEmitter`, `DomTimers`, `dom`).
+    const ENUMERABLE: &[&str] = &[
+        "global", "clearImmediate", "setImmediate", "clearInterval", "clearTimeout",
+        "setInterval", "setTimeout", "queueMicrotask", "structuredClone", "atob", "btoa",
+        "performance", "fetch", "crypto", "navigator", "localStorage", "sessionStorage",
+    ];
+    if !ENUMERABLE.contains(&name) {
+        super::native::hidden(context, object, key);
+    }
 }
 
 /// A number value.
@@ -1044,6 +1069,7 @@ pub fn make_bytes(context: &mut Context, source: &[u8]) -> u64 {
         offset: 0,
         length: source.len(),
         kind: super::buffers::element::Kind::Uint8,
+                tracking: false,
     };
     if let Some(window) = super::buffers::window_mut(context, &view) {
         window.copy_from_slice(source);
@@ -1402,7 +1428,7 @@ pub fn usv_string_in(context: &Context, value: u64) -> Option<String> {
 pub fn is_callable_in(context: &Context, value: u64) -> bool {
     Value(value)
         .as_slot()
-        .is_some_and(|cell| context.callable_at(cell).is_some())
+        .is_some_and(|cell| context.is_callable_cell(cell))
 }
 
 /// Publishes one exported binding into the specifier table.

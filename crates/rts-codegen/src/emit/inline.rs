@@ -121,6 +121,9 @@ pub(super) struct Inlinable {
     pub body: Expr,
     /// A zero-fixed-parameter rest function whose body is exactly `rest.length`.
     pub rest_length: Option<Name>,
+    /// Whether this is a `function` declaration written at the top level of the
+    /// body the candidates were collected from, so bound at every site in it.
+    pub top_level: bool,
 }
 
 /// Every function in `body` a call site may substitute, by the name it is
@@ -241,6 +244,9 @@ pub(super) fn candidates(
             _ => true,
         });
         candidate.free_proved = free_proved;
+        candidate.top_level = body.iter().any(|held| {
+            matches!(&held.kind, StmtKind::Function(declared) if declared.name == Some(name))
+        });
 
         // AND THE BODY'S OWN LOCALS, which is the guard that lets a declaring
         // body be substituted at all.
@@ -780,6 +786,7 @@ pub(super) fn shape_of(
                 statements: Vec::new(),
                 body: answered.clone(),
                 rest_length: Some(*rest),
+                top_level: false,
             },
             Vec::new(),
             Vec::new(),
@@ -803,7 +810,17 @@ pub(super) fn shape_of(
     }
 
     let (statements, answered) = body_shape(function)?;
-    if statements.len() > STATEMENT_BUDGET {
+    // `@inline` lifts THIS check and no other. The budget is a code-size
+    // decision, not a correctness one (see `STATEMENT_BUDGET`): a longer
+    // straight-line body splices exactly as a short one does. Every capability
+    // check in this function (async/generator, rest, patterns, `body_shape`'s
+    // straight-line rule, tagged templates, duplicate locals, recursion,
+    // `closed_over`) and every whole-program proof in `candidates` still runs,
+    // so an `@inline` function that fails one simply stays an ordinary call.
+    // Read from the `Function` so both callers (`candidates` and
+    // `local_candidate`) honour it without a signature change. Available to
+    // user code: it can only grow code, never change what a program computes.
+    if statements.len() > STATEMENT_BUDGET && !function.inline {
         return None;
     }
 
@@ -909,6 +926,7 @@ pub(super) fn shape_of(
             statements,
             body: answered,
             rest_length: None,
+            top_level: false,
         },
         free,
         locals,

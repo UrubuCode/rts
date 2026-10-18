@@ -369,6 +369,9 @@ impl Date {
     #[js("toISOString")]
     fn to_iso(this: u64) -> u64 {
         let time = time_of(this);
+        if super::super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
         if time.is_nan() {
             // Outside every borrow, because building the error constructs one of
             // the program's own objects. The generated wrapper holds none here,

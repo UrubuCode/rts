@@ -37,12 +37,22 @@ impl Writer {
         let object = Value::from_slot(cell).bits();
         // `LengthOfArrayLike`, read ONCE — see this function's own
         // documentation for why every element after it is still a live read.
-        let length = with_current(|context| {
-            let key = super::super::super::computed::length_key(context);
-            super::super::super::objects::own_property(context, cell, key)
-                .and_then(|value| value.numeric())
-                .map_or(0usize, |number| number.max(0.0) as usize)
-        });
+        let proxied = with_current(|context| context.proxy_at(cell).is_some());
+        let length = if proxied {
+            // A proxy's `length` is a `[[Get]]`, which is its `get` trap.
+            let key = with_current(|context| context.well_known_text("length"));
+            let read = super::super::super::computed::get_indexed(object, key);
+            Value(read).numeric().map_or(0usize, |number| {
+                if number.is_nan() { 0 } else { number.max(0.0) as usize }
+            })
+        } else {
+            with_current(|context| {
+                let key = super::super::super::computed::length_key(context);
+                super::super::super::objects::own_property(context, cell, key)
+                    .and_then(|value| value.numeric())
+                    .map_or(0usize, |number| number.max(0.0) as usize)
+            })
+        };
         self.ascii("[");
         let mut at = 0;
         while at < length {

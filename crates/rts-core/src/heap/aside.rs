@@ -124,6 +124,20 @@ impl<T> Aside<T> {
         (reference >> self.selector_bits) as usize
     }
 
+    /// A reference at or past which [`Self::remove`] is certain to answer `None`.
+    ///
+    /// `0` for a table holding nothing. Otherwise the first reference whose cell
+    /// is past the end of `entries`, which `remove` already treats as empty. Used
+    /// by the sweep to ask once, for all the tables, what it would otherwise ask
+    /// of each table for every dead cell.
+    #[inline]
+    pub fn bound(&self) -> u64 {
+        if self.held == 0 {
+            return 0;
+        }
+        (self.entries.len() as u64).saturating_mul(1u64 << self.selector_bits.min(32))
+    }
+
     /// How many entries the table has grown to.
     ///
     /// Not a count of what is attached — the gaps below the highest cell are
@@ -137,6 +151,18 @@ impl<T> Aside<T> {
     /// What is attached to a cell, if anything.
     pub fn get(&self, reference: u32) -> Option<&T> {
         self.entries.get(self.cell_of(reference))?.as_ref()
+    }
+
+    /// References of every cell whose attachment satisfies `wanted`, in the
+    /// region of `like` (a context holds one region, so its bits are shared).
+    pub fn references_where(&self, like: u32, mut wanted: impl FnMut(&T) -> bool) -> Vec<u32> {
+        let region = like & ((1u32 << self.selector_bits.min(31)) - 1);
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.as_ref().is_some_and(&mut wanted))
+            .map(|(cell, _)| ((cell as u32) << self.selector_bits) | region)
+            .collect()
     }
 
     /// The same, to write through.
@@ -182,7 +208,12 @@ impl<T> Aside<T> {
         if self.held == 0 {
             return None;
         }
-        self.remove_held(reference)
+        // Past the reach, or an empty entry: nothing to take, answered inline
+        // (read-only) so the out-of-line call is paid only by a cell that HAS one.
+        match self.entries.get(self.cell_of(reference)) {
+            Some(Some(_)) => self.remove_held(reference),
+            _ => None,
+        }
     }
 
     /// [`Self::remove`], once something is known to be in the table.

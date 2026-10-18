@@ -72,8 +72,28 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
     {
         return answered;
     }
+    // A view's `length`/`byteLength`/`byteOffset`/`buffer` are accessors that
+    // brand-check their receiver: `Reflect.get(view, "length", proxy)` throws.
+    if receiver != object {
+        let refused = with_current(|context| {
+            let slot = Value(object).as_slot()?;
+            let named = property_key(context, Value(key))?;
+            Some(super::super::buffers::fact_receiver_refused(context, slot, named, receiver))
+        });
+        if refused == Some(true) {
+            super::super::throw::type_error("Receiver is not a typed array or DataView");
+            return with_current(|context| undefined_of(context));
+        }
+    }
+    // `undefined[k]` / `null[k]` throw at the access, exactly as `u.x` does.
+    let mut refusal: Option<String> = None;
     let found = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
+            if super::super::objects::nullish(context, object).is_some() {
+                let named = property_key(context, Value(key));
+                refusal = super::super::objects::access_refusal(context, object, named, true);
+                return super::super::accessor::Found::Value(undefined_of(context));
+            }
             // A number, a boolean, a symbol or a bigint — none of which has a
             // cell to walk from. The same fallback [`super::super::objects::get_property`]
             // makes, and it was missing here: `(255).toString(16)` answered
@@ -133,8 +153,23 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
         // is the whole point of a computed read: `o[k]` and `o.x` name the same
         // property, so one of them finding a getter and the other reading a
         // slot would make which spelling was written decide what a property IS.
-        super::super::accessor::resolve(context, slot, key)
+        let found = super::super::accessor::resolve(context, slot, key);
+        // A miss on the GLOBAL OBJECT asks the lazy build before it is a miss,
+        // exactly as the named read in `objects` does: `globalThis["Uint8Array"]`
+        // otherwise answered `undefined` for every global nothing had spelled bare.
+        if matches!(found, super::super::accessor::Found::Absent)
+            && context.globals == Some(slot)
+            && let crate::object::Key::Name(named) = key
+            && let Some(made) = super::super::global::supply(context, named)
+        {
+            return super::super::accessor::Found::Value(made);
+        }
+        found
     });
+    if let Some(refusal) = refusal {
+        super::super::throw::type_error(&refusal);
+        return with_current(|context| undefined_of(context));
+    }
     match found {
         super::super::accessor::Found::Value(value) => value,
         // On the RECEIVER, which is the object the read was written on rather
@@ -183,8 +218,43 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         return value;
     }
+    // A proxy in the PROTOTYPE chain claims the write, with this object as the
+    // receiver of its `set` trap.
+    let above = with_current(|context| {
+        if !context.any_proxy() {
+            return None;
+        }
+        property_key(context, Value(key))
+    });
+    if let Some(named) = above
+        && let Some(accepted) = super::super::proxy::set_above(object, named, value)
+    {
+        if !accepted && !sloppy && !super::super::throw::in_flight() {
+            super::super::throw::type_error(&format!(
+                "'set' on proxy: trap returned falsish for property '{}'",
+                super::super::proxy::spelled(named)
+            ));
+        }
+        return value;
+    }
+    // A typed array's element store coerces first (ToNumber / ToBigInt), here
+    // and outside the borrow because that can run user code; a throw leaves the
+    // element as it was. The expression still answers the original `value`.
+    let original = value;
+    let value = match super::super::buffers::store_kind_for_key(object, key) {
+        Some(kind) => match super::super::buffers::coerce_for_store(value, kind) {
+            Some(coerced) => coerced,
+            None => return original,
+        },
+        None => value,
+    };
+    let mut refusal: Option<String> = None;
     let setter = with_current(|context| {
         let Some(slot) = Value(object).as_slot() else {
+            if super::super::objects::nullish(context, object).is_some() {
+                let named = property_key(context, Value(key));
+                refusal = super::super::objects::access_refusal(context, object, named, false);
+            }
             return None;
         };
         if let Some(at) = super::super::array::as_index(context, Value(key))
@@ -248,12 +318,12 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
                 // As posições que o salto pula são BURACOS, não `undefined`
                 // armazenados: `const a = []; a[2] = 1` deixa `0 in a` falso.
                 let absent = super::super::array::hole_of(context);
-                let elements = context
+                let mut elements = context
                     .elements_at_mut(slot)
                     .expect("the array was just found");
                 elements.resize(wanted, absent);
             }
-            let elements = context
+            let mut elements = context
                 .elements_at_mut(slot)
                 .expect("the array was just found");
             elements[at] = value;
@@ -265,8 +335,9 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
             // laço mais comum que existe (`a[i] = v` dentro de um `for`): o
             // comprimento não mudou, e a escrita ainda assim resolvia a chave e
             // percorria a shape.
+            let count = elements.len();
+            drop(elements);
             if cresceu {
-                let count = elements.len();
                 super::super::array::set_length(context, slot, count);
             }
             return None;
@@ -276,7 +347,7 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         // through to a property, which is what the language does — a typed
         // array does not grow and `a[9] = 1` on a two-element one stores
         // nothing anybody can read back.
-        if super::super::buffers::indexed_set(context, slot, Value(key), value) {
+        if super::super::buffers::indexed_set(context, slot, Value(key), value, &mut refusal) {
             return None;
         }
         let Some(key) = property_key(context, Value(key)) else {
@@ -295,6 +366,10 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
             }
         }
     });
+    if let Some(refusal) = refusal {
+        super::super::throw::type_error(&refusal);
+        return original;
+    }
     match setter {
         Some(Store::Setter(setter)) => {
             let undefined = with_current(|context| undefined_of(context));
@@ -312,6 +387,6 @@ fn store_indexed(object: u64, key: u64, value: u64, sloppy: bool) -> u64 {
         }
         Some(Store::Direct) | None => {}
     }
-    value
+    original
 }
 

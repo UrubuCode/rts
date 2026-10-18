@@ -30,6 +30,99 @@ doing.
 
 ---
 
+## Status as of 2026-10-18 (verified by running) — supersedes the rows below where they disagree
+
+Every line here comes from a probe run through `target/debug/rts.exe run`
+and, where Node 25.9 was available, the same file through
+`node --experimental-strip-types`, compared side by side. The per-module rows
+below were written 2026-09-02 and are **left as written** (additive policy);
+read this block first. A row not mentioned here was not re-probed. Probes
+are **spot checks of representative APIs, not full-surface audits** — "works"
+means the named calls matched Node, not that the module is 100%.
+
+**Rows that went stale (the gap named is now closed, per a probe):**
+
+| Module | Row said | Verified now |
+|---|---|---|
+| `url` | malformed constructor argument answers an inert instance | `new URL("nope")` throws `ERR_INVALID_URL` (same as Node); `[...new URLSearchParams("a=1&b=2")]` iterates; `.origin` correct for `https://a.com:8080/x`; `URL.canParse` matches. Not fixed: `URLPattern` (global is `undefined`). Not probed: `createObjectURL`. |
+| `assert` | `Map`/`Set` refuse deep-compare; `rejects`/`doesNotReject` need a later-settling promise; `AssertionError` unreachable | `deepStrictEqual` of equal `Set`s passes and unequal `Map`s throw `AssertionError`; `assert.throws(fn, TypeError)` passes; `assert.rejects` is a function; `new AssertionError({message})` is `instanceof Error`. Not probed: the awaited `rejects` path, symbol/boxed/Error-object comparison. |
+| `events` | no `events.on`/`events.once`; no `EventTarget`/`Event`/`CustomEvent` | `await events.once(emitter, "x")` resolves `[7]` like Node; `events.on`, `EventTarget`, `Event`, `CustomEvent` all exist as functions; `EventEmitter.errorMonitor` is a symbol; `getMaxListeners()` is 10; `events.getEventListeners` exists. **Still absent:** static `EventEmitter.listenerCount` and `EventEmitterAsyncResource` are `undefined` (Node: functions). |
+| `buffer` | (no per-API claim for these) | `base64url` encode, `fill("ab")`, `Buffer.from([1,2,3])` match Node. Spot-check only. |
+| `fs` | async callback forms "out of scope by architecture" | `fs.readFile(path, "utf8", cb)` delivers `(null, data)`; `fs.promises.readFile` is a function; sync write/read/stat/readdir/mkdir round-trip. |
+| `http` / `net` | `http`: no event loop for a streaming client; `net`: delivery only at the next native call | A real loopback round trip works end to end and matches Node line for line: `http.createServer().listen(0)` + `http.get()` (200, body), global `fetch()` against it (200, body), and a `net.createServer`/`net.connect` echo. |
+| `child_process` | `exec`/`execFile`/piped-stdio `'data'` events "refused by name" | `cp.exec("echo ..", cb)` calls back `(null, out)`; `cp.spawn("node", ...)` delivers stdout `'data'` and `'close'` 0; `execSync`/`spawnSync` work. |
+| `dgram` | (row says full) | UDP bind/send round trip works. **New defect:** the `'message'` payload is a plain array, not a `Buffer` (`m.toString()` printed `117,100,...` instead of `udp-ok`). |
+| `dns` | `dns.promises` only for `lookup` | `dns.lookup` callback and `dns.promises.lookup("localhost")` both answer an address, matching Node. |
+| `stream` | async-iteration helpers missing | `Readable.from([..])` + `for await` works; `Readable.prototype.map` is a function; `stream/promises.pipeline` is a function. |
+| `readline` | "no fixture; not verified by execution" | `createInterface({ input: PassThrough })` emits `'line'` for each line, matching Node. |
+| `async_hooks` | "not run against any fixture" | `new AsyncLocalStorage().run(5, () => getStore())` returns `5`. |
+| `diagnostics_channel` | module doc: strong-ref registry deviations | `channel("x")` + `subscribe` + `publish` delivers. |
+| `vm` | "an object reads back as `undefined`" | `runInNewContext("1+2")` is `3`; `createContext({a:2})` + `runInContext("a*3")` is `6`. Object-valued results not probed. |
+| `sqlite` | "no `DatabaseSync` call exists in any fixture" | `new DatabaseSync(":memory:")`, `exec`, `prepare().run(3)`, `prepare().all()` returns `[{"a":3}]`, matching Node. |
+| `crypto` (did **not** change) | no asymmetric tier, only `digest` on SubtleCrypto | Confirmed: `createHash`/`createHmac`/`randomBytes`/`randomUUID`/`pbkdf2Sync`/AES-CBC `createCipheriv` match Node; `generateKeyPairSync`, `createSign`, `crypto.subtle` are `undefined` here and functions in Node. |
+
+**Registered and importable, spot-checked (an export is present and one
+representative call behaves):** `assert`, `async_hooks`, `buffer`,
+`child_process`, `cluster` (`isPrimary` true), `console` (`Console` class),
+`crypto` (symmetric tier), `dgram`, `diagnostics_channel`, `dns`, `domain`,
+`events`, `fs` (+`fs/promises`), `http`, `https` (`request`/`createServer`
+present; not exercised over TLS), `inspector` (`Session` present), `module`,
+`net`, `os`, `path`, `perf_hooks`, `process`, `punycode`, `querystring`,
+`readline` (+`readline/promises` imports), `repl` (`start` present), `sqlite`,
+`stream`, `string_decoder`, `timers` (+`timers/promises`), `tls`
+(`connect`/`createServer`/`createSecureContext` present; no handshake probed),
+`trace_events` (`createTracing` present), `tty`, `url`, `util`, `v8`
+(`getHeapStatistics`, `serialize`/`deserialize` round trip), `vm`, `wasi`
+(`WASI` present; no module run), `worker_threads` (`Worker` present), `zlib`
+(gzip and brotli round trips). Probe files were not kept.
+
+**Still partial or absent (do not read the rest of this file as saying
+otherwise):**
+
+- `util.inspect` of a `Map`/`Set` **nested inside an object** prints `{}`
+  (`{ m: {}, s: {} }`; Node: `{ m: Map(1) { 1 => 2 }, s: Set(1) { 1 } }`);
+  plain objects/arrays match. `util.types.isMap`, `isPromise`, `isRegExp`
+  are real now (the "~37 missing predicates" row is stale); `format`,
+  `parseArgs`, `isDeepStrictEqual` match Node.
+- `node:crypto`: no `generateKeyPair*`, `createSign`/`createVerify`,
+  `KeyObject`, `crypto.subtle`.
+- `node:http2`: `connect` and `createServer` present, **`createSecureServer`
+  is `undefined`**; no session round trip probed.
+- `node:test`: `it`/`describe` exist and a test body runs, but the namespace
+  has **no `default` function** (`test.default(...)` threw "not a function"),
+  `mock` is `undefined` (Node: object), and no result lines or summary are
+  printed (Node prints `✔ sample` and an `ℹ tests 1 ...` block).
+- `process`: `process.on("exit", fn)` and `process.on("uncaughtException",
+  fn)` register without error but **the handlers never fire** (a throw in a
+  timer killed the process with `rts: uncaught exception`; Node calls the
+  handler); `process.argv.length` is 3 where Node's is 2 for the same
+  invocation.
+- `worker_threads`: `new Worker(src, { eval: true })` constructs and `.on`
+  exists, but in the probes **no `'message'` or `'exit'` event was observed**
+  for an ESM eval body, and a CommonJS body died with `ReferenceError:
+  require is not defined`. `MessagePort` has no `.on` (`onmessage` works).
+  Treat worker messaging as unverified.
+- Globals Node 25 defines that are `undefined` here: `WebSocket`,
+  `URLPattern`, `BroadcastChannel`. (`fetch`, `Request`, `Response`,
+  `Headers`, `AbortController`, `TextDecoder`, `Blob`, `MessageChannel`,
+  `ReadableStream`, `queueMicrotask`, and a `WebAssembly` object all exist.)
+- `url.fileURLToPath("file:///a/b")` returns `a\b` on this Windows machine,
+  where Node 25.9 on the same machine throws `ERR_INVALID_FILE_URL_PATH`.
+  Flagged, not diagnosed.
+- A stray `AssertionError [deepStrictEqual] ... actual: {} expected: {}`
+  block was printed to the console while the probe's unequal-`Map` case
+  threw and was caught; Node prints nothing there. Cosmetic, undiagnosed.
+
+**Cross-cutting items from the 2026-09-02 text that are stale:** the
+"delivery model" paragraph below (events delivered only at the next native
+call into the same module) no longer describes `http`/`net`/`child_process`/
+`fs.readFile`: all four delivered their events in the probes above with no
+further call into the module. "This engine has no event loop" is likewise
+contradicted by `entry/loops.rs`, as `STATUS.md` records (a listening server
+holds the program open).
+
+---
+
 ## The trap the next person measuring this needs to know about
 
 **Nine `node:fs` fixtures fail on THIS machine only because `C:\tmp` does not

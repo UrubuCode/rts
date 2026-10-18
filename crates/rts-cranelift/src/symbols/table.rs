@@ -106,6 +106,16 @@ impl EntryTable {
         self.referenced[entry.index()] = true;
     }
 
+    /// The table as one flag per entry, for the compiled-code cache.
+    pub(crate) fn flags(&self) -> [bool; RtEntry::COUNT] {
+        self.referenced
+    }
+
+    /// The inverse of [`Self::flags`].
+    pub(crate) fn from_flags(referenced: [bool; RtEntry::COUNT]) -> Self {
+        Self { referenced }
+    }
+
     /// Adds everything another compilation named to this one.
     pub(crate) fn union(&mut self, other: &EntryTable) {
         for (ours, theirs) in self.referenced.iter_mut().zip(other.referenced) {

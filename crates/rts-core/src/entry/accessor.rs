@@ -429,6 +429,53 @@ pub fn set_function_name(target: u64, value: u64) -> u64 {
     target
 }
 
+/// `SetFunctionName(F, key, prefix)` for a COMPUTED key -- `{ [k]: () => {} }`,
+/// `{ get [s]() {} }`, `class { static [Symbol.iterator]() {} }`.
+///
+/// A written key's name is known to the compiler and is lent to the closure; a
+/// computed one is a value, so the name is made here, at run time:
+/// a symbol is `"[" + description + "]"` (and `""` when it has NO description,
+/// while `Symbol("")` is `"[]"` -- both probed against Node), anything else is
+/// its `ToPropertyKey` text. `prefix` is `"get "`, `"set "` or `""`.
+#[rtse::entry]
+pub fn set_function_name_from_key(target: u64, key: u64, prefix: u64) -> u64 {
+    // An object key runs its `toString`, which is user code and cannot run inside
+    // the borrow below -- the same hoist `key_number` makes.
+    let key = if with_current(|context| super::primitive::is_object_in(context, key)) {
+        super::primitive::to_primitive(key, crate::coerce::Hint::String)
+    } else {
+        key
+    };
+    with_current(|context| {
+        let Some(cell) = Value(target).as_slot() else {
+            return;
+        };
+        let spelled = match context.symbol_of(key) {
+            Some(symbol) => match &symbol.description {
+                Some(text) => format!("[{text}]"),
+                None => String::new(),
+            },
+            None => match super::text::to_text(context, Value(key)) {
+                Some(text) => text.to_rust_lossy(),
+                None => return,
+            },
+        };
+        let lead = super::text::to_text(context, Value(prefix))
+            .map(|text| text.to_rust_lossy())
+            .unwrap_or_default();
+        // A symbol with no description is named `""` whatever the prefix: the
+        // specification's SetFunctionName applies the prefix to the empty name, so
+        // a nameless symbol's getter is `"get "`.
+        let full = format!("{lead}{spelled}");
+        let value = context.intern_value(crate::text::Str::from_str(&full)).bits();
+        let name = context.well_known("name");
+        super::native::hidden(context, cell, name);
+        super::objects::put(context, cell, name, value);
+        super::native::introspective(context, cell, name);
+    });
+    target
+}
+
 /// `class C { k = 1; }` — an instance field, DEFINED and enumerable.
 ///
 /// [`define_method`]'s sibling, and the two differ in one line: a method is
@@ -614,4 +661,45 @@ pub(super) fn accessor_for(
         cell = super::objects::inherited_from(context, cell)?;
     }
     None
+}
+
+/// The message V8 gives for every poison-pill read or write.
+const POISON_MESSAGE: &str = "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them";
+
+/// `%ThrowTypeError%` -- the getter and setter of every poison-pill accessor.
+extern "C" fn throw_poison(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    super::throw::type_error(POISON_MESSAGE);
+    with_current(|context| undefined_of(context))
+}
+
+/// Installs the throwing `callee` accessor on a STRICT function's `arguments`
+/// object, and answers the object.
+///
+/// Only emitted where the program mentions `callee` at all: it costs a function
+/// cell per call, and a program that never names it cannot observe the lack.
+#[rtse::entry]
+pub fn strict_callee(arguments: u64) -> u64 {
+    with_current(|context| {
+        let Some(cell) = Value(arguments).as_slot() else {
+            return arguments;
+        };
+        let key = context.well_known("callee");
+        let number = super::modules::member_key(context, "callee");
+        let thrower = super::native::callable(context, throw_poison);
+        context.define_accessor_and_invalidate(cell, number, Some(thrower), Some(thrower));
+        super::native::hidden(context, cell, key);
+        arguments
+    })
+}
+
+/// Installs the `caller` and `arguments` poison accessors on `Function.prototype`,
+/// which is where a strict (or built-in, or bound) function inherits them from.
+pub(super) fn install_function_poison(context: &mut Context, cell: u32) {
+    let thrower = super::native::callable(context, throw_poison);
+    for name in ["caller", "arguments"] {
+        let key = context.well_known(name);
+        let number = super::modules::member_key(context, name);
+        context.define_accessor_and_invalidate(cell, number, Some(thrower), Some(thrower));
+        super::native::hidden(context, cell, key);
+    }
 }

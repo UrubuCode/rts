@@ -139,6 +139,37 @@ fn is_f64_one(func: &Function, value: ValueId) -> bool {
     )
 }
 
+/// The value of a divisor that is a constant positive integer in `i32` range,
+/// whether held as an `F64` constant or as an `I32`/`I64` constant widened by
+/// `ToF64`. `None` for anything else.
+///
+/// What a client needs to build an inline integer remainder guarded at run time:
+/// a positive divisor is neither 0 nor -1, so `srem` over it cannot trap.
+pub(crate) fn positive_i32_divisor(func: &Function, divisor: ValueId) -> Option<i32> {
+    let id = match defining_inst(func, divisor)? {
+        Inst::Const(id) => *id,
+        Inst::ToF64(inner) => match defining_inst(func, *inner)? {
+            Inst::Const(id) => *id,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let ConstDecl::Scalar { repr, bits } = func.constant(id)? else {
+        return None;
+    };
+    let value: f64 = match repr {
+        Repr::F64 => f64::from_bits(bits.0),
+        Repr::I32 => bits.0 as u32 as i32 as f64,
+        Repr::I64 => bits.0 as i64 as f64,
+        _ => return None,
+    };
+    if value >= 1.0 && value <= i32::MAX as f64 && value.fract() == 0.0 {
+        Some(value as i32)
+    } else {
+        None
+    }
+}
+
 /// Whether an integer remainder's divisor cannot make the instruction trap.
 ///
 /// # Why the builder has to ask
@@ -315,6 +346,30 @@ pub(crate) enum Int32Answer {
     Reuse(ValueId),
     /// The conversion is decided here, and this is what it answers.
     Settled(i32),
+    /// `ToInt32(a ± b)` over two int32-valued operands: a WRAPPING integer op.
+    Wrapping(NumOp, Int32Operand, Int32Operand),
+}
+
+/// One side of a [`Int32Answer::Wrapping`]: an `I32` value, or an int32 constant.
+pub(crate) enum Int32Operand {
+    Value(ValueId),
+    Const(i32),
+}
+
+/// An F64 value that is provably an int32: `ToF64` of an `I32`, or an
+/// int32-valued constant (`-0` is fine here, the sum's `ToInt32` erases it).
+fn int32_operand(func: &Function, value: ValueId) -> Option<Int32Operand> {
+    match *defining_inst(func, value)? {
+        Inst::ToF64(source) => Some(Int32Operand::Value(source)),
+        Inst::Const(id) => match func.constant(id)? {
+            ConstDecl::Scalar { repr: Repr::F64, bits } => {
+                let x = f64::from_bits(bits.0);
+                (x == f64::from(x as i32)).then_some(Int32Operand::Const(x as i32))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// The value a `ToInt32` would produce, when it is knowable while building.
@@ -352,6 +407,15 @@ pub(crate) fn to_int32_answer(func: &Function, value: ValueId) -> Option<Int32An
             } => Some(Int32Answer::Settled(to_int32_of(f64::from_bits(bits.0)))),
             _ => None,
         },
+        // SOUND FOR ADD AND SUB ONLY. Two int32s differ/sum by at most 2^32 in
+        // magnitude, far under 2^53, so the f64 result is EXACT and `ToInt32` of
+        // it is the value mod 2^32 — precisely what wrapping `iadd`/`isub` give.
+        // MUL is excluded on purpose: an int32 product reaches ~2^62, the f64
+        // product is ROUNDED past 2^53, and `ToInt32` of the rounded double is
+        // not a wrapping `imul` (that is why `Math.imul` exists). Div/Rem too.
+        Inst::FloatArith(op @ (NumOp::Add | NumOp::Sub), a, b) => {
+            Some(Int32Answer::Wrapping(op, int32_operand(func, a)?, int32_operand(func, b)?))
+        }
         _ => None,
     }
 }

@@ -47,14 +47,22 @@ fn a_bitwise_accumulator_narrows_nothing() {
 /// A binding an arithmetic store can reach keeps the double representation, so
 /// the bitwise operator beside it still converts.
 ///
-/// Not symmetry for its own sake. `a + 1` leaves the int32 range at
+/// Not symmetry for its own sake. An accumulator can leave the int32 range at
 /// 2 147 483 647 — JavaScript answers 2 147 483 648 and this representation
 /// cannot hold it — so a pass that claimed the binding anyway would answer a
 /// wrapped negative number, and be fast and wrong.
+///
+/// The accumulator adds `n`, the unknown parameter. This used to be `a + 1`, but
+/// the range domain (commit 219248373) proves that program bounded — the
+/// `a ^ 3` caps `a` to a few values, so `a + 1` cannot overflow and `a` is
+/// correctly int32 (byte-identical to Node). The old program therefore no longer
+/// exercises the keeps-a-double path; `a + n` has an unprovable range, so it does.
+/// Runtime soundness (overflow past 2^31 stays a float) is pinned against Node in
+/// the cross-runtime fixtures, `tests/cross-runtime/numeric/437_int32_binding.ts`.
 #[test]
 fn an_arithmetic_store_keeps_the_binding_a_double() {
     let mixed = narrowings(
-        "function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a + 1; a = a ^ 3; } return a; }",
+        "function t(n){ let a = 0; for (let i = 0; i < n; i++) { a = a + n; a = a ^ 3; } return a; }",
     );
     assert!(
         mixed > 0,

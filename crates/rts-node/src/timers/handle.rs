@@ -78,7 +78,8 @@ const REFED: &str = "@@#timer_refed";
 const DEAD: &str = "@@#timer_dead";
 /// What `refresh()` re-schedules.
 const CALLBACK: &str = "@@#timer_callback";
-/// The single forwarded argument, kept beside the callback for the same reason.
+/// The forwarded arguments (an array, or `undefined` for none), kept beside the
+/// callback for the same reason.
 const ARG: &str = "@@#timer_arg";
 /// The delay in milliseconds, already clamped — `refresh()` is defined as
 /// "start the original delay again", so the original is what is kept.
@@ -280,7 +281,7 @@ extern "C" fn refresh(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a3: u64
         Some((id, callback, arg, delay.max(1.0) as u64, periodic, refed))
     });
     if let Some((id, callback, arg, delay_ms, periodic, refed)) = plan {
-        super::rearm(id, callback, arg, delay_ms, periodic, refed);
+        super::rearm(id, callback, arg, this, delay_ms, periodic, refed);
     }
     this
 }

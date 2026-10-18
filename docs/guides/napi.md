@@ -13,6 +13,16 @@
 > (`force_link`) so the addon's `dlopen` can resolve them. The text below describes the
 > complete implementation (originated on the old engine, now deleted).
 
+> **Status as of 2026-10-18 (path check only):** `crates/rts-napi/` still exists
+> (modules: `loader.rs`, `scopes.rs`, `references.rs`, `functions.rs`, `handles.rs`,
+> `threadsafe.rs`, ...). But several paths in the "Code fact map" and elsewhere below
+> point at crates/files that are NOT in the current tree: the crates `rts-engine`,
+> `rts-primitives` and `rts-shared` do not exist, and
+> `crates/rts-codegen/src/{module/,pipeline.rs,codegen/}`,
+> `crates/rts-std/src/collector/error.rs` and `crates/rts-napi/napi_symbols.list` were
+> not found. They are historical references to the deleted engine, kept for context;
+> the runtime behaviour claims were not re-verified in this pass.
+
 > **Status:** Phase 0+1+2 + classes + ArrayBuffer + async-work + threadsafe +
 > **real BigInt** + **Promise↔async** + **legacy registration** ✅ — **159/159 fns
 > implemented (0 stubs)**. Node v22 parity: crc32, xxhash (+class), uuid,

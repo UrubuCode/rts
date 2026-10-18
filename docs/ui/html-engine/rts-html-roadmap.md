@@ -1,5 +1,7 @@
 # RTS HTML render engine — OPERATIONAL ROADMAP (F0-F5)
 
+> **Status as of 2026-10-18 (additive note):** substantial `rts-dom` work (grid/subgrid/layout/table) landed since this snapshot per the 2026-10 merge; specific capability claims below predate it and were not re-verified in this pass. Some `crates/rts-dom/src/...` / `crates/rts-egui/src/...` file paths cited below no longer exist at that exact path (e.g. `layout/*.rs` is now the directories `layout/{block,flex,float,fragment,grid,inline,measure,positioned,replaced}`; `painteffects.rs`, `style/parse.rs`, `style/props.rs` and `rts-egui/src/frame.rs` are now directories or absent); they were not mapped file-by-file.
+
 > ## ⚠️⚠️ REVERSAL OF DECISION #2 (2026-06-27) — LAYOUT MOVES TO rts-dom
 > **Developer decision (Marcos), 2026-06-27:** *"process everything in the DOM and
 > egui only reads and displays"*. This **REVERTS the central decision of this roadmap**

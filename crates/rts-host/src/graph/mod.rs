@@ -73,6 +73,9 @@ use crate::link::HostError;
 /// and the walk's table is not the compilation's — a tree carried out of here
 /// would name locals by numbers nothing else has issued.
 pub struct Loaded {
+    /// Embedded std (`rts-node`) or the user's own file: the `rts:core`
+    /// unsafe-primitive gate reads it.
+    pub origin: rts_codegen::emit::Origin,
     /// What an import of it names — the resolved path, as text.
     pub specifier: String,
     /// Where it came from, for resolving ITS imports.
@@ -159,7 +162,16 @@ pub(crate) fn forget_aliases() {
 /// writing the resolved name into both sides — the import that reads and the
 /// export that publishes — keeps the runtime's lookup a plain string comparison
 /// and keeps path resolution in the one place that read the files.
-pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
+pub fn rewrite(items: &mut [ModuleItem], resolutions: &[(String, String)]) {
+    // Answers the walk already found for THIS file (per-compilation, keyed by the
+    // written specifier of one referrer): `visit` resolved every specifier it
+    // kept with the same function, aliases and disk, so asking the disk again
+    // could only repeat it. A specifier absent here resolved to `None` there.
+    let known: std::collections::HashMap<&str, &str> = resolutions
+        .iter()
+        .map(|(written, resolved)| (written.as_str(), resolved.as_str()))
+        .collect();
+    let lookup = |written: &str| known.get(written).map(|resolved| (*resolved).to_owned());
     // The same question as the load's, asked again rather than threaded: this
     // walks the tree at a point the load's answers do not reach — a different
     // parse, against the compilation's own `Names`, with no pairing to carry
@@ -173,9 +185,9 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
         match item {
             ModuleItem::Import(import) => {
                 if let Some(found) =
-                    tsconfig::with_active(|aliases| resolve_written(from, &import.source, aliases))
+                    lookup(&import.source)
                 {
-                    import.source = found.display().to_string();
+                    import.source = found;
                 }
             }
             ModuleItem::Export(export) => match &mut export.kind {
@@ -184,16 +196,16 @@ pub fn rewrite(items: &mut [ModuleItem], from: &Path) {
                     ..
                 } => {
                     if let Some(found) =
-                        tsconfig::with_active(|aliases| resolve_written(from, source, aliases))
+                        lookup(source)
                     {
-                        *source = found.display().to_string();
+                        *source = found;
                     }
                 }
                 rts_codegen::syntax::ExportKind::All { source, .. } => {
                     if let Some(found) =
-                        tsconfig::with_active(|aliases| resolve_written(from, source, aliases))
+                        lookup(source)
                     {
-                        *source = found.display().to_string();
+                        *source = found;
                     }
                 }
                 _ => {}
@@ -256,7 +268,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         // on BOTH sides: the import that reads and the re-export that forwards.
         // The runtime's table is a string comparison, and `./x` means different
         // files in two directories.
-        rewrite(&mut program.body, &file.path);
+        rewrite(&mut program.body, &file.resolutions);
         parsed.push(program);
     }
 
@@ -271,6 +283,7 @@ pub(crate) fn front_end(entry: &Path) -> Result<Graph, HostError> {
         .iter()
         .zip(&parsed)
         .map(|(file, program)| rts_codegen::emit::Unit {
+            origin: file.origin,
             specifier: file.specifier.clone(),
             items: &program.body,
             // `__filename` and `__dirname`, decided HERE because where a file

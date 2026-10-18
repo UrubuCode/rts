@@ -44,6 +44,7 @@ pub(in crate::entry) fn made(context: &mut Context, bytes: &[u8]) -> u64 {
         offset: 0,
         length: bytes.len(),
         kind: Kind::Uint8,
+                tracking: false,
     };
     if let Some(destination) = window_mut(context, &view) {
         destination.copy_from_slice(bytes);
@@ -54,9 +55,14 @@ pub(in crate::entry) fn made(context: &mut Context, bytes: &[u8]) -> u64 {
 /// A `Buffer` instance over an EXISTING view — what [`slice`]/[`subarray`]
 /// answer, sharing bytes rather than copying them.
 fn instance_over(context: &mut Context, view: View) -> u64 {
+    // The backing cell is a bare slot index here; pin it (and the new instance)
+    // so a collection fired by any allocation below cannot sweep them.
+    let backing = super::super::buffers::Pin::new(view.buffer);
     let Some(cell) = native::plain(context) else {
+        backing.release();
         return undefined_of(context);
     };
+    let instance = super::super::buffers::Pin::new(cell);
     super::register_buffer(context);
     if let Some(prototype) = super::super::class_support::prototype(context, "Buffer") {
         context.set_prototype(cell, prototype);
@@ -68,6 +74,8 @@ fn instance_over(context: &mut Context, view: View) -> u64 {
     // same identity as the source storage.
     let parent_key = context.well_known("parent");
     super::super::objects::put(context, cell, parent_key, parent);
+    instance.release();
+    backing.release();
     Value::from_slot(cell).bits()
 }
 
@@ -94,6 +102,7 @@ pub(in crate::entry) fn from_array_buffer(
             offset,
             length,
             kind: Kind::Uint8,
+                tracking: false,
         },
     )
 }
@@ -115,21 +124,14 @@ pub(in crate::entry) fn source_bytes(context: &Context, value: u64, encoding: &s
         return Some(
             elements
                 .iter()
-                .map(|element| super::super::operators::as_number(context, Value(*element)).unwrap_or(0.0) as u8)
+                .map(|element| {
+                    let number = super::super::operators::as_number(context, Value(*element)).unwrap_or(0.0);
+                    if number.is_finite() { number.trunc().rem_euclid(256.0) as u8 } else { 0 }
+                })
                 .collect(),
         );
     }
     None
-}
-
-/// An `encoding` argument, defaulting to `"utf8"` for `undefined`.
-fn encoding_arg(context: &Context, value: u64) -> String {
-    if value == undefined_of(context) {
-        return "utf8".to_owned();
-    }
-    super::super::text::to_text(context, Value(value))
-        .and_then(|text| text.to_rust())
-        .unwrap_or_else(|| "utf8".to_owned())
 }
 
 /// Encoding validation for search methods, whose optional trailing slot is null
@@ -197,6 +199,7 @@ pub(in crate::entry) fn windowed(this: u64, begin: u64, end: u64) -> u64 {
                 offset: view.offset + first * size,
                 length: (last - first) * size,
                 kind: view.kind,
+                tracking: false,
             },
         )
     })
@@ -261,26 +264,6 @@ pub(in crate::entry) fn copy(this: u64, target: u64, target_start: u64, source_s
             into[start..start + count].copy_from_slice(&taken[..count]);
         }
         count as f64
-    })
-}
-
-/// `buf.fill(value, begin?, end?, encoding?)`.
-pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64, encoding: u64) -> u64 {
-    let begin = optional_number(begin);
-    let end = optional_number(end);
-    with_current(|context| {
-        let Some(view) = view_of(context, this) else { return this };
-        let (first, last) = range(view.count(), begin, end);
-        let enc = encoding_arg(context, encoding);
-        let pattern = pattern_of(context, value, &enc);
-        if !pattern.is_empty()
-            && let Some(bytes) = window_mut(context, &view)
-        {
-            for (offset, at) in (first..last).enumerate() {
-                bytes[at] = pattern[offset % pattern.len()];
-            }
-        }
-        this
     })
 }
 
@@ -371,6 +354,8 @@ pub(in crate::entry) fn to_json(this: u64) -> u64 {
         let Some(view) = view_of(context, this) else { return absent };
         let bytes = window(context, &view).map(<[u8]>::to_vec).unwrap_or_default();
         let Some(cell) = native::plain(context) else { return absent };
+        // Bare slot index across the interning / array allocations below: pin it.
+        let pin = super::super::buffers::Pin::new(cell);
         let type_value = context.intern_value(crate::text::Str::from_str("Buffer")).bits();
         let type_key = context.well_known("type");
         super::super::objects::put(context, cell, type_key, type_value);
@@ -378,6 +363,7 @@ pub(in crate::entry) fn to_json(this: u64) -> u64 {
         let data_value = super::super::array::built_in(context, data);
         let data_key = context.well_known("data");
         super::super::objects::put(context, cell, data_key, data_value);
+        pin.release();
         Value::from_slot(cell).bits()
     })
 }

@@ -23,12 +23,14 @@
 
 mod arena;
 mod blob;
+mod codecache;
 mod declare;
 mod destination;
 mod hosted;
 mod tables;
 
 pub use blob::DataBlob;
+pub use codecache::enable_code_cache;
 pub use declare::{Declarations, FunctionRefs, data_ref, func_ref};
 pub use destination::{executable_memory, executable_memory_calling, executable_memory_in_arena, object_file};
 pub use hosted::{InMemory, Placing, Visibility, place_in_memory, place_in_object};
@@ -109,6 +111,11 @@ pub struct MachineModule<'a> {
     /// rather than at construction — and only at all when [`Self::heap`] is
     /// `Some`, mirroring `imports`'s own guard.
     heap_imports: Option<crate::mem::HeapImports>,
+    /// Whether baked heap addresses are lowered as relocations, which is what
+    /// the compiled-code cache needs and what [`Self::with_code_cache`] turns on.
+    relocatable: bool,
+    /// The symbols standing in for those addresses, once declared.
+    immediates: Option<crate::mem::ImmediateIds>,
     faults: std::collections::HashMap<FuncId, crate::fault::FaultTable>,
     positions: std::collections::HashMap<FuncId, crate::observe::PositionMap>,
     /// What each function is called and how much code it became.
@@ -139,6 +146,8 @@ impl<'a> MachineModule<'a> {
             entries: crate::symbols::EntryTable::new(),
             heap: None,
             heap_imports: None,
+            relocatable: false,
+            immediates: None,
             faults: std::collections::HashMap::new(),
             positions: std::collections::HashMap::new(),
             emitted: std::collections::HashMap::new(),
@@ -229,6 +238,16 @@ impl<'a> MachineModule<'a> {
         self
     }
 
+    /// Lowers every baked heap address as a named relocation and consults the
+    /// compiled-code cache ([`enable_code_cache`]) in [`compile_all`](Self::compile_all).
+    ///
+    /// The caller must resolve the symbols [`crate::mem::RegionBases::immediate_values`]
+    /// names to this run's addresses before the module is finalized.
+    pub fn with_code_cache(mut self) -> Self {
+        self.relocatable = true;
+        self
+    }
+
     /// Compiles a single function body into the module.
     ///
     /// Convenience over [`prepare`](Self::prepare) +
@@ -295,6 +314,27 @@ impl<'a> MachineModule<'a> {
         }
         let count = planned.len();
 
+        // After the pre-pass, because the key covers every declaration the
+        // module holds and the pre-pass is what makes the last of them.
+        let cache = match self.relocatable {
+            true => {
+                let timing = crate::probe::Phase::start("cache key");
+                let cache = codecache::Run::new(
+                    self.module.isa(),
+                    self.call_conv,
+                    self.heap.as_ref(),
+                    types,
+                    funcs,
+                    self.module.declarations(),
+                    &self.declarations,
+                    &self.emitted,
+                );
+                timing.over(count);
+                cache
+            }
+            false => None,
+        };
+
         let results = {
             let _timing = crate::probe::Phase::start("lower+compile");
             let shared = self.shared(types);
@@ -310,11 +350,34 @@ impl<'a> MachineModule<'a> {
             // generator is the majority of the CPU spent here.
             let lowering = std::sync::atomic::AtomicU64::new(0);
             let compiling = std::sync::atomic::AtomicU64::new(0);
-            let work = |one| -> Result<Emitted, TargetError> {
+            let hits = std::sync::atomic::AtomicU64::new(0);
+            let work = |one: Planned<'_>| -> Result<(Emitted, Option<(codecache::Key, Vec<u8>)>), TargetError> {
                 let at = std::time::Instant::now();
+                // A hit replaces lowering and machine-compiling outright. The
+                // function it yields is the same `Emitted` a compile would, so
+                // everything after this point -- `define_all`, the fault table,
+                // the position map -- cannot tell the difference.
+                let base = one.body.position_base();
+                let key = match &cache {
+                    Some(cache) => match cache.lookup(one.id, one.declared, &one.name, one.body) {
+                        codecache::Lookup::Hit(emitted) => {
+                            hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            return Ok((*emitted, None));
+                        }
+                        codecache::Lookup::Miss(key) => Some(key),
+                        codecache::Lookup::Skip => None,
+                    },
+                    None => None,
+                };
                 let prepared = lower_one(&shared, one)?;
                 let lowered_at = std::time::Instant::now();
                 let emitted = compile_one(isa, prepared)?;
+                let stored = match (&cache, key) {
+                    (Some(cache), Some(key)) => cache
+                        .encode(shared.machine, &emitted, base)
+                        .map(|payload| (key, payload)),
+                    _ => None,
+                };
                 lowering.fetch_add(
                     (lowered_at - at).as_nanos() as u64,
                     std::sync::atomic::Ordering::Relaxed,
@@ -323,7 +386,7 @@ impl<'a> MachineModule<'a> {
                     lowered_at.elapsed().as_nanos() as u64,
                     std::sync::atomic::Ordering::Relaxed,
                 );
-                Ok(emitted)
+                Ok((emitted, stored))
             };
 
             let results = if planned.len() < PARALLEL_THRESHOLD {
@@ -355,9 +418,28 @@ impl<'a> MachineModule<'a> {
                     nanos(&compiling),
                     CODEGEN_NANOS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6,
                 );
+                if cache.is_some() {
+                    eprintln!(
+                        "rts-timing   code cache: {} hits, {} compiled, over {count}",
+                        hits.load(std::sync::atomic::Ordering::Relaxed),
+                        results.iter().filter(|(_, stored)| stored.is_some()).count(),
+                    );
+                }
             }
             results
         };
+        let mut fresh = Vec::new();
+        let mut emitted = Vec::with_capacity(results.len());
+        for (one, stored) in results {
+            emitted.push(one);
+            fresh.extend(stored);
+        }
+        let results = emitted;
+        if let Some(cache) = &cache {
+            let timing = crate::probe::Phase::start("cache write");
+            cache.finish(fresh);
+            timing.over(count);
+        }
 
         let timing = crate::probe::Phase::start("define");
         let defined = self.define_all(results);
@@ -447,6 +529,13 @@ impl<'a> MachineModule<'a> {
             self.heap_imports = Some(crate::mem::HeapImports::declare(self.module, bases)?);
         }
 
+        if self.relocatable
+            && self.immediates.is_none()
+            && let Some(bases) = &self.heap
+        {
+            self.immediates = Some(crate::mem::ImmediateIds::declare(self.module, bases)?);
+        }
+
         let mut planned = Vec::with_capacity(bodies.len());
         for &(id, body) in bodies {
             let declared = self
@@ -488,6 +577,7 @@ impl<'a> MachineModule<'a> {
                 .expect("the pre-pass declared the entry points"),
             heap: self.heap.as_ref(),
             heap_imports: self.heap_imports.as_ref(),
+            immediates: self.immediates,
             types,
             call_conv: self.call_conv,
         }
@@ -532,6 +622,7 @@ struct Shared<'a> {
     imports: &'a crate::symbols::EntryImports,
     heap: Option<&'a crate::mem::RegionBases>,
     heap_imports: Option<&'a crate::mem::HeapImports>,
+    immediates: Option<crate::mem::ImmediateIds>,
     types: &'a crate::types::TypeRegistry,
     call_conv: CallConv,
 }
@@ -558,6 +649,7 @@ fn lower_one(shared: &Shared<'_>, planned: Planned<'_>) -> Result<Prepared, Targ
                 .heap_imports
                 .and_then(|imports| imports.base())
                 .map(|data| (shared.machine, data)),
+            imm: shared.immediates.map(|ids| (shared.machine, ids)),
         }),
     )?;
 
@@ -754,6 +846,18 @@ impl MachineModule<'_> {
             .map(|(name, _)| name.clone())
             .ok_or(TargetError::UndeclaredFunction(id))?;
 
+        // Indirect method/property sites hold TWO entries (a duplex), so their
+        // cell is two cache lines; every other kind stays one. Per kind and not
+        // global so the monomorphic direct read keeps the tight 64-byte cell.
+        let mut duplex = vec![false; func.cache_count()];
+        for (_, block) in func.blocks() {
+            if let Some(crate::ir::Terminator::CachedGetIndirect { cache, .. }) = &block.terminator
+                && let Some(flag) = duplex.get_mut(cache.index())
+            {
+                *flag = true;
+            }
+        }
+
         let mut declared = Vec::with_capacity(func.cache_count());
         for site in 0..func.cache_count() {
             let data = self.module.declare_data(
@@ -796,6 +900,17 @@ impl MachineModule<'_> {
             // not a claim about a size that is not one.
             cold.extend_from_slice(&0i64.to_ne_bytes());
             cold.extend_from_slice(&0i64.to_ne_bytes());
+            if duplex[site] {
+                // Word seven carries the marker the resolver tests before it
+                // writes the second entry: a cell that does not carry it is
+                // sixty-four bytes and has no second entry to write.
+                let at = cold.len() - 8;
+                cold[at..].copy_from_slice(&crate::mem::DUPLEX_MARK.to_ne_bytes());
+                // The second entry, cold in the same way as the first.
+                for word in [-1i64, 0, 0, -1, 0, -1, 0, 0] {
+                    cold.extend_from_slice(&word.to_ne_bytes());
+                }
+            }
 
             let mut description = cranelift_module::DataDescription::new();
             // Every load of these words is `MemFlags::trusted()`, which asserts
@@ -1101,10 +1216,17 @@ pub fn isa_with(
     // `Priority::CodeQuality` at `target/destination.rs` precisely to buy code
     // quality at build time and is currently buying it with the optimizer off.
     // No stated argument covers that, and this knob does not settle it.
-    if let Ok(level) = std::env::var("RTS_CL_OPT") {
-        cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
-            .expect("a real setting");
-    }
+    //
+    // UPDATE 2026-10-16: default is now `speed`. With direct calls, inline
+    // RunRead and inline CellAlloc the IR is no longer mostly opaque. Release,
+    // min-of-7, interleaved 2 passes, ns/iter none -> speed: arith 1.04->0.91,
+    // index 5.57->5.30, alloc_escape 30.9-34.2->29.0-29.5, call_noinline
+    // 7.0->6.2, mod 6.39->6.31. 400-fn script place: 172 vs 171 ms (noise).
+    // `RTS_CL_OPT=none` restores the old behaviour. Not covered: whether it
+    // helps programs that are still dominated by runtime calls.
+    let level = std::env::var("RTS_CL_OPT").unwrap_or_else(|_| "speed".to_owned());
+    cranelift_codegen::settings::Configurable::set(&mut flags, "opt_level", &level)
+        .expect("a real setting");
     let verify = match std::env::var_os("RTS_CL_VERIFY") {
         Some(_) => true,
         None => cfg!(debug_assertions),

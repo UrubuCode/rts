@@ -78,6 +78,13 @@ pub(super) fn emit_call_as(
         return Ok(value);
     }
 
+    // A call of a name imported from `rts:core`: the direct op, no call.
+    if scope_is_lexical
+        && let Some(value) = super::core_call::emit(builder, scope, ctx, callee, arguments)?
+    {
+        return Ok(value);
+    }
+
     // One machine instruction, when the whole program proves the name still
     // means what it means and the argument is already a proven double.
     if scope_is_lexical
@@ -120,6 +127,14 @@ pub(super) fn emit_call_as(
             arguments,
             op == RuntimeOp::TailCall,
         )?
+    {
+        return Ok(value);
+    }
+
+    // A declaration `direct_call` proved safe, as a machine call and not the door.
+    if scope_is_lexical
+        && op == RuntimeOp::Call
+        && let Some(value) = super::direct_call::emit(builder, scope, ctx, callee, arguments)?
     {
         return Ok(value);
     }

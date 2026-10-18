@@ -431,6 +431,15 @@ pub struct Function {
     /// answered `C.length === 4` — a number about this engine's calling
     /// convention, leaking through a property the language pins.
     pub advertised_length: Option<u32>,
+    /// The core op a call of it lowers to, when written `@intrinsic("name")`.
+    ///
+    /// Only a top-level declaration carries one, and only std honours it
+    /// (`emit::register_intrinsics`). The body still exists and emits: a value
+    /// use of the name reads the real function.
+    pub intrinsic: Option<rts_corelib::CorePrimitive>,
+    /// Written `@inline`: lift the inliner's statement budget for this function.
+    /// It lifts that budget ONLY; see `emit::inline::shape_of`.
+    pub inline: bool,
     /// Where it was written.
     pub at: Position,
 }
@@ -507,6 +516,13 @@ pub struct Parameter {
     pub default: Option<Expr>,
     /// What the program claimed it holds.
     pub claim: Option<Claim>,
+    /// Whether the program wrote `@repr(i32)` on it: the value is a raw int32, and its
+    /// arithmetic WRAPS (asm.js semantics) as if `|0` followed every operation.
+    ///
+    /// Std-only -- `emit/function.rs` refuses it in user code, because wrapping where the
+    /// program wrote `+` is a different answer, and only the std author may opt a value
+    /// into it. Read by `lower/` and by nothing else.
+    pub repr_i32: bool,
 }
 
 impl Function {

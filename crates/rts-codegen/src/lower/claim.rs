@@ -191,7 +191,9 @@ impl Lowering<'_> {
             // ALREADY A NUMBER, so there is nothing to check and the point goes unused.
             // `pair` is one-directional for exactly this: the generic tier may carry a
             // label the specialised tier never falls to.
-            let settled = matches!(of, crate::domain::Type::Int32 | crate::domain::Type::Double);
+            let settled = matches!(of, crate::domain::Type::Int32
+                    | crate::domain::Type::Ranged(..)
+                    | crate::domain::Type::Double);
             if self.builder.tier() != Tier::Specialised || settled {
                 if self.builder.tier() != Tier::Specialised {
                     self.builder.resumable(point);

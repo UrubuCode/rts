@@ -126,7 +126,9 @@
 //! the DOM `EventTarget` re-exported below); nothing in this crate's P0/P1
 //! target set imports either by name.
 //!
-//! `captureRejections`, `errorMonitor`, `captureRejectionSymbol`, and
+//! `errorMonitor` IS implemented (registry symbol `events.errorMonitor`,
+//! run before `'error'` handling by `emit`). `captureRejections`,
+//! `captureRejectionSymbol`, and
 //! `MaxListenersExceededWarning` remain absent — the listener-limit setters
 //! record values but do not warn, and a listener's rejected promise is not
 //! observed. The full unhandled-`'error'` process-hook path (`errorMonitor`
@@ -252,6 +254,12 @@ pub fn namespace(context: &mut Context) -> u64 {
         entry::put_member(context, namespace, name, class);
         entry::put_member(context, constructor, name, class);
     }
+    // `errorMonitor` — `Symbol.for` called with the context already in hand
+    // (`registry_symbol` re-enters the runtime, which this frame holds).
+    // Install-time calls have no runtime installed, so it is a lazy getter.
+    for target in [namespace, constructor] {
+        entry::define_accessor_in(context, target, "errorMonitor", error_monitor_get, None);
+    }
     // CommonJS returns the constructor itself (`require("events")`), whose
     // static helpers mirror the module namespace in Node. Keep both views on
     // the same callable cells rather than rebuilding any function.
@@ -274,6 +282,30 @@ pub fn namespace(context: &mut Context) -> u64 {
         Some(max_listeners::default_set),
     );
     namespace
+}
+
+/// `Symbol.for(key)` through the global `Symbol`; registry symbols are stable
+/// for the program's life, so no rooting or memo is needed.
+fn registry_symbol(key: &str) -> u64 {
+    // The globals are built lazily; a computed read on the global object is
+    // the path that supplies a name nothing has asked for yet.
+    let name_key = entry::with_runtime(|context| i64::from(entry::member_key(context, "Symbol")));
+    let symbol = entry::global_get(name_key);
+    let for_fn = entry::get_indexed(symbol, string_key("for"));
+    let text = string_key(key);
+    let absent = entry::undefined_value();
+    entry::call(for_fn, symbol, text, absent, absent, absent)
+}
+
+/// `events.errorMonitor`. Node's is a unique `Symbol('events.errorMonitor')`;
+/// this is the registry symbol of the same description (only
+/// `Symbol.keyFor` can tell them apart).
+pub(super) fn error_monitor_symbol() -> u64 {
+    registry_symbol("events.errorMonitor")
+}
+
+extern "C" fn error_monitor_get(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    error_monitor_symbol()
 }
 
 /// `new EventEmitter()` — see the module doc for why calling it plainly also

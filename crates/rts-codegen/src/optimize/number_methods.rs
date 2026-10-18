@@ -86,7 +86,7 @@ pub fn fuse_number_methods(
                 continue;
             };
             let (held, receiver, args) = (*held, *receiver, args.clone());
-            if !matches!(types.of(receiver), Type::Int32 | Type::Double) || readers.get(&held) != Some(&1) {
+            if !matches!(types.of(receiver), Type::Int32 | Type::Ranged(..) | Type::Double) || readers.get(&held) != Some(&1) {
                 continue;
             }
             let Some(&read) = defined.get(&held) else {

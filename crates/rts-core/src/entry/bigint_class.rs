@@ -44,6 +44,12 @@ use super::{Context, with_current};
 use crate::bigint::BigInt;
 use crate::value::Value;
 
+/// Why `BigInt(x)` refused, carrying what the message names.
+enum Refusal {
+    Range(f64),
+    Syntax(String),
+}
+
 /// `BigInt`.
 ///
 /// `tag` because `BigInt.prototype[Symbol.toStringTag]` is `"BigInt"` in the
@@ -61,10 +67,38 @@ impl BigIntClass {
     #[construct]
     fn convert(this: u64, value: u64) -> u64 {
         let _ = this;
-        with_current(|context| match parsed(context, value) {
-            Some(held) => context.bigint_value(held),
-            None => undefined_of(context),
-        })
+        // The refusal is decided in the borrow and RAISED after it, for the
+        // reason `settled` states: building the error takes the context again.
+        // A number that is not an integer is a `RangeError`; text that is not an
+        // integer literal is a `SyntaxError`, which is why `parsed` alone cannot
+        // say which — it answers `None` for both.
+        let refusal = with_current(|context| match parsed(context, value) {
+            Some(held) => Ok(context.bigint_value(held)),
+            None => match Value(value).numeric() {
+                Some(number) => Err(Refusal::Range(number)),
+                None => match Value(value)
+                    .as_slot()
+                    .and_then(|cell| context.text_at(cell))
+                    .and_then(|text| text.to_rust())
+                {
+                    Some(text) => Err(Refusal::Syntax(text)),
+                    None => Ok(undefined_of(context)),
+                },
+            },
+        });
+        match refusal {
+            Ok(answer) => answer,
+            Err(Refusal::Range(number)) => {
+                let shown = crate::coerce::number_to_string(number).to_rust().unwrap_or_default();
+                let message = format!("The number {shown} cannot be converted to a BigInt because it is not an integer");
+                super::throw::range_error(&message);
+                with_current(|context| undefined_of(context))
+            }
+            Err(Refusal::Syntax(text)) => {
+                super::throw::syntax_error(&format!("Cannot convert {text} to a BigInt"));
+                with_current(|context| undefined_of(context))
+            }
+        }
     }
 
     /// `BigInt.asIntN(bits, value)` — the low bits, read as signed.
@@ -101,6 +135,7 @@ impl BigIntClass {
                 return with_current(|context| undefined_of(context));
             }
         }
+        let this = super::primitive_proto::unwrapped(this);
         with_current(|context| {
             let Some(held) = super::bigints::digits_of(context, this) else {
                 return undefined_of(context);
@@ -115,7 +150,7 @@ impl BigIntClass {
 
     /// `big.valueOf()` — the bigint itself.
     fn value_of(this: u64) -> u64 {
-        this
+        super::primitive_proto::unwrapped(this)
     }
 
     /// `big.toLocaleString()` — the same digits as `toString`, since there is no
@@ -130,6 +165,7 @@ impl BigIntClass {
 /// Shared by `toLocaleString` and by the base-ten arm of `toString`, so the two
 /// cannot come to disagree about how a negative sign is written.
 fn decimal(this: u64) -> u64 {
+    let this = super::primitive_proto::unwrapped(this);
     with_current(|context| match super::bigints::digits_of(context, this) {
         Some(held) => {
             let text = held.to_decimal();
@@ -258,17 +294,23 @@ pub(super) fn binary(
     let (a, b) = match (a, b) {
         (Some(a), Some(b)) => (a, b),
         (a, b) if matches!(op, Op::Compare(_)) => {
-            let across = |held: Option<BigInt>, value: u64| match held {
-                Some(held) => Some(held),
-                None => BigInt::from_f64(super::operators::as_number(context, Value(value))?),
+            let Op::Compare(want) = op else { unreachable!() };
+            // The number side is compared by its EXACT value, so a fraction
+            // or an infinity still orders: `2n > 1.5` and `1n < Infinity` are
+            // true. Only `NaN` is unordered, and every relational operator
+            // answers false for that.
+            let ordering = match (a, b) {
+                (Some(big), None) => {
+                    let number = super::operators::as_number(context, Value(right))?;
+                    big_against_number(&big, number)
+                }
+                (None, Some(big)) => {
+                    let number = super::operators::as_number(context, Value(left))?;
+                    big_against_number(&big, number).map(core::cmp::Ordering::reverse)
+                }
+                _ => None,
             };
-            match (across(a, left), across(b, right)) {
-                (Some(a), Some(b)) => (a, b),
-                // A fraction, a `NaN` or an infinity: no bigint says the same
-                // thing, and every relational operator answers false for an
-                // unordered pair — which is what `NaN` already produces.
-                _ => return Some(Ok(Value::from_bool(false).bits())),
-            }
+            return Some(Ok(Value::from_bool(ordering.is_some_and(|o| want.holds(o))).bits()));
         }
         // Arithmetic with one side only. The language does not coerce ACROSS the
         // boundary and does not answer either — it **refuses**, and the refusal
@@ -328,6 +370,35 @@ pub(super) fn binary(
         }
     };
     Some(Ok(context.bigint_value(produced)))
+}
+
+/// Where a bigint sits against a number, by the number's exact mathematical
+/// value — never by converting the bigint to a double, which would round every
+/// bigint past 2^53. `None` is *unordered*, which only `NaN` is.
+fn big_against_number(big: &BigInt, number: f64) -> Option<core::cmp::Ordering> {
+    use core::cmp::Ordering;
+    if number.is_nan() {
+        return None;
+    }
+    // An infinity decides at once: every bigint is below `+Infinity`.
+    if number.is_infinite() {
+        return Some(if number > 0.0 { Ordering::Less } else { Ordering::Greater });
+    }
+    // The integer part is exactly a bigint; the fraction only breaks a tie.
+    let whole = BigInt::from_f64(number.trunc())?;
+    match big.cmp(&whole) {
+        Ordering::Equal => {
+            let fraction = number - number.trunc();
+            Some(if fraction > 0.0 {
+                Ordering::Less
+            } else if fraction < 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            })
+        }
+        other => Some(other),
+    }
 }
 
 /// How large a result these operations will build before refusing.

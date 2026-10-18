@@ -13,7 +13,7 @@
 use rts_core::entry;
 use std::time::{Duration, Instant};
 
-use super::{Deliver, clamp_delay, forget, handle, register, registered, source};
+use super::{Deliver, bind, clamp_delay, forget, handle, register, registered, source};
 
 const PRESENT: fn(u64) -> bool = |value| value != entry::undefined_value();
 
@@ -51,8 +51,24 @@ pub fn namespace(context: &mut entry::Context) -> u64 {
 ///
 /// [`source`] keeps its own, and that one is not the same thing: it is the loop
 /// ASKING what is due, which is the question pumping answers.
-extern "C" fn set_timeout(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
+extern "C" fn set_timeout(_e: u64, _this: u64, callback: u64, delay: u64, a0: u64, a1: u64) -> u64 {
+    let arg = pack(2, [callback, delay, a0, a1]);
     schedule(callback, arg, clamp_delay(delay, 0), None)
+}
+
+/// Every argument after the first `skip` as one array, or `undefined` for none.
+///
+/// Past the four slots the compiler spilled the rest into the runtime's vector,
+/// and `arguments_at` is the one reader of both halves — the rule `nextTick`'s
+/// three-slot limit predates. An array because a table entry holds one word, and
+/// because `call_with_args` spreads one back into a call of any width. Trailing
+/// `undefined` is dropped, the divergence `arguments_at` names.
+fn pack(skip: usize, slots: [u64; 4]) -> u64 {
+    let given = entry::with_runtime(|context| entry::arguments_at(context, skip, slots));
+    match given.is_empty() {
+        true => entry::undefined_value(),
+        false => entry::make_array(given),
+    }
 }
 
 /// `clearTimeout(id)`.
@@ -62,7 +78,8 @@ extern "C" fn clear_timeout(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _a
 }
 
 /// `setInterval(callback, delay?, arg?)`.
-extern "C" fn set_interval(_e: u64, _this: u64, callback: u64, delay: u64, arg: u64, _a3: u64) -> u64 {
+extern "C" fn set_interval(_e: u64, _this: u64, callback: u64, delay: u64, a0: u64, a1: u64) -> u64 {
+    let arg = pack(2, [callback, delay, a0, a1]);
     let period = Duration::from_millis(clamp_delay(delay, 0));
     schedule(callback, arg, period.as_millis() as u64, Some(period))
 }
@@ -75,12 +92,21 @@ extern "C" fn clear_interval(_e: u64, _this: u64, id: u64, _a1: u64, _a2: u64, _
 
 /// `setImmediate(callback, arg?)` — due at the next [`super::pump`], not after any
 /// delay.
-extern "C" fn set_immediate(_e: u64, _this: u64, callback: u64, arg: u64, _a2: u64, _a3: u64) -> u64 {
+extern "C" fn set_immediate(_e: u64, _this: u64, callback: u64, a0: u64, a1: u64, a2: u64) -> u64 {
     if !PRESENT(callback) {
         return entry::undefined_value();
     }
-    let id = registered(Deliver::Call { callback, arg }, Instant::now(), None, true);
-    entry::with_runtime(|context| handle::immediate(context, id, callback, arg))
+    let arg = pack(1, [callback, a0, a1, a2]);
+    let absent = entry::undefined_value();
+    let deliver = Deliver::Call {
+        callback,
+        arg,
+        handle: absent,
+    };
+    let id = registered(deliver, Instant::now(), None, true);
+    let object = entry::with_runtime(|context| handle::immediate(context, id, callback, arg));
+    bind(id, object);
+    object
 }
 
 /// `clearImmediate(id)`.
@@ -94,10 +120,18 @@ fn schedule(callback: u64, arg: u64, delay_ms: u64, period: Option<Duration>) ->
         return entry::undefined_value();
     }
     let deadline = Instant::now() + Duration::from_millis(delay_ms);
-    let id = register(Deliver::Call { callback, arg }, deadline, period);
-    entry::with_runtime(|context| {
+    let absent = entry::undefined_value();
+    let deliver = Deliver::Call {
+        callback,
+        arg,
+        handle: absent,
+    };
+    let id = register(deliver, deadline, period);
+    let object = entry::with_runtime(|context| {
         handle::timeout(context, id, callback, arg, delay_ms, period.is_some())
-    })
+    });
+    bind(id, object);
+    object
 }
 
 /// Removes a timer by the value a program passed `clearTimeout`.

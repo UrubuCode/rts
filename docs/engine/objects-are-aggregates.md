@@ -126,3 +126,17 @@ lookup — faster, and still the wrong shape. The cache belongs on top of
 `guard_type` and `field_load`, which is what it was designed for.
 
 So the next step is not E4b as previously written. It is the heap.
+
+> **Status as of 2026-10-18.** The 94.8 ns figure and "none of the four pieces is
+> used" describe the tree at the time this was written and are kept as history;
+> `new-engine-speed.md` already records the same day-range's fall to ~0.9 ns per
+> cached read and 5.4 ns per write once the cache was emitted. Today a monostatic
+> property read is ~4.5 ns end to end, a 2-entry method IC is in place
+> (`4b5fb8fbc`; deep-inherited and poly2 calls cached at mono speed, poly4 and
+> megamorphic still thrash), `CellAlloc` inlines the allocation bump (~5-7 ns,
+> `5f08f5dd6`, so "the GC contract ... has not been built" is no longer the
+> obstacle for allocation), and non-escaping allocations — class instances
+> included, via `emit/class_layout` — are scalar-replaced (one case 80 → 4.5 ns).
+> The residual allocation cost is the collector's per-table sweep. Whether the
+> "bag of overflow at 0.25 ns" step 3 matches the present overflow design was not
+> checked.

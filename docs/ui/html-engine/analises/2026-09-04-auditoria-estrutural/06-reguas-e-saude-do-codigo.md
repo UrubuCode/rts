@@ -1,5 +1,7 @@
 # Lente: Réguas, testes e saúde do código
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 > Auditoria estrutural do motor HTML/CSS/DOM, 2026-09-04. Relatório de UM agente
 > (Sonnet, só leitura, obrigado a citar `ficheiro:linha` e a verificar no código e não
 > nos docs), tal como o devolveu — sem edição de conteúdo. A síntese e o veredito

@@ -75,6 +75,7 @@ mod object_rest;
 mod places;
 mod protect;
 mod push;
+mod repr;
 mod substitute;
 mod suspend;
 mod switch;
@@ -241,6 +242,7 @@ pub fn lower_within(
         outer,
         loops: Vec::new(),
         points: 0,
+        repr_i32: std::collections::BTreeSet::new(),
     };
 
     // WHICH PARAMETERS THE BODY COERCES, read from the SYNTAX so that both tiers agree.
@@ -251,6 +253,10 @@ pub fn lower_within(
     let mut patterns = Vec::new();
     for (position, parameter) in function.parameters.iter().enumerate() {
         let Pattern::Name(name) = &parameter.target else {
+            // `@repr(i32)` names ONE value; a destructuring pattern is several.
+            if parameter.repr_i32 {
+                return Err(Unsupported::Pattern);
+            }
             // A PATTERN arrives as one value and is taken apart once the environment
             // is open -- `gather.rs`, with the defaults. One past the slots arrives in
             // no register and is not taken apart here yet.
@@ -282,6 +288,22 @@ pub fn lower_within(
             return Err(Unsupported::NoScope);
         };
         let at = lowering.at_parameter(*name, function.at);
+        // A RAW INT32 IS SPECULATED A DOUBLE AT THE ENTRY and then truncated. The guard is
+        // the ordinary entry one (a fall to the generic tier, where `ToInt32` runs the
+        // full conversion), and it is what puts the value in a machine F64 register: with
+        // no guard the `|0` would merge a fast and a slow arm into a Tagged phi and every
+        // later `+` would guard it again. Registered AFTER the speculation and BEFORE the
+        // rewrite, so the rewrite -- `write_binding`, the one path every write takes -- is
+        // what makes it an `Int32`.
+        if parameter.repr_i32 {
+            lowering.speculate_binding(binding, &at);
+            lowering.repr_i32.insert(binding);
+            if let Some(held) = lowering.values.get(&binding).copied() {
+                let of = lowering.type_of(held);
+                lowering.write_binding(binding, held, of, &at)?;
+            }
+            continue;
+        }
         let claimed = match &parameter.claim {
             Some(claim) => lowering.guard_claim(*name, binding, claim, &at),
             None => false,
@@ -464,6 +486,8 @@ struct Lowering<'a> {
     /// the two are numbered by one rule applied to one traversal rather than by two
     /// counters that happen to agree.
     points: u32,
+    /// The parameters written `@repr(i32)`: raw int32s whose arithmetic wraps. See `repr.rs`.
+    repr_i32: std::collections::BTreeSet<BindingId>,
 }
 
 impl Lowering<'_> {
@@ -599,6 +623,11 @@ impl Lowering<'_> {
             ExprKind::Ident(name) if self.substituted_name(*name).is_some() => {
                 Ok(self.substituted_name(*name).expect("just asked"))
             }
+            // A NAME IMPORTED FROM `rts:core` has no value: refused here, so the running
+            // emitter refuses it by name (`binding::lexical_read`).
+            ExprKind::Ident(name) if self.is_core_import(*name) => Err(Unsupported::Expression(
+                "a name imported from rts:core used other than as a call",
+            )),
             ExprKind::Ident(name) => {
                 match self.resolution.binding_in(self.scope, *name) {
                     Some(binding) => self.read_binding(binding, *name, expr),
@@ -921,9 +950,16 @@ impl Lowering<'_> {
                 self.typeof_is(*op, left, right, expr)
             }
             ExprKind::Binary { op, left, right } => {
+                // `@repr(i32)`: a wrapping `+ - *` between raw int32s -- `repr.rs`.
+                let wraps = self.wraps(*op, left, right);
                 let left = self.expression(left)?;
                 let right = self.expression(right)?;
                 match op {
+                    _ if wraps => {
+                        let prim = primitive(*op).expect("`+ - *` have rows");
+                        let raw = self.prim(prim, vec![left, right], expr);
+                        self.to_int32(raw, expr)
+                    }
                     // `!==` AND `!=` ARE A NEGATION, and this is the case where rewriting is
                     // legal — which is worth stating beside the comparisons, where it was not.
                     //
@@ -984,6 +1020,30 @@ impl Lowering<'_> {
         self.write_binding(binding, value, of, at)
     }
 
+    /// `bind` for an ASSIGNMENT written in the program. The name a function
+    /// expression binds for its own body is immutable: sloppy code drops the
+    /// write, strict code throws, and this stage does not build the throw -- it
+    /// refuses, and the function is emitted by the stage that does.
+    fn bind_assigned(
+        &mut self,
+        name: Name,
+        value: ValueId,
+        of: Type,
+        at: &Expr,
+    ) -> Result<(), Unsupported> {
+        if let Some(binding) = self.resolution.binding_in(self.scope, name) {
+            if self.resolution.binding(binding).origin == crate::names::resolve::Origin::OwnName {
+                if self.sloppy {
+                    return Ok(());
+                }
+                return Err(Unsupported::Expression(
+                    "an assignment to the name a function expression binds for itself",
+                ));
+            }
+        }
+        self.bind(name, value, of, at)
+    }
+
     /// Writes a binding already resolved: its environment slot, or its value.
     fn write_binding(
         &mut self,
@@ -992,6 +1052,16 @@ impl Lowering<'_> {
         of: Type,
         at: &Expr,
     ) -> Result<(), Unsupported> {
+        // A RAW INT32 TAKES EVERY WRITE THROUGH `ToInt32`, so it is an `Int32` at the entry,
+        // after an assignment and out of a loop -- `repr.rs`.
+        let (value, of) = match self.repr_i32.contains(&binding) {
+            true => {
+                let value = self.to_int32(value, at)?;
+                let of = self.type_of(value);
+                (value, of)
+            }
+            false => (value, of),
+        };
         if self.resolution.captured(binding) && !self.prologue {
             return self.env_write(binding, value, at);
         }

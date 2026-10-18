@@ -1,5 +1,38 @@
 # How fast the new engine is, measured against the old one
 
+> **Status as of 2026-10-18 — this file is a DATED MEASUREMENT LOG (2026-08-04
+> through 2026-08-21) and is kept as history; no number below was re-measured.**
+> Things that have moved since, so a reader does not mistake a log row for the
+> current state:
+> - **Calls.** A light, captureless module function with at most four plain
+>   parameters now lowers to a direct `FuncAddr` call (`emit/direct_call.rs`,
+>   commit `f9298d814`): ~22 → ~7 ns. Methods, capturing closures and imports
+>   still take the door. The `call closure make+call` row (1 494 ns) is a
+>   closure-creation row and is not that path.
+> - **Allocation.** `CellAlloc` already inlines the bump (~5-7 ns, `5f08f5dd6`);
+>   the "39-73 % collector" residual quoted below is the part that remains.
+>   Non-escaping allocations are scalar-replaced (~1 ns) and `new C()` qualifies
+>   at ~38 ns; class-instance scalar replacement (`emit/class_layout`) took one
+>   case 80 → 4.5 ns.
+> - **instanceof.** ~32 ns net now (`has_instance_absent` memo, `HAS_INSTANCE`
+>   in `CACHED_KEYS`, per-receiver cache `382409d5a`, leaf constant-fold
+>   `7dc3f124e`). The `prop instanceof` row and the "+6.2 %" note in the
+>   2026-08-21 section predate all of that. poly4/megamorphic `instanceof`
+>   (~45 ns) is the larger open number.
+> - **Property/method dispatch.** A 2-entry method IC exists (`4b5fb8fbc`);
+>   deep-inherited methods and poly2 are cached at mono speed; poly4/mega still
+>   thrash. Mono property read is ~4.5 ns.
+> - **Work list at the end (2026-08-21).** Items 1 (`species::made`) and 5
+>   (inherited reads) were written against `617e2d5f`; `species::made` has since
+>   gained an ordinary-array fast path (see its source comment) and deep-inherited
+>   method reads are now cached. Whether the fixed-cost and value-read figures in
+>   items 1 and 5 still hold is **unverified against the current tree**. Item 3
+>   (`Inst::ElementLoad` unreachable) is likewise unverified: `rts-codegen` no
+>   longer mentions `ElementLoad`, but the instruction still exists in
+>   `rts-cranelift`.
+> - Method note stands: allocating rows need their own process and a control
+>   (see the order/GC-pause caveats in the 2026-08-21 section).
+
 > **Superseded in part, the same day.** The 130× below was measured before the
 > type pass existed, and it is what motivated writing one. After it: **0.91 ns
 > per pass against the old engine's 0.70** — 1.3× rather than 130×. The

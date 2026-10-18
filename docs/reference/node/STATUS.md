@@ -18,6 +18,12 @@ that is the authority on its gaps; this file is about which modules exist at all
 
 ---
 
+**Re-checked 2026-10-18 by running:** every module in the list below imports
+under `target/debug/rts.exe run` and exposes its headline export. Exceptions
+within a registered module: `http2.createSecureServer` is `undefined` (only
+`connect`/`createServer` present), and `node:test` has no `default` export. See
+the dated block in [`node_completed.md`](./node_completed.md).
+
 ## Registered
 
 `assert` · `async_hooks` · `buffer` · `child_process` · `crypto` ·

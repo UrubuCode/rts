@@ -289,6 +289,34 @@ impl Context {
         self.proxies.copied(cell)
     }
 
+    /// Whether a cell has `[[Call]]`: a function, or a proxy whose target does.
+    ///
+    /// A proxy has no code address and must not have one, so `callable_at` is
+    /// `None` for it; but `typeof`, the "is this a function" checks of the array
+    /// and promise surfaces, and `IsCallable` all ask the TARGET's answer. The
+    /// walk follows nested proxies, and a REVOKED proxy keeps answering
+    /// (`proxy::revocable` retains the target of a callable one for exactly
+    /// this): the specification fixes `[[Call]]` at creation, not at revoke.
+    pub(super) fn is_callable_cell(&self, cell: u32) -> bool {
+        let mut at = cell;
+        for _ in 0..super::objects::CHAIN_LIMIT {
+            if self.callable_at(at).is_some() {
+                return true;
+            }
+            if !self.any_proxy() {
+                return false;
+            }
+            let Some((target, _)) = self.proxy_at(at) else {
+                return false;
+            };
+            let Some(next) = Value(target).as_slot() else {
+                return false;
+            };
+            at = next;
+        }
+        false
+    }
+
     /// Whether this program has made a proxy at all.
     ///
     /// The gate on the prototype-chain walk `proxy::prototype::above` performs:
@@ -303,6 +331,13 @@ impl Context {
 
     /// Records what a proxy stands for.
     pub(super) fn set_proxy(&mut self, cell: u32, target: u64, handler: u64) {
+        // The first proxy turns the element table off for good. The runtime's own
+        // element read (`computed::direct`) already refuses to answer once
+        // [`Self::any_proxy`] is true, handing everything to the generic read
+        // that asks the proxy first; compiled code that read the table would
+        // answer without asking. Permanent for the reason `any_proxy` is: the
+        // table of proxies never shrinks.
+        self.region.runs_mut().disarm();
         self.proxies.set(cell, (target, handler));
     }
 

@@ -331,6 +331,15 @@ fn emit_function(
 ) -> EmitResult<FuncId> {
     // TAKEN FIRST, before anything nested can be emitted and read it.
     let candidate = std::mem::take(&mut ctx.mir_candidate);
+    // `@repr(i32)` IS STD-ONLY, refused here exactly as `@intrinsic` is: it makes `+ - *`
+    // on the parameter WRAP, so the same `a + b` answers a different number than the
+    // language's (an f64 sum) once it overflows. The std author opts into that on purpose;
+    // user code must never get it by writing a decorator, so it is an error and not an
+    // ignored decoration.
+    let reprs = function.parameters.iter().any(|parameter| parameter.repr_i32);
+    if reprs && ctx.origin != super::Origin::Std {
+        return Err(super::module::refuse("@repr(i32) is std-only"));
+    }
     // Two refusals and not one, because they are two constructs and the
     // measurement that ranks this crate's gaps counts by this string. Merged,
     // they were the largest single entry in that ranking and it was impossible
@@ -343,6 +352,7 @@ fn emit_function(
     // is a loop over the iteration protocol rather than a suspension. See
     // `expr::yielded`.
     let (parameters, mut prologue, parameter_claims) = bind_parameters(ctx, function);
+    let parameter_prologue = prologue.len();
     // A rest parameter that destructures is the same desugaring as a parameter
     // that does: bind the vector to a name, then unpack it with an ordinary
     // declaration. It was refused separately, and the refusal only made sense
@@ -430,6 +440,11 @@ fn emit_function(
         false => prologue.into_iter().chain(body.iter().cloned()).collect(),
     };
     let body = body.as_slice();
+    // A list with a default or a pattern has a parameter scope of its own, which
+    // a `var` or function of the body can shadow. Decided here, where the
+    // prologue length is still known; the MIR stage shares one scope for both and
+    // so declines these.
+    let split = parameter_split(body, parameter_prologue, &parameters, rest);
 
     // An async body may contain `Await`, and the verifier refuses that
     // instruction in a function whose signature does not say so. Declared on the
@@ -462,32 +477,43 @@ fn emit_function(
     // THROUGH THE MIR STAGE FIRST, where it agrees with this emitter about everything
     // the function touches -- `through_mir` lists what it declines and why. What it
     // takes is the body the program runs.
-    let through = match candidate {
+    let through = match candidate && split.is_none() {
         true => super::through_mir::try_emit(ctx, enclosing, function),
         false => None,
     };
     let emitted = match through {
         Some(machine) => Ok(machine),
-        None => emit_body(
-            ctx,
-            enclosing,
-            &parameters,
-            &parameter_claims,
-            body,
-            function.captures_this,
-            rest,
-            late_this,
-            // What the body binds its OWN name to, decided here because only this
-            // level has both the tree and the enclosing scope. See [`self_binding`].
-            self_binding(enclosing, function, definition),
-            &[],
-            // A nested function is not a module: it has no specifier and nothing to
-            // publish. Passing the enclosing module's would make every closure
-            // re-publish its exports on every call.
-            None,
-            &[],
-        ),
+        // ONLY THE MIR STAGE KNOWS `@repr(i32)`. The running emitter would compile the
+        // parameter as an ordinary number whose `+` does not wrap -- the std author
+        // would believe the value is a raw int32 and get f64 arithmetic -- so a function
+        // that stage declines is refused rather than compiled to the wrong semantics.
+        None if reprs => Err(super::module::refuse(
+            "an @repr(i32) function the MIR stage declines",
+        )),
+        None => {
+            ctx.parameter_split = split.map(|(copies, fresh)| (parameter_prologue, copies, fresh));
+            emit_body(
+                ctx,
+                enclosing,
+                &parameters,
+                &parameter_claims,
+                body,
+                function.captures_this,
+                rest,
+                late_this,
+                // What the body binds its OWN name to, decided here because only this
+                // level has both the tree and the enclosing scope. See [`self_binding`].
+                self_binding(enclosing, function, definition),
+                &[],
+                // A nested function is not a module: it has no specifier and nothing to
+                // publish. Passing the enclosing module's would make every closure
+                // re-publish its exports on every call.
+                None,
+                &[],
+            )
+        }
     };
+    ctx.parameter_split = None;
     // Asked HERE, while `ctx.sloppy` is still this function's own: whether the
     // compiled code may call it without the runtime's argument bookkeeping.
     // `light_call` is the rule; the answer travels as one bit of the arity.
@@ -528,6 +554,22 @@ fn emit_function(
             .take_while(|parameter| parameter.default.is_none())
             .count() as u32
     });
+    // The function's KIND rides in the arity's top bits (`rts_core` masks them
+    // off before it is `f.length`): 1 generator, 2 async, 3 async generator.
+    // The runtime needs it to give the closure the right intrinsic
+    // `[[Prototype]]` (%GeneratorFunction.prototype% and its siblings), and
+    // `has_prototype`/`constructs` alone cannot tell the three apart — an
+    // async function and an arrow both have neither, an async generator and a
+    // generator both have the one. A third table, or a wider tuple threaded
+    // through five crates and the object-file manifest, would answer the same
+    // question twice.
+    let kind: u32 = match (function.is_async, function.is_generator) {
+        (false, false) => 0,
+        (false, true) => 1,
+        (true, false) => 2,
+        (true, true) => 3,
+    };
+    let arity = (arity & 0x0FFF_FFFF) | (kind << 28);
     // Its own name, or the one a binding lent it: `const f = function () {}`
     // is called `f`, which is NamedEvaluation. Taken rather than read, so a
     // function nested inside that initialiser does not inherit it — see
@@ -540,6 +582,13 @@ fn emit_function(
         .unwrap_or_default();
     if light {
         ctx.light_functions.insert(id);
+        // A declaration `direct_call` proved callable by machine call, now that its id exists.
+        if definition == Definition::Declaration
+            && let Some(name) = function.name
+            && ctx.direct_candidates.get(&name).is_some_and(|held| held.at == function.at)
+        {
+            ctx.direct_targets.insert(name, id);
+        }
     }
     ctx.function_names
         .push((id, text.clone(), arity, has_prototype, constructs));
@@ -573,19 +622,14 @@ fn emit_function(
         // against it. `ctx.generators` is what tells the host to put this
         // function through `resumable_form` before placing it.
         ctx.generators.push(id);
-        let made = super::wrap::generator(ctx, id)?;
-        // `is_async` is asked AFTER the generator wrapper rather than instead of
-        // it, and that order is the whole of what an `async function*` is: it
-        // parks a frame like a generator AND it is stepped by the async
-        // protocol. This returned here, so `async function* g()` answered a
-        // plain generator — one with no `[Symbol.asyncIterator]`, which is the
-        // only thing `for await` asks a source for, so every `for await` over a
-        // declared async generator died on `undefined is not a function`.
-        let wrapped = match function.is_async {
-            false => made,
-            true => super::wrap::async_generator(ctx, made)?,
-        };
-        return Ok(named(ctx, wrapped));
+        // `is_async` picks the OBJECT the wrapper makes, and that is the whole of
+        // what an `async function*` is: it parks a frame like a generator AND it
+        // is stepped by the async protocol — `[Symbol.asyncIterator]` for
+        // `for await`, and `next`/`return`/`throw` answering promises. Both come
+        // from the object's prototype, chosen by the runtime half of
+        // `RuntimeOp::AsyncGeneratorNew`.
+        let made = super::wrap::generator(ctx, id, function.is_async)?;
+        return Ok(named(ctx, made));
     }
     match function.is_async {
         false => Ok(id),
@@ -691,6 +735,10 @@ pub(super) fn emit_body(
     module: Option<&str>,
     publications: &[super::module::Publication],
 ) -> EmitResult<MachineFunction> {
+    // A call to an object-returning factory whose result nothing else sees is the
+    // literal it builds, so `escape` can scalar-replace it. See `factory`.
+    let factored = super::factory::rewritten(&ctx.inlinable, body, parameters);
+    let body: &[Stmt] = factored.as_deref().unwrap_or(body);
     // A function WRITTEN INSIDE a `with` body closes over the `with` scope: its
     // free names resolve against the object first, every time it is called,
     // wherever it is called from. This engine cannot express that — the objects
@@ -721,6 +769,10 @@ pub(super) fn emit_body(
         candidates.push(name);
     }
     for import in imports {
+        // `rts:core` binds nothing at run time, so there is nothing to capture.
+        if crate::runtime::core_names::is_compile_time(&import.source) {
+            continue;
+        }
         for binding in &import.bindings {
             candidates.push(match binding {
                 crate::syntax::ImportBinding::Named { local, .. } => *local,
@@ -773,6 +825,13 @@ pub(super) fn emit_body(
     if hands_this_to_an_arrow {
         candidates.push(held_this);
     }
+    // `new.target` for the arrows inside, by the same route and for the same
+    // reason: an arrow's is the enclosing function's.
+    let held_new_target = ctx.names.intern("__rts_new_target");
+    let hands_new_target = !captures_this && capture::arrow_reads_new_target(body);
+    if hands_new_target {
+        candidates.push(held_new_target);
+    }
     // TWICE, AND THE SECOND TIME IS NOT A CORRECTION OF THE FIRST.
     //
     // A name reaches an environment because some nested function mentions it.
@@ -822,6 +881,9 @@ pub(super) fn emit_body(
     // mentions alone would leave the arrow with nothing reachable.
     if hands_this_to_an_arrow {
         captured.insert(held_this);
+    }
+    if hands_new_target {
+        captured.insert(held_new_target);
     }
     // A derived constructor holds `this` in its own environment, so it has one
     // whether or not anything else is captured — the name is added here rather
@@ -933,7 +995,7 @@ pub(super) fn emit_body(
         captured = capture::captured(body, &candidates, &omission.uncaptured);
     }
     let builds_environment = !captured.is_empty();
-    let mut numeric = super::analyse(body, &flattened);
+    let mut numeric = super::analyse(body, &flattened, &captured);
     // The properties are proved as `(object, key)` pairs, because `proven` has
     // no `Ctx` to mint a name from. Minting them here rather than there keeps
     // the interning out of a loop that runs to convergence.
@@ -1061,6 +1123,15 @@ fn emit_body_into(
     // Taken FIRST: every body emitted from here down — a hoisted closure is
     // the first — is nested in this one, and none of them is a module's own.
     let names_top_level = std::mem::take(&mut ctx.names_top_level);
+    let split = ctx.parameter_split.take().filter(|(head, _, _)| *head <= body.len());
+    // A name only the BODY declares is not bound while the initialisers run, so
+    // the function's entry layer must not pre-bind it over the enclosing one.
+    let mut own_level = own_level;
+    if let Some((_, _, fresh)) = &split {
+        for name in fresh {
+            own_level.remove(name);
+        }
+    }
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
 
@@ -1101,12 +1172,7 @@ fn emit_body_into(
         // scope carries every binding at its top level, and analytic.ts has
         // thirty-two of them against a cell's fifteen — so every read past the
         // fifteenth missed its cache, forever.
-        let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: rts_cranelift::repr::Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(captured.len() as u64 + 1),
-        });
-        let width = builder.use_const(width);
-        let fresh = expr::call(&mut builder, ctx, RuntimeOp::ObjectNew, &[width])?[0];
+        let fresh = expr::object_new(&mut builder, ctx, captured.len() as u64 + 1)?;
         let outer = binding::outer_link(ctx);
         super::property::emit_write(&mut builder, ctx, fresh, outer, handed)?;
         fresh
@@ -1148,6 +1214,10 @@ fn emit_body_into(
         scope.mark_module_body();
     }
     scope.set_this(receiver, captures_this);
+    if captures_this {
+        let held = ctx.names.intern("__rts_new_target");
+        scope.set_held_new_target(reachable.iter().any(|(name, _)| *name == held).then_some(held));
+    }
     if let Some(name) = late_this {
         // DECLARED only where this function owns the name. A derived constructor
         // does: `this` does not exist in one until `super()` returns, so the
@@ -1178,6 +1248,7 @@ fn emit_body_into(
     if let Some(name) = self_name {
         let running = expr::call(&mut builder, ctx, RuntimeOp::RunningFunction, &[])?[0];
         binding::declare(&mut builder, &mut scope, ctx, name, running)?;
+        scope.set_alias(name, super::scope::Alias::Immutable);
     }
 
     // The first four come from the convention's slots, which is the whole of the
@@ -1282,6 +1353,11 @@ fn emit_body_into(
         let held_this = ctx.names.intern("__rts_this");
         binding::declare(&mut builder, &mut scope, ctx, held_this, receiver)?;
     }
+    if !captures_this && capture::arrow_reads_new_target(body) {
+        let held = ctx.names.intern("__rts_new_target");
+        let current = expr::call(&mut builder, ctx, RuntimeOp::NewTarget, &[])?[0];
+        binding::declare(&mut builder, &mut scope, ctx, held, current)?;
+    }
 
     let named = ctx.names.intern("arguments");
     let length_name = ctx.names.intern("length");
@@ -1306,6 +1382,10 @@ fn emit_body_into(
             // a callable instead — the wrong direction to be wrong in.
             if ctx.sloppy {
                 super::nonstrict::define_callee(&mut builder, ctx, all)?;
+            } else {
+                // Strict: the poison accessor, always -- a string key
+                // (`getOwnPropertyDescriptor(arguments, "callee")`) names it too.
+                expr::call(&mut builder, ctx, RuntimeOp::StrictCallee, &[all])?;
             }
             binding::declare(&mut builder, &mut scope, ctx, named, all)?;
         }
@@ -1316,8 +1396,52 @@ fn emit_body_into(
     // which is per-block rather than whole-body, and before the first
     // statement, which is what makes reading one before its own `var` line
     // answer `undefined` instead of refusing to compile.
-    hoist_vars(&mut builder, &mut scope, ctx, body)?;
-    hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
+    //
+    // A list with defaults or patterns has a PARAMETER scope of its own: its
+    // initialisers run first, seeing the parameters and the enclosing scope but
+    // not the body's `var`s and functions, and the body then gets bindings of its
+    // own for the names it redeclares. `head` is the initialisers, emitted before
+    // any hoist; the rest of this function sees only `body`.
+    let mut loops = Loops::default();
+    let mut terminated = false;
+    let (head, body): (&[Stmt], &[Stmt]) = match &split {
+        Some((at, _, _)) => body.split_at(*at),
+        None => (&[], body),
+    };
+    if let Some((_, copies, fresh)) = &split {
+        scope.expect_lexical(&binding::lexical_names(head));
+        for statement in head {
+            if super::emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
+                terminated = true;
+                break;
+            }
+        }
+        if !terminated {
+            // A `var` takes the parameter's value at body entry; a function
+            // declaration of the same name overwrites it in `hoist` below.
+            let vars = vars_of(body);
+            let mut starts = Vec::new();
+            for name in copies.iter().filter(|name| vars.contains(name)) {
+                starts.push((*name, binding::read(&mut builder, &scope, ctx, *name)?));
+            }
+            // Only a name a closure captured needs storage of its own; a register
+            // binding is already a distinct binding once declared again.
+            let owned: Vec<Name> = copies
+                .iter()
+                .copied()
+                .chain(fresh.iter().copied())
+                .filter(|name| scope.is_captured(*name))
+                .collect();
+            binding::push_environment(&mut builder, &mut scope, ctx, &owned)?;
+            for (name, value) in starts {
+                binding::declare(&mut builder, &mut scope, ctx, name, value)?;
+            }
+        }
+    }
+    if !terminated {
+        hoist_vars(&mut builder, &mut scope, ctx, body)?;
+        hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
+    }
     // The body's own `let`, `const` and `class` names are in their dead zone
     // until their declarations are reached. Armed after both hoists on purpose:
     // a `var` and a hoisted `function` have no dead zone, and binding them first
@@ -1325,9 +1449,10 @@ fn emit_body_into(
     let lexical = binding::lexical_names(body);
     scope.expect_lexical(&lexical);
 
-    let mut loops = Loops::default();
-    let mut terminated = false;
     for statement in body {
+        if terminated {
+            break;
+        }
         if super::emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
             terminated = true;
             break;
@@ -1550,12 +1675,68 @@ pub fn hoist_vars(
         // `[Replaceable]` e IGNORA), lia de volta o `window`, e o laco nunca
         // terminava. Foi o que impediu o React 18 de montar, com o erro a
         // aparecer trinta ficheiros a jusante.
-        if !scope.declared_in_function(name) {
+        // A named function expression's own name is declared in the function
+        // layer too, but a `var` of the same spelling is a NEW writable binding
+        // that shadows it (`binding::declare` drops the immutable alias).
+        let shadows_own_name =
+            matches!(scope.alias_of(name), Some(super::scope::Alias::Immutable));
+        if !scope.declared_in_function(name) || shadows_own_name {
             let value = expr::undefined(builder, ctx);
             binding::declare(builder, scope, ctx, name, value)?;
         }
     }
     Ok(())
+}
+
+/// Whether a function with a non-simple parameter list needs the body to run in
+/// a scope of its own, and the names it must rebind there.
+///
+/// `body` is the prologue (`prologue_len` statements, the defaults and patterns)
+/// followed by the written body. The language gives such a list its own
+/// environment: an initialiser sees the parameters and the ENCLOSING scope, never
+/// the body's `var`s or functions, and a body `var x` where `x` is also a
+/// parameter is a distinct binding that starts with the parameter's value — so a
+/// closure made in the list keeps watching the parameter.
+///
+/// `None` when no body declaration collides with the list, which is every
+/// ordinary function: it keeps the one scope and the order it always had. Else
+/// the redeclared parameter names (`var` and function), possibly empty when only
+/// a default mentions a name the body declares.
+fn parameter_split(
+    body: &[Stmt],
+    prologue_len: usize,
+    parameters: &[Name],
+    rest: Option<Name>,
+) -> Option<(Vec<Name>, Vec<Name>)> {
+    if prologue_len == 0 || prologue_len > body.len() {
+        return None;
+    }
+    let (head, tail) = body.split_at(prologue_len);
+    let mut bound: std::collections::BTreeSet<Name> = parameters.iter().copied().collect();
+    bound.extend(rest);
+    bound.extend(binding::lexical_names(head));
+    let mut declared = vars_of(tail);
+    for statement in tail {
+        if let StmtKind::Function(function) = &statement.kind {
+            declared.extend(function.name);
+        }
+    }
+    let mut mentioned = std::collections::BTreeSet::new();
+    for statement in head {
+        capture::all_names_in_statement(statement, &mut mentioned);
+    }
+    let mut copies: Vec<Name> = Vec::new();
+    let mut fresh: Vec<Name> = Vec::new();
+    for name in declared {
+        if bound.contains(&name) {
+            if !copies.contains(&name) {
+                copies.push(name);
+            }
+        } else if mentioned.contains(&name) && !fresh.contains(&name) {
+            fresh.push(name);
+        }
+    }
+    (!fresh.is_empty() || !copies.is_empty()).then_some((copies, fresh))
 }
 
 /// A function's parameter list as plain names, with the statements that unpack

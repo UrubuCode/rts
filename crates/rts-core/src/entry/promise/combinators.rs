@@ -61,7 +61,7 @@ fn foreign(this: u64, constructor: u64, iterable: u64, kind: Kind) -> u64 {
         adopt.is_some_and(|value| {
             Value(value)
                 .as_slot()
-                .is_some_and(|cell| context.callable_at(cell).is_some())
+                .is_some_and(|cell| context.is_callable_cell(cell))
         })
     });
     if !callable {

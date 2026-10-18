@@ -1,5 +1,7 @@
 # CSS parity matrix — RTS versus Blink
 
+> **Status as of 2026-10-18 (additive note):** substantial `rts-dom` work (grid/subgrid/layout/table) landed since this snapshot per the 2026-10 merge; specific capability claims below predate it and were not re-verified in this pass.
+
 Measurement date: 2026-08-27. Harness: `examples/claude-css-runner.ts`, expected values measured in Chrome at 1280x800, tolerance 1px.
 
 ## Baseline

@@ -1,5 +1,7 @@
 # Lente 7: crítico de completude e advogado do diabo
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 > Auditoria estrutural do motor HTML/CSS/DOM, 2026-09-04. O sétimo agente (Sonnet, só
 > leitura) recebeu os seis relatórios anteriores e três tarefas: encontrar a dimensão
 > que nenhum deles olhou, tentar REFUTAR cada finding marcado como estrutural indo ao

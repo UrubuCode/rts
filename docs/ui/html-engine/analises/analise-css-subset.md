@@ -1,5 +1,7 @@
 # Analise: css-subset
 
+> **Status as of 2026-10-18 (additive note):** substantial `rts-dom` work (grid/subgrid/layout/table) landed since this snapshot per the 2026-10 merge; specific capability claims below predate it and were not re-verified in this pass.
+
 I have all the material needed. Here is the report.
 
 ---

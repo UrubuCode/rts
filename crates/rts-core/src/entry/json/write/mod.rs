@@ -163,6 +163,15 @@ impl Writer {
             }),
             Shape::Array(cell) => self.array(cell, depth),
             Shape::Object(cell) => self.object(value, cell, depth),
+            Shape::Raw(cell) => {
+                let text = with_current(|context| {
+                    let held = super::raw::text_of(context, cell)?;
+                    context.text_at(held).map(|text| text.units().collect::<Vec<u16>>())
+                });
+                for unit in text.unwrap_or_default() {
+                    self.out.unit(unit);
+                }
+            }
         }
         true
     }

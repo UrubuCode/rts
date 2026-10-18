@@ -323,7 +323,23 @@ fn written(value: u64) -> bool {
 /// also what `String.prototype`'s numeric receivers go through, and widening it
 /// would make one function answer for two `[[Data]]` slots.
 fn receiver_number(this: u64) -> f64 {
-    class_support::this_number(primitive_proto::unwrapped(this))
+    refuse_proxy(this, "Number");
+    let primitive = primitive_proto::unwrapped(this);
+    // `thisNumberValue`: a number, or a wrapper holding one, and nothing else --
+    // `Number.prototype.toFixed.call("1.5")` is a `TypeError`, not `1.50`.
+    let value = Value(primitive);
+    if value.as_f64().is_none() && value.as_i32().is_none() {
+        throw::type_error("Number.prototype.toString requires that 'this' be a Number");
+    }
+    class_support::this_number(primitive)
+}
+
+/// A Proxy has no `[[NumberData]]`/`[[BooleanData]]` slot, however faithfully its
+/// handler forwards, so V8 raises a `TypeError` and so does this.
+fn refuse_proxy(this: u64, class: &str) {
+    if super::super::proxy::is_proxy(this) {
+        throw::type_error(&format!("{class}.prototype method called on incompatible receiver"));
+    }
 }
 
 /// The flag a `Boolean.prototype` method's receiver IS.
@@ -332,6 +348,7 @@ fn receiver_number(this: u64) -> f64 {
 /// so `new Boolean(false).valueOf()` was `true` without it — a wrong answer that
 /// looks exactly like a right one.
 fn receiver_boolean(this: u64) -> bool {
+    refuse_proxy(this, "Boolean");
     class_support::to_boolean(primitive_proto::unwrapped(this))
 }
 

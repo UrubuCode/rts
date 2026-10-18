@@ -36,7 +36,106 @@ use crate::runtime::RuntimeOp;
 impl JsMachine<'_> {
     /// Whether `o[k]` reads through a keyed site: every key but a proved number.
     pub(super) fn reads_keyed(&self, key: ValueId) -> bool {
-        !matches!(self.types.of(key), Type::Int32 | Type::Double)
+        !matches!(self.types.of(key), Type::Int32 | Type::Ranged(..) | Type::Double)
+    }
+
+    /// `a[i]` with a key the inference typed a number: the element read inline from the
+    /// run table, and the runtime's direct entry for every case the table cannot answer.
+    ///
+    /// ```text
+    ///   guard a is a reference ── not one ──┐
+    ///          │                            │
+    ///   run_read(a, i) ──── missed ─────────┤
+    ///          │                            │
+    ///        hit(value)           slow: IndexNumberDirect(a, i)
+    ///          │                            │
+    ///          └──────► join(value) ◄───────┘
+    /// ```
+    ///
+    /// The owner is the operand and no address is held across anything: see
+    /// `rts_cranelift::ir::inst::Terminator::RunRead`. A key whose machine form is not a
+    /// double or an integer keeps the plain call, which coerces it as it always did.
+    pub(super) fn indexed_read(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: MachineValue,
+    ) -> Result<MachineValue, String> {
+        if !matches!(into.repr_of(key), Repr::F64 | Repr::I32) {
+            return self.call_runtime(into, RuntimeOp::IndexNumberDirect, &[object, key]);
+        }
+        let receiver = match into.repr_of(object) {
+            Repr::Tagged => object,
+            _ => into.widen(object),
+        };
+        let position = super::coerced(into, key, Repr::F64)?;
+        let reference = into.create_block();
+        let narrowed = into.add_block_param(reference, Repr::Ref(RefKind::Opaque));
+        let slow = into.create_block();
+        let join = into.create_block();
+        let result = into.add_block_param(join, Repr::Tagged);
+        into.guard(receiver, Repr::Ref(RefKind::Opaque), (reference, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(reference);
+        into.run_read(narrowed, position, (join, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(slow);
+        let answered = self.call_runtime(into, RuntimeOp::IndexNumberDirect, &[receiver, position])?;
+        into.jump(join, &[answered]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(result)
+    }
+
+    /// `a[i] = v` with a position the inference typed a number: the element overwritten
+    /// inline in the run table's row, and `SetIndexed` for every case the row cannot take.
+    ///
+    /// ```text
+    ///   guard a is a reference ── not one ──┐
+    ///          │                            │
+    ///   run_write(a, i, v) ─── missed ──────┤
+    ///          │                            │
+    ///        hit                  slow: SetIndexed(a, i, v)
+    ///          │                            │
+    ///          └──────────► join ◄──────────┘
+    /// ```
+    ///
+    /// The row answers only an in-place overwrite of an element that already exists (or a
+    /// typed array's in-range element, converted to its kind); an append, a hole, a frozen
+    /// array, an out-of-range typed index and a value it cannot convert all take the call,
+    /// which is where growth -- the one thing that moves a run -- stays.
+    /// `rts_cranelift::ir::inst::Terminator::RunWrite` has the contract.
+    pub(super) fn indexed_write(
+        &mut self,
+        into: &mut FuncBuilder,
+        object: MachineValue,
+        key: MachineValue,
+        value: MachineValue,
+    ) -> Result<(), String> {
+        let receiver = match into.repr_of(object) {
+            Repr::Tagged => object,
+            _ => into.widen(object),
+        };
+        let position = super::coerced(into, key, Repr::F64)?;
+        let stored = super::coerced(into, value, Repr::Tagged)?;
+        let reference = into.create_block();
+        let narrowed = into.add_block_param(reference, Repr::Ref(RefKind::Opaque));
+        let slow = into.create_block();
+        let join = into.create_block();
+        into.guard(receiver, Repr::Ref(RefKind::Opaque), (reference, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(reference);
+        into.run_write(narrowed, position, stored, (join, &[]), (slow, &[]))
+            .map_err(machine)?;
+        into.switch_to(slow);
+        let mode = self.write_mode(into);
+        self.call_runtime(
+            into,
+            RuntimeOp::SetIndexed,
+            &[receiver, position, stored, mode],
+        )?;
+        into.jump(join, &[]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(())
     }
 
     /// `o[k]` through the keyed site, with `GetIndexed` on every path the site does not

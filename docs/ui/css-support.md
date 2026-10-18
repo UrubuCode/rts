@@ -1,5 +1,7 @@
 # O CSS que este motor tem, e o que lhe falta
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem. Alguns caminhos `crates/rts-dom/src/...` / `crates/rts-egui/src/...` citados abaixo já não existem exactamente nesse caminho (p.ex. `layout/*.rs` são agora os directórios `layout/{block,flex,float,fragment,grid,inline,measure,positioned,replaced}`; `painteffects.rs`, `style/parse.rs`, `style/props.rs` e `rts-egui/src/frame.rs` são agora directórios ou não existem); não foram mapeados ficheiro a ficheiro.
+
 Auditoria do motor de estilo do `rts-dom` contra o CSS que um browser real
 implementa — medido contra a lista canónica do Blink (§1.8) e verificado contra
 a MDN por área (§2). Diz três coisas, por esta ordem: **o que existe** (e se

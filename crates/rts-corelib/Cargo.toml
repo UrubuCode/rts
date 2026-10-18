@@ -1,0 +1,8 @@
+[package]
+name = "rts-corelib"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "`rts:core` — the native CoreLib layer: the irreducible machine primitives the standard library is built on, on the .NET System.Private.CoreLib model."
+
+[dependencies]

@@ -261,6 +261,7 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
             target: Pattern::Name(names.intern("a")),
             default: None,
             claim: None,
+            repr_i32: false,
         }],
         rest_parameter: None,
         directives: vec![],
@@ -269,6 +270,8 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
         captures_this: false,
         is_async: false,
         advertised_length: None,
+        intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     };
@@ -279,6 +282,7 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
             target: Pattern::Name(names.intern("a")),
             default: Some(number(1.0)),
             claim: None,
+            repr_i32: false,
         }],
         ..plain.clone()
     };
@@ -298,6 +302,7 @@ fn a_parameter_list_stops_being_simple_the_moment_anything_is_added() {
             target: Pattern::Object(ObjectPattern::default()),
             default: None,
             claim: None,
+            repr_i32: false,
         }],
         ..plain
     };
@@ -458,6 +463,8 @@ fn a_method_is_not_a_function_stored_under_a_key() {
         captures_this: false,
         is_async: false,
         advertised_length: None,
+        intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     });
@@ -869,6 +876,8 @@ fn an_arrow_and_a_function_differ_in_one_recorded_fact() {
         captures_this: false,
         is_async: false,
         advertised_length: None,
+        intrinsic: None,
+        inline: false,
         is_generator: false,
         at: at(),
     };
@@ -932,6 +941,7 @@ fn a_whole_small_program_is_expressible() {
                     target: Pattern::Name(names.intern("extra")),
                     default: Some(number(0.0)),
                     claim: Some(Claim::Number),
+                    repr_i32: false,
                 }],
                 rest_parameter: None,
                 directives: vec![],
@@ -943,6 +953,8 @@ fn a_whole_small_program_is_expressible() {
                 captures_this: false,
                 is_async: false,
                 advertised_length: None,
+                intrinsic: None,
+                inline: false,
                 is_generator: false,
                 at: at(),
             })),

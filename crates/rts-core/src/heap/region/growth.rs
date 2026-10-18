@@ -134,10 +134,10 @@ impl Region {
     /// store, not a crash — and an invariant this layer states is one it
     /// enforces.
     pub fn grow(&mut self) -> bool {
-        if self.capacity >= self.reserved {
+        if self.capacity() >= self.reserved {
             return false;
         }
-        let want = self.capacity.saturating_mul(2).min(self.reserved);
+        let want = self.capacity().saturating_mul(2).min(self.reserved);
         let base_before = self.base();
         // `resize_with` rather than `resize`: `UnsafeCell` is not `Clone`, by
         // design — cloning one would copy a value another writer may be
@@ -155,7 +155,7 @@ impl Region {
              in memory this program no longer owns"
         );
         self.spanned_interior.resize(want as usize, false);
-        self.capacity = want;
+        self.cursor.limit.set(u64::from(want));
         true
     }
 }

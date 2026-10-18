@@ -1,5 +1,7 @@
 # Modularizar o `rts-dom` — o plano, e a régua que o valida
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 O `CLAUDE.md` fixa **500 linhas** por ficheiro fora do codegen. Estes passam:
 
 | ficheiro | linhas | quantas vezes o teto |

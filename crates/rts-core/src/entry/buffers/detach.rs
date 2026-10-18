@@ -59,8 +59,42 @@ impl Context {
             bytes.clear();
             bytes.shrink_to_fit();
         }
+        // Before anything else can run: every view over these bytes has a row
+        // naming them, and nothing indexes views by buffer to find just those.
+        self.region.runs_mut().retract_typed();
+        // A resizable buffer reports `resizable: false, maxByteLength: 0` once
+        // detached; a fixed one answers through the prototype getters.
+        if super::array_buffer::resizable_max(self, cell).is_some() {
+            super::flag(self, cell, "resizable", false);
+            super::stamp(self, cell, "maxByteLength", 0.0);
+        }
         self.detached.set(cell, true);
         super::stamp(self, cell, "byteLength", 0.0);
+        // Every typed-array view over these bytes now covers nothing: the
+        // language gives a detached view length, byteLength and byteOffset 0.
+        // (A `DataView` has no `length`; it is left alone.)
+        for view in self.views.references_where(cell, |view| view.buffer == cell) {
+            if self.views.copied(view).is_some_and(|v| matches!(v.kind, super::Kind::Raw)) {
+                // A DataView has no length to zero, but its two own size slots
+                // would shadow the prototype accessors that refuse a detached
+                // buffer, so they are removed and the accessor answers.
+                for name in ["byteLength", "byteOffset"] {
+                    if let crate::object::Key::Name(machine) = self.well_known(name) {
+                        crate::entry::computed::remove_own(self, view, machine);
+                    }
+                }
+                continue;
+            }
+            // The window itself, not only the stamped facts: `in`, `Object.keys`
+            // and every other reader of `count()` sees an empty view.
+            if let Some(held) = self.views.get_mut(view) {
+                held.offset = 0;
+                held.length = 0;
+            }
+            super::stamp(self, view, "byteLength", 0.0);
+            super::stamp(self, view, "byteOffset", 0.0);
+            super::stamp(self, view, "length", 0.0);
+        }
         super::flag(self, cell, "detached", true);
         true
     }

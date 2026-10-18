@@ -63,7 +63,7 @@ pub(super) extern "C" fn not_deep_equal_loose(_e: u64, _this: u64, actual: u64, 
 /// `assert.deepStrictEqual(actual, expected, message?)`.
 pub(super) extern "C" fn deep_strict_equal(_e: u64, _this: u64, actual: u64, expected: u64, message: u64, _d: u64) -> u64 {
     let held = deep_equal(actual, expected, STRICT);
-    check(held, "deepStrictEqual", actual, expected, message, "deeply and strictly equal")
+    check(held, "deepStrictEqual", actual, expected, message, "strictly deep-equal")
 }
 
 /// `assert.notDeepStrictEqual(actual, expected, message?)`.
@@ -75,7 +75,7 @@ pub(super) extern "C" fn not_deep_strict_equal(_e: u64, _this: u64, actual: u64,
 /// `deepStrictEqual` for an `Assert` built with `skipPrototype: true`.
 pub(super) extern "C" fn deep_strict_open(_e: u64, _this: u64, actual: u64, expected: u64, message: u64, _d: u64) -> u64 {
     let held = deep_equal(actual, expected, STRICT_OPEN);
-    check(held, "deepStrictEqual", actual, expected, message, "deeply and strictly equal")
+    check(held, "deepStrictEqual", actual, expected, message, "strictly deep-equal")
 }
 
 /// `notDeepStrictEqual` for an `Assert` built with `skipPrototype: true`.
@@ -118,6 +118,12 @@ pub(super) extern "C" fn does_not_match(_e: u64, _this: u64, text: u64, regexp: 
 
 /// `assert.fail(message?)`. Always reports — there is no condition to check.
 pub(super) extern "C" fn fail(_e: u64, _this: u64, message: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    // An `Error` message is thrown as-is, not wrapped (Node's rule).
+    let class = super::values::global_member("Error");
+    if super::values::is_callable(class) && entry::instance_of(message, class) {
+        entry::throw_value(message);
+        return entry::undefined_value();
+    }
     report_failure("fail", &describe_message(message, "Failed"));
     entry::undefined_value()
 }

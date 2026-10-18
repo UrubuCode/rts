@@ -174,7 +174,8 @@ extern "C" fn escape(_e: u64, _this: u64, text: u64, _b: u64, _c: u64, _d: u64) 
 /// `querystring.unescape(str)`.
 extern "C" fn unescape(_e: u64, _this: u64, text: u64, _b: u64, _c: u64, _d: u64) -> u64 {
     let text = coerced_text(text).unwrap_or_default();
-    let decoded = percent_decode(&text);
+    // Node's `unescape` leaves `+` alone; only `parse` reads it as a space.
+    let decoded = percent_decode_with(&text, false);
     rts_core::entry::with_runtime(|context| rts_core::entry::make_string(context, &decoded))
 }
 
@@ -240,12 +241,16 @@ fn split_literal<'a>(text: &'a str, sep: &str) -> Vec<&'a str> {
 /// `%XY` escape is passed through as the literal `%` and the two characters
 /// after it, which is this module's non-throwing fallback.
 fn percent_decode(text: &str) -> String {
+    percent_decode_with(text, true)
+}
+
+fn percent_decode_with(text: &str, plus_is_space: bool) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
         match bytes[index] {
-            b'+' => {
+            b'+' if plus_is_space => {
                 out.push(b' ');
                 index += 1;
             }

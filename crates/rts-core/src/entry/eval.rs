@@ -148,6 +148,12 @@ pub struct Agreement {
     pub region_base: u64,
     /// How far apart consecutive cells are.
     pub region_stride: u32,
+    /// Where its table of element runs is, which code compiled later has to read
+    /// the same table as the code already running.
+    pub region_runs: u64,
+    /// Where its cell cursor is, for the same reason: code compiled later takes
+    /// cells from the state the code already running takes them from.
+    pub region_cursor: u64,
     /// How many low bits of a reference name the region it belongs to.
     ///
     /// Zero for the single-region addressing `compile` produces. A caller must
@@ -223,6 +229,8 @@ pub fn agreement() -> Agreement {
             templates: context.templates.len(),
             region_base: context.region.base(),
             region_stride: context.region.stride(),
+            region_runs: context.region.runs_address(),
+            region_cursor: context.region.cursor_address(),
             region_selector_bits: context.region.selector_bits(),
             singletons: context.singletons,
             kinds: context.kinds,

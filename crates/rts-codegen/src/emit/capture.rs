@@ -747,7 +747,7 @@ pub(crate) fn walk_stmt<'a>(statement: &'a Stmt, on: &mut impl FnMut(StmtChild<'
 /// `let` in a block is not — it binds in that block, and a mention outside the
 /// block is the outer name — so it stays counted, which keeps the error in the
 /// safe direction exactly where block scope is what decides.
-fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
+pub(super) fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
     // ITS OWN NAME IS NOT MENTIONED BY BEING SPELLED IN THE HEADER, and the
     // unconditional insert that used to stand here said it was.
     //
@@ -783,6 +783,7 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
 
     let mut own = BTreeSet::new();
     let mut mentioned = BTreeSet::new();
+    let mut listed = BTreeSet::new();
     for parameter in &function.parameters {
         names_in_pattern(&parameter.target, &mut own);
         // Um DEFAULT é código, e os nomes que LÊ não são os que o padrão liga —
@@ -806,14 +807,14 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
         // livre devolveria o defeito que a subtração abaixo existe para
         // fechar, por outra porta.
         if let Some(default) = &parameter.default {
-            all_names_in_expr(default, &mut mentioned);
+            all_names_in_expr(default, &mut listed);
         }
         // E um padrão carrega defaults próprios: `function f({ a = x })` lê `x`
         // sem nenhum `parameter.default` à vista. `walk_pattern_exprs` é a
         // única travessia que sabe onde eles estão.
         walk_pattern_exprs(&parameter.target, &mut |child| {
             if let Child::Expr(expr) = child {
-                all_names_in_expr(expr, &mut mentioned);
+                all_names_in_expr(expr, &mut listed);
             }
         });
     }
@@ -822,20 +823,30 @@ fn names_in_function(function: &Function, found: &mut BTreeSet<Name>) {
         names_in_pattern(rest, &mut own);
         walk_pattern_exprs(rest, &mut |child| {
             if let Child::Expr(expr) = child {
-                all_names_in_expr(expr, &mut mentioned);
+                all_names_in_expr(expr, &mut listed);
             }
         });
     }
+    // What the parameter LIST reads is looked up in the parameter scope, which the
+    // body's own `var`s and functions are not part of: `function f(v = helper()) {
+    // function helper() {} }` reaches the ENCLOSING `helper`, so a body
+    // declaration must not subtract a name only the list mentions.
+    let mut own_body = BTreeSet::new();
     match &function.body {
         FunctionBody::Block(body) => {
             for statement in body {
                 all_names_in_statement(statement, &mut mentioned);
-                own_function_scoped(statement, &mut own);
+                own_function_scoped(statement, &mut own_body);
             }
         }
         FunctionBody::Expression(expr) => all_names_in_expr(expr, &mut mentioned),
     }
-    found.extend(mentioned.difference(&own));
+    found.extend(listed.difference(&own));
+    found.extend(
+        mentioned
+            .difference(&own)
+            .filter(|name| !own_body.contains(*name)),
+    );
 }
 
 /// The names a function body binds for the WHOLE of itself: its `var`s and its
@@ -1116,7 +1127,7 @@ pub(crate) fn walk_expr<'a>(expr: &'a Expr, on: &mut impl FnMut(Child<'a>)) {
 /// containing one fails to compile before this walk's answer is ever used.
 /// Wiring that role back in must also make this leaf report its name, the same
 /// way an `Ident` would.
-fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) {
+pub(crate) fn walk_pattern_exprs<'a>(pattern: &'a Pattern, on: &mut impl FnMut(Child<'a>)) {
     match pattern {
         Pattern::Name(_) => {}
         Pattern::Target(expr) => on(Child::Expr(expr)),
@@ -1628,6 +1639,75 @@ fn this_in_expr(expr: &Expr, found: &mut bool) {
         Child::Function(function) => {
             if function.captures_this {
                 reads_this(function, found);
+            }
+        }
+        Child::Class(_) => {}
+    });
+}
+
+/// Whether an arrow inside this body reads `new.target`. The twin of
+/// [`arrow_reads_this`]: an arrow's `new.target` is the enclosing function's, so
+/// that function hands its own over as the name `__rts_new_target`. The walk
+/// descends through arrows and stops at a plain function or class, which answer
+/// for their own.
+pub(super) fn arrow_reads_new_target(body: &[Stmt]) -> bool {
+    let mut found = false;
+    for statement in body {
+        nt_stmt(statement, false, &mut found);
+    }
+    found
+}
+
+fn nt_function(function: &Function, found: &mut bool) {
+    match &function.body {
+        FunctionBody::Block(body) => {
+            for statement in body {
+                nt_stmt(statement, true, found);
+            }
+        }
+        FunctionBody::Expression(value) => nt_expr(value, true, found),
+    }
+}
+
+fn nt_stmt(statement: &Stmt, in_arrow: bool, found: &mut bool) {
+    if *found {
+        return;
+    }
+    walk_stmt(statement, &mut |child| match child {
+        StmtChild::Stmt(inner) => nt_stmt(inner, in_arrow, found),
+        StmtChild::Expr(expr) => nt_expr(expr, in_arrow, found),
+        StmtChild::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                nt_expr(value, in_arrow, found);
+            }
+        }
+        StmtChild::Catch(catch) => {
+            for inner in &catch.body {
+                nt_stmt(inner, in_arrow, found);
+            }
+        }
+        StmtChild::Function(function) => {
+            if function.captures_this {
+                nt_function(function, found);
+            }
+        }
+        StmtChild::Class(_) => {}
+    });
+}
+
+fn nt_expr(expr: &Expr, in_arrow: bool, found: &mut bool) {
+    if *found {
+        return;
+    }
+    if in_arrow && matches!(expr.kind, ExprKind::NewTarget) {
+        *found = true;
+        return;
+    }
+    walk_expr(expr, &mut |child| match child {
+        Child::Expr(inner) => nt_expr(inner, in_arrow, found),
+        Child::Function(function) => {
+            if function.captures_this {
+                nt_function(function, found);
             }
         }
         Child::Class(_) => {}

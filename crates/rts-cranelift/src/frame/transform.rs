@@ -661,6 +661,34 @@ impl<'a> Rewrite<'a> {
                 self.rewrite_block_call(block, hit);
                 self.rewrite_block_call(block, miss);
             }
+            Terminator::RunRead {
+                owner,
+                index,
+                hit,
+                miss,
+            } => {
+                *owner = self.use_value(block, *owner);
+                *index = self.use_value(block, *index);
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit,
+                miss,
+            } => {
+                *owner = self.use_value(block, *owner);
+                *index = self.use_value(block, *index);
+                *value = self.use_value(block, *value);
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
+            Terminator::CellAlloc { hit, miss } => {
+                self.rewrite_block_call(block, hit);
+                self.rewrite_block_call(block, miss);
+            }
             Terminator::CachedSet {
                 object,
                 value,

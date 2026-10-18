@@ -139,6 +139,29 @@ pub fn emit_expr(
             // operands while they are still expressions, because a value has
             // no name to have been annotated.
             let speculate = speculation_is_worth_emitting(ctx, left, right);
+            // `x instanceof R` where the compiler holds the whole prototype chain
+            // of `x` and `R` is an ordinary class (`class_layout/fold.rs` states
+            // the proof): the answer is a constant. Both operands are still
+            // emitted, in order, so every read and any argument of `new C(…)`
+            // happens exactly as it would; only the walk is dropped.
+            if *op == BinaryOp::InstanceOf
+                && let Some(answer) = ctx.instance_fold.decide(left, right, &ctx.names)
+            {
+                emit_expr(builder, scope, ctx, left)?;
+                emit_expr(builder, scope, ctx, right)?;
+                return Ok(boolean_constant(builder, answer));
+            }
+            // `a OP b` (`+ - * / % ** < <= > >= ==`) between two proven instances of one class that
+            // defines `[operators.<op>]`: the runtime's overload protocol reduces to
+            // `a[sym](b, false)`, so that call is emitted instead. A concrete `new C()`
+            // is no proxy, `C.prototype` and its method cannot be replaced, and the
+            // symbol is unobtainable elsewhere, so no trap, getter or shadow can
+            // intervene and the result (and any throw) is the runtime's — the proof and
+            // every fallback are in `operator_direct` (relational/equality wrap the call in ToBoolean).
+            if let Some(call) = ctx.operator_direct.call(*op, left, right, scope)
+            {
+                return emit_expr(builder, scope, ctx, &call);
+            }
             let a = emit_expr(builder, scope, ctx, left)?;
             let b = emit_expr(builder, scope, ctx, right)?;
             emit_binary_speculating(builder, ctx, *op, a, b, speculate)
@@ -304,6 +327,14 @@ pub fn emit_expr(
                     }
                 }
             }
+            // Unary `-a` on a proven instance of a class defining `[operators.neg]`: the
+            // runtime answers `a[neg](undefined, undefined)` raw (`overload::unary`), so the
+            // argument-less call `a[neg]()` is emitted; proof and fallbacks in `operator_direct`.
+            if *op == crate::syntax::UnaryOp::Negate
+                && let Some(call) = ctx.operator_direct.negate(operand, scope)
+            {
+                return emit_expr(builder, scope, ctx, &call);
+            }
             super::unary::emit_unary(builder, scope, ctx, *op, operand)
         }
         ExprKind::Update {
@@ -449,6 +480,10 @@ pub fn emit_expr(
             // — which is why this is decided in the language layer.
             Ok(undefined(builder, ctx))
         }
+        ExprKind::NewTarget if scope.held_new_target().is_some() => {
+            let held = scope.held_new_target().expect("checked");
+            super::binding::read(builder, scope, ctx, held)
+        }
         ExprKind::NewTarget => Ok(call(builder, ctx, RuntimeOp::NewTarget, &[])?[0]),
         ExprKind::ImportMeta => super::module::emit_import_meta(builder, ctx),
         ExprKind::ImportCall { specifier, options } => {
@@ -560,6 +595,42 @@ pub(super) fn call(
     let produced = builder.call(ctx.funcs, callee, &args)?;
     check_for_throw(builder, ctx, op)?;
     Ok(produced)
+}
+
+/// A fresh plain object with room for `slots` properties.
+///
+/// A cell that fits the inline slots is taken in place by
+/// `Terminator::CellAlloc`, and only the case it cannot answer -- no cell free
+/// and no fresh space left -- calls the runtime, which collects or grows. A wider
+/// object needs several cells and always calls. The answer is the same
+/// reference either way, and the call keeps its throw check on the path that
+/// makes it.
+pub(super) fn object_new(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    slots: u64,
+) -> EmitResult<ValueId> {
+    let width = |builder: &mut FuncBuilder| {
+        let decl = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: rts_cranelift::repr::Repr::I64,
+            bits: rts_cranelift::ir::ScalarBits(slots),
+        });
+        builder.use_const(decl)
+    };
+    if slots > u64::from(super::object::INLINE_FIELDS) {
+        let size = width(builder);
+        return Ok(call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0]);
+    }
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, UNPROVEN);
+    builder.cell_alloc((join, &[]), (slow, &[]))?;
+    builder.switch_to(slow);
+    let size = width(builder);
+    let answered = call(builder, ctx, RuntimeOp::ObjectNew, &[size])?[0];
+    builder.jump(join, &[answered])?;
+    builder.switch_to(join);
+    Ok(result)
 }
 
 /// Emits, after a call, the branch a throw in the callee takes.
@@ -1166,7 +1237,7 @@ fn emit_binary_inner(
                     let Some(Proven::NumberCall(entry)) = proven_binary(op) else {
                         unreachable!("only a remainder can be refused by the machine")
                     };
-                    Ok(call(builder, ctx, entry, &[a, b])?[0])
+                    remainder_fallback(builder, ctx, entry, a, b)
                 }
             };
         }
@@ -1557,6 +1628,10 @@ fn emit_assign(
             }
         };
         let assigned = tagged(builder, assigned);
+        // A position PROVEN to be a number overwrites an existing element in place.
+        if builder.repr_of(key) == Repr::F64 {
+            return super::property::emit_write_indexed(builder, ctx, receiver, key, assigned);
+        }
         let mode = super::property::write_mode(builder, ctx);
         return Ok(call(
             builder,
@@ -2027,6 +2102,70 @@ fn proven_binary(op: BinaryOp) -> Option<Proven> {
     })
 }
 
+/// `a % b` over two proven doubles the machine declined: the unboxed call, except
+/// where `b` is a constant positive i32, when an integer `srem` is taken under
+/// a run-time guard.
+///
+/// JS `%` is the float remainder; `srem` agrees with it ONLY for integer-valued
+/// operands. The guard: `ToInt32(a)` converted back equals `a` (so `a` is an
+/// integer in i32 range; NaN, infinities, fractions and wider values miss) and
+/// `ToInt32(a) > 0` (so negatives and -0 miss and the sign of a zero result
+/// never arises). The divisor is a positive constant, so `srem` cannot trap.
+/// Every miss is the original call, unchanged.
+fn remainder_fallback(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    entry: RuntimeOp,
+    a: ValueId,
+    b: ValueId,
+) -> EmitResult<ValueId> {
+    // ONLY the remainder: `**` reaches here too (the machine declines it), and
+    // taking `srem` for it would answer `3 ** 2` as `3 % 2`.
+    let divisor = match entry {
+        RuntimeOp::NumberRemainder => builder.positive_i32_divisor(b),
+        _ => None,
+    };
+    let Some(divisor) = divisor else {
+        return Ok(call(builder, ctx, entry, &[a, b])?[0]);
+    };
+    let check = builder.create_block();
+    let fast = builder.create_block();
+    let slow = builder.create_block();
+    let join = builder.create_block();
+    let result = builder.add_block_param(join, Repr::F64);
+
+    let int = builder.to_int32(a)?;
+    let back = builder.to_f64(int)?;
+    let same = builder.compare(CmpOp::Eq, back, a)?;
+    builder.branch(same, (check, &[]), (slow, &[]))?;
+
+    builder.switch_to(check);
+    let zero = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I32,
+        bits: ScalarBits(0),
+    });
+    let zero = builder.use_const(zero);
+    let positive = builder.compare(CmpOp::Gt, int, zero)?;
+    builder.branch(positive, (fast, &[]), (slow, &[]))?;
+
+    builder.switch_to(fast);
+    let divisor = builder.declare_const(ConstDecl::Scalar {
+        repr: Repr::I32,
+        bits: ScalarBits(divisor as u32 as u64),
+    });
+    let divisor = builder.use_const(divisor);
+    let rest = builder.arith(NumOp::Rem, int, divisor)?;
+    let rest = builder.to_f64(rest)?;
+    builder.jump(join, &[rest])?;
+
+    builder.switch_to(slow);
+    let answered = call(builder, ctx, entry, &[a, b])?[0];
+    builder.jump(join, &[answered])?;
+
+    builder.switch_to(join);
+    Ok(result)
+}
+
 /// What a [`Proven`] operator becomes over two operands already in `Repr::F64`.
 ///
 /// # Why this is a function and not written at each of its two call sites
@@ -2272,7 +2411,7 @@ fn emit_guarded(
             let Proven::NumberCall(op) = instruction else {
                 unreachable!("only a remainder can be refused by the machine")
             };
-            Ok(call(builder, ctx, op, &[left, right])?[0])
+            remainder_fallback(builder, ctx, op, left, right)
         },
     )?;
     // `builder.compare` já responde `Repr::Bool`; alargar aqui era jogar fora a

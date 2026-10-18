@@ -84,6 +84,7 @@
 //! `emit/delegate.rs` emits.
 
 mod delegate;
+pub(in crate::entry) mod intrinsics;
 mod numbering;
 mod resume;
 
@@ -159,6 +160,12 @@ pub(super) struct State {
     /// step for that turn has happened: the inner iterator was advanced from
     /// outside the parked frame. See [`delegate`].
     pending: Option<u64>,
+    /// The arguments the call really passed, as an array, when the frame's own
+    /// parameter fields cannot carry them: more were passed than the body
+    /// declares, or the last one was an explicit `undefined`. Pushed as the
+    /// running call's argument vector for each re-entry, so `arguments` and
+    /// `...rest` read the real list rather than the declared slots.
+    arguments: Option<u64>,
 }
 
 impl State {
@@ -191,6 +198,7 @@ impl State {
         // is parked.
         out.extend(self.delegating);
         out.extend(self.pending);
+        out.extend(self.arguments);
     }
 }
 
@@ -294,6 +302,24 @@ pub fn generator_new(
             .region
             .set_spanning_field(frame, shape.label_field, shape.slots, 0);
 
+        // The real argument list, kept only when the frame cannot hold it. The
+        // body is re-entered afresh with only its DECLARED parameters restored,
+        // so a surplus argument (or an explicit trailing `undefined`) is gone by
+        // the first `next()` and `arguments.length` read 0.
+        // All four argument slots ARE saved (the frame holds the whole signature),
+        // so only a fifth argument, or an explicit trailing `undefined` the slots
+        // cannot tell from padding, needs the list kept.
+        let declared = 4;
+        let passed = super::functions::collected(context, 0, a0, a1, a2, a3);
+        let absent = super::objects::undefined_of(context);
+        let kept = if passed.len() > declared || passed.last() == Some(&absent) {
+            Some(passed)
+        } else {
+            None
+        };
+        let kept = kept.map(|passed| super::array::built_in(context, passed));
+        let _kept_rooted = kept.map(|array| super::rooted::Rooted::with(vec![array]));
+
         let Some(cell) = made(context) else {
             return super::objects::undefined_of(context);
         };
@@ -306,6 +332,7 @@ pub fn generator_new(
                 done: false,
                 delegating: None,
                 pending: None,
+                arguments: kept,
             },
         );
         Value::from_slot(cell).bits()
@@ -332,13 +359,7 @@ pub fn generator_yield(value: u64) -> u64 {
 impl Generator {
     /// `g.next(v)` — runs until the next `yield`, or until the body ends.
     fn next(this: u64, sent: u64) -> u64 {
-        if running(this) {
-            return refuse_running();
-        }
-        let Some(cell) = Value(this).as_slot() else {
-            return with_current(|context| super::objects::undefined_of(context));
-        };
-        resume(cell, sent, ResumeMode::Deliver)
+        step_next(this, sent)
     }
 
     /// `g.return(v)` — returns from the `yield` the body is parked at.
@@ -355,26 +376,7 @@ impl Generator {
     /// not run because `.return()` was called on it.
     #[js("return")]
     fn returned(this: u64, value: u64) -> u64 {
-        if running(this) {
-            return refuse_running();
-        }
-        // A generator parked inside a `yield*` owes the INNER iterator its
-        // `return` first, and what that answers decides whether the outer's own
-        // return completion happens at all. `None` means it did not decide —
-        // there was no delegation, or the inner has no `return` — so the
-        // ordinary completion below proceeds.
-        if let Some((cell, inner)) = delegate::delegated(this)
-            && let Some(answered) = delegate::forward_return(cell, inner, value)
-        {
-            return answered;
-        }
-        match resumable(this) {
-            Some(cell) => resume(cell, value, ResumeMode::Return),
-            None => with_current(|context| {
-                finish_value(context, this);
-                result(context, value, true)
-            }),
-        }
+        step_return(this, value)
     }
 
     /// `g.throw(e)` — raises AT the `yield` the body is parked at.
@@ -393,26 +395,181 @@ impl Generator {
     /// program can be written against.
     #[js("throw")]
     fn thrown(this: u64, error: u64) -> u64 {
-        if running(this) {
-            return refuse_running();
+        step_throw(this, error)
+    }
+}
+
+/// `g.next(v)`, as both generator classes answer it: the synchronous one hands
+/// the `{ value, done }` back as it is, the asynchronous one settles a promise
+/// with it. One body, so the two cannot come to disagree about what a step IS.
+fn step_next(this: u64, sent: u64) -> u64 {
+    if running(this) {
+        return refuse_running();
+    }
+    let Some(cell) = Value(this).as_slot() else {
+        return with_current(|context| super::objects::undefined_of(context));
+    };
+    resume(cell, sent, ResumeMode::Deliver)
+}
+
+/// `g.return(v)` — see [`Generator::returned`] for what it owes.
+fn step_return(this: u64, value: u64) -> u64 {
+    if running(this) {
+        return refuse_running();
+    }
+    // A generator parked inside a `yield*` owes the INNER iterator its
+    // `return` first, and what that answers decides whether the outer's own
+    // return completion happens at all. `None` means it did not decide —
+    // there was no delegation, or the inner has no `return` — so the
+    // ordinary completion below proceeds.
+    if let Some((cell, inner)) = delegate::delegated(this)
+        && let Some(answered) = delegate::forward_return(cell, inner, value)
+    {
+        return answered;
+    }
+    match resumable(this) {
+        Some(cell) => resume(cell, value, ResumeMode::Return),
+        None => with_current(|context| {
+            finish_value(context, this);
+            result(context, value, true)
+        }),
+    }
+}
+
+/// `g.throw(e)` — see [`Generator::thrown`] for what it owes.
+fn step_throw(this: u64, error: u64) -> u64 {
+    if running(this) {
+        return refuse_running();
+    }
+    // The delegated iterator's own `throw` runs first, and the outer frame
+    // is re-entered only if it says the delegation is over. See
+    // [`delegate::forward_throw`], which always decides — an inner iterator
+    // with no `throw` is closed and refused rather than skipped.
+    if let Some((cell, inner)) = delegate::delegated(this)
+        && let Some(answered) = delegate::forward_throw(cell, inner, error)
+    {
+        return answered;
+    }
+    match resumable(this) {
+        Some(cell) => resume(cell, error, ResumeMode::Unwind),
+        None => {
+            with_current(|context| finish_value(context, this));
+            super::throw::throw_value(error);
+            with_current(|context| super::objects::undefined_of(context))
         }
-        // The delegated iterator's own `throw` runs first, and the outer frame
-        // is re-entered only if it says the delegation is over. See
-        // [`delegate::forward_throw`], which always decides — an inner iterator
-        // with no `throw` is closed and refused rather than skipped.
-        if let Some((cell, inner)) = delegate::delegated(this)
-            && let Some(answered) = delegate::forward_throw(cell, inner, error)
-        {
-            return answered;
-        }
-        match resumable(this) {
-            Some(cell) => resume(cell, error, ResumeMode::Unwind),
+    }
+}
+
+/// An async generator object: the same parked frame, answering PROMISES.
+///
+/// `next`, `return` and `throw` each step the frame exactly as a synchronous
+/// generator does and then settle a promise with the outcome: fulfilled with
+/// the `{ value, done }` the step answered, or REJECTED with the value the step
+/// left in flight. That is the language's contract (`g.next().then(…)` works,
+/// and a throw inside the body is a rejection, not an exception at the call).
+///
+/// # Why a class of its own and not a flag on [`Generator`]
+///
+/// A flag would be read on every step of every synchronous generator in the
+/// program to express a fact one definition site knows. The prototype is chosen
+/// once, at creation, by [`async_generator_new`]; a synchronous generator never
+/// sees any of this. It also gives the object no `[Symbol.iterator]`, which is
+/// what the language says an async generator lacks.
+///
+/// # What this does NOT yet do
+///
+/// `await` inside an async generator body still drains in place (`async_parks`
+/// is off for generators), so the step runs to its next `yield` before the
+/// promise is made: the promise is already settled when the caller gets it.
+/// Values and rejections are right; the microtask interleaving of a body that
+/// awaits something slow against code running beside it is not.
+#[rtse::class("AsyncGenerator")]
+impl AsyncGenerator {
+    /// `g.next(v)` — a promise of the next `{ value, done }`.
+    fn next(this: u64, sent: u64) -> u64 {
+        settled(step_next(this, sent))
+    }
+
+    /// `g.return(v)` — a promise of `{ v, done: true }`.
+    #[js("return")]
+    fn returned(this: u64, value: u64) -> u64 {
+        settled(step_return(this, value))
+    }
+
+    /// `g.throw(e)` — a promise rejected with `e` when nothing in the body catches it.
+    #[js("throw")]
+    fn thrown(this: u64, error: u64) -> u64 {
+        settled(step_throw(this, error))
+    }
+}
+
+/// The promise a step's outcome becomes: rejected when the step left a throw in
+/// flight, fulfilled with its answer otherwise.
+///
+/// The throw is TAKEN, because it now belongs to the promise; left in flight the
+/// compiled call site would re-raise it at the caller of `next()`, which is the
+/// frame the language says must not see it. Reuses `promise::resolved_with` /
+/// `rejected_with` rather than a second way to make a settled promise.
+fn settled(answer: u64) -> u64 {
+    // A program that never wrote the word `Promise` has registered no prototype,
+    // so the promise would have no `.then` — see `async_fn::async_start`.
+    with_current(|context| {
+        super::promise::register_promise(context);
+    });
+    match super::throw::caught() {
+        Some(reason) => super::promise::rejected_with(reason),
+        None => super::promise::resolved_with(answer),
+    }
+}
+
+/// Makes the object a call to an `async function*` answers: the frame
+/// [`generator_new`] parks, under [`AsyncGenerator`]'s prototype.
+#[rtse::entry]
+pub fn async_generator_new(
+    code: i64,
+    environment: u64,
+    this: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+) -> u64 {
+    let object = generator_new(code, environment, this, a0, a1, a2, a3);
+    let Some(cell) = Value(object).as_slot() else {
+        return object;
+    };
+    with_current(|context| {
+        let prototype = match super::class_support::prototype(context, "AsyncGenerator") {
+            Some(prototype) => prototype,
             None => {
-                with_current(|context| finish_value(context, this));
-                super::throw::throw_value(error);
-                with_current(|context| super::objects::undefined_of(context))
+                register_async(context);
+                match super::class_support::prototype(context, "AsyncGenerator") {
+                    Some(prototype) => prototype,
+                    None => return object,
+                }
             }
-        }
+        };
+        context.set_prototype(cell, prototype);
+        object
+    })
+}
+
+/// Installs the class and its `[Symbol.asyncIterator]`, which answers the object
+/// itself exactly as `[Symbol.iterator]` does on a synchronous generator.
+fn register_async(context: &mut Context) {
+    register_async_generator(context);
+    if let Some(prototype) = super::class_support::prototype(context, "AsyncGenerator")
+        && let Some(cell) = Value(prototype).as_slot()
+    {
+        let key = context.well_known(&format!("{}asyncIterator", super::symbol::PREFIX));
+        let itself = super::native::callable(context, itself as super::native::Native);
+        super::objects::put(context, cell, key, itself);
+        let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
+        let value = context
+            .intern_value(crate::text::Str::from_str("AsyncGenerator"))
+            .bits();
+        super::objects::put(context, cell, tag, value);
+        super::native::tagged(context, cell, tag);
     }
 }
 
@@ -422,7 +579,10 @@ impl Generator {
 /// spellings of one object is how the two would come to disagree about whether
 /// an exhausted iterator carries `undefined` or nothing at all.
 pub(in crate::entry) fn result(context: &mut Context, value: u64, done: bool) -> u64 {
-    let Some(cell) = made(context) else {
+    // An ORDINARY object, no prototype of its own to set: the record is
+    // `{ value, done }` written literally, so it inherits `Object.prototype` and
+    // prints as one — not as a `Generator`, which `made` would have made it.
+    let Some(cell) = super::native::plain(context) else {
         return super::objects::undefined_of(context);
     };
     let key = context.well_known("value");
@@ -462,6 +622,59 @@ fn made(context: &mut Context) -> Option<u32> {
     Some(cell)
 }
 
+/// Finishes a generator function's own `prototype` object: it inherits from
+/// `%GeneratorPrototype%` (no `constructor`).
+///
+/// `function` is the generator function's cell, `prototype` the already-written
+/// object. Registers `Generator` on first use, as `made` does — a program that
+/// creates a generator function is a program that uses generators.
+pub(in crate::entry) fn link_function_prototype(
+    context: &mut Context,
+    function: u32,
+    prototype: u32,
+    asynchronous: bool,
+) {
+    let parent = match asynchronous {
+        true => async_generator_prototype(context),
+        false => generator_prototype(context),
+    };
+    if let Some(parent) = parent {
+        context.set_prototype(prototype, parent);
+    }
+    // The function's own `prototype` stays {writable: true, enumerable: false,
+    // configurable: false} — the derived default. (The brief for this change
+    // said non-writable; Node 2026-10-18 says `true/false/false` for a
+    // generator, so nothing is recorded.)
+    let _ = function;
+}
+
+/// `%Generator%`, registering it on first use.
+pub(in crate::entry) fn generator_prototype(context: &mut Context) -> Option<u64> {
+    if let Some(parent) = context.generator_result_prototype {
+        return Some(parent);
+    }
+    let found = match super::class_support::prototype(context, "Generator") {
+        Some(found) => Some(found),
+        None => {
+            register(context);
+            super::class_support::prototype(context, "Generator")
+        }
+    };
+    if found.is_some() {
+        context.generator_result_prototype = found;
+    }
+    found
+}
+
+/// `%AsyncGenerator%`, registering it on first use.
+pub(in crate::entry) fn async_generator_prototype(context: &mut Context) -> Option<u64> {
+    if let Some(found) = super::class_support::prototype(context, "AsyncGenerator") {
+        return Some(found);
+    }
+    register_async(context);
+    super::class_support::prototype(context, "AsyncGenerator")
+}
+
 /// Installs the class, and the one member its attribute cannot name.
 ///
 /// `Symbol.iterator` answering the generator itself is what makes `for (const x
@@ -489,7 +702,7 @@ pub(in crate::entry) fn register(context: &mut Context) -> u64 {
         let tag = context.well_known(&format!("{}toStringTag", super::symbol::PREFIX));
         let value = context.intern_value(crate::text::Str::from_str("Generator")).bits();
         super::objects::put(context, cell, tag, value);
-        super::native::hidden(context, cell, tag);
+        super::native::tagged(context, cell, tag);
     }
     // `%GeneratorPrototype%` sits on `%IteratorPrototype%`, which is what makes
     // `g().map(f)` a thing at all — it was a `TypeError` for as long as the

@@ -60,6 +60,7 @@ mod computed;
 #[path = "context_tests.rs"]
 mod context_tests;
 mod current;
+mod inspect_facts;
 pub mod declared;
 mod date;
 mod error;
@@ -129,6 +130,7 @@ mod text_cell;
 mod throw;
 pub mod trace;
 mod unhandled;
+mod sys;
 mod weak;
 mod uri;
 
@@ -136,6 +138,10 @@ mod uri;
 // caller wants "the entry points" in one place rather than a module tree.
 pub use array::{array_length, array_new, array_of, element_at, enumerate_keys, own_keys};
 pub use math::math_random;
+pub use date::inspect_text as date_inspect_text;
+pub use inspect_facts::{array_hole_runs, boxed_primitive, has_accessors, is_class_constructor, is_regexp_object};
+pub use promise::inspect_outcome as promise_inspect_outcome;
+pub use sys::{sys_memory, sys_text};
 pub use math_direct::{BINARY_NAMES as MATH_BINARY_NAMES, UNARY_NAMES as MATH_UNARY_NAMES, math_direct1, math_direct2};
 pub use array_proto::arguments_at;
 pub use arguments::{argument_slot, arguments_count, arguments_object};
@@ -181,7 +187,9 @@ pub use eval_scope::{
     declare_eval_compiler_with_receiver, environment_names, eval_direct, evaluate_in_scope,
     evaluate_in_scope_with_receiver, hides_node_globals, mark_hides_node_globals,
 };
-pub use generator::{FrameShape, declare_frames, delegate_step, generator_new, generator_yield};
+pub use generator::{
+    FrameShape, async_generator_new, declare_frames, delegate_step, generator_new, generator_yield,
+};
 pub use global::{global_get, global_get_unbound, global_object, global_set, sloppy_this};
 pub use page_scope::{page_global_get, page_global_set};
 pub use iterate::{array_append, array_append_all, iterate, iterator_result};
@@ -205,7 +213,7 @@ pub use host_class::{declare_host_class, describe_callable, error_prototype};
 pub use pattern::array_pattern_direct;
 pub use text_walk::text_walk;
 pub use objects::{
-    get_property, get_super_property, object_new, object_spread, set_property,
+    get_property, get_super_property, object_new, object_rest, object_spread, set_property,
     set_super_property,
 };
 pub use promise::{async_start, drain_microtasks, promise_await, promise_new, promise_settle, settled};
@@ -216,7 +224,7 @@ pub use operators::{
 pub use primitives::{add, number_to_string, same_value, strict_equals, to_boolean, to_boolean_in};
 pub use primitive::string_for_host;
 pub use bigint_class::bigint_new;
-pub use bigints::{bigint_from_words, bigint_i64, bigint_u64, bigint_words};
+pub use bigints::{f64_from_bits, f64_to_bits, bigint_from_words, bigint_i64, bigint_u64, bigint_words};
 pub use buffers::detach::{buffer_detached, detach_buffer};
 pub use regex::regex_new;
 pub use template_join::{TEMPLATE_JOINED, template_join};
@@ -231,7 +239,7 @@ mod type_of;
 
 pub use accessor::{
     define_accessor_in, define_field, define_getter, define_method, define_setter,
-    set_function_name,
+    set_function_name, set_function_name_from_key, strict_callee,
 };
 pub use alloc::alloc;
 pub use external::{held_current, hold_current, release_current};
@@ -605,6 +613,38 @@ pub struct Context {
     /// class definition time, read by `call` and `call_with_args` — never by
     /// `construct`, which is the one path allowed to reach one.
     callables: Aside<(u64, u64, bool)>,
+    /// A per-callee memo that `Symbol.hasInstance` is ABSENT, for `instanceof`.
+    ///
+    /// The whole cost of `x instanceof C` is the `Symbol.hasInstance` probe —
+    /// measured 118 ns of 119, with the chain walk barely entering it (see
+    /// `functions::instance_of`). Almost no class defines the hook, so the probe
+    /// misses on essentially every execution and pays the same price each time.
+    ///
+    /// This remembers that miss. It holds `(type_id, prototype, epoch)` observed
+    /// when the hook was proven absent, and all three must still hold for the
+    /// memo to fire: the callee's own type (an own `static [Symbol.hasInstance]`
+    /// moves it), its prototype (a slot reused by a differently-linked cell fails
+    /// it), and `cache::chain_epoch` (adding the hook to any walked link bumps it,
+    /// because the miss flags every link exactly as the absence cache does). None
+    /// of the three is a JavaScript value, so nothing here is invisible to the
+    /// collector.
+    has_instance_absent: Aside<(u32, u64, u64)>,
+    /// A per-RECEIVER memo of a finished ordinary `instanceof` answer.
+    ///
+    /// Keyed by the left-hand cell; holds `(receiver type_id, receiver
+    /// prototype, callee bits, callee.prototype bits, chain epoch, answer)`.
+    /// Written only on the ordinary path (no `Symbol.hasInstance`, callee neither
+    /// proxy nor bound, receiver neither proxy nor string), after flagging every
+    /// link of the receiver's chain so that a relink or edit of any of them bumps
+    /// `cache::chain_epoch`. A hit also needs `has_instance_absent` to still
+    /// hold for the callee and `callee.prototype` to be RE-READ and equal the
+    /// stored bits — assigning `C.prototype = ...` changes a value, not a shape,
+    /// so it moves neither the type nor the epoch.
+    ///
+    /// Nothing stored is a traced JavaScript value: the type is a number, the
+    /// bits are compared with `==` and never dereferenced or turned back into a
+    /// cell, and the live arguments of the call keep both cells alive.
+    instance_of_result: Aside<(u32, u64, u64, u64, u64, bool)>,
     /// What an Error was constructed FROM, until something asks for `.stack`.
     ///
     /// The class name and the call stack as it stood at construction. Rendering
@@ -879,18 +919,12 @@ pub struct Context {
     /// an array, so allocating it reaches `array::allocate_array_cell`, which
     /// would otherwise ask for the prototype it is in the middle of making.
     array_prototype_building: bool,
-    /// What the `{ value, done }` of every iterator step inherits from.
+    /// What a generator OBJECT inherits from (`generator::made`).
     ///
-    /// Remembered because `generator::result` asked for it by NAME once per
-    /// step, and `class_support::prototype` answers a name by walking `classes`
-    /// and comparing strings — so every element of every `for`-`of`, every
-    /// destructuring position, and every `Map` or `Set` walk paid a linear scan
-    /// with a `str` compare per entry to find a registration that cannot move.
-    ///
-    /// Needs no root of its own, and that is worth stating rather than assuming:
-    /// what it holds is `Registered::prototype`, and `classes` is already
-    /// enumerated by [`roots`] — nothing ever removes a registration, so the
-    /// memo cannot outlive what it names.
+    /// Remembered because `class_support::prototype` answers a name by walking
+    /// `classes` and comparing strings. Needs no root of its own: what it holds
+    /// is `Registered::prototype`, and `classes` is already enumerated by
+    /// [`roots`] — nothing ever removes a registration.
     generator_result_prototype: Option<u64>,
     /// `Array.prototype[Symbol.iterator]` as it was INSTALLED.
     ///
@@ -901,6 +935,9 @@ pub struct Context {
     /// anything. Nothing has to remember to clear it, which is the property a
     /// protector cell would not have.
     pub(super) array_iterator_method: Option<u64>,
+    /// Each typed-array class's installed `values` (its `[Symbol.iterator]`), as installed;
+    /// `iterate` reads a view directly only when its iterator is one of these.
+    pub(super) typed_iterator_methods: Vec<u64>,
     /// `%ArrayIteratorPrototype%.next` as it was installed, for the same reason
     /// and read the same way.
     ///
@@ -1451,8 +1488,17 @@ impl Context {
     pub fn over(
         singletons: Singletons,
         kinds: crate::value::Kinds,
-        region: crate::heap::Region,
+        mut region: crate::heap::Region,
     ) -> Self {
+        region.publish_plain(None);
+        // The region may come from an earlier context, and its table of element
+        // runs still names that context's freed buffers. Emptied before anything
+        // can publish, and given THIS context's marker for an absent element:
+        // the word compiled code must never hand to a program as a value.
+        region.runs_mut().reset(rts_cranelift::tags::encode(
+            rts_cranelift::tags::TAG_SINGLETON,
+            u64::from(singletons.hole),
+        ));
         // Read before the region moves into the struct below.
         //
         // Every `Aside` is built at the region's width, and every one of them
@@ -1506,7 +1552,7 @@ impl Context {
         // Code address, then environment. Declared here beside text and for the
         // same reason: a number that depends on which allocation happened first
         // is a number two contexts disagree about.
-        Context {
+        let mut context = Context {
             cells: Slab::new(),
             arrays: Slab::new(),
             bigints: Slab::new(),
@@ -1524,6 +1570,8 @@ impl Context {
             text_type,
             spill_type,
             callables: Aside::in_region(bits),
+            has_instance_absent: Aside::in_region(bits),
+            instance_of_result: Aside::in_region(bits),
             proxies: Aside::in_region(bits),
             cursors: Aside::in_region(bits),
             prototypes: Aside::in_region(bits),
@@ -1579,6 +1627,7 @@ impl Context {
             array_prototype_building: false,
             generator_result_prototype: None,
             array_iterator_method: None,
+            typed_iterator_methods: Vec::new(),
             array_cursor_next: None,
             array_cursor_prototype: None,
             list_cursor_prototype: None,
@@ -1625,7 +1674,14 @@ impl Context {
             singletons,
             kinds,
             stack_high: None,
-        }
+        };
+        // Published last: the type number is THIS context's, and compiled code
+        // writes it into every cell it takes. The region may have come from an
+        // earlier context whose number meant something else, so it was switched
+        // off at the top and is switched on only now that this one exists.
+        let plain = context.empty_layout();
+        context.region.publish_plain(Some(plain));
+        context
     }
 
     /// A context with a heap of its own.

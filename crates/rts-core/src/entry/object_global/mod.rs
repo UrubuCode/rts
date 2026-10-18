@@ -35,10 +35,11 @@ mod copy;
 mod define;
 mod descriptor;
 mod describe;
+mod typed;
 
 use copy::held;
 pub(in crate::entry) use define::{define, define_read, define_reported};
-pub(in crate::entry) use copy::each_enumerable_own;
+pub(in crate::entry) use copy::{each_enumerable_own, each_enumerable_own_except};
 pub(in crate::entry) use describe::{describe_of, describe_own, own_symbols};
 /// `ToPropertyDescriptor`, for the one caller outside this module: a proxy's
 /// `getOwnPropertyDescriptor` trap, whose answer goes through the round trip the
@@ -189,12 +190,27 @@ fn empty_object(context: &mut Context) -> u64 {
     fresh
 }
 
+/// `ToObject`'s refusal: `null` and `undefined` have no object to become, and
+/// every `Object.*` static that starts with `ToObject(o)` throws a TypeError.
+/// Answers `true` when `value` is coercible; otherwise raises and answers
+/// `false`, and the caller returns at once.
+pub(in crate::entry) fn coercible(value: u64, what: &str) -> bool {
+    let refused = with_current(|context| super::objects::nullish(context, value).is_some());
+    if refused {
+        super::throw::type_error(&format!("{what} called on null or undefined"));
+    }
+    !refused
+}
+
 /// `Object.keys(o)` — the own enumerable keys, as an array of strings.
 ///
 /// Exactly what `for (k in o)` walks, minus what it inherits — and the runtime
 /// already answers that question for the loop, so this is the same call rather
 /// than a second enumeration that would drift from it.
 extern "C" fn keys(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if !coercible(object, "Object.keys") {
+        return object;
+    }
     // A proxy's keys are filtered by their descriptors, which `Reflect.ownKeys`
     // does not do — see `super::proxy::enumerable_keys` for why that difference
     // is the specification's and not an inconsistency.
@@ -210,6 +226,9 @@ extern "C" fn keys(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u6
 /// cannot disagree about order — which is the property `Object.keys` and
 /// `Object.values` are useful in pairs for.
 extern "C" fn values(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if !coercible(object, "Object.values") {
+        return object;
+    }
     let mut read = Vec::new();
     // Each read goes through the ordinary property path, so a key that names an
     // accessor runs its getter — which is what the language says and what a
@@ -224,6 +243,21 @@ extern "C" fn values(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: 
 
 /// `Object.getPrototypeOf(o)`.
 extern "C" fn get_prototype_of(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if !coercible(object, "Object.getPrototypeOf") {
+        return object;
+    }
+    // `ToObject` first: a number, boolean, symbol or bigint reads the prototype
+    // of its wrapper class. (Strings are cells and resolve in the chain walk.)
+    let wrapper = with_current(|context| {
+        if super::primitive::is_object_in(context, object) {
+            return None;
+        }
+        super::primitive_proto::prototype_of(context, Value(object))
+            .map(|cell| Value::from_slot(cell).bits())
+    });
+    if let Some(found) = wrapper {
+        return found;
+    }
     super::chain::get_prototype(object)
 }
 
@@ -297,6 +331,9 @@ pub(super) fn key_for(context: &mut Context, name: u64) -> Option<Key> {
 /// Built from `keys` and `values` rather than from a third walk, for the reason
 /// [`values`] records: the three are useful because they agree about order.
 extern "C" fn entries(_e: u64, _this: u64, object: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if !coercible(object, "Object.entries") {
+        return object;
+    }
     let mut pairs = Vec::new();
     copy::each_enumerable_own(object, |name| {
         let value = super::computed::get_indexed(object, name);
@@ -334,24 +371,12 @@ extern "C" fn from_entries(_e: u64, _this: u64, entries: u64, _a1: u64, _a2: u64
 /// and it answers for a key holding `undefined`, which is why it cannot be
 /// written as a read compared against `undefined`.
 extern "C" fn has_own(_e: u64, _this: u64, object: u64, name: u64, _a2: u64, _a3: u64) -> u64 {
-    if let Some(owned) = super::proxy::owns(object, name) {
-        return Value::from_bool(owned).bits();
+    if !coercible(object, "Object.hasOwn") {
+        return object;
     }
-    let owns = with_current(|context| {
-        let Some(cell) = Value(object).as_slot() else {
-            return false;
-        };
-        let Some(key) = key_for(context, name) else {
-            return false;
-        };
-        if let Key::Name(named) = key
-            && context.accessor_at(cell, named.index() as u32).is_some()
-        {
-            return true;
-        }
-        super::objects::own_property(context, cell, key).is_some()
-    });
-    Value::from_bool(owns).bits()
+    // The same body as `hasOwnProperty`: index/element/string-unit storage,
+    // symbol keys, ToPropertyKey, accessors and the typed-array geometry hide.
+    Value::from_bool(super::object_proto::owns(object, name)).bits()
 }
 
 /// `Object.is(a, b)` — SameValue.

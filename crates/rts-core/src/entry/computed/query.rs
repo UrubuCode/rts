@@ -132,9 +132,9 @@ fn resolved(key: u64, object: u64) -> bool {
     {
         return answered;
     }
-    with_current(|context| {
+    let walked = with_current(|context| -> Result<bool, (u64, Key)> {
         let Some(slot) = Value(object).as_slot() else {
-            return false;
+            return Ok(false);
         };
         // An array element is own storage that no shape records, so the index
         // question is asked BEFORE the key is turned into text —
@@ -152,9 +152,18 @@ fn resolved(key: u64, object: u64) -> bool {
         {
             // Estar dentro do comprimento não basta: um BURACO ocupa índice e
             // não existe. `0 in [,1]` é falso; `0 in [undefined,1]` é verdadeiro.
-            return elements
+            return Ok(elements
                 .get(at)
-                .is_some_and(|&held| !super::super::array::is_hole(context, held));
+                .is_some_and(|&held| !super::super::array::is_hole(context, held)));
+        }
+        // A typed array's elements are own storage no shape records either.
+        // Only a numeric-looking key is asked; the others fall through, so
+        // `'length' in ta` still resolves through the layout.
+        if let Some(view) = context.view_at(slot)
+            && !matches!(view.kind, super::super::buffers::element::Kind::Raw)
+            && let Some(at) = super::super::array::as_index(context, Value(key))
+        {
+            return Ok(at < view.count());
         }
         // An index past `DENSE_LIMIT` never reaches the dense store — see
         // `array::DENSE_LIMIT` — so it falls through to the ordinary property
@@ -166,20 +175,29 @@ fn resolved(key: u64, object: u64) -> bool {
         // while `0 in Object("hi")` answered false, which is one object
         // disagreeing with itself.
         if super::super::string::text::string_element(context, slot, Value(key)).is_some() {
-            return true;
+            return Ok(true);
         }
         let Some(key) = property_key(context, Value(key)) else {
-            return false;
+            return Ok(false);
         };
+        // A proxy in the PROTOTYPE chain answers `[[HasProperty]]` with its own
+        // `has` trap, and a trap is user code that cannot run inside this borrow.
+        if let Some(proxy) = super::super::proxy::above(context, slot, key) {
+            return Err((proxy, key));
+        }
         // An accessor is a property the object HAS, and it is not in the
         // layout — so asking the shape alone answers false for
         // `"x" in { get x() {} }`, which is the operator getting its one job
         // wrong.
-        !matches!(
+        Ok(!matches!(
             super::super::accessor::resolve(context, slot, key),
             super::super::accessor::Found::Absent
-        )
-    })
+        ))
+    });
+    match walked {
+        Ok(answer) => answer,
+        Err((proxy, key)) => super::super::proxy::has(proxy, key).unwrap_or(false),
+    }
 }
 
 /// Whether a `with` scope resolves a name against this object.
@@ -306,6 +324,12 @@ pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
         let Some(slot) = Value(object).as_slot() else {
             return true;
         };
+        // A typed array element: [[Delete]] refuses an in-range index and
+        // succeeds for any other canonical numeric key (nothing there to remove).
+        if super::super::buffers::is_element_key(context, slot, Value(key)) {
+            let count = context.view_at(slot).map_or(0, |view| view.count());
+            return !super::super::array::as_index(context, Value(key)).is_some_and(|at| at < count);
+        }
         // UM ELEMENTO DE ARRAY, antes de resolver a chave como nome.
         //
         // Isto estava faltando e não era uma recusa: `delete a[0]` percorria o
@@ -318,9 +342,39 @@ pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
         // BURACO — `a.length` não muda, `a[0]` lê `undefined` e `0 in a` passa a
         // ser falso. É o único caminho que cria um buraco num array que já
         // existe; os outros dois (o literal e o crescimento) o criam ao nascer.
+        // A string's own index and `length` are non-configurable: the removal is
+        // refused (`false`), and a string has no other own keys to fall through to.
+        if super::super::string::text::string_element(context, slot, Value(key)).is_some() {
+            return false;
+        }
+        if let Some(named) = property_key(context, Value(key))
+            && super::super::string::text::string_property(context, slot, named).is_some()
+        {
+            return false;
+        }
         if let Some(at) = super::super::array::as_index(context, Value(key)) {
             let vazio = super::super::array::hole_of(context);
-            if let Some(elements) = context.elements_at_mut(slot) {
+            // A present element of a sealed/frozen array, or one pinned with
+            // `configurable: false`, is not removed.
+            let present = context.elements_at(slot).is_some_and(|row| {
+                row.get(at)
+                    .is_some_and(|held| !super::super::array::is_hole(context, *held))
+            });
+            if present {
+                let spelled = context.well_known(&at.to_string());
+                let refused = match spelled {
+                    crate::object::Key::Name(k) => {
+                        super::super::integrity::refuses_key_removal(context, slot, k)
+                    }
+                    crate::object::Key::Index(_) => {
+                        super::super::integrity::refuses_removal(context, slot)
+                    }
+                };
+                if refused {
+                    return false;
+                }
+            }
+            if let Some(mut elements) = context.elements_at_mut(slot) {
                 // Além do fim não há o que remover, e `delete` responde `true`
                 // por não existir — a mesma leitura que o caminho de shape faz.
                 if at < elements.len() {

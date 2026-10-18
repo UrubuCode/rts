@@ -37,6 +37,8 @@ pub(in crate::entry::json) enum Shape {
     Array(u32),
     /// Anything else with properties.
     Object(u32),
+    /// A `JSON.rawJSON` object, by cell: its text is written verbatim.
+    Raw(u32),
     /// A bigint, which the language refuses to serialise rather than
     /// approximating. Its own variant because it is the one shape here that
     /// answers with a `TypeError` instead of with text.
@@ -75,11 +77,23 @@ pub(in crate::entry::json) fn shape_of(context: &Context, value: u64) -> Shape {
         // Asked before "does it have elements", because a callable is an object
         // too and the language says a function has no JSON form wherever it
         // appears. Getting the order wrong writes a function's properties.
-        if context.callable_at(cell).is_some() {
+        if context.is_callable_cell(cell) {
             return Shape::Absent;
         }
         if context.elements_at(cell).is_some() {
             return Shape::Array(cell);
+        }
+        // `IsArray(proxy)` is its target's answer, so a proxy over an array is
+        // written as `[…]` through its own `get` traps, not as an object of
+        // its keys. A revoked one is `None` and falls to the object walk, which
+        // raises the revoked `TypeError` on its first trap.
+        if context.any_proxy()
+            && super::super::super::array_proto::array_in(context, value.bits()) == Some(true)
+        {
+            return Shape::Array(cell);
+        }
+        if super::super::raw::branded(context, value.bits()) {
+            return Shape::Raw(cell);
         }
         return Shape::Object(cell);
     }

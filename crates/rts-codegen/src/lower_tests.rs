@@ -278,7 +278,7 @@ fn a_block_scope_is_walked_and_its_binding_is_its_own() {
     // The OUTER `i` is returned. Both are `Int32`, so the type cannot tell them
     // apart -- what says it is the right one is the value: it is the constant
     // `1`, which is the first instruction.
-    assert_eq!(*types.of(returned), Type::Int32);
+    assert!(types.of(returned).is_int());
     assert_eq!(lowered.func.insts[0].result, returned);
 }
 
@@ -293,25 +293,50 @@ fn an_assignment_answers_the_value_it_assigned() {
         Some(Terminator::Return(Some(value))) => *value,
         other => panic!("expected a returned value, got {other:?}"),
     };
-    assert_eq!(*types.of(returned), Type::Int32);
+    assert_eq!(*types.of(returned), Type::Ranged(7, 7));
 }
 
 /// The truth rule is an operation of the LANGUAGE, and the domain folds it
 /// where the type decides it.
 #[test]
 fn a_branch_over_something_always_true_is_folded_by_the_domain() {
-    let lowered = only("function f() { if (1 === 1) { return 1; } return 2; }").expect("covered");
+    let mut lowered =
+        only("function f() { if (1 === 1) { return 1; } return 2; }").expect("covered");
     assert_eq!(verify(&lowered.func), Ok(()));
+    // THE LOWERING ALONE knows `===` answers a boolean and not which one, so the truth of
+    // it is unknown: that is the honest answer for a graph nothing has folded.
+    let truthiness = |lowered: &Lowered| {
+        let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+        lowered
+            .func
+            .insts
+            .iter()
+            .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
+            .map(|tested| types.of(tested.result).clone())
+    };
+    assert_eq!(truthiness(&lowered), Some(Type::Bool(None)));
+    let blocks_before = lowered.func.blocks.len();
+
+    // FOLDED, `1 === 1` is the constant `true`: the truth test over it is decided, the
+    // branch is a jump, and the arm that returned 2 is gone.
+    crate::optimize::fold_constants(&mut lowered.func, &lowered.domain);
+    // THE TRUTH TEST ITSELF is now a constant, so none is left to ask about; what the
+    // branch reads is proved true.
+    assert_eq!(truthiness(&lowered), None);
     let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
-    // `===` answers a boolean of unknown value, so the truth of it is unknown
-    // too: nothing is folded here, and that is the honest answer.
-    let tested = lowered
-        .func
-        .insts
-        .iter()
-        .find(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if *prim == lowered.domain.prim(JsPrim::Truthy)))
-        .expect("a truthiness test");
-    assert_eq!(*types.of(tested.result), Type::Bool(None));
+    let condition = match &lowered.func.block(lowered.func.entry()).terminator {
+        Some(Terminator::Branch { condition, .. }) => *condition,
+        other => panic!("expected a branch, got {other:?}"),
+    };
+    assert_eq!(*types.of(condition), Type::Bool(Some(true)));
+    rts_mir::passes::simplify_cfg(&mut lowered.func);
+    assert_eq!(verify(&lowered.func), Ok(()));
+    assert!(lowered.func.blocks.len() < blocks_before);
+    // Not fused into the entry: that needs dominance, which the graph does not have.
+    assert!(matches!(
+        lowered.func.block(lowered.func.entry()).terminator,
+        Some(Terminator::Jump { .. })
+    ));
 }
 
 /// The shape a loop is: an entry that jumps to a header, a header that tests and
@@ -384,11 +409,12 @@ fn the_header_type_comes_from_inference_and_not_from_the_lowering() {
         .find(|held| lowered.func.predecessors(*held).len() == 2)
         .expect("a header");
     let carried = lowered.func.block(header).params[0];
-    // `0` from before the loop is an Int32; `at + 1` across the back edge is a
-    // Double, because this language's addition of two int32s may not fit. So the
-    // join is a number -- which is more than the lowering knew and exactly what a
-    // fixed point is for.
-    assert_eq!(*types.of(carried), Type::Double);
+    // `0` from before the loop is the integer 0; `at + 1` across the back edge is an
+    // integer too, since the guard `at < 3` keeps the sum in range. The loop head
+    // is widened, so the carried value is the non-negative integers -- which is more
+    // than the lowering knew and exactly what a fixed point is for. (Before the range
+    // analysis this was a `Double`, because the addition of two int32s may not fit.)
+    assert_eq!(*types.of(carried), Type::Ranged(0, i32::MAX));
 }
 
 /// A `break` leaves through the exit block, which declares the same parameters the
@@ -1525,7 +1551,7 @@ fn negation_is_a_number_and_a_bitwise_not_is_an_int32() {
     else {
         panic!("a return")
     };
-    assert_eq!(*types.of(answered), Type::Int32, "-1 is folded to an integer");
+    assert_eq!(*types.of(answered), Type::Ranged(-1, -1), "-1 is folded to an integer");
     // Over a binding and not a literal: `-1` written is folded into the constant.
     let negated = only("function f() { const one = 1; return -one; }").expect("covered");
     let types = rts_mir::infer::infer(&negated.func, &negated.domain);
@@ -2030,9 +2056,8 @@ fn a_rest_target_owes_no_close_because_the_iterator_ended_itself() {
     assert_eq!(nullish(&stopping), 1, "the pattern stopped, so it closes");
 }
 
-/// An object rest reads the source's own keys once and never reads a key the pattern
-/// named: one `OwnKeys`, one `FieldRead` for the named `a`, and the copy's reads go
-/// through the key the loop holds.
+/// An object rest is one `ObjectRest` call (descriptor and read interleaved per key, the
+/// excluded keys passed in), and the only `FieldRead` is the named `a`.
 #[test]
 fn an_object_rest_walks_the_own_keys_and_skips_what_was_named() {
     let lowered = only("function f(o) { const { a, ...rest } = o; return rest; }").expect("covered");
@@ -2050,7 +2075,7 @@ fn an_object_rest_walks_the_own_keys_and_skips_what_was_named() {
         })
         .collect();
     assert_eq!(
-        entries.iter().filter(|held| **held == crate::runtime::RuntimeOp::OwnKeys).count(),
+        entries.iter().filter(|held| **held == crate::runtime::RuntimeOp::ObjectRest).count(),
         1
     );
     let field_reads = lowered
@@ -2828,4 +2853,45 @@ fn a_substituted_call_is_its_body_over_the_argument_values() {
     };
     assert_eq!(calls(functions[1]), 0, "both calls substituted");
     assert!(calls(functions[2]) > 0, "a parameter `g` is not the proved one");
+}
+
+/// The types of every `+` of a function, in instruction order.
+fn adds_of(source: &str) -> Vec<Type> {
+    let lowered = only(source).expect("covered");
+    assert_eq!(verify(&lowered.func), Ok(()));
+    let types = rts_mir::infer::infer(&lowered.func, &lowered.domain);
+    lowered
+        .func
+        .insts
+        .iter()
+        .filter(|held| matches!(&held.op, rts_mir::Op::Prim { prim, .. } if lowered.domain.meaning(*prim) == Some(JsPrim::Add)))
+        .map(|held| types.of(held.result).clone())
+        .collect()
+}
+
+/// THE RANGE ANALYSIS, end to end through the graph: a counter its own guard bounds is an
+/// integer, the accumulator it feeds (which no interval bounds) is not, and a counter whose
+/// guard leaves room to overflow stays a double.
+#[test]
+fn a_loop_counter_bounded_by_its_guard_is_an_integer() {
+    let bounded = adds_of(
+        "function f() { let acc = 0; for (let i = 0; i < 1000; i++) acc += i; return acc; }",
+    );
+    assert!(
+        bounded.contains(&Type::Ranged(1, 1000)),
+        "i + 1 under i < 1000 is in [1, 1000]: {bounded:?}"
+    );
+    assert!(bounded.contains(&Type::Double), "the accumulator is unbounded: {bounded:?}");
+    // `i <= MAX` lets `i + 1` reach 2^31: every add stays a double.
+    let at_the_edge = adds_of("function f() { let i = 0; for (; i <= 2147483647; i++) {} return i; }");
+    assert!(
+        at_the_edge.iter().all(|held| *held == Type::Double),
+        "{at_the_edge:?}"
+    );
+    // `i < MAX` is room for exactly one more.
+    let below = adds_of("function f() { let i = 0; for (; i < 2147483647; i++) {} return i; }");
+    assert!(below.contains(&Type::Ranged(1, i32::MAX)), "{below:?}");
+    // An unknown bound is no bound.
+    let unknown = adds_of("function f(n) { let i = 0; for (; i < n; i++) {} return i; }");
+    assert!(unknown.iter().all(|held| *held == Type::Double), "{unknown:?}");
 }

@@ -9,6 +9,15 @@ than in the sense a JavaScript JIT means it.
 neither was found by a benchmark.** They are first because they are the reason
 to read the rest.
 
+> **Status as of 2026-10-18.** The two defects below were defects of `420267cd`
+> (2026-08-30). §0a (a nested guard clause returning from the caller) was re-run
+> with the 2026-10-17 release binary on the exact program given here and prints
+> `5 99 -1`, matching Node: fixed. §0b (the inert `try`/`catch` admission) and
+> the survey's priced candidates were NOT re-checked. Inlining has since grown a
+> MIR-door form (`5f7f14502`, statement-body helpers ~6 -> ~3 ns) and an
+> `@inline` decorator that lifts the statement budget (`94cb19322`); neither is
+> described below.
+
 ---
 
 ## 0. Two defects in HEAD, found by reading

@@ -227,6 +227,15 @@ pub fn resolve_written(from: &Path, specifier: &str, aliases: &super::Aliases) -
     if is_relative(specifier) {
         return Some(resolve(from, specifier));
     }
+    // A `node:` module authored in TypeScript is a FILE of the graph, keyed by
+    // its canonical specifier (`node:querystring`, whichever spelling was
+    // written). Asked BEFORE `names_the_host` and before the alias map: the
+    // builtin wins over a project's `paths`, as it does in Node. The three
+    // sites that must agree (the walk, `rewrite`, the runtime resolver) all
+    // reach here, so they agree by construction.
+    if let Some((canonical, _)) = rts_node::embedded::lookup(specifier) {
+        return Some(PathBuf::from(canonical));
+    }
     if names_the_host(specifier) {
         return None;
     }

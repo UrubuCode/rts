@@ -124,6 +124,7 @@ const PROVIDED: &[&str] = &[
     "structuredClone",
     "Symbol",
     "AggregateError",
+    "SuppressedError",
     "SyntaxError",
     "TypeError",
     "URIError",

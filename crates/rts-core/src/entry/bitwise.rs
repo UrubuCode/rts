@@ -250,6 +250,26 @@ pub fn shift_right(left: u64, right: u64) -> u64 {
 #[rtse::entry]
 pub fn shift_right_unsigned(left: u64, right: u64) -> u64 {
     let (left, right) = converted(left, right);
+    // A bigint has no unsigned shift (no width to be unsigned over), and mixing
+    // one with a number is the usual refusal. Asked in a borrow of its own, and
+    // raised after it ends, like the shifts above.
+    let held = with_current(|context| {
+        (
+            super::bigints::digits_of(context, left).is_some(),
+            super::bigints::digits_of(context, right).is_some(),
+        )
+    });
+    match held {
+        (true, true) => {
+            super::throw::type_error("BigInts have no unsigned right shift, use >> instead");
+            return super::modules::undefined_value();
+        }
+        (true, false) | (false, true) => {
+            super::throw::type_error("Cannot mix BigInt and other types, use explicit conversions");
+            return super::modules::undefined_value();
+        }
+        (false, false) => {}
+    }
     with_current(|context| {
         let (a, b) = operands(context, Value(left), Value(right));
         Value::from_f64(f64::from(to_uint32(a).wrapping_shr(shift_by(b)))).bits()

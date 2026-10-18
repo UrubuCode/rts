@@ -40,12 +40,17 @@
 
 mod body;
 mod cached_keyed;
+mod cell_alloc;
 mod cleanup;
 mod error;
 mod memory;
+mod run_read;
+mod row_hoist;
+mod run_write;
 mod terminator;
 mod types;
 mod value;
+mod whole_index;
 
 pub use body::Outside;
 pub use error::{Capability, LowerError};

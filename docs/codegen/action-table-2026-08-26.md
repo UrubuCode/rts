@@ -4,6 +4,18 @@
 `target/release/rts.exe` against `bench/analytic.ts` or a dedicated micro-bench,
 on one Windows machine, with node v25.9.0 and bun 1.4.0 run on the same file.*
 
+> **Superseded, 2026-10-18 — history, not a current table.** The ranking and the
+> ns below are `652738bb` (2026-08-26). Since then: `prop instanceof` (116 ns here)
+> is ~25-32 ns net (shape-keyed `has_instance_absent` memo + a per-receiver result
+> cache) and constant-folded where the class chain is known; a statically resolved
+> light leaf module function is a direct call (~2 ns) instead of the door; and the
+> escaping-allocation bump is inlined (`CellAlloc`), so what remains of
+> `alloc class instance` is the collector. The §4 conclusion — merging the borrows
+> buys nothing, it is the per-activation stacks — was not contradicted; the light
+> door (`emit/light_call.rs`, 2026-09-29) skips the stacks for functions that never
+> read them rather than merging them. See `plan-2026-09-27.md` and the status notes
+> in `plan.md` / `native-call-floor.md`.
+
 **Read the machine caveat first.** This machine was building for most of the
 session, and `bench/analytic.ts` could not resolve any of it: three alternating
 runs of two binaries put **all ninety rows in overlapping ranges**, with one

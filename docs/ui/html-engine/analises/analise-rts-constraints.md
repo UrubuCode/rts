@@ -1,5 +1,7 @@
 # Analise: rts-constraints
 
+> **Verificacao de caminhos, 2026-10-18:** `crates/rts-codegen-new/` e `crates/rts-html/` citados abaixo nao existem na arvore actual (o codegen actual e `crates/rts-codegen`; nao ha crate `rts-html`; o DOM esta em `crates/rts-dom`). Restantes afirmacoes nao re-verificadas.
+
 Agora tenho o contexto completo. Vou preparar uma análise cuidadosa e estruturada:
 
 ## ANÁLISE COMPLETA: ESTADO ATUAL E RESTRIÇÕES DO MOTOR HTML/CSS DO RTS

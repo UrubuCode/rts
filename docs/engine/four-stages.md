@@ -1,5 +1,32 @@
 # Four stages, not two
 
+> **Status as of 2026-10-18.** The body of this document is a dated log of the MIR
+> stage as it was built (2026-09 through early 2026-10) and is kept as history.
+> Statements in it that the tree has since overtaken:
+> - **"The MIR is not on the running path"** (the 2026-09-20 section "Has any of
+>   this changed how fast RTS runs?", and the line near the end saying `run`,
+>   `test` and `compile` do not call the stage). Superseded: `emit/through_mir.rs`
+>   is a live per-function door — `emit_function` asks it first
+>   (`emit/function.rs`, `through_mir::try_emit`), and a function it takes is the one
+>   the program executes. The `rts mir` percentages ("98.4% lowered") count what
+>   compiles through the stage; some of those functions now also RUN through it.
+>   The module-function direct call (`Callee::Func` in `rts-mir/src/lower/mod.rs`
+>   → `machine/ops.rs::call_func`, `f9298d814`, ~22 → ~7 ns) is a measured speed
+>   effect of the stage, so "no benchmark can have moved" no longer holds either.
+>   The release-build claim in that section ("what is NOT claimed: a fresh number")
+>   is a statement about 2026-09-20 and stands as history.
+> - **Integer range typing.** Where this document describes `int32` as one lattice
+>   point and `>>>`/wide results as outside it: the range type is now
+>   `Type::Ranged(lo, hi)` in `crates/rts-codegen/src/domain/mod.rs` (commit
+>   `219248373`, with widen/refine), NOT in `rts-mir/src/infer.rs`;
+>   `(a|0)+(b|0)|0` lowers to a wrapping i32 op and `ToInt32` of a constant is
+>   folded. Whether `>>>` (line ~2243: "still without a row") has since gained one
+>   was not checked.
+> - Concrete per-call ns figures in the MIR logs below predate the direct-call,
+>   inline-allocation (`5f08f5dd6`, ~5-7 ns bump), class scalar-replacement
+>   (80 → 4.5 ns) and instanceof (~32 ns net) work. They are measurements of their
+>   day, not current numbers.
+
 The pipeline is `AST → machine IR`. It needs to be
 `AST → resolved AST → MIR → machine IR`, and the two missing stages are not
 refinements: every optimisation this engine has is written as a proof over the

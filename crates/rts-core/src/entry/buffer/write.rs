@@ -148,6 +148,11 @@ fn write_bytes(this: u64, text: &str, start: usize, cap: usize, encoding: &str) 
         let mut count = bytes.len().min(cap).min(view.count() - start);
         if encoding == "utf16le" {
             count -= count % 2;
+        } else if encoding == "utf8" {
+            // Never leave half a character: back off to the last whole one.
+            while count > 0 && count < bytes.len() && (bytes[count] & 0xC0) == 0x80 {
+                count -= 1;
+            }
         }
         if let Some(destination) = window_mut(context, &view) {
             destination[start..start + count].copy_from_slice(&bytes[..count]);

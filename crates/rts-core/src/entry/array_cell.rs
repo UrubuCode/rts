@@ -218,6 +218,9 @@ pub(super) fn spill(context: &mut Context, cell: u32) -> bool {
     };
     let store = context.arrays.insert(held).slot();
     context.array_elements.set(cell, store);
+    // Its elements now live in a store with an address, and compiled code reads
+    // that address from the region's table — see `Context::publish_run`.
+    context.publish_run(cell);
     true
 }
 

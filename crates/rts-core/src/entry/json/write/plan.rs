@@ -73,6 +73,11 @@ pub(super) fn plain_properties(
     if context.elements_at(cell).is_some() {
         return None;
     }
+    // A typed array's keys are its indices, which no shape records: the general
+    // walk asks the runtime's own enumeration.
+    if context.view_at(cell).is_some() {
+        return None;
+    }
     let ty = context.region.type_of(cell)?;
     let shape = context.shape_of(ty)?;
     // Only a cell with nothing recorded may take or leave a remembered answer:

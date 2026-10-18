@@ -8,6 +8,16 @@ of five inside one process, alternated between binaries, stated as a pair.*
 
 ---
 
+> **Superseded where it prices things, 2026-10-18.** The account of WHY (the
+> `instanceof` was one failed lookup; the `CACHED_KEYS` defect; two lost roots)
+> is a settled record. The prices are `a2741a34`'s: `instanceof` 119 -> ~25-32 ns
+> net since the `has_instance_absent` memo and the result cache; a cached
+> property read is ~4.5 ns mono, a two-layout site is 2-entry cached; an inherited
+> method 3+ links up the chain is cached (`3aeffa8eb`). The "months of work"
+> keystone paragraph in §1 (precise roots) was not re-checked; the activation
+> stacks it blames are skipped, not removed, by the light door
+> (`emit/light_call.rs`).
+
 ## 0. The instrument, and the four rows it cannot resolve
 
 `bench/analytic.ts` was run three times against the **same** binary before

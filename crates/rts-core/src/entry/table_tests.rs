@@ -318,8 +318,27 @@ fn the_list_is_short_enough_to_read_in_one_screen() {
     // which is everything these two rows state by hand. The next mover inherits
     // an argument that has now failed to be made four times, and the first one
     // who needs a THIRD class should derive the row instead of writing it.
+    //
+    // Moved to 134 on 2026-10-15 for `SysMemory` (`"rts:sys"`'s `totalmem` and
+    // `freemem`), and the question was asked rather than inherited: it reads the
+    // operating system (`GlobalMemoryStatusEx`, `/proc/meminfo`), which is the
+    // second clause of the membership rule and is not arithmetic. One row serves
+    // both names through a selector, not two. It adds a capability rather than
+    // removing a crossing, which is the host layer's whole point.
+    //
+    // Moved to 137 for `F64ToBits`/`F64FromBits` (`rts:core`'s `f64ToBits` and
+    // `f64FromBits`): each allocates or reads a bigint, which is the heap clause of
+    // the membership rule. They are two rows because the argument and result
+    // shapes differ (f64 -> bigint, bigint -> f64), which one selector cannot carry.
+    //
+    // Moved to 139 for `ObjectRest` (`{ a, ...rest } = x`): it allocates the rest
+    // object and runs a proxy's traps, so the heap clause. It must be one call and
+    // not a graph loop because `CopyDataProperties` interleaves a descriptor and a
+    // read per key, which a loop over `OwnKeys` (all descriptors first) cannot.
+    // Moved to 141 for `StrictCallee` (a strict arguments object's throwing `callee`): it
+    // allocates a function cell and defines an accessor -- heap work, not arithmetic.
     assert!(
-        CORE_ENTRY_COUNT <= 133,
+        CORE_ENTRY_COUNT <= 141,
         "an explicitly numbered list stops being the right mechanism when \
          nobody can read it"
     );

@@ -6,6 +6,11 @@ design change, none needed a new mechanism, and each was costing more than the
 operation it sat inside — except the one that was costing nothing at all, which
 is §5 and is the reason each of them had to be measured separately.
 
+*Date-note, 2026-10-18: the numbers in this document are 2026-08-21 measurements
+and are left as measured; the findings (work on a hot path that nothing asked
+for) are what it is kept for. `prop instanceof` 233.71 -> 217.12 in the table
+near the end is a 08-21 row; the operator is ~25-32 ns net now.*
+
 They are here rather than in six documents because the lesson is the category.
 An engine accumulates these the way a house accumulates dust: a debug switch
 added while chasing a bug, a defensive call that stopped being reachable, a

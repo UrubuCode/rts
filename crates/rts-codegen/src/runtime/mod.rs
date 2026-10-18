@@ -38,6 +38,7 @@
 //! reaching past the boundary to do work the machine already does.
 
 mod literals;
+pub mod core_names;
 pub mod math_direct;
 mod raising;
 
@@ -1193,6 +1194,32 @@ pub enum RuntimeOp {
     MapNewDirect,
     /// `new Set()` on the same terms. See [`RuntimeOp::MapNewDirect`].
     SetNewDirect,
+    /// `totalmem()` / `freemem()` from `"rts:sys"`: physical memory in bytes,
+    /// unboxed, selected by an integer (0 total, 1 free). Reads the operating
+    /// system, so it is a call. Host-only; **appended**.
+    SysMemory,
+    /// `hostname()` / `homedir()` / `tmpdir()` from `"rts:sys"`: an interned
+    /// string, selected by an integer (0 host, 1 home, 2 tmp). Allocates, so
+    /// unlike `SysMemory` it can collect. Host-only; **appended**.
+    SysText,
+    /// `f64ToBits(x)` from `rts:core`: the IEEE-754 bits of a double as an unsigned
+    /// bigint. A call because a bigint is a heap cell; a bigint rather than a number
+    /// because 64 bits do not fit a double exactly. **Appended**.
+    F64ToBits,
+    /// `f64FromBits(b)` from `rts:core`: the double a bigint's low 64 bits spell,
+    /// unboxed. Reads the heap, so a call. **Appended**.
+    F64FromBits,
+    /// The object an `async function*` call answers: `GeneratorNew`'s frame under the
+    /// async generator's prototype, so its steps answer promises. **Appended**.
+    AsyncGeneratorNew,
+    /// The rest object of an object pattern: `(source, excluded keys array)`.
+    /// **Appended**.
+    ObjectRest,
+    /// `SetFunctionName` for a computed key: `(function, key, prefix text)`.
+    /// **Appended**.
+    SetFunctionNameFromKey,
+    /// The throwing `callee` of a strict arguments object: `(arguments)`. **Appended**.
+    StrictCallee,
 }
 
 impl RuntimeOp {
@@ -1336,6 +1363,14 @@ impl RuntimeOp {
         RuntimeOp::SpreadList,
         RuntimeOp::MapNewDirect,
         RuntimeOp::SetNewDirect,
+        RuntimeOp::SysMemory,
+        RuntimeOp::SysText,
+        RuntimeOp::F64ToBits,
+        RuntimeOp::F64FromBits,
+        RuntimeOp::AsyncGeneratorNew,
+        RuntimeOp::ObjectRest,
+        RuntimeOp::SetFunctionNameFromKey,
+        RuntimeOp::StrictCallee,
     ];
 
     /// The linker name the runtime must define.
@@ -1375,6 +1410,9 @@ impl RuntimeOp {
             RuntimeOp::DelegateStep => "__rts_delegate_step",
             RuntimeOp::ModulePublishAll => "__rts_module_publish_all",
             RuntimeOp::ObjectSpread => "__rts_object_spread",
+            RuntimeOp::ObjectRest => "__rts_object_rest",
+            RuntimeOp::SetFunctionNameFromKey => "__rts_set_function_name_from_key",
+            RuntimeOp::StrictCallee => "__rts_strict_callee",
             RuntimeOp::KeyNumber => "__rts_key_number",
             RuntimeOp::Thrown => "__rts_thrown",
             RuntimeOp::ThrownAddress => "__rts_thrown_address",
@@ -1479,6 +1517,11 @@ impl RuntimeOp {
             RuntimeOp::SpreadList => "__rts_spread_list",
             RuntimeOp::MapNewDirect => "__rts_map_new_direct",
             RuntimeOp::SetNewDirect => "__rts_set_new_direct",
+            RuntimeOp::SysMemory => "__rts_sys_memory",
+            RuntimeOp::SysText => "__rts_sys_text",
+            RuntimeOp::F64ToBits => "__rts_f64_to_bits",
+            RuntimeOp::F64FromBits => "__rts_f64_from_bits",
+            RuntimeOp::AsyncGeneratorNew => "__rts_async_generator_new",
         }
     }
 
@@ -1518,6 +1561,18 @@ impl RuntimeOp {
             // compiling, so there is no operand for it to arrive as.
             RuntimeOp::MapNewDirect | RuntimeOp::SetNewDirect => (vec![], vec![UNPROVEN]),
             RuntimeOp::MathDirect1 => (vec![Repr::I64, Repr::F64], vec![Repr::F64]),
+            RuntimeOp::SysMemory => (vec![Repr::I64], vec![Repr::F64]),
+            RuntimeOp::SysText => (vec![Repr::I64], vec![UNPROVEN]),
+            RuntimeOp::F64ToBits => (vec![Repr::F64], vec![UNPROVEN]),
+            RuntimeOp::F64FromBits => (vec![UNPROVEN], vec![Repr::F64]),
+            // The same row as `GeneratorNew`: the code address, then the convention's own
+            // parameters.
+            RuntimeOp::AsyncGeneratorNew => (
+                std::iter::once(Repr::I64)
+                    .chain(std::iter::repeat_n(UNPROVEN, 2 + ARGUMENT_SLOTS))
+                    .collect(),
+                vec![UNPROVEN],
+            ),
             RuntimeOp::MathDirect2 => (vec![Repr::I64, Repr::F64, Repr::F64], vec![Repr::F64]),
             RuntimeOp::StringOf | RuntimeOp::ObjectNewUnder | RuntimeOp::SpreadList => {
                 (vec![UNPROVEN], vec![UNPROVEN])
@@ -1578,6 +1633,9 @@ impl RuntimeOp {
             // re-exporting from. Neither is a value.
             RuntimeOp::ModulePublishAll => (vec![Repr::I64, Repr::I64], vec![UNPROVEN]),
             RuntimeOp::ObjectSpread => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::ObjectRest => (vec![UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::SetFunctionNameFromKey => (vec![UNPROVEN, UNPROVEN, UNPROVEN], vec![UNPROVEN]),
+            RuntimeOp::StrictCallee => (vec![UNPROVEN], vec![UNPROVEN]),
             // A key number is an `I64` and not a value: it is what the compiler
             // resolves a name to, and every accessor entry point takes one.
             RuntimeOp::KeyNumber => (vec![UNPROVEN], vec![Repr::I64]),

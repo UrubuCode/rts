@@ -39,6 +39,12 @@ pub struct Callees {
     /// Whether the whole program leaves `Math` as the language defines it --
     /// `intrinsic.rs`.
     math_primordial: bool,
+    /// Names imported from `rts:core` that this function sees unshadowed, with the
+    /// primitive each means -- `runtime::core_names`.
+    core_imports: std::collections::BTreeMap<crate::names::Name, crate::runtime::core_names::Bound>,
+    /// Same-module `@intrinsic` functions, by name (real functions; only a direct call
+    /// lowers to the op) -- `Ctx::intrinsic_fns`.
+    intrinsic_fns: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
     statics_primordial: crate::emit::statics::Primordials,
     /// Which names the program expects to be collections -- `emit/evidence`, handed
     /// over whole so both emitters choose a direct entry for the same receivers.
@@ -61,6 +67,8 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: held,
@@ -80,6 +88,8 @@ impl Callees {
             substitutes: std::collections::BTreeMap::new(),
             methods: std::collections::BTreeMap::new(),
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
             statics_primordial: crate::emit::statics::Primordials::default(),
             collections: std::rc::Rc::default(),
             by_binding: std::collections::BTreeMap::new(),
@@ -89,6 +99,16 @@ impl Callees {
                 .map(|(at, held)| (*held, rts_mir::cfg::FuncId(at as u32)))
                 .collect(),
         }
+    }
+
+    /// The same map, also naming these bindings as the functions numbered after the ones
+    /// written inside -- the declarations `emit/direct_call` proved callable by machine call.
+    pub fn with_functions(
+        mut self,
+        bindings: impl IntoIterator<Item = (BindingId, rts_mir::cfg::FuncId)>,
+    ) -> Self {
+        self.by_binding.extend(bindings);
+        self
     }
 
     /// The same map, with a site for each tagged template this function writes.
@@ -143,6 +163,34 @@ impl Callees {
     pub fn with_math_primordial(mut self, untouched: bool) -> Self {
         self.math_primordial = untouched;
         self
+    }
+
+    /// The `rts:core` imports in force for this function.
+    pub fn with_core_imports(
+        mut self,
+        imports: std::collections::BTreeMap<crate::names::Name, crate::runtime::core_names::Bound>,
+    ) -> Self {
+        self.core_imports = imports;
+        self
+    }
+
+    /// The same map, with this unit's `@intrinsic` functions.
+    pub fn with_intrinsic_fns(
+        mut self,
+        fns: std::collections::BTreeMap<crate::names::Name, rts_corelib::CorePrimitive>,
+    ) -> Self {
+        self.intrinsic_fns = fns;
+        self
+    }
+
+    /// The op `name` lowers to where it is a same-module `@intrinsic` function.
+    pub fn intrinsic_fn(&self, name: crate::names::Name) -> Option<rts_corelib::CorePrimitive> {
+        self.intrinsic_fns.get(&name).copied()
+    }
+
+    /// The primitive `name` is bound to by an `rts:core` import, if it is.
+    pub fn core_import(&self, name: crate::names::Name) -> Option<crate::runtime::core_names::Bound> {
+        self.core_imports.get(&name).copied()
     }
 
     /// Whether the program leaves `Math` alone.

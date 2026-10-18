@@ -289,6 +289,37 @@ impl AggregateError {
     }
 }
 
+/// `SuppressedError` — a disposal that threw while another error was in flight.
+///
+/// `new SuppressedError(error, suppressed, message, options)`: `error` is the
+/// NEW failure (the disposer's) and `suppressed` the one it replaced (the
+/// body's). Both are own non-enumerable data properties, like `errors` on an
+/// `AggregateError`. The `using` desugar is the only thing in the engine that
+/// raises one itself.
+#[rtse::class("SuppressedError", extends = register_error)]
+impl SuppressedError {
+    /// The name every instance answers.
+    const name: &str = "SuppressedError";
+
+    /// `new SuppressedError(error, suppressed, message, options)`.
+    #[arity(3)]
+    #[construct]
+    fn build(this: u64, error: u64, suppressed: u64, message: u64, options: u64) -> u64 {
+        let made = written_with_cause(this, message, options, "SuppressedError");
+        with_current(|context| {
+            let Some(cell) = Value(made).as_slot() else {
+                return made;
+            };
+            for (name, value) in [("error", error), ("suppressed", suppressed)] {
+                let key = context.well_known(name);
+                super::objects::put(context, cell, key, value);
+                super::native::hidden(context, cell, key);
+            }
+            made
+        })
+    }
+}
+
 /// The object, with its message written on it.
 ///
 /// # Why the receiver may have to be made here
@@ -459,6 +490,7 @@ pub(super) fn provided(name: &str) -> Option<fn(&mut Context) -> u64> {
         "EvalError" => register_eval_error,
         "URIError" => register_uri_error,
         "AggregateError" => register_aggregate_error,
+        "SuppressedError" => register_suppressed_error,
         _ => return None,
     })
 }

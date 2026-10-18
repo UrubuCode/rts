@@ -129,7 +129,7 @@ fn kept(context: &Context, hide_from: u64, limit: usize) -> Vec<u64> {
     frames.pop();
     let callable = Value(hide_from)
         .as_slot()
-        .is_some_and(|cell| context.callable_at(cell).is_some());
+        .is_some_and(|cell| context.is_callable_cell(cell));
     if callable {
         // By IDENTITY, not by code address: two closures over one body are two
         // functions to a program, and the caller passed the one it has.

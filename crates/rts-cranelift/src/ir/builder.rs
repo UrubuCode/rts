@@ -381,9 +381,30 @@ impl<'a> FuncBuilder<'a> {
                 });
                 return Ok(self.use_const(id));
             }
+            // `(a|0) + (b|0) | 0`: a wrapping integer add/sub, add/sub only
+            // (see `fold::to_int32_answer` for the soundness argument).
+            Some(super::fold::Int32Answer::Wrapping(op, a, b)) => {
+                let a = self.int32_operand_value(a);
+                let b = self.int32_operand_value(b);
+                return self.arith(op, a, b);
+            }
             None => {}
         }
         Ok(self.emit(Inst::ToInt32(value), Repr::I32))
+    }
+
+    /// An `I32` value for one side of a folded wrapping add/sub.
+    fn int32_operand_value(&mut self, operand: super::fold::Int32Operand) -> ValueId {
+        match operand {
+            super::fold::Int32Operand::Value(v) => v,
+            super::fold::Int32Operand::Const(k) => {
+                let id = self.declare_const(ConstDecl::Scalar {
+                    repr: Repr::I32,
+                    bits: ScalarBits(k as u32 as u64),
+                });
+                self.use_const(id)
+            }
+        }
     }
 
     /// A one-operand integer operation over a proven integer.
@@ -569,6 +590,12 @@ impl<'a> FuncBuilder<'a> {
         singleton: crate::tags::SingletonId,
     ) -> bool {
         super::fold::is_constant_singleton(self.func, value, singleton)
+    }
+
+    /// The divisor, when a value is a constant positive integer that fits an
+    /// `i32` (so an integer `srem` by it cannot trap). Looks through `ToF64`.
+    pub fn positive_i32_divisor(&self, value: ValueId) -> Option<i32> {
+        super::fold::positive_i32_divisor(self.func, value)
     }
 
     /// What a value was widened from, if it was widened here.
@@ -828,6 +855,126 @@ impl<'a> FuncBuilder<'a> {
                 object,
                 key,
                 cache,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
+    /// Reads one element of a run the owner keeps, at a position proved to be a
+    /// double.
+    ///
+    /// Proven and generic are separate entry points (rule 10): this one takes a
+    /// proven reference and a proven double and has no form that accepts
+    /// anything else. A caller holding a generic position uses
+    /// [`Self::cached_get_keyed`] or its own door. Every case the machine cannot
+    /// answer enters `miss`; [`Terminator::RunRead`] says which and why the
+    /// owner, not an address, is the operand.
+    pub fn run_read(
+        &mut self,
+        owner: ValueId,
+        index: ValueId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(owner);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "run_read",
+                found,
+            });
+        }
+        let position = self.func.repr_of(index);
+        if position != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "run_read index",
+                found: position,
+            });
+        }
+
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::RunRead {
+                owner,
+                index,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
+    /// Overwrites one element of a run the owner keeps, at a position proved to be
+    /// a double, or enters `miss` having written nothing.
+    ///
+    /// The value is widened to the generic form, as for [`Self::cached_set`]; what
+    /// is and is not written inline is [`Terminator::RunWrite`]'s to say.
+    pub fn run_write(
+        &mut self,
+        owner: ValueId,
+        index: ValueId,
+        value: ValueId,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let found = self.func.repr_of(owner);
+        if !matches!(found, Repr::Ref(_)) {
+            return Err(BuildError::WrongDomain {
+                operation: "run_write",
+                found,
+            });
+        }
+        let position = self.func.repr_of(index);
+        if position != Repr::F64 {
+            return Err(BuildError::WrongDomain {
+                operation: "run_write index",
+                found: position,
+            });
+        }
+        let value = self.widen_if_needed(value);
+        let hit_call = self.block_call(hit.0, hit.1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit: hit_call,
+                miss: miss_call,
+            },
+        );
+        Ok(())
+    }
+
+    /// Takes one cell of the client's plain kind inline, or enters `miss`.
+    ///
+    /// The first parameter of `hit` receives the new cell's reference in the
+    /// generic form; `miss` is where the client's own allocation is called, with
+    /// the safepoint that implies. [`Terminator::CellAlloc`] says what is checked
+    /// and why nothing here can collect.
+    pub fn cell_alloc(
+        &mut self,
+        hit: (BlockId, &[ValueId]),
+        miss: (BlockId, &[ValueId]),
+    ) -> BuildResult<()> {
+        let hit_params = self.block_param_reprs(hit.0);
+        if hit_params.first() != Some(&Repr::Tagged) {
+            return Err(BuildError::GuardTargetMissingValue { target: hit.0 });
+        }
+        let hit_call = self.block_call_from(hit.0, hit.1, 1)?;
+        let miss_call = self.block_call(miss.0, miss.1)?;
+        self.func.set_terminator(
+            self.block,
+            Terminator::CellAlloc {
                 hit: hit_call,
                 miss: miss_call,
             },

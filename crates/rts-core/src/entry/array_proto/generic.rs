@@ -50,6 +50,20 @@ pub(super) fn object(this: u64, method: &str) -> Option<u64> {
         throw::type_error(&format!("Array.prototype.{method} called on {named}"));
         return None;
     }
+    // A typed array has a `length` that is a getter-only accessor and indices it
+    // cannot delete, so the four length-changing mutators end in the
+    // `TypeError` their final `Set(O, "length", …, true)` or
+    // `DeletePropertyOrThrow` raises: `push`/`unshift` on the `length` setter,
+    // `pop`/`shift` on the delete (or, on an empty one, on the same setter).
+    if matches!(method, "push" | "pop" | "shift" | "unshift" | "splice")
+        && super::super::buffers::typed_visit::is_typed_array(this)
+    {
+        throw::type_error(&match method {
+            "push" | "unshift" => "Cannot set property length of [object Object] which has only a getter".to_owned(),
+            _ => "Cannot delete property of a typed array".to_owned(),
+        });
+        return None;
+    }
     Some(this)
 }
 

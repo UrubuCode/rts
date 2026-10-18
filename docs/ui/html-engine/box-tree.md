@@ -1,5 +1,7 @@
 # The box tree
 
+> **Status as of 2026-10-18 (additive note):** substantial `rts-dom` work (grid/subgrid/layout/table) landed since this snapshot per the 2026-10 merge; specific capability claims below predate it and were not re-verified in this pass.
+
 The layer between the DOM and the paint list, which this engine does not have
 and every other CSS engine does. Gecko calls it the frame tree, WebKit the
 render tree, Blink the layout object tree, Servo the box tree. The names differ

@@ -52,4 +52,20 @@ mod wrap_script;
 pub use graph::names_any_file;
 pub use link::{HostError, singletons_for};
 pub use live::install_compiler;
-pub use run::{Compiled, MAX_CELLS_VAR, compile, compile_for, compile_graph};
+pub use run::{Compiled, DEFAULT_RESERVED_CELLS, MAX_CELLS_VAR, compile, compile_for, compile_graph};
+
+/// Turns on the compiled-code cache for the rest of this process.
+///
+/// A function compiled by an earlier run, with the same body and the same
+/// surroundings, is replayed instead of compiled again; see
+/// `rts_cranelift::target::enable_code_cache` and its module for the key and
+/// for why a hit is byte-for-byte what a compile would have produced.
+/// `RTS_NO_CODE_CACHE` keeps it off, and `RTS_CODE_CACHE_DIR` moves it. By
+/// default it lives in the system temp directory under `.rts/jit`, which
+/// `rts clean` removes.
+pub fn enable_code_cache() {
+    let directory = std::env::var_os("RTS_CODE_CACHE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join(".rts").join("jit"));
+    rts_cranelift::target::enable_code_cache(directory);
+}

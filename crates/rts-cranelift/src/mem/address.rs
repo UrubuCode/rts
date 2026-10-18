@@ -90,6 +90,10 @@ pub enum RegionBase {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RegionBases {
     addressing: Addressing,
+    /// Where the client's table of element runs is, when it keeps one.
+    runs: Option<u64>,
+    /// Where the client's cell cursor is, when it keeps one.
+    cursor: Option<u64>,
 }
 
 impl RegionBases {
@@ -97,6 +101,47 @@ impl RegionBases {
     pub fn single(base: RegionBase, stride: u32) -> Self {
         Self {
             addressing: Addressing::Single { base, stride },
+            runs: None,
+            cursor: None,
+        }
+    }
+
+    /// Says where the client's [`super::RunTable`] is.
+    ///
+    /// An address and not a [`RegionBase`], and only for a single region: the
+    /// table is indexed by the cell a reference names, and a sharded heap's
+    /// references carry a region the table has no row for. An object file would
+    /// need a symbol the linker resolves; nothing provides one yet, so that
+    /// destination simply has no table and every run read takes its miss edge.
+    pub fn with_runs(mut self, address: u64) -> Self {
+        self.runs = Some(address);
+        self
+    }
+
+    /// Says where the client's [`super::CellCursor`] is.
+    ///
+    /// An address, and only for a single region: a cell is taken by its number,
+    /// and a sharded heap's references carry a region the cursor has no state
+    /// for. A destination with no cursor takes its miss edge every time.
+    pub fn with_cursor(mut self, address: u64) -> Self {
+        self.cursor = Some(address);
+        self
+    }
+
+    /// Where the cell cursor is, if this heap has one this machine may use.
+    pub fn cursor(&self) -> Option<u64> {
+        match self.addressing {
+            Addressing::Single { .. } => self.cursor,
+            Addressing::Sharded { .. } => None,
+        }
+    }
+
+    /// Where the table of element runs is, if this heap has one this machine
+    /// may read.
+    pub fn runs(&self) -> Option<u64> {
+        match self.addressing {
+            Addressing::Single { .. } => self.runs,
+            Addressing::Sharded { .. } => None,
         }
     }
 
@@ -115,6 +160,8 @@ impl RegionBases {
                 selector_bits: region_count.trailing_zeros(),
                 stride,
             },
+            runs: None,
+            cursor: None,
         })
     }
 

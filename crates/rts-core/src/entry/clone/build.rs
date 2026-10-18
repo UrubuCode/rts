@@ -140,6 +140,7 @@ fn empty(context: &mut Context, node: &Node) -> u64 {
                 offset: 0,
                 length: bytes.len(),
                 kind: *kind,
+                tracking: false,
             };
             super::super::buffers::typed::made(context, view)
         }
@@ -185,11 +186,13 @@ fn dated(context: &mut Context, ms: f64) -> u64 {
     let Some(cell) = super::super::native::plain(context) else {
         return undefined_of(context);
     };
+    let pin = super::super::buffers::Pin::new(cell);
     if let Some(prototype) = class_prototype(context, "Date") {
         context.set_prototype(cell, prototype);
     }
     let key = context.well_known(super::super::date::TIME);
     super::super::objects::put(context, cell, key, Value::from_f64(ms).bits());
+    pin.release();
     Value::from_slot(cell).bits()
 }
 
@@ -205,7 +208,7 @@ fn fill(context: &mut Context, node: &Node, value: u64, made: &Made) {
             // from the element vector — so writing the elements alone would
             // leave it at the `0` the empty array was made with.
             let count = elements.len();
-            if let Some(held) = context.elements_at_mut(cell) {
+            if let Some(mut held) = context.elements_at_mut(cell) {
                 *held = elements;
             }
             super::super::array::set_length(context, cell, count);

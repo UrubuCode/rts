@@ -58,6 +58,7 @@
 
 mod hooks;
 mod out;
+mod raw;
 pub(in crate::entry) mod read;
 mod write;
 
@@ -100,6 +101,18 @@ impl Json {
     /// `replacer` is classified once, before the walk — see [`hooks::Replacer`].
     fn stringify(value: u64, replacer: u64, space: u64) -> u64 {
         stringify(value, replacer, space)
+    }
+
+    /// `JSON.rawJSON(text)`. See [`raw`].
+    #[js("rawJSON")]
+    fn raw_json(text: u64) -> u64 {
+        raw::raw_json(text)
+    }
+
+    /// `JSON.isRawJSON(value)`. See [`raw`].
+    #[js("isRawJSON")]
+    fn is_raw_json(value: u64) -> bool {
+        raw::is_raw_json(value)
     }
 
     /// `JSON.parse(text, reviver)`. See [`parse`].

@@ -36,7 +36,7 @@ fn proved(source: &str) -> Vec<String> {
     let captured =
         super::super::capture::captured(body, &[], super::super::capture::nothing_omitted());
     let flattened = super::super::escape::analyse(body, &[], &captured);
-    let mut numeric = analyse(body, &flattened);
+    let mut numeric = analyse(body, &flattened, &captured);
     numeric.name_fields(|object, property| {
         let text = format!(
             "{}{}.{}",

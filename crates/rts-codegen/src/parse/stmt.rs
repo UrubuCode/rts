@@ -14,8 +14,8 @@ use super::item::{class_parts, enum_declaration, function_parts, namespace_decla
 use super::pat::{binding, target};
 use super::{Cx, Result, position, unsupported};
 use crate::syntax::{
-    Binding, BindingKind, Catch, Class, ForEachSource, ForEachTarget, ForInit, Function, Stmt,
-    StmtKind, SwitchClause,
+    Binding, BindingKind, Catch, Class, Expr, ExprKind, ForEachSource, ForEachTarget, ForInit,
+    Function, Pattern, Stmt, StmtKind, SwitchClause,
 };
 /// One statement.
 
@@ -76,6 +76,48 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
             body: Box::new(stmt(cx, &for_in.body)?),
         },
 
+        // `for (using x of xs) body` is `for (const %item of xs) { using x = %item; body }`:
+        // the `using` rewrite then gives each pass its own `try`/`finally`, so the
+        // disposal runs at the end of THAT pass on every exit -- fall-through,
+        // `continue`, `break`, `throw` -- and the iterator close is the loop's own.
+        swc::Stmt::ForOf(for_of) if matches!(for_of.left, swc::ForHead::UsingDecl(_)) => {
+            let ForEachTarget::Dispose { target: name, is_async } = for_head(cx, &for_of.left)?
+            else {
+                unreachable!("a `using` head reads as `Dispose`")
+            };
+            let swc::ForHead::UsingDecl(using) = &for_of.left else { unreachable!() };
+            let head = position(using.span);
+            let item = cx.names.intern("%item");
+            let declare = Stmt::new(
+                StmtKind::Using {
+                    bindings: vec![Binding {
+                        claim: None,
+                        target: Pattern::Name(name),
+                        value: Some(Expr::new(ExprKind::Ident(item), position(for_of.right.span()))),
+                    }],
+                    is_async,
+                },
+                head,
+            );
+            let body = stmt(cx, &for_of.body)?;
+            StmtKind::ForEach {
+                source: if for_of.is_await {
+                    ForEachSource::AwaitOf
+                } else {
+                    ForEachSource::Of
+                },
+                target: ForEachTarget::Declare {
+                    kind: BindingKind::Const,
+                    target: Pattern::Name(item),
+                },
+                subject: expr(cx, &for_of.right)?,
+                body: Box::new(Stmt::new(
+                    StmtKind::Block(super::using::lower(cx, vec![declare, body])),
+                    head,
+                )),
+            }
+        }
+
         swc::Stmt::ForOf(for_of) => StmtKind::ForEach {
             source: if for_of.is_await {
                 ForEachSource::AwaitOf
@@ -113,7 +155,9 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
                             Some(test) => Some(expr(cx, test)?),
                             None => None,
                         },
-                        body: stmts(cx, &case.cons)?,
+                        // Not `stmts`: a `using` directly in a clause is the checker's to refuse
+                        // (no scope ends there), and the rewrite would hide it.
+                        body: case.cons.iter().map(|s| stmt(cx, s)).collect::<Result<Vec<_>>>()?,
                     })
                 })
                 .collect::<Result<_>>()?,
@@ -151,7 +195,8 @@ pub(crate) fn stmt(cx: &mut Cx, statement: &swc::Stmt) -> Result<Stmt> {
 }
 
 pub(super) fn stmts(cx: &mut Cx, list: &[swc::Stmt]) -> Result<Vec<Stmt>> {
-    list.iter().map(|s| stmt(cx, s)).collect()
+    let lowered = list.iter().map(|s| stmt(cx, s)).collect::<Result<Vec<_>>>()?;
+    Ok(super::using::lower(cx, lowered))
 }
 
 fn for_head(cx: &mut Cx, head: &swc::ForHead) -> Result<ForEachTarget> {
@@ -255,6 +300,8 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
         },
         swc::Decl::Fn(function) => StmtKind::Function(Box::new(Function {
             name: Some(cx.name(&function.ident.sym)),
+            intrinsic: intrinsic_of(&function.function.decorators)?,
+            inline: inline_of(&function.function.decorators)?,
             ..function_parts(cx, &function.function)?
         })),
         swc::Decl::Class(class) if !is_decorated_class(&class.class) => {
@@ -286,7 +333,84 @@ pub(super) fn decl(cx: &mut Cx, declaration: &swc::Decl) -> Result<Stmt> {
     Ok(Stmt::new(kind, at))
 }
 
-fn declarators(cx: &mut Cx, declarators: &[swc::VarDeclarator]) -> Result<Vec<Binding>> {
+/// The core op `@intrinsic("sqrt")` on a function declaration names, or `None`
+/// when no decorator is spelled `intrinsic(...)`. Other decorators are left alone.
+///
+/// A MALFORMED one (not exactly one string argument, or a name the shared
+/// `core_names` table does not know) is a parse error, never a silent drop: a
+/// misspelt intrinsic would otherwise compile to the ordinary call.
+fn intrinsic_of(decorators: &[swc::Decorator]) -> Result<Option<rts_corelib::CorePrimitive>> {
+    let mut found = None;
+    for decorator in decorators {
+        let swc::Expr::Call(call) = &*decorator.expr else {
+            continue;
+        };
+        let swc::Callee::Expr(callee) = &call.callee else {
+            continue;
+        };
+        let swc::Expr::Ident(ident) = &**callee else {
+            continue;
+        };
+        if &*ident.sym != "intrinsic" {
+            continue;
+        }
+        let malformed = || {
+            super::ParseError::Syntax(
+                "@intrinsic takes exactly one string argument naming a core op, e.g. @intrinsic(\"sqrt\")".into(),
+            )
+        };
+        let [argument] = call.args.as_slice() else {
+            return Err(malformed());
+        };
+        let swc::Expr::Lit(swc::Lit::Str(name)) = &*argument.expr else {
+            return Err(malformed());
+        };
+        if argument.spread.is_some() || found.is_some() {
+            return Err(malformed());
+        }
+        let name = name.value.to_string_lossy();
+        let Some(bound) = crate::runtime::core_names::intrinsic_lookup(&name) else {
+            return Err(super::ParseError::Syntax(format!("@intrinsic(\"{name}\") names no core op")));
+        };
+        found = Some(bound.primitive);
+    }
+    Ok(found)
+}
+
+/// Whether a function declaration is written `@inline` (a bare decorator, no call).
+///
+/// `@inline(...)` with any argument list, or `@inline` twice, is a parse error
+/// rather than a silent drop. Other decorators are left alone.
+fn inline_of(decorators: &[swc::Decorator]) -> Result<bool> {
+    let mut found = false;
+    for decorator in decorators {
+        let (swc::Expr::Ident(ident), call) = (match &*decorator.expr {
+            swc::Expr::Call(call) => match &call.callee {
+                swc::Callee::Expr(callee) => match &**callee {
+                    swc::Expr::Ident(ident) => (swc::Expr::Ident(ident.clone()), true),
+                    _ => continue,
+                },
+                _ => continue,
+            },
+            swc::Expr::Ident(ident) => (swc::Expr::Ident(ident.clone()), false),
+            _ => continue,
+        }) else {
+            continue;
+        };
+        if &*ident.sym != "inline" {
+            continue;
+        }
+        if call || found {
+            return Err(super::ParseError::Syntax(
+                "@inline takes no argument and may appear once".into(),
+            ));
+        }
+        found = true;
+    }
+    Ok(found)
+}
+
+fn declarators(cx: &mut Cx,declarators: &[swc::VarDeclarator]) -> Result<Vec<Binding>> {
     declarators
         .iter()
         .map(|declarator| {

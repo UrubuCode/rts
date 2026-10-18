@@ -38,7 +38,7 @@ use crate::value::Value;
 /// already been read lives in a `Vec` on the Rust heap, which no scan of ours
 /// reaches. Same hole `map` and `Array.from`'s mapper have, same mechanism —
 /// see [`super::super::rooted`].
-pub(super) fn values_of(items: u64) -> Vec<u64> {
+pub(super) fn values_of(items: u64, holes: bool) -> Vec<u64> {
     let key = with_current(|context| context.intern_value(Str::from_str("length")).bits());
     let claimed = super::super::computed::get_indexed(items, key);
     if throw::in_flight() {
@@ -47,6 +47,17 @@ pub(super) fn values_of(items: u64) -> Vec<u64> {
     let count = super::numeric::length(claimed);
     let mut values = Rooted::new();
     for at in 0..count {
+        if holes {
+            let present = super::generic::has(items, at);
+            if present.is_none() {
+                break;
+            }
+            if present == Some(false) {
+                let hole = with_current(|context| super::super::array::hole_of(context));
+                values.values().push(hole);
+                continue;
+            }
+        }
         let read = super::super::computed::get_indexed(items, Value::from_f64(at as f64).bits());
         if throw::in_flight() {
             break;

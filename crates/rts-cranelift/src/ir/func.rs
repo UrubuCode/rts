@@ -340,6 +340,58 @@ impl Function {
         self.caches as usize
     }
 
+    /// Writes EVERYTHING lowering can read from this function, in a fixed order.
+    ///
+    /// For the compiled-code cache's key. The derived `Debug` of the whole
+    /// struct would do, except that it prints `const_at`, a `HashMap` whose
+    /// iteration order is not stable between runs. That map is only a lookup
+    /// into `consts` (see its doc), so every other field is written and it is
+    /// left out. A new field added to `Function` and not written here would be
+    /// an input the key does not cover, which is why this destructures the
+    /// struct exhaustively: adding a field is a compile error until it is
+    /// either written or deliberately ignored.
+    ///
+    /// Source positions are written RELATIVE to `base` (see
+    /// [`Self::position_base`]): a position only reaches the output as metadata
+    /// (the fault table and position map, which the cache stores relative too),
+    /// so editing an earlier function must not rekey this one.
+    pub(crate) fn write_cache_key(&self, out: &mut dyn core::fmt::Write, base: u32) -> core::fmt::Result {
+        let Function {
+            signature,
+            entry,
+            regions,
+            values,
+            blocks,
+            insts,
+            consts,
+            const_at: _,
+            caches,
+            block_regions,
+            positions,
+        } = self;
+        let relative: Vec<u32> = positions
+            .iter()
+            .map(|p| match p.raw() {
+                0 => 0,
+                raw => raw.wrapping_sub(base).wrapping_add(1),
+            })
+            .collect();
+        write!(
+            out,
+            "{signature:?}|{entry:?}|{regions:?}|{values:?}|{blocks:?}|{insts:?}|{consts:?}|{caches}|{block_regions:?}|{relative:?}"
+        )
+    }
+
+    /// The smallest known source position in this body, or 0 when it has none.
+    pub(crate) fn position_base(&self) -> u32 {
+        self.positions
+            .iter()
+            .map(|p| p.raw())
+            .filter(|&raw| raw != 0)
+            .min()
+            .unwrap_or(0)
+    }
+
     /// A value's representation and origin, or `None` if the handle is foreign.
     pub fn value(&self, id: ValueId) -> Option<ValueData> {
         self.values.get(id.index()).copied()

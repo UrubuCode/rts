@@ -987,6 +987,125 @@ pub enum Terminator {
         miss: BlockCall,
     },
 
+    /// Reads one element of a run the owner keeps outside its cell, by position.
+    ///
+    /// # What it checks, and that every other case is the miss edge
+    ///
+    /// The owner has a row in the heap's [`crate::mem::RunTable`], the position
+    /// is a whole number inside the row's length, and the element is not the
+    /// table's absent marker. ANY failure — no table, no row, a position that
+    /// is negative, fractional, not a number or past the end, an absent
+    /// element — enters `miss`. That is the whole of the contract with the
+    /// client: this instruction answers the common case and never decides an
+    /// uncommon one, so whatever the client does for the rest stays correct
+    /// without this layer knowing what it is.
+    ///
+    /// # Why the operand is the OWNER and not an address
+    ///
+    /// A raw-address element load existed here and was withdrawn on 2026-08-29.
+    /// Its address was computed once, ahead of a loop, from a reference the loop
+    /// then no longer used; liveness saw no live reference, the collector freed
+    /// the owner mid-loop, and the loop read storage that belonged to something
+    /// else. An address is not a reference and liveness cannot see one.
+    ///
+    /// Here the row is looked up from `owner` inside this terminator, every
+    /// time, and no address survives it. `owner` is an ordinary operand, so it is
+    /// live up to the load — and the miss edge, which usually needs the owner
+    /// again, keeps it live across everything before. Nothing between reading
+    /// the row and reading the element can allocate, so the run cannot be freed
+    /// or moved in between.
+    ///
+    /// # Why the position is a proven double
+    ///
+    /// Rule 10: the position of this instruction is a number the caller has
+    /// already proved. A generic position is a different question — it may be a
+    /// name — and belongs to [`Self::CachedGetKeyed`]. The conversion to a
+    /// machine integer is exact or it fails: the integer is converted back and
+    /// compared, so a fraction, an infinity and a NaN all miss, and the compare
+    /// against the length is unsigned so a negative position misses too.
+    RunRead {
+        /// The object whose run is read. A proven reference.
+        owner: ValueId,
+        /// The position, a proven double.
+        index: ValueId,
+        /// Entered with the element, when it was there.
+        hit: BlockCall,
+        /// Entered for every other case.
+        miss: BlockCall,
+    },
+
+    /// Overwrites one element of a run the owner keeps, in place, or enters `miss`.
+    ///
+    /// The store that [`Self::RunRead`] is the load of, with the same contract and
+    /// the same reason the operand is the OWNER: the row is looked up from
+    /// `owner` inside this terminator and no address survives it.
+    ///
+    /// # What is stored, and the only case it answers
+    ///
+    /// The owner has a row, the position is a whole number BELOW the row's write
+    /// length (the elements that already exist and may be overwritten), and --
+    /// for a row of tagged words -- the value is stored as given. For a typed
+    /// array's row the value must be a number (a double or an inline integer)
+    /// and is converted to the element kind by the rule the specification gives
+    /// that kind: a double for Float64, the nearest single for Float32, the
+    /// truncated integer modulo 2^bits for the integer kinds, a clamp with ties
+    /// to even for Uint8Clamped.
+    ///
+    /// EVERY other case enters `miss` with nothing written: no table, no row, a
+    /// position that is negative, fractional, not a number or at or past the
+    /// write length (an append, a hole, a typed array's silent no-op), a frozen
+    /// run, a value the kind cannot convert inline (a string, an object, a
+    /// double whose truncation does not fit 63 bits), a kind the machine does
+    /// not know. The client decides all of those, so growth -- which can move
+    /// the run -- is never done here.
+    ///
+    /// `hit` and `miss` take only their own arguments; the value is not produced.
+    RunWrite {
+        /// The object whose run is written. A proven reference.
+        owner: ValueId,
+        /// The position, a proven double.
+        index: ValueId,
+        /// What is stored, in the generic form.
+        value: ValueId,
+        /// Entered once the element is written.
+        hit: BlockCall,
+        /// Entered for every other case, with nothing written.
+        miss: BlockCall,
+    },
+
+    /// Takes one cell of the client's plain kind from the heap, or enters `miss`.
+    ///
+    /// # What it does, and that every other case is the miss edge
+    ///
+    /// Reads the heap's [`crate::mem::CellCursor`] and takes a cell the way the
+    /// client's own allocation would: the head of the free list if there is one,
+    /// otherwise the next never-used cell if the bound allows. The cell is
+    /// written in full -- the client's published header word, every payload word
+    /// zero -- and `hit` receives a reference to it in the generic form. No
+    /// cursor, no published header, a free list and a bump space both empty:
+    /// `miss`, where the client's entry collects, grows or reports the heap full.
+    ///
+    /// # Why it takes no operand and holds no address
+    ///
+    /// There is nothing to keep live: the cell does not exist before this
+    /// terminator, and no address survives it. What comes out is a reference to a
+    /// cell INSIDE the region, so the collector sweeps it like any other, and the
+    /// conservative stack scan finds it in whatever holds the reference. Nothing
+    /// in here can collect -- the call that can is on the `miss` edge, a block of
+    /// its own with its own safepoint.
+    ///
+    /// # Why the kind is the client's and not an argument
+    ///
+    /// Taking a cell inline means writing its header, and the header is the
+    /// client's number. A different kind of cell would be a different word in the
+    /// cursor, not a different instruction; one is enough to prove the form.
+    CellAlloc {
+        /// Entered with a reference to the new cell, in the generic form.
+        hit: BlockCall,
+        /// Entered when the cell could not be taken here.
+        miss: BlockCall,
+    },
+
     /// Ends a cleanup, handing control back to whatever is unwinding.
     ///
     /// A cleanup is not jumped to. It is copied into each path that needs it,

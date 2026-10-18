@@ -1,5 +1,14 @@
 # Where the 19.9 ms of `rts run empty.ts` goes
 
+> **Date-note, 2026-10-18 (unverified against the current tree).** Every number
+> here is 2026-08-21 (`97f66385`) and was NOT re-measured. One thing is known to
+> read differently: `plan-2026-09-27.md` (release `d718a12d4`, 2026-09-27, with
+> `RTS_TIMING=1`, a different method) puts the process floor for `console.log(1)`
+> at 55 ms, against ~19 ms here (PowerShell `Measure-Command`). The two are not
+> the same ruler and neither was reconciled; do not read either as a regression of
+> the other. Large-file compile latency, which this document does not cover, is in
+> `plan-2026-09-27.md` (module body chunking, `emit/chunk.rs`, 2026-09-29).
+
 The target for this is a Rust binary's ceiling — about 12 ms measured the same
 way. This document is what stands between the two, and the first thing it does is
 correct the arithmetic everyone has been using.

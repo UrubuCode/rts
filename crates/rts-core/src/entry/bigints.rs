@@ -117,3 +117,30 @@ pub(super) fn same(context: &Context, left: u64, right: u64) -> bool {
         _ => false,
     }
 }
+
+/// `rts:core`'s `f64ToBits(x)`: the IEEE-754 bit pattern of a double, as the
+/// unsigned bigint `DataView.setFloat64` + `getBigUint64` would read.
+///
+/// A bigint rather than a number because the pattern is 64 bits and a double
+/// holds only 53 exactly: any number spelling would round the low bits away.
+/// The bits are the double's own, so a NaN keeps its payload and `-0` keeps its
+/// sign. Allocates (the bigint), so it is NOT in the codegen's `CANNOT_RAISE`
+/// set; it never throws.
+#[rtse::entry]
+pub fn f64_to_bits(number: f64) -> u64 {
+    with_current(|context| context.bigint_value(BigInt::from_u64(number.to_bits())))
+}
+
+/// `rts:core`'s `f64FromBits(b)`: the double whose IEEE-754 pattern is the low
+/// sixty-four bits of a bigint -- `BigInt.asUintN(64, b)`, so a negative value
+/// wraps as two's complement, as `setBigUint64` would store it.
+///
+/// A value that is not a bigint answers `NaN` rather than throwing: the entry
+/// raises nothing, and the typed surface only offers it bigints.
+#[rtse::entry]
+pub fn f64_from_bits(value: u64) -> f64 {
+    with_current(|context| match digits_of(context, value) {
+        Some(held) => f64::from_bits(held.as_u64().unwrap_or_else(|| truncate(held))),
+        None => f64::NAN,
+    })
+}
