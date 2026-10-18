@@ -5866,6 +5866,116 @@ fn a_for_of_does_not_read_a_run_the_collector_reclaimed() {
     );
 }
 
+/// `a[i]` is an inline load of an element, and it survives a collection.
+///
+/// # What this pins
+///
+/// The inline read looks the element row up from the ARRAY every time, so the
+/// array stays referenced across the load. The load it replaced took an address
+/// computed ahead of the loop; the two tests above are what that cost. Here the
+/// array holds 2000 heap objects, the index is a proven number, and the body
+/// allocates enough to collect many times — every element must still be the one
+/// that was pushed, and the array's own growth after the first collection must
+/// not leave a row naming the old buffer.
+#[test]
+fn an_indexed_read_hands_back_its_own_elements_across_a_collection() {
+    let produced = run(
+        "const held: { id: number }[] = [];
+         for (let i = 0; i < 2000; i++) held.push({ id: i });
+         let wrong: i32 = 0;
+         let sink: i32 = 0;
+         for (let round = 0; round < 30; round++) {
+           for (let k = 0; k < 2000; k++) {
+             const scratch = [k, k + 1, k + 2];
+             sink += { x: scratch[1] }.x;
+             if (held[k].id !== k) { wrong += 1; }
+           }
+           held.push({ id: 2000 + round });
+           held.pop();
+         }
+         return wrong * 1000000 + (sink > 0 ? 7 : 0);",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        7.0,
+        "no element of a large array of objects may change under an allocating loop"
+    );
+}
+
+/// Every position the element table cannot answer still reaches the runtime's
+/// answer: past the end, negative, fractional, not a number, a hole, a typed
+/// array, a plain object, a string, a literal whose elements sit in the cell, and
+/// an array that shrank or was sorted after being read.
+#[test]
+fn an_indexed_read_the_table_cannot_answer_takes_the_runtime_path() {
+    let produced = run(
+        "function at(a: any, i: number): any { return a[i]; }
+         const grown: number[] = [];
+         for (let k = 0; k < 40; k++) grown.push(k * 2);
+         const literal = [10, 20, 30];
+         const holey = [1, , 3];
+         const plain: any = { 0: 'x' };
+         const typed = new Uint8Array([5, 6, 7]);
+         let bits = 0;
+         const expect = (n: number, ok: boolean) => { if (ok) bits += n; };
+         expect(1, at(grown, 39) === 78);
+         expect(2, at(grown, 40) === undefined);
+         expect(4, at(grown, -1) === undefined);
+         expect(8, at(grown, 1.5) === undefined);
+         expect(16, at(grown, NaN) === undefined);
+         expect(32, at(literal, 2) === 30);
+         expect(64, at(holey, 1) === undefined && at(holey, 2) === 3);
+         expect(128, at(plain, 0) === 'x');
+         expect(256, at(typed, 1) === 6 && at(typed, 3) === undefined);
+         expect(512, at('abc', 1) === 'b');
+         grown.length = 5;
+         expect(1024, at(grown, 5) === undefined && at(grown, 4) === 8);
+         grown.sort((a: number, b: number) => b - a);
+         expect(2048, at(grown, 0) === 8);
+         return bits;",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        4095.0,
+        "every case the table cannot answer must still answer as the runtime does"
+    );
+}
+/// A cell the compiled code takes itself is an ordinary cell: it survives a
+/// collection when it is live, is reclaimed when it is not, and its fields are
+/// what was written.
+///
+/// # What this pins
+///
+/// `Terminator::CellAlloc` pops the free list and bumps the cursor without a
+/// call. The loop below allocates tens of thousands of literals per round -- far
+/// past the region's starting bound, so the collector runs many times and the
+/// allocation alternates between the free list, fresh space and the runtime's
+/// own entry -- while every seventh object is kept. A cell handed out twice, a
+/// header not written, or a recycled cell not zeroed would change a kept value
+/// or the unset field of a fresh literal.
+#[test]
+fn an_object_taken_inline_survives_collections_and_is_born_empty() {
+    let produced = run(
+        "const kept: { a: number; b: number }[] = [];
+         let wrong: i32 = 0;
+         for (let i = 0; i < 300000; i++) {
+           const o: { a: number; b: number; c?: number } = { a: i, b: i * 2 };
+           if (o.c !== undefined) { wrong += 1; }
+           o.c = i;
+           if (i % 7 === 0) kept.push(o);
+         }
+         for (let k = 0; k < kept.length; k++) {
+           if (kept[k].a !== k * 7 || kept[k].b !== k * 14) { wrong += 1; }
+         }
+         return wrong * 1000000 + (kept.length === 42858 ? 7 : 0);",
+    );
+    assert_eq!(
+        tags::decode_double(produced),
+        7.0,
+        "every kept object must hold what was written, and every fresh one must start empty"
+    );
+}
+
 #[test]
 fn a_call_in_tail_position_of_strict_code_costs_no_stack() {
     // A million levels on a test thread's 16 MiB would need under twenty bytes

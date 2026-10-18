@@ -80,6 +80,14 @@ a GETTER under the symbol, and any `Proxy` in existence — a proxy anywhere may
 sit in an operand's prototype chain, so once one exists every operand takes the
 generic path. That is correct and costs what the operator cost before.
 
+> **Status as of 2026-10-18.** "Not measured in release yet" above is now
+> answered for the direct-dispatch form: an operator whose overload is statically
+> known is dispatched directly (`rts-codegen/src/emit/operator_direct.rs`, the
+> built part of the `@operator` dialect item). It is CORRECT but carries **no
+> measurable speed gain** over the runtime-checked path described here, so it
+> should be read as a correctness/consistency feature, not an optimisation. The
+> runtime rules above are unchanged and remain the semantics.
+
 ## The limitation
 
 `tsc` and every editor report `a + b` between two classes as a type error

@@ -73,7 +73,14 @@ pub(super) extern "C" fn splice(_e: u64, this: u64, start: u64, count: u64, x: u
         // class — the two are different objects, and only one of them is made
         // here.
         Some(removed) => super::super::species::collected(this, removed),
-        None => nothing(),
+        None => {
+            // A typed array has no `splice`; borrowed, the final
+            // `DeletePropertyOrThrow`/`Set(length)` is a `TypeError`.
+            if super::super::super::buffers::typed_visit::is_typed_array(this) {
+                super::super::super::throw::type_error("Cannot delete property of a typed array");
+            }
+            nothing()
+        }
     }
 }
 

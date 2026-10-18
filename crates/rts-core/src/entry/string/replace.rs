@@ -42,6 +42,20 @@ extern "C" fn replace_all(_e: u64, this: u64, pattern: u64, with: u64, _a2: u64,
     let Some(this) = super::coerce_receiver(this) else {
         return super::refused();
     };
+    // A RegExp without the `g` flag is refused BEFORE `Symbol.replace` is
+    // asked, which is the order the specification gives.
+    let non_global = with_current(|context| {
+        Value(pattern)
+            .as_slot()
+            .and_then(|cell| context.regexp_at(cell))
+            .is_some_and(|regexp| !regexp.is_global())
+    });
+    if non_global {
+        super::super::throw::type_error(
+            "String.prototype.replaceAll called with a non-global RegExp argument",
+        );
+        return super::refused();
+    }
     replaced(this, pattern, with, true)
 }
 

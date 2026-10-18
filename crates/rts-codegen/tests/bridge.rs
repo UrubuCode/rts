@@ -599,12 +599,12 @@ fn an_unsupported_construct_is_named_rather_than_dropped() {
     // it happened to name, because what it pins is the *shape* of a refusal:
     // named, with a position, and distinguishable from a syntax error.
     //
-    // Now pinned to a dotted namespace name (`namespace A.B { … }`): a plain
-    // `namespace N { … }` lowers (see the test above), but a dotted one is a
-    // namespace nested inside another with nothing this bridge builds for it
-    // yet, and refusing it is still the honest answer.
+    // Now pinned to a namespace member that is not a declaration: a dotted name
+    // (`namespace A.B { … }`) lowers to nested namespaces now, but a re-export
+    // inside a namespace body still has nothing this bridge builds for it, and
+    // refusing it is still the honest answer.
     let mut names = Names::new();
-    match parse_module("namespace A.B { export const a = 1; }", &mut names) {
+    match parse_module("namespace A { export * from 'x'; }", &mut names) {
         Err(ParseError::Unsupported { construct, .. }) => {
             assert!(construct.contains("namespace"), "{construct}");
         }
@@ -614,18 +614,24 @@ fn an_unsupported_construct_is_named_rather_than_dropped() {
 
 #[test]
 fn using_in_a_for_head_arrives_as_the_disposal_it_is() {
-    // Its own case rather than a `BindingKind`, because a binding kind answers
-    // "what scope, and can it be assigned again" — and `using` changes neither.
-    // What it adds is an obligation on the way out, which no binding kind can
-    // carry and every place that reads one would have to learn to ignore.
+    // Rewritten by the parser: a per-pass `const` item, and a body that opens
+    // with the `try`/`finally` the `using` becomes, so the disposal is the
+    // body's own and needs no loop machinery.
     let (kind, _) = only_statement("for (using x of xs) {}");
-    let StmtKind::ForEach { target, .. } = kind else {
+    let StmtKind::ForEach { target, body, .. } = kind else {
         panic!("expected a for-each");
     };
-    let ForEachTarget::Dispose { is_async, .. } = target else {
-        panic!("expected a disposal target: {target:?}");
+    assert!(
+        matches!(target, ForEachTarget::Declare { .. }),
+        "expected a per-pass declaration: {target:?}"
+    );
+    let StmtKind::Block(list) = body.kind else {
+        panic!("expected a block body");
     };
-    assert!(!is_async);
+    assert!(
+        list.iter().any(|s| matches!(s.kind, StmtKind::Try { finally: Some(_), .. })),
+        "the disposal is a `finally`: {list:?}"
+    );
 }
 
 #[test]

@@ -123,13 +123,26 @@ pub fn namespace(context: &mut Context) -> u64 {
         let global = entry::global_object(context);
         entry::get_member(context, global, "Error")
     };
+    // `prototype` on the constructor is what makes `new` link the object it
+    // allocates (see `events::namespace`); without it `new assert.AssertionError`
+    // was "not a constructor". Instances chain to `Error.prototype`, so
+    // `e instanceof Error` holds.
+    let error_prototype = entry::make_prototype(context, "AssertionError", &[]);
+    if let Some(parent) = entry::error_prototype(context) {
+        entry::set_prototype_in(context, error_prototype, parent);
+    }
+    let assert_prototype = entry::make_prototype(context, "Assert", &[]);
     for holder in [callable, strict] {
         let error_class = entry::make_callable(context, assertion_error);
         if entry::is_object(context, error_base) {
             entry::set_prototype_in(context, error_class, error_base);
         }
+        entry::put_member(context, error_class, "prototype", error_prototype);
+        entry::declare_host_class(context, error_class, error_prototype, "AssertionError", 1);
         entry::put_member(context, holder, "AssertionError", error_class);
         let assert_class = entry::make_callable(context, assert_class);
+        entry::put_member(context, assert_class, "prototype", assert_prototype);
+        entry::declare_host_class(context, assert_class, assert_prototype, "Assert", 1);
         entry::put_member(context, holder, "Assert", assert_class);
     }
     callable
@@ -194,6 +207,8 @@ fn table(strict: bool, skip_prototype: bool) -> Vec<(&'static str, Provided)> {
         ("ifError", checks::if_error),
         ("throws", throws::throws),
         ("doesNotThrow", throws::does_not_throw),
+        ("rejects", throws::rejects),
+        ("doesNotReject", throws::does_not_reject),
     ]
 }
 

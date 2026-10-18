@@ -177,8 +177,11 @@ pub fn lower_module(
             // sees: a use pointed back at an unguarded operand is a wider type, and a
             // wider type is a wider effect. The other order would narrow an effect on the
             // strength of a proof about to be removed.
+            verify_after("lower", func);
             dropped = rts_mir::passes::drop_proved_guards(func, &domain);
+            verify_after("drop_proved_guards", func);
             refined = rts_mir::passes::refine_effects(func, &domain);
+            verify_after("refine_effects", func);
         }
         out.push(Entry {
             named,
@@ -387,3 +390,27 @@ pub(crate) fn bound_expressions(
 #[cfg(test)]
 #[path = "lower_module_tests.rs"]
 mod tests;
+
+/// Whether `RTS_MIR_VERIFY` asks for the verifier after each pass. Read once.
+///
+/// `cfg!(debug_assertions)` is a constant, so in a release build the whole check is
+/// dead code and the environment is never read: the guard costs nothing there.
+pub(crate) fn verify_enabled() -> bool {
+    if !cfg!(debug_assertions) {
+        return false;
+    }
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("RTS_MIR_VERIFY").is_some_and(|held| held != "0"))
+}
+
+/// Run `rts_mir::verify` on `func` right after the pass `pass`, when `RTS_MIR_VERIFY`
+/// is set in a debug build, and panic naming the pass if the pass broke the graph --
+/// the rustc `-Zvalidate-mir` analogue. Observes only.
+#[inline(always)]
+pub(crate) fn verify_after(pass: &str, func: &rts_mir::cfg::Func) {
+    if cfg!(debug_assertions) && verify_enabled() {
+        if let Err(malformed) = rts_mir::verify(func) {
+            panic!("RTS_MIR_VERIFY: pass `{pass}` left a malformed graph: {malformed:?}");
+        }
+    }
+}

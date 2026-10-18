@@ -28,21 +28,33 @@ pub(super) fn store(context: &mut Context, cell: u32, ms: f64) {
     crate::entry::objects::put(context, cell, key, Value::from_f64(ms).bits());
 }
 
-/// The time value a receiver carries, `NaN` for anything carrying none.
+/// The time value a receiver carries; a receiver carrying none throws `TypeError`.
 ///
-/// `NaN` rather than a refusal, because every getter already answers `NaN` for
-/// an invalid date — so a receiver that is not a date takes a path that exists
-/// instead of adding a second kind of failure for callers to distinguish.
+/// A Proxy (or any non-Date) has no `[[DateValue]]` slot, and V8 throws there.
 pub(super) fn time_of(this: u64) -> f64 {
-    with_current(|context| {
-        let Some(cell) = Value(this).as_slot() else {
-            return f64::NAN;
-        };
+    let found = with_current(|context| {
+        let cell = Value(this).as_slot()?;
         let key = context.well_known(TIME);
-        read_property(context, cell, key)
-            .and_then(|found| found.numeric())
-            .unwrap_or(f64::NAN)
-    })
+        read_property(context, cell, key).and_then(|found| found.numeric())
+    });
+    match found {
+        Some(ms) => ms,
+        None => {
+            super::super::throw::type_error("this is not a Date object.");
+            f64::NAN
+        }
+    }
+}
+
+/// How `console.log` shows a date: the ISO text, or `Invalid Date`. `None` for
+/// anything that carries no time value, so a caller can ask of any object.
+pub fn inspect_text(this: u64) -> Option<String> {
+    let time = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let key = context.well_known(TIME);
+        read_property(context, cell, key)?.numeric()
+    })?;
+    Some(super::civil::iso_text(time))
 }
 
 /// One calendar field of a receiver, `NaN` when the date is invalid.

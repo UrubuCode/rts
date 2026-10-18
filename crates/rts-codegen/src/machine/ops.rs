@@ -192,6 +192,23 @@ impl MachineOps for JsMachine<'_> {
         };
         let of = of.clone();
 
+        // THE TWO ROWS OF LOOP VERSIONING, which `optimize::version_loops` alone emits.
+        if which == JsPrim::NumberTest
+            && let [only] = args
+        {
+            return self.number_test(into, inst.result, *only);
+        }
+        if which == JsPrim::NumberPeek
+            && let [object, key] = args
+        {
+            return self.number_peek(into, inst.result, *object, *key);
+        }
+        if which == JsPrim::NumberOf
+            && let ([value, _], [_, test]) = (args, of.as_slice())
+        {
+            return self.number_of(into, *test, *value);
+        }
+
         // THE ROWS WHOSE REQUIREMENT IS NOT "TWO NUMBERS", ahead of the gate below,
         // because the gate would refuse them for failing a condition they never had.
         //
@@ -234,7 +251,7 @@ impl MachineOps for JsMachine<'_> {
         // double otherwise -- so the representation passes through unchanged.
         if which == JsPrim::ToNumber
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             return Ok(args[0]);
         }
@@ -293,7 +310,18 @@ impl MachineOps for JsMachine<'_> {
             && let ([_, _], [_, of_key]) = (args, of.as_slice())
             && !self.reads_keyed(*of_key)
         {
-            return self.call_runtime(into, crate::runtime::RuntimeOp::IndexNumberDirect, args);
+            return self.indexed_read(into, args[0], args[1]);
+        }
+
+        // `a[i] = v` WITH A KEY THE INFERENCE TYPED A NUMBER: the element overwritten inline
+        // when it exists, and the runtime's `SetIndexed` for everything else -- `keyed.rs`.
+        // A WRITE answers the value written, which the graph types as the value.
+        if which == JsPrim::IndexWrite
+            && let ([_, _, _], [_, of_key, _]) = (args, of.as_slice())
+            && !self.reads_keyed(*of_key)
+        {
+            self.indexed_write(into, args[0], args[1], args[2])?;
+            return Ok(args[2]);
         }
 
         // `o[k]` WITH A COMPUTED KEY reads through a keyed site -- `keyed.rs`.
@@ -363,10 +391,62 @@ impl MachineOps for JsMachine<'_> {
         // choosing an instruction because the operands LOOK numeric would lower a
         // different operator. That concern is the gate this sits behind -- both operands
         // PROVED, by a literal or a guard -- and a proved number coerces nothing.
+        //
+        // AN INTEGER RESULT is the range analysis' claim, and its whole meaning is that the
+        // mathematical result fits an `i32` (see `Js::integer_arith`): so over two `I32`
+        // operands the wrapping machine add IS the language's add, and nothing wraps. The
+        // lattice answers an integer only for `+`, `-` and `*`, and only when both
+        // operands are integers.
+        let integer_result = self.types.of(inst.result).is_int();
+        if integer_result
+            && args.len() == 2
+            && matches!(which, JsPrim::Add | JsPrim::Subtract | JsPrim::Multiply)
+            && args.iter().all(|held| into.repr_of(*held) == Repr::I32)
+        {
+            let op = match which {
+                JsPrim::Add => rts_cranelift::ir::NumOp::Add,
+                JsPrim::Subtract => rts_cranelift::ir::NumOp::Sub,
+                _ => rts_cranelift::ir::NumOp::Mul,
+            };
+            return into.arith(op, args[0], args[1]).map_err(machine);
+        }
+        // AN INTEGER COMPARISON: `<`, `<=`, `>`, `>=`, `==`, `===` over two PROVED int32
+        // operands both held as `I32`. Every `i32` is exactly an `f64`, so the float compare
+        // of the two widened values answers the same boolean as the signed integer compare
+        // of the originals; an `i32` is never NaN (the float compare's one odd ordering) and
+        // never `-0` (so `==` agrees as well). Only the `to_f64` pair is removed. A mixed
+        // pair (a Double, Tagged or unknown side) fails the test below and takes the path
+        // under it, unchanged.
+        if args.len() == 2
+            && matches!(
+                which,
+                JsPrim::LessThan
+                    | JsPrim::LessOrEqual
+                    | JsPrim::GreaterThan
+                    | JsPrim::GreaterOrEqual
+                    | JsPrim::StrictEquals
+                    | JsPrim::LooseEquals
+            )
+            && of
+                .iter()
+                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..)))
+            && args.iter().all(|held| into.repr_of(*held) == Repr::I32)
+        {
+            if let Some(done) = self.numeric_instruction(into, which, args[0], args[1])? {
+                return Ok(done);
+            }
+        }
         if args.len() == 2 && self.all_numeric(&of) {
             let left = self.as_double(into, args[0])?;
             let right = self.as_double(into, args[1])?;
             if let Some(done) = self.numeric_instruction(into, which, left, right)? {
+                // AN INTEGER RESULT COMPUTED IN THE DOUBLE DOMAIN (an operand was not held
+                // as an `I32`): the double is an exact integer of `i32` range by the same
+                // argument, so `ToInt32` is lossless and the value is in the representation
+                // the lattice declared for it.
+                if integer_result && into.repr_of(done) == Repr::F64 {
+                    return into.to_int32(done).map_err(machine);
+                }
                 return Ok(done);
             }
         }
@@ -448,7 +528,7 @@ impl MachineOps for JsMachine<'_> {
         // conversion.
         if which == JsPrim::BitwiseNot
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             let held = super::guarded::int32_of(into, args[0])?;
             let ones = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
@@ -464,7 +544,7 @@ impl MachineOps for JsMachine<'_> {
         // answers `0` for `-0` where the language answers `-0`.
         if which == JsPrim::Negate
             && let [only] = of.as_slice()
-            && matches!(self.types.of(*only), Type::Int32 | Type::Double)
+            && matches!(self.types.of(*only), Type::Int32 | Type::Ranged(..) | Type::Double)
         {
             let held = self.as_double(into, args[0])?;
             return into
@@ -686,6 +766,16 @@ impl MachineOps for JsMachine<'_> {
             false => crate::runtime::RuntimeOp::Call,
         };
         self.call_runtime(into, door, &of_args)
+    }
+
+    fn call_func(
+        &mut self,
+        into: &mut FuncBuilder,
+        func: rts_mir::cfg::FuncId,
+        args: &[MachineValue],
+        _inst: &Inst,
+    ) -> Option<Result<MachineValue, String>> {
+        Some(self.call_declared(into, func, args))
     }
 
     fn entry(

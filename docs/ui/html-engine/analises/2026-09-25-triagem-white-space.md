@@ -1,5 +1,7 @@
 # Triage: `css-text/white-space` WPT reftests (2026-09-25)
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 **What was measured.** `C:\Users\nexga\Documents\wpt-bt2a\css-text_white-space\relatorio.json`,
 produced by `scripts/wpt_reftests.mjs` against the corpus at
 `C:\Users\nexga\Documents\wpt-corpus\css\css-text\white-space\`. The base binary

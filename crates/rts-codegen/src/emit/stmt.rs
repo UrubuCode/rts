@@ -175,7 +175,7 @@ pub fn emit_stmt(
                         // anonymous definition — `const f = cond ? g : h` names
                         // nothing, and neither does a call that happens to
                         // answer a function.
-                        if anonymous_definition(expr) {
+                        if anonymous_definition(expr) || anonymous_default(ctx, expr) {
                             ctx.lend_name(*name);
                         }
                         let produced = emit_expr(builder, scope, ctx, expr)?;
@@ -348,15 +348,10 @@ pub fn emit_stmt(
             }
             Ok(false)
         }
-        // The cleanup a `using` needs exists now -- a cleanup is a piece rather
-        // than a block, which is what `finally` was waiting on and this was
-        // waiting on with it. What is still missing is the other half: disposal
-        // is `x[Symbol.dispose]()`, and there is no `Symbol` in this engine, so
-        // there is no way to name the method to call.
-        //
-        // Emitting the region without the call would be a `using` that scopes
-        // correctly and disposes nothing -- which reads as working and is the
-        // one failure a resource construct must not have.
+        // A `using` declaration never gets here: `parse::using` rewrites it into
+        // a `try`/`finally` around the rest of its block. What reaches this arm
+        // is one that was not rewritten (a pattern target), refused by name
+        // rather than emitted without its disposal.
         StmtKind::Using { .. } => super::expr::gap("`using`, which needs `Symbol.dispose`"),
         StmtKind::With { object, body } => emit_with(builder, scope, ctx, loops, object, body),
     }
@@ -570,6 +565,24 @@ pub(super) fn anonymous_definition(expr: &Expr) -> bool {
         ExprKind::Class(class) => class.name.is_none(),
         _ => false,
     }
+}
+
+/// Whether a binding's value is a parameter's DEFAULT as `bind_parameters`
+/// desugars it -- `__rts_param_N === undefined ? <default> : __rts_param_N` --
+/// with an anonymous definition as the default. `function f(cb = () => {})`
+/// names that arrow `cb` (NamedEvaluation of the default), but the desugared
+/// initialiser is a conditional, which `anonymous_definition` rightly refuses.
+pub(super) fn anonymous_default(ctx: &super::Ctx, expr: &Expr) -> bool {
+    let ExprKind::Conditional {
+        then_branch,
+        else_branch,
+        ..
+    } = &expr.kind
+    else {
+        return false;
+    };
+    matches!(&else_branch.kind, ExprKind::Ident(held) if ctx.names.text(*held).starts_with("__rts_param_"))
+        && anonymous_definition(then_branch)
 }
 
 /// Emits `with (object) body`.

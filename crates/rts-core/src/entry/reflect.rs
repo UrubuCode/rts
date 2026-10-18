@@ -117,10 +117,12 @@ impl Reflect {
     /// on the object the read started from.
     #[arity(2)]
     fn get(target: u64, key: u64, receiver: u64) -> u64 {
-        let named = with_current(|context| receiver == super::objects::undefined_of(context));
-        let receiver = match named {
-            true => target,
-            false => receiver,
+        if !object_target(target, "get") {
+            return with_current(|context| super::objects::undefined_of(context));
+        }
+        let receiver = match receiver_written(3, receiver) {
+            true => receiver,
+            false => target,
         };
         super::computed::read_on(target, key, receiver)
     }
@@ -137,10 +139,24 @@ impl Reflect {
     /// performs and which this used to drop on the floor.
     #[arity(3)]
     fn set(target: u64, key: u64, value: u64, receiver: u64) -> bool {
-        let substituted = with_current(|context| {
-            receiver != super::objects::undefined_of(context) && receiver != target
-        });
+        if !object_target(target, "set") {
+            return false;
+        }
+        let substituted = receiver_written(4, receiver) && receiver != target;
         if substituted {
+            // A typed array's [[Set]] with a foreign receiver: an index that is
+            // not valid is dropped and reported as success.
+            let dropped = with_current(|context| {
+                let cell = Value(target).as_slot()?;
+                if !super::buffers::is_element_key(context, cell, Value(key)) {
+                    return None;
+                }
+                let count = context.view_at(cell).map_or(0, |view| view.count());
+                Some(!super::array::as_index(context, Value(key)).is_some_and(|at| at < count))
+            });
+            if dropped == Some(true) {
+                return true;
+            }
             let Some(named) =
                 with_current(|context| super::computed::property_key(context, Value(key)))
             else {
@@ -154,14 +170,28 @@ impl Reflect {
         {
             return answered;
         }
+        if let Some(named) =
+            with_current(|context| super::computed::property_key(context, Value(key)))
+            && let Some(answered) = super::proxy::set_above(target, named, value)
+        {
+            return answered;
+        }
         let lands = with_current(|context| {
+            // A typed array answers for every canonical numeric key itself:
+            // [[Set]] is true for an element and for an out-of-range index
+            // (silently dropped), whatever the extensibility.
+            if let Some(cell) = Value(target).as_slot()
+                && super::buffers::is_element_key(context, cell, Value(key))
+            {
+                return true;
+            }
             let (Some(cell), Some(named)) = (
                 Value(target).as_slot(),
                 super::computed::property_key(context, Value(key)),
             ) else {
                 return false;
             };
-            write_lands(context, cell, named)
+            write_lands(context, cell, named) && !inherited_readonly(context, cell, named)
         });
         // Only when it lands. The write path THROWS on a refusal now — a module
         // is strict — and `Reflect.set` is the operation whose entire purpose is
@@ -175,6 +205,9 @@ impl Reflect {
 
     /// `Reflect.has(target, key)` — the same question `key in target` asks.
     fn has(target: u64, key: u64) -> bool {
+        if !object_target(target, "has") {
+            return false;
+        }
         super::computed::has_property(key, target)
     }
 
@@ -184,6 +217,9 @@ impl Reflect {
     /// strict, and this is the operation whose whole purpose is to report the
     /// refusal instead — the same split `set` above already makes.
     fn delete_property(target: u64, key: u64) -> bool {
+        if !object_target(target, "deleteProperty") {
+            return false;
+        }
         super::computed::delete_own(target, key)
     }
 
@@ -207,6 +243,9 @@ impl Reflect {
     /// Without this the operation whose whole job is to see everything was the
     /// one operation that could not see a `[sym]: v` property at all.
     fn own_keys(target: u64) -> u64 {
+        if !object_target(target, "ownKeys") {
+            return with_current(|context| super::objects::undefined_of(context));
+        }
         // A proxy answers the whole question in one call, and must be asked
         // exactly once: `[[OwnPropertyKeys]]` on a proxy IS the `ownKeys` trap's
         // list, symbols included and in the order the handler gave. Stitching it
@@ -234,6 +273,9 @@ impl Reflect {
 
     /// `Reflect.getPrototypeOf(target)`.
     fn get_prototype_of(target: u64) -> u64 {
+        if !object_target(target, "getPrototypeOf") {
+            return with_current(|context| super::objects::undefined_of(context));
+        }
         super::chain::get_prototype(target)
     }
 
@@ -255,6 +297,17 @@ impl Reflect {
         if !linkable {
             super::throw::type_error("Object prototype may only be an Object or null");
             return false;
+        }
+        // Setting the prototype it already has is a no-op the specification
+        // reports as success even on a non-extensible object.
+        // A proxy is asked through its trap, never read around it.
+        let proxied = with_current(|context| {
+            Value(target)
+                .as_slot()
+                .is_some_and(|cell| context.proxy_at(cell).is_some())
+        });
+        if !proxied && super::chain::get_prototype(target) == prototype {
+            return true;
         }
         super::chain::apply_prototype(target, prototype)
     }
@@ -299,6 +352,11 @@ impl Reflect {
             super::throw::type_error("CreateListFromArrayLike called on non-object");
             return with_current(|context| super::objects::undefined_of(context));
         };
+        // Step 1: the target is a constructor. Step 2: so is newTarget, when
+        // one was written (an explicit `undefined` is not absent here).
+        if !is_constructor(target) {
+            return refuse_constructor(target);
+        }
         // Absent means the target itself, which is what `new C()` means.
         let named = match Value(new_target).as_slot().is_some() {
             true => new_target,
@@ -313,6 +371,9 @@ impl Reflect {
         //
         // Through the same `constructible` the `new` operator asks, so the two
         // spellings cannot come to disagree about what may be one.
+        if !is_constructor(named) {
+            return refuse_constructor(named);
+        }
         if let Some(refusal) = with_current(|context| {
             super::functions::constructible(context, named, 0)
         }) {
@@ -328,6 +389,9 @@ impl Reflect {
     /// `false` says and what distinguishes this from `Object.defineProperty` —
     /// that one answers the object.
     fn define_property(target: u64, key: u64, descriptor: u64) -> bool {
+        if !object_target(target, "defineProperty") {
+            return false;
+        }
         defined(target, key, descriptor)
     }
 
@@ -337,6 +401,9 @@ impl Reflect {
     /// the limits of — and a proxy handler's own answer when it traps the
     /// question, since that one is whatever the handler returns.
     fn get_own_property_descriptor(target: u64, key: u64) -> u64 {
+        if !object_target(target, "getOwnPropertyDescriptor") {
+            return with_current(|context| super::objects::undefined_of(context));
+        }
         super::object_global::describe_of(target, key)
     }
 
@@ -387,5 +454,55 @@ fn object_target(target: u64, method: &str) -> bool {
         return true;
     }
     super::throw::type_error(&format!("Reflect.{method} called on non-object"));
+    false
+}
+
+/// Whether the call that is running wrote at least `needed` arguments.
+///
+/// The convention pads absent arguments with `undefined`, so an explicit
+/// `undefined` receiver is indistinguishable from a missing one by value; the
+/// call site records the count it wrote, and that is read here. Where nobody
+/// recorded one (a native calling a native), the older reading stands.
+fn receiver_written(needed: usize, value: u64) -> bool {
+    with_current(
+        |context| match context.pending_counts.last().copied().flatten() {
+            Some(count) => count >= needed,
+            None => value != super::objects::undefined_of(context),
+        },
+    )
+}
+
+/// `IsConstructor`: a callable that `new` may reach.
+fn is_constructor(value: u64) -> bool {
+    with_current(|context| {
+        super::modules::is_callable_in(context, value)
+            && super::functions::constructible(context, value, 0).is_none()
+    })
+}
+
+/// The `TypeError` for a non-constructor argument of `Reflect.construct`.
+fn refuse_constructor(value: u64) -> u64 {
+    let kind = super::text::described(super::type_of::type_of(value))
+        .unwrap_or_else(|| "a value".to_owned());
+    super::throw::type_error(&format!("{kind} is not a constructor"));
+    with_current(|context| super::objects::undefined_of(context))
+}
+
+/// Whether a data property inherited along the chain (or owned) is read-only,
+/// which makes `[[Set]]` answer `false` before any write is attempted.
+pub(in crate::entry) fn inherited_readonly(context: &mut Context, cell: u32, key: Key) -> bool {
+    let mut at = cell;
+    for _ in 0..super::objects::CHAIN_LIMIT {
+        if super::objects::own_property(context, at, key).is_some() {
+            return match key {
+                Key::Name(named) => super::integrity::refuses_key_write(context, at, named),
+                Key::Index(_) => super::integrity::refuses_write(context, at),
+            };
+        }
+        match super::objects::inherited_from(context, at) {
+            Some(next) => at = next,
+            None => return false,
+        }
+    }
     false
 }

@@ -259,7 +259,7 @@ fn listed(mut parts: Vec<Str>, limit: Option<usize>) -> u64 {
         };
         for (at, text) in parts.into_iter().enumerate() {
             let value = context.intern_value(text).bits();
-            if let Some(elements) = context.elements_at_mut(cell) {
+            if let Some(mut elements) = context.elements_at_mut(cell) {
                 elements[at] = value;
             }
         }

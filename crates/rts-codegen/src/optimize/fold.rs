@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 
 use rts_mir::cfg::{Const, Func, Op, ValueId};
 
-use crate::domain::{Js, JsPrim};
+use crate::domain::{Js, JsConst, JsPrim};
+use crate::values::Singleton;
 
 /// Folds every foldable operation, repeatedly, and says how many.
 pub fn fold_constants(func: &mut Func, domain: &Js) -> usize {
@@ -26,12 +27,23 @@ pub fn fold_constants(func: &mut Func, domain: &Js) -> usize {
                 _ => None,
             })
             .collect();
+        let facts = Facts::of(func, domain);
         let mut changed = false;
         for block in func.block_ids() {
             for inst in func.block(block).insts.clone() {
                 let Op::Prim { prim, args } = &func.inst(inst).op else {
                     continue;
                 };
+                // A TRUTH VALUE over constants, before the integer arithmetic below: the
+                // operators here take one operand as often as two.
+                if let Some(truth) = fold_truth(domain, *prim, args, &facts) {
+                    let at = &mut func.insts[inst.0 as usize];
+                    at.op = Op::Const(Const::Bool(truth));
+                    at.effect = rts_mir::Effect::PURE;
+                    folded += 1;
+                    changed = true;
+                    continue;
+                }
                 let [left, right] = args.as_slice() else {
                     continue;
                 };
@@ -67,6 +79,131 @@ pub fn fold_constants(func: &mut Func, domain: &Js) -> usize {
         if !changed {
             return folded;
         }
+    }
+}
+
+/// A constant the language names, as far as a comparison can read it: no object, no
+/// symbol, no bigint -- nothing whose comparison could reach code the program wrote.
+#[derive(Clone, Debug, PartialEq)]
+enum Known {
+    Num(f64),
+    Bool(bool),
+    Undefined,
+    Null,
+    Text(Vec<u16>),
+}
+
+impl Known {
+    /// The language's truth rule over this value, the seven falsy cases included.
+    fn truthy(&self) -> bool {
+        match self {
+            Known::Num(held) => !(*held == 0.0 || held.is_nan()),
+            Known::Bool(held) => *held,
+            Known::Undefined | Known::Null => false,
+            Known::Text(units) => !units.is_empty(),
+        }
+    }
+
+    fn nullish(&self) -> bool {
+        matches!(self, Known::Undefined | Known::Null)
+    }
+
+    /// `ToNumber` where it is a number or a boolean; nothing else is read as one here.
+    fn number(&self) -> Option<f64> {
+        match self {
+            Known::Num(held) => Some(*held),
+            Known::Bool(held) => Some(f64::from(u8::from(*held))),
+            _ => None,
+        }
+    }
+
+    /// `===`: different kinds are never equal, and `NaN` is not equal to itself.
+    fn strictly(&self, other: &Known) -> bool {
+        match (self, other) {
+            (Known::Num(one), Known::Num(two)) => one == two,
+            (Known::Bool(one), Known::Bool(two)) => one == two,
+            (Known::Text(one), Known::Text(two)) => one == two,
+            (Known::Undefined, Known::Undefined) | (Known::Null, Known::Null) => true,
+            _ => false,
+        }
+    }
+
+    /// `==`, where the coercion is one of the cheap arms the specification lists first.
+    /// A number against a string is `ToNumber` of the text, which is not folded.
+    fn loosely(&self, other: &Known) -> Option<bool> {
+        if self.nullish() || other.nullish() {
+            return Some(self.nullish() && other.nullish());
+        }
+        match (self, other) {
+            (Known::Text(_), Known::Text(_)) => Some(self.strictly(other)),
+            (Known::Text(_), _) | (_, Known::Text(_)) => None,
+            _ => Some(self.number()? == other.number()?),
+        }
+    }
+}
+
+/// What the constants of a function are, by the value that holds each.
+struct Facts(BTreeMap<ValueId, Known>);
+
+impl Facts {
+    fn of(func: &Func, domain: &Js) -> Facts {
+        let mut held = BTreeMap::new();
+        for block in func.block_ids() {
+            for inst in &func.block(block).insts {
+                let inst = func.inst(*inst);
+                let Op::Const(constant) = &inst.op else {
+                    continue;
+                };
+                let known = match constant {
+                    Const::Int(number) => Known::Num(*number as f64),
+                    Const::Float(number) => Known::Num(*number),
+                    Const::Bool(truth) => Known::Bool(*truth),
+                    Const::Declared(index) => match domain.declared(*index) {
+                        Some(JsConst::Singleton(Singleton::Undefined)) => Known::Undefined,
+                        Some(JsConst::Singleton(Singleton::Null)) => Known::Null,
+                        Some(JsConst::Text(text)) => Known::Text(text.units().to_vec()),
+                        _ => continue,
+                    },
+                };
+                held.insert(inst.result, known);
+            }
+        }
+        Facts(held)
+    }
+}
+
+/// The answer of a comparison or a truth test whose operands are all constants, or
+/// `None` where it is not provably one.
+///
+/// Exactly the rows that cannot reach user code once no operand is an object: `===`,
+/// `==` over the cheap arms, the four relational operators over numbers and booleans,
+/// `!`, the truth test and the nullish test. Relational operators over text, and `==`
+/// between a string and a number, are left to the runtime -- they are right there and
+/// not worth a second implementation of `StringToNumber` and code-unit ordering here.
+fn fold_truth(domain: &Js, prim: rts_mir::cfg::Prim, args: &[ValueId], facts: &Facts) -> Option<bool> {
+    let which = domain.meaning(prim)?;
+    let get = |held: &ValueId| facts.0.get(held);
+    match (which, args) {
+        (JsPrim::Truthy, [one]) => Some(get(one)?.truthy()),
+        (JsPrim::Not, [one]) => Some(!get(one)?.truthy()),
+        (JsPrim::IsNullish, [one]) => Some(get(one)?.nullish()),
+        (JsPrim::StrictEquals, [one, two]) => Some(get(one)?.strictly(get(two)?)),
+        (JsPrim::LooseEquals, [one, two]) => get(one)?.loosely(get(two)?),
+        (
+            JsPrim::LessThan | JsPrim::GreaterThan | JsPrim::LessOrEqual | JsPrim::GreaterOrEqual,
+            [one, two],
+        ) => {
+            // `NaN` compares false under all four, which is what the host's partial
+            // comparison answers too.
+            let (one, two) = (get(one)?.number()?, get(two)?.number()?);
+            Some(match which {
+                JsPrim::LessThan => one < two,
+                JsPrim::GreaterThan => one > two,
+                JsPrim::LessOrEqual => one <= two,
+                _ => one >= two,
+            })
+        }
+        _ => None,
     }
 }
 

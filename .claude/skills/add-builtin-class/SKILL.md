@@ -30,6 +30,14 @@ only membership rule.
 Written in Rust, never as a `.ts` prelude: moving a stdlib body from `.ts` to a
 native was measured at **124× at run time and 3.4× at compile time**.
 
+> **Revisit when the compiler changes.** That 124× is from today's TS→machine
+> pipeline: a `.ts` body crosses the runtime door, is `Tagged`, and does not
+> inline at the call-site. The `rts:core`/`rts-corelib` plan (native core, native
+> std on top — see `.docs-pendentes/`) migrates std bodies to TS **only after**
+> direct-call, int32 and the inliner+escape-analysis land. Once they exist,
+> **re-measure** this rule method by method with `perf-claim` before treating it
+> as absolute.
+
 ## 1. Declare it
 
 ```rust

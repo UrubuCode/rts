@@ -20,6 +20,12 @@ use super::civil::{MS_PER_DAY, clip, days_from_civil};
 /// there is no local time in this runtime to differ from.
 pub(super) fn parse_iso(text: &str) -> f64 {
     let text = text.trim();
+    // The one non-ISO form read: what `toUTCString` writes, so a date survives
+    // being turned into text and back. It starts with a letter, which no ISO
+    // form does, so the two never compete for the same string.
+    if text.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphabetic()) {
+        return parse_utc_string(text);
+    }
     let bytes = text.as_bytes();
     let number = |from: usize, len: usize| -> Option<i64> {
         let slice = text.get(from..from + len)?;
@@ -140,9 +146,65 @@ pub(super) fn parse_iso(text: &str) -> f64 {
     clip((days as f64) * MS_PER_DAY + (milliseconds - offset) as f64)
 }
 
+/// `Www, DD Mmm YYYY HH:MM:SS GMT` — the `toUTCString` shape, and nothing else.
+///
+/// The weekday is checked for shape only, as the language's engines do: a wrong
+/// one is not a reason to refuse a date whose other fields are plain.
+fn parse_utc_string(text: &str) -> f64 {
+    const MONTHS: [&str; 12] =
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let mut parts = text.split_ascii_whitespace();
+    let (Some(weekday), Some(day), Some(month), Some(year), Some(clock), Some(zone), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return f64::NAN;
+    };
+    if weekday.len() != 4 || !weekday.ends_with(',') || !weekday[..3].bytes().all(|b| b.is_ascii_alphabetic()) {
+        return f64::NAN;
+    }
+    if !zone.eq_ignore_ascii_case("GMT") {
+        return f64::NAN;
+    }
+    let digits = |s: &str| -> Option<i64> {
+        match !s.is_empty() && s.bytes().all(|byte| byte.is_ascii_digit()) {
+            true => s.parse().ok(),
+            false => None,
+        }
+    };
+    let Some(month) = MONTHS.iter().position(|name| name.eq_ignore_ascii_case(month)) else {
+        return f64::NAN;
+    };
+    let fields: Vec<&str> = clock.split(':').collect();
+    let (Some(day), Some(year), [Some(hour), Some(minute), Some(second)]) =
+        (digits(day), digits(year), [0, 1, 2].map(|i| fields.get(i).and_then(|f| digits(f))))
+    else {
+        return f64::NAN;
+    };
+    if fields.len() != 3 || !(1..=31).contains(&day) || hour > 24 || minute > 59 || second > 59 {
+        return f64::NAN;
+    }
+    let days = days_from_civil(year, month as i64 + 1, day);
+    clip((days as f64) * MS_PER_DAY + (hour * 3_600_000 + minute * 60_000 + second * 1_000) as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `toUTCString` text reads back as the instant it was written from.
+    #[test]
+    fn the_utc_string_form_reads_back() {
+        assert_eq!(parse_iso("Wed, 01 Jan 2020 00:00:00 GMT"), 1577836800000.0);
+        assert_eq!(parse_iso("Thu, 01 Jan 1970 00:00:00 GMT"), 0.0);
+        assert!(parse_iso("Wed, 01 Foo 2020 00:00:00 GMT").is_nan());
+        assert!(parse_iso("Wed, 01 Jan 2020 00:00:00 GMT x").is_nan());
+    }
 
     /// The forms accepted, and the epoch as the number both agree on.
     #[test]

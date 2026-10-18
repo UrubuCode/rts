@@ -1,5 +1,19 @@
 # Onde está o gap — medição e plano, 2026-08-28
 
+> **Superseded, 2026-10-18 (note in English; the document is a dated record in
+> Portuguese and is left as written).** This is the 2026-08-28 gap table and the
+> plan of record built on it. Its stages were partly executed or overtaken: Etapa 3
+> ("a chamada vira uma chamada") landed for light, captureless leaf module
+> functions as a direct `FuncAddr` call (`f9298d814`, 2026-10-15, ~2 ns net); the
+> `arith_i32` row's gap (14,3x) is attacked by range-typed integers
+> (`Type::Ranged`, `219248373`) and an `i32` fold of `(a|0)±(b|0)|0`
+> (`298ab2dd7`); `alloc_obj` (47,4x) has the inline `CellAlloc` bump
+> (`5f08f5dd6`) and scalar replacement of non-escaping instances
+> (`emit/class_layout`); `array_idx` (15,7x) has the inline `RunRead`
+> (`275ac27a2`, 9.7 -> 5.5 ns). Etapa 1 (precise roots / the stack from the
+> machine) is the keystone and was NOT re-checked here. Every ratio below is
+> 2026-08-28 and should be re-measured before it is quoted.
+
 **Como este documento foi produzido.** 46 agentes leram o código (não as docs) por
 subsistema, 32 deles como verificadores adversariais tentando refutar cada achado;
 19 achados sobreviveram e 13 foram refutados ou tiveram o mecanismo corrigido. Em

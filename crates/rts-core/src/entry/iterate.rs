@@ -120,7 +120,7 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
         // zero elements — a loop that silently ran empty rather than walking
         // the view.
         if let Some(view) = super::buffers::view_of(context, value) {
-            return Found::Values(super::buffers::typed::elements(context, &view));
+            return Found::View(view);
         }
         // Before the text check and before the protocol, because a collection's
         // elements are already held here: asking it for them through two calls
@@ -140,6 +140,29 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
 
     let values = match found {
         Found::Values(values) => values,
+        Found::View(view) => {
+            let method = iterator_method(value);
+            if super::throw::in_flight() {
+                Vec::new()
+            } else if with_current(|context| context.typed_iterator_methods.contains(&method)) {
+                // The primordial iterator: reading the elements is its result, but a
+                // detached buffer is a TypeError, not an empty walk.
+                let detached = with_current(|context| {
+                    context.buffer_detached(view.buffer) || super::buffers::view_out_of_bounds(context, &view)
+                });
+                if detached {
+                    super::throw::type_error("Cannot perform %TypedArray%.prototype.values on a detached ArrayBuffer");
+                    Vec::new()
+                } else {
+                    with_current(|context| super::buffers::typed::elements(context, &view))
+                }
+            } else {
+                protocol(value).unwrap_or_else(|| {
+                    refuse(value);
+                    Vec::new()
+                })
+            }
+        }
         // Each pair becomes its own array, which allocates — so it happens here
         // rather than inside the borrow that read the table.
         // Rooted as they are built: every pair is an allocation, and the pairs
@@ -373,7 +396,7 @@ pub(super) fn callable(value: u64) -> bool {
     with_current(|context| {
         Value(value)
             .as_slot()
-            .is_some_and(|cell| context.callable_at(cell).is_some())
+            .is_some_and(|cell| context.is_callable_cell(cell))
     })
 }
 
@@ -385,6 +408,9 @@ enum Found {
     Pairs(Vec<(u64, u64)>),
     /// Code points that still have to become strings.
     Text(Vec<Vec<u16>>),
+    /// A typed array, whose elements are read directly only while its iterator is
+    /// the installed one.
+    View(super::buffers::View),
     /// Not something this engine iterates.
     Nothing,
 }
@@ -454,12 +480,19 @@ pub fn iterator_result(step: u64) -> u64 {
 #[rtse::entry]
 pub fn array_append(array: u64, value: u64) -> u64 {
     with_current(|context| {
-        if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
-        {
-            elements.push(value);
-            let count = elements.len();
-            super::array::set_length(context, cell, count);
+        if let Some(cell) = Value(array).as_slot() {
+            // The guard ends with the `match`, so the borrow of the context is
+            // over before `set_length` takes it again.
+            let grown = match context.elements_at_mut(cell) {
+                Some(mut elements) => {
+                    elements.push(value);
+                    Some(elements.len())
+                }
+                None => None,
+            };
+            if let Some(count) = grown {
+                super::array::set_length(context, cell, count);
+            }
         }
         array
     })
@@ -488,9 +521,14 @@ pub fn array_append_all(array: u64, iterable: u64) -> u64 {
         let Some(target) = Value(array).as_slot() else {
             return array;
         };
-        if let Some(elements) = context.elements_at_mut(target) {
-            elements.extend(more);
-            let count = elements.len();
+        let grown = match context.elements_at_mut(target) {
+            Some(mut elements) => {
+                elements.extend(more);
+                Some(elements.len())
+            }
+            None => None,
+        };
+        if let Some(count) = grown {
             super::array::set_length(context, target, count);
         }
         array

@@ -317,7 +317,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // O layout que o prototype ATINGE quando já é conhecido, e o vazio na
         // primeira vez — que é a vez em que ele passa a ser conhecido. Ver
         // `Context::prototype_layout` para o número que isto vale.
-        let prototype_ty = context.prototype_layout.unwrap_or(empty_ty);
+        // A function that has a `prototype` yet refuses `new` is a generator
+        // (an async function has none, an arrow/method has none, a class
+        // constructs); its prototype is born empty, not at the cached
+        // `constructor`-bearing layout.
+        let is_generator = has_prototype && described.is_some_and(|(_, _, _, constructs)| !constructs);
+        // Generator / async / async generator, from the top bits of the arity;
+        // decides the function's own `[[Prototype]]` at the end.
+        let kind = described
+            .and_then(|(_, arity, _, _)| super::generator::intrinsics::Kind::of_arity(arity));
+        let prototype_ty = if is_generator {
+            empty_ty
+        } else {
+            context.prototype_layout.unwrap_or(empty_ty)
+        };
         if let Some(prototype) = has_prototype
             .then(|| {
                 super::alloc::alloc_after_collecting(context, crate::heap::STRIDE, prototype_ty)
@@ -378,6 +391,20 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             // celula destas realmente atingiu. Uma celula nascida ao layout
             // certo e uma que ja esta na forma final, logo o que falta e so a
             // escrita do valor.
+            if is_generator {
+                // A GENERATOR's `prototype` is not an ordinary function's: it
+                // has NO own `constructor`, it inherits from
+                // `%GeneratorPrototype%` rather than `Object.prototype`. The
+                // property on the function stays writable. Checked against
+                // Node 2026-10-18.
+                super::generator::link_function_prototype(
+                    context,
+                    cell,
+                    prototype,
+                    kind == Some(super::generator::intrinsics::Kind::AsyncGenerator),
+                );
+                super::external::release(context, held_prototype);
+            } else {
             match (
                 context.prototype_layout,
                 context.prototype_constructor_slot,
@@ -408,6 +435,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
             }
             super::native::hidden(context, prototype, constructor);
             super::external::release(context, held_prototype);
+            }
         }
         // `f.name` and `f.length`, which every function has and this wrote
         // neither of: `(function foo(a, b){}).name` read `undefined` and
@@ -421,6 +449,7 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // the alternative: it costs two more operands on every closure ever
         // made, where this costs a lookup only.
         if let Some((name, arity, _, _)) = described {
+            let arity = arity & super::generator::intrinsics::ARITY_MASK;
             let key = context.well_known("name");
             // `key_text_value` and NOT `intern_value`, which despite its name
             // does not intern: its own documentation says it "inserts into the
@@ -478,6 +507,9 @@ pub fn closure_new(code: i64, environment: u64) -> u64 {
         // being asked to describe.
         if held_template.is_none() {
             context.record_callable_template(template_at, cell, &owned);
+        }
+        if let Some(kind) = kind {
+            super::generator::intrinsics::link_function(context, cell, kind);
         }
         super::external::release(context, held);
         made
@@ -1213,6 +1245,11 @@ pub(in crate::entry) fn constructible(
             return constructible(context, target, depth + 1)
                 .map(|_| named_refusal(context, cell));
         }
+        // `Proxy` is constructible yet has NO `prototype` (so `instanceof Proxy`
+        // throws); it is the one built-in the own-`prototype` rule misses.
+        if is_proxy_constructor(context, cell) {
+            return None;
+        }
         let key = context.well_known("prototype");
         if super::objects::own_property(context, cell, key).is_some() {
             return None;
@@ -1229,6 +1266,15 @@ pub(in crate::entry) fn constructible(
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| "anonymous".to_owned());
     Some(format!("{spelled} is not a constructor"))
+}
+
+/// Whether this cell is the `Proxy` constructor: constructible, but with no
+/// `prototype` property, so the own-`prototype` test cannot recognise it.
+fn is_proxy_constructor(context: &Context, cell: u32) -> bool {
+    context
+        .classes
+        .iter()
+        .any(|entry| entry.name == "Proxy" && Value(entry.made).as_slot() == Some(cell))
 }
 
 fn construct_inner(callee: u64, new_target: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
@@ -1704,7 +1750,13 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
             // A handler WITH a `get` trap is not consulted here, because this
             // runs inside the context borrow and a trap is user code; that is
             // the stated limit, not an oversight.
-            if let Some((target, _)) = context.proxy_at(resolved) {
+            if let Some((target, handler)) = context.proxy_at(resolved) {
+                // A revoked proxy keeps a callable target only so that
+                // `typeof` stays "function"; `[[Get]]` on it is a TypeError,
+                // not a read of that target.
+                if !super::objects::is_object(context, handler) {
+                    return None;
+                }
                 if let Some(next) = Value(target).as_slot() {
                     resolved = next;
                     continue;
@@ -1716,6 +1768,15 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
             // A `.bind()`-produced function has no OWN `prototype`, so the one
             // to allocate against is its target's — walked through, because a
             // bound function may itself bind another one.
+            //
+            // Only when the bound function IS the callee (`new bound()`), where
+            // `[[Construct]]` substitutes the target. As an explicit
+            // `newTarget` of `Reflect.construct(Other, [], bound)` there is no
+            // substitution: `bound.prototype` is `undefined` and the default
+            // applies.
+            if Value(target).as_slot() != Value(callee).as_slot() || is_proxy_constructor(context, resolved) {
+                break Value(undefined_of(context));
+            }
             let next = context
                 .bound_at(resolved)
                 .and_then(|bound| Value(bound.target).as_slot())?;
@@ -1727,10 +1788,25 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
         // may be the same cell when nothing substituted a target.
         let prototype = match prototype.as_slot() {
             Some(_) => prototype,
-            None => Value(callee)
-                .as_slot()
-                .and_then(|own| super::objects::read_property(context, own, key))
-                .filter(|found| found.as_slot().is_some())?,
+            None => {
+                // The default is the intrinsic of the base-most constructor: a
+                // function or class the program wrote falls back to
+                // `Object.prototype`; a built-in keeps its own `prototype`.
+                let written = Value(callee)
+                    .as_slot()
+                    .and_then(|own| context.callable_at(own))
+                    .is_some_and(|(code, _)| context.described_at(code).is_some());
+                let own = match written {
+                    true => None,
+                    false => Value(callee)
+                        .as_slot()
+                        .and_then(|own| super::objects::read_property(context, own, key))
+                        .filter(|found| found.as_slot().is_some()),
+                };
+                own.or_else(|| {
+                    super::object_proto::prototype_of(context).map(Value::from_slot)
+                })?
+            }
         };
 
         let shape = context.shapes.root();
@@ -1908,6 +1984,41 @@ fn is_bare_class_constructor_call(callee: u64) -> bool {
 /// that made it, including the ones testing for the mistake.
 #[rtse::entry]
 pub fn instance_of(value: u64, callee: u64) -> bool {
+    // The result memo, one borrow: see `Context::instance_of_result`. Every
+    // field is compared, and `C.prototype` is RE-READ because reassigning it
+    // changes a value, not a shape, so neither the type nor the epoch moves.
+    let remembered = with_current(|context| {
+        let cell = Value(value).as_slot()?;
+        let function = Value(callee).as_slot()?;
+        let (rty, rproto, cbits, wanted, epoch, answer) =
+            context.instance_of_result.copied(cell)?;
+        if cbits != callee || epoch != super::cache::chain_epoch() {
+            return None;
+        }
+        if context.region.type_of(cell)? != rty
+            || context.prototype_at(cell).unwrap_or(0) != rproto
+            || context.proxy_at(cell).is_some()
+            || context.text_at(cell).is_some()
+            || context.proxy_at(function).is_some()
+            || context.bound_at(function).is_some()
+        {
+            return None;
+        }
+        // The callee must still be proven free of `Symbol.hasInstance`: its own
+        // type and prototype are what that memo checks, and they are not walked
+        // links, so the receiver memo cannot rely on the epoch for them.
+        let cty = context.region.type_of(function)?;
+        let cproto = context.prototype_at(function).unwrap_or(0);
+        if context.has_instance_absent.copied(function) != Some((cty, cproto, epoch)) {
+            return None;
+        }
+        let key = prototype_key(context);
+        let now = super::objects::read_property(context, function, key)?;
+        (now.bits() == wanted).then_some(answer)
+    });
+    if let Some(answer) = remembered {
+        return answer;
+    }
     // Step 1, before anything else can run: the right-hand side is an OBJECT or
     // the operator refuses. Asked ahead of the hook because the hook is a
     // property of it, and a number has none to read.
@@ -1947,11 +2058,39 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         if context.proxy_at(slot).is_some() {
             return Probe::Slowly;
         }
+        // The memo first: if this callee was proven to have no `Symbol.hasInstance`
+        // when it had this same type and prototype, and nothing has changed a link
+        // since (the epoch), the probe below is the 118 ns it was last time for an
+        // answer that cannot have moved. All three must match — see
+        // `Context::has_instance_absent` for why each is load-bearing.
+        let epoch = super::cache::chain_epoch();
+        let ty = context.region.type_of(slot);
+        let proto = context.prototype_at(slot).unwrap_or(0);
+        if let Some(ty) = ty
+            && context.has_instance_absent.copied(slot) == Some((ty, proto, epoch))
+        {
+            return Probe::None;
+        }
         let key = context.well_known(super::symbol::HAS_INSTANCE);
         match super::accessor::resolve(context, slot, key) {
             // Nothing, along the whole chain. This is the answer for every
-            // ordinary constructor in every program.
-            super::accessor::Found::Absent => Probe::None,
+            // ordinary constructor in every program — so remember it, flagging
+            // every link the way the absence cache does so that whichever one
+            // later gains the hook bumps the epoch and retires this memo. The
+            // callee itself is not flagged: gaining an own `static
+            // [Symbol.hasInstance]` moves its type, which the memo already checks.
+            super::accessor::Found::Absent => {
+                let mut link = super::objects::inherited_from(context, slot);
+                for _ in 0..super::objects::CHAIN_LIMIT {
+                    let Some(at) = link else { break };
+                    context.mark_chain_link(at);
+                    link = super::objects::inherited_from(context, at);
+                }
+                if let Some(ty) = ty {
+                    context.has_instance_absent.set(slot, (ty, proto, epoch));
+                }
+                Probe::None
+            }
             super::accessor::Found::Value(found) => Probe::Held(found),
             // A getter is user code and may not run inside this borrow.
             super::accessor::Found::Getter(_) => Probe::Slowly,
@@ -2018,10 +2157,35 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // loop is the one place that knows what "callable" means for a proxy and a
     // bound function, so the refusal is raised from inside it.
     let mut resume: Option<(u64, u64)> = None;
+    let ordinary_hook = hook.is_none();
+    // A PROXY callee answers `prototype` through its own `[[Get]]` — its `get`
+    // trap — and that is user code, so the read happens here, outside the
+    // borrow below. Only for an object on the left (step 3 returns `false`
+    // before reading anything for a primitive) and a callable proxy (the
+    // refusal belongs to the walk). Node reads exactly `get(@@hasInstance)`
+    // then `get(prototype)`; the target's slot was read directly before, which
+    // skipped the second trap lookup.
+    let proxied_prototype = if super::proxy::is_proxy(callee)
+        && with_current(|context| {
+            Value(callee).as_slot().is_some_and(|cell| context.is_callable_cell(cell))
+                && Value(value)
+                    .as_slot()
+                    .is_some_and(|cell| context.text_at(cell).is_none())
+        }) {
+        let key = with_current(|context| context.well_known_text("prototype"));
+        let read = super::computed::get_indexed(callee, key);
+        if super::throw::in_flight() {
+            return false;
+        }
+        Some(read)
+    } else {
+        None
+    };
     let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
             return Err(Refusal::NotCallable);
         };
+        let callee_cell = function;
         // A PROXY and a BOUND function are both callable with no code address
         // of their own, so `callable_at` answered `None` and the operator
         // answered false for `x instanceof P` and `x instanceof f.bind(null)`
@@ -2045,7 +2209,13 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // borrow — the same limit `entry/primitive.rs` records.
         let key = prototype_key(context);
         let mut found = None;
+        if let Some(read) = proxied_prototype {
+            found = Some(Value(read));
+        }
         for _ in 0..super::objects::CHAIN_LIMIT {
+            if found.is_some() {
+                break;
+            }
             if context.callable_at(function).is_none() && context.proxy_at(function).is_none() {
                 // Nothing callable here or anywhere down the bound/proxy chain.
                 // A plain object and an array are what reach this in real code,
@@ -2074,9 +2244,10 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         else {
             return Err(Refusal::BadPrototype);
         };
-        let Some(mut cell) = Value(value).as_slot() else {
+        let Some(start) = Value(value).as_slot() else {
             return Ok(false);
         };
+        let mut cell = start;
         // Step 3 of `OrdinaryHasInstance`: if the left operand is not an
         // OBJECT, the answer is false before any chain is walked. A number, a
         // symbol and a bigint are refused by the line above — none of them is a
@@ -2105,12 +2276,14 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // `({}) instanceof Object` are both false — the object really does
         // inherit, and asking only for an own link is asking the wrong
         // question.
+        let mut answer = false;
         for _ in 0..super::objects::CHAIN_LIMIT {
             let Some(next) = super::objects::inherited_from(context, cell) else {
-                return Ok(false);
+                break;
             };
             if Value::from_slot(next).bits() == wanted.bits() {
-                return Ok(true);
+                answer = true;
+                break;
             }
             if context.proxy_at(next).is_some() {
                 resume = Some((Value::from_slot(next).bits(), wanted.bits()));
@@ -2118,7 +2291,32 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
             }
             cell = next;
         }
-        Ok(false)
+        // Remember the answer (see `Context::instance_of_result`). Only the
+        // ordinary path reaches here with `ordinary_hook`: no hook, callee neither
+        // proxy nor bound (a bound callee has no own `prototype` and would have
+        // returned `BadPrototype` above, a proxy is excluded explicitly), receiver
+        // neither proxy nor string, no proxy on its chain, no refusal.
+        if ordinary_hook
+            && context.proxy_at(callee_cell).is_none()
+            && context.bound_at(callee_cell).is_none()
+            && let Some(ty) = context.region.type_of(start)
+        {
+            // Flag the RECEIVER's chain so that relinking or changing any link
+            // bumps the epoch and retires the memo; flagging never bumps it, so
+            // the epoch is read afterwards.
+            let mut link = super::objects::inherited_from(context, start);
+            for _ in 0..super::objects::CHAIN_LIMIT {
+                let Some(at) = link else { break };
+                context.mark_chain_link(at);
+                link = super::objects::inherited_from(context, at);
+            }
+            let proto = context.prototype_at(start).unwrap_or(0);
+            let epoch = super::cache::chain_epoch();
+            context
+                .instance_of_result
+                .set(start, (ty, proto, callee, wanted.bits(), epoch, answer));
+        }
+        Ok(answer)
     });
     // `OrdinaryHasInstance` steps 4–6 from the proxy on: each link through
     // `[[GetPrototypeOf]]`, which is its trap — `x instanceof C` over a proxy

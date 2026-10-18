@@ -194,6 +194,9 @@ pub struct JsMachine<'a> {
     /// So the machine value is recorded where it is made. The alternative was passing the
     /// whole graph to every question, which would let any answer depend on anything.
     from_constant: std::collections::BTreeMap<MachineValue, u32>,
+    /// The double a `NumberTest` unboxed on the way to its answer, by the test's own value
+    /// (see `speculate.rs`).
+    number_payload: std::collections::BTreeMap<ValueId, MachineValue>,
 }
 
 /// The machine's own failures travel out as the machine's words.
@@ -316,6 +319,7 @@ impl<'a> JsMachine<'a> {
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
+            number_payload: std::collections::BTreeMap::new(),
         }
     }
 
@@ -347,6 +351,7 @@ impl<'a> JsMachine<'a> {
             unbound: std::collections::BTreeSet::new(),
             parks: false,
             from_constant: std::collections::BTreeMap::new(),
+            number_payload: std::collections::BTreeMap::new(),
         }
     }
 
@@ -452,7 +457,7 @@ impl<'a> JsMachine<'a> {
     /// would make every refusal below unreachable while emitting nothing that runs.
     pub fn repr_of(of: &Type) -> Option<Repr> {
         match of {
-            Type::Int32 => Some(Repr::I32),
+            Type::Int32 | Type::Ranged(..) => Some(Repr::I32),
             Type::Double => Some(Repr::F64),
             Type::Bool(_) => Some(Repr::Bool),
             _ => None,
@@ -474,7 +479,7 @@ impl<'a> JsMachine<'a> {
         !of.is_empty()
             && of
                 .iter()
-                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Double))
+                .all(|held| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..) | Type::Double))
     }
 
     /// The operand in the double domain, converting a proved integer.
@@ -732,12 +737,7 @@ impl JsMachine<'_> {
         keys: &[MachineValue],
     ) -> Result<MachineValue, String> {
         // THE WIDTH `emit/binding.rs` gives one: a slot per name plus the link.
-        let width = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-            repr: Repr::I64,
-            bits: rts_cranelift::ir::ScalarBits(keys.len() as u64 + 1),
-        });
-        let width = into.use_const(width);
-        let built = self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[width])?;
+        let built = self.object_new(into, keys.len() as u64 + 1)?;
         let (link, link_operand) = self.fixed_key(into, crate::emit::OUTER)?;
         self.define_through_cache(into, built, link, link_operand, enclosing)?;
 
@@ -750,6 +750,29 @@ impl JsMachine<'_> {
     }
 
     /// An `I64` the compiler fixed: a count, a mode, an index.
+    /// A fresh plain object with room for `slots` properties.
+    ///
+    /// A cell that fits the inline slots is taken in place by
+    /// `Terminator::CellAlloc`; only the case it cannot answer calls the runtime,
+    /// which collects or grows. A wider object needs several cells and always
+    /// calls. The answer is the same reference either way.
+    fn object_new(&mut self, into: &mut FuncBuilder, slots: u64) -> Result<MachineValue, String> {
+        if slots > u64::from(crate::emit::INLINE_FIELDS) {
+            let size = self.word(into, slots);
+            return self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[size]);
+        }
+        let slow = into.create_block();
+        let join = into.create_block();
+        let result = into.add_block_param(join, Repr::Tagged);
+        into.cell_alloc((join, &[]), (slow, &[])).map_err(machine)?;
+        into.switch_to(slow);
+        let size = self.word(into, slots);
+        let answered = self.call_runtime(into, crate::runtime::RuntimeOp::ObjectNew, &[size])?;
+        into.jump(join, &[answered]).map_err(machine)?;
+        into.switch_to(join);
+        Ok(result)
+    }
+
     fn word(&mut self, into: &mut FuncBuilder, bits: u64) -> MachineValue {
         let held = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
             repr: Repr::I64,
@@ -808,6 +831,49 @@ impl JsMachine<'_> {
             }
         };
         self.key_of(name)
+    }
+
+    /// A MACHINE CALL to a function of the program, `fn(env, this, a0..a3) -> value`.
+    ///
+    /// Only reached for a declaration `emit/direct_call` proved safe -- captures nothing, light,
+    /// a leaf -- so the environment and the receiver are `undefined`, exactly what the door
+    /// would hand a callee that ignores both. The answer is checked for a throw like any call.
+    fn call_declared(
+        &mut self,
+        into: &mut FuncBuilder,
+        func: rts_mir::cfg::FuncId,
+        args: &[MachineValue],
+    ) -> Result<MachineValue, String> {
+        if args.len() > crate::runtime::ARGUMENT_SLOTS {
+            return Err("a call by number past the convention's argument slots".to_owned());
+        }
+        let Some(shared) = self.shared.as_mut() else {
+            return Err("a call by number needs the program's registry".to_owned());
+        };
+        let Some(target) = shared.module.get(func.0 as usize).copied() else {
+            return Err(format!("f{} has no machine id here", func.0));
+        };
+        let undefined = shared.model.singleton(crate::values::Singleton::Undefined);
+        let padding = into.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
+            repr: Repr::Tagged,
+            bits: rts_cranelift::ir::ScalarBits(undefined.word()),
+        });
+        let padding = into.use_const(padding);
+        let mut passed = vec![padding, padding];
+        for held in args {
+            passed.push(coerced(into, *held, Repr::Tagged)?);
+        }
+        passed.resize(2 + crate::runtime::ARGUMENT_SLOTS, padding);
+        let Some(shared) = self.shared.as_mut() else {
+            return Err("a call by number needs the program's registry".to_owned());
+        };
+        let produced = into.call(&shared.funcs, target, &passed).map_err(machine)?;
+        let answered = produced
+            .first()
+            .copied()
+            .ok_or_else(|| "a function answered nothing".to_owned())?;
+        self.recheck_throw(into)?;
+        Ok(answered)
     }
 
     fn call_runtime(
@@ -1007,5 +1073,6 @@ mod keyed;
 mod light;
 mod ops;
 mod reach;
+mod speculate;
 
 pub use reach::{Parts, Shared, reaches_machine};

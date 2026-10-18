@@ -288,6 +288,9 @@ extern "C" fn get_own_property_names(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyNames") {
+        return object;
+    }
     super::super::array::own_names(object)
 }
 
@@ -310,6 +313,9 @@ extern "C" fn get_own_property_descriptor(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyDescriptor") {
+        return object;
+    }
     describe_of(object, name)
 }
 
@@ -327,6 +333,9 @@ extern "C" fn get_own_property_symbols(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertySymbols") {
+        return object;
+    }
     // A proxy's `ownKeys` is its `[[OwnPropertyKeys]]`; its own cell holds no
     // symbols to walk.
     if let Some(answered) = super::super::proxy::own_symbols(object) {
@@ -376,6 +385,9 @@ extern "C" fn get_own_property_descriptors(
     _a2: u64,
     _a3: u64,
 ) -> u64 {
+    if !super::coercible(object, "Object.getOwnPropertyDescriptors") {
+        return object;
+    }
     let made = super::super::objects::object_new(0);
     // Every own key, `own_names` rather than `own_keys`: a property made
     // non-enumerable through `defineProperty` is exactly the one this walk
@@ -453,6 +465,17 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
     let (found, attributes) = with_current(|context| {
         let cell = Value(object).as_slot()?;
         let key = super::key_for(context, name)?;
+        // The GLOBAL OBJECT builds its properties lazily, so a name nothing has
+        // read yet is not on it — and `Object.getOwnPropertyDescriptor(globalThis,
+        // "NaN")` answered `undefined` for a property `"NaN" in globalThis`
+        // reports as present. Asked here, on a miss, for the reason `looked_up`
+        // asks it on a read.
+        if context.globals == Some(cell)
+            && let Key::Name(named) = key
+            && matches!(super::super::accessor::resolve(context, cell, key), super::super::accessor::Found::Absent)
+        {
+            super::super::global::supply(context, named);
+        }
         // An ELEMENT is an own property with no shape slot — `super::super::array`'s
         // first page says why the store lives apart from the layout — so the walk
         // below never finds one, and `Object.getOwnPropertyDescriptor([1], "0")`
@@ -498,6 +521,20 @@ fn descriptor(object: u64, name: u64) -> Option<u64> {
             let found =
                 Descriptor::Accessor(pair.0.unwrap_or(absent), pair.1.unwrap_or(absent));
             return Some((found, attributes));
+        }
+        // A typed array keeps `length`, `byteLength`, `byteOffset` and `buffer`
+        // in own slots so compiled code can read them, but the language makes
+        // them accessors on `%TypedArray%.prototype`: they are NOT own
+        // properties, and `getOwnPropertyDescriptor(t, "length")` is `undefined`.
+        if let Some(view) = context.view_at(cell)
+            && (super::super::buffers::typed_array_name(view.kind).is_some()
+                || super::super::buffers::is_raw(view.kind))
+            && matches!(
+                context.interner.text(key).map(|text| text.to_rust_lossy()).as_deref(),
+                Some("length" | "byteLength" | "byteOffset" | "buffer")
+            )
+        {
+            return None;
         }
         // Own rather than inherited: a descriptor describes what the object
         // itself has, and reporting a prototype's property as own is what would

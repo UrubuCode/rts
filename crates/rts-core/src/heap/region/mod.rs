@@ -253,12 +253,11 @@ pub struct Region {
     /// auditable in one screen instead of being spread over thirty-five
     /// indexing expressions.
     words: Vec<std::cell::UnsafeCell<u64>>,
-    next: u32,
-    /// The bound [`Region::alloc`] enforces, which is **not** how much space the
-    /// region has claimed. It starts at what the host asked for and is raised by
-    /// [`Region::grow`], so a program whose garbage is collectable never pays
-    /// for room it does not need.
-    capacity: u32,
+    /// Where cells come from: the bump position, its bound and the free list.
+    ///
+    /// Boxed and published to compiled code, which takes a cell from it without
+    /// calling in -- see [`super::Cursor`] for why the region keeps no other copy.
+    cursor: Box<super::Cursor>,
     /// The ceiling `capacity` may be raised to: how many cells the words
     /// allocation actually covers.
     reserved: u32,
@@ -270,13 +269,6 @@ pub struct Region {
     /// what keeps every reference in a single-region program bit-for-bit what it
     /// was before this encoding existed.
     selector_bits: u32,
-    /// The head of the free list, threaded through freed cells themselves.
-    ///
-    /// A cell index, not a reference — the same reasoning as [`Region::next`]:
-    /// this is bookkeeping internal to one region, so it stays in the region's
-    /// own numbering rather than in the encoding the compiler reads. `None` when
-    /// nothing has been freed yet, or everything freed has been handed back out.
-    free_head: Option<u32>,
     /// Which cell indices are the TRAILING cells of a spanning allocation.
     ///
     /// `span::alloc_spanning`'s own documentation says a collector "will need to
@@ -302,6 +294,9 @@ pub struct Region {
     /// much of a program is wide objects, and paid only after the bump space is
     /// gone.
     pub(super) free_runs: Vec<(u32, u32)>,
+    /// The element runs compiled code reads without calling in. See
+    /// [`super::Runs`] for why this is the region's and not the context's.
+    runs: Box<super::Runs>,
 }
 
 /// The header value a freed cell carries.
@@ -486,15 +481,53 @@ impl Region {
         let words: Vec<std::cell::UnsafeCell<u64>> = unsafe { std::mem::transmute(words) };
         Region {
             words,
-            next: 0,
-            capacity: cells,
+            cursor: super::Cursor::new(cells),
             reserved,
             index,
             selector_bits,
-            free_head: None,
             spanned_interior: vec![false; cells as usize],
             free_runs: Vec::new(),
+            runs: super::Runs::new(),
         }
+    }
+
+    /// The cell cursor, for the machine's addressing to be told of.
+    ///
+    /// Stable for as long as this region lives, like [`Self::base`].
+    pub fn cursor_address(&self) -> u64 {
+        self.cursor.address()
+    }
+
+    /// Lets compiled code take plain cells of type `ty` itself, or stops it.
+    ///
+    /// `Some` publishes the complete header word `alloc` would write for a cell
+    /// of that type; `None` publishes zero, which sends every compiled-code
+    /// allocation to the runtime. A region that is one of several never
+    /// publishes: its references carry a selector the machine does not compose.
+    pub fn publish_plain(&self, ty: Option<u32>) {
+        let header = match ty {
+            Some(ty) if self.selector_bits == 0 && self.index == 0 => header_word(ty, INLINE_SLOTS),
+            _ => 0,
+        };
+        self.cursor.plain.set(header);
+    }
+
+    /// The table of element runs, for the machine's addressing to be told of.
+    ///
+    /// Stable for as long as this region lives, like [`Self::base`].
+    pub fn runs_address(&self) -> u64 {
+        self.runs.address()
+    }
+
+    /// The table, to publish into. The cell a reference names is taken from the
+    /// reference here, so no caller decomposes one.
+    pub(crate) fn runs_mut(&mut self) -> &mut super::Runs {
+        &mut self.runs
+    }
+
+    /// The cell number a reference names, without checking the region.
+    pub(crate) fn cell_of_reference(&self, reference: u32) -> u32 {
+        reference >> self.selector_bits
     }
 
     /// Which region this is.
@@ -569,12 +602,39 @@ impl Region {
     /// reservation and a caller asking whether the next allocation will bump
     /// wants this.
     pub fn capacity(&self) -> u32 {
-        self.capacity
+        self.cursor.limit.get() as u32
+    }
+
+    /// The first cell never handed out.
+    fn next(&self) -> u32 {
+        self.cursor.next.get() as u32
+    }
+
+    /// Moves the bump position, for an allocation that took several cells.
+    pub(super) fn set_next(&self, next: u32) {
+        self.cursor.next.set(u64::from(next));
+    }
+
+    /// The head of the free list, threaded through freed cells themselves.
+    ///
+    /// A cell index, not a reference -- bookkeeping internal to one region, in
+    /// the region's own numbering. `None` when nothing has been freed, or
+    /// everything freed has been handed back out.
+    fn free_head(&self) -> Option<u32> {
+        match self.cursor.free.get() {
+            NO_NEXT => None,
+            cell => Some(cell as u32),
+        }
+    }
+
+    /// Replaces the head of the free list.
+    fn set_free_head(&self, head: Option<u32>) {
+        self.cursor.free.set(head.map_or(NO_NEXT, u64::from));
     }
 
     /// How many cells have been handed out.
     pub fn used(&self) -> u32 {
-        self.next
+        self.next()
     }
 
     /// Takes a cell for an object of `size` bytes and type `ty`.
@@ -598,18 +658,14 @@ impl Region {
             return None;
         }
 
-        if let Some(index) = self.free_head {
+        if let Some(index) = self.free_head() {
             let at = self.word_of(index);
             let reference = self.compose(index)?;
 
             // The link lived in the first slot; read it before it is
             // overwritten with the new object's field.
             let next = self.word(at + 1);
-            self.free_head = if next == NO_NEXT {
-                None
-            } else {
-                Some(next as u32)
-            };
+            self.cursor.free.set(next);
 
             self.set_word(at, header_word(ty, INLINE_SLOTS));
             // Every slot, including the one that carried the link, is zeroed:
@@ -620,16 +676,16 @@ impl Region {
             return Some(reference);
         }
 
-        if self.next >= self.capacity {
+        if self.next() >= self.capacity() {
             // The linked list is empty and the bump space is spent, but the free
             // space a collection coalesced may all be in RUNS -- `coalesce.rs`
             // says why they are kept apart, and why a narrow object may still
             // take the first cell of one.
             return self.alloc_splitting_a_run(ty);
         }
-        let index = self.next;
+        let index = self.next();
         let reference = self.compose(index)?;
-        self.next += 1;
+        self.cursor.next.set(u64::from(index) + 1);
 
         // The header is one word and it is the type. The collector reads it
         // without knowing what the object is, which is the whole reason it is
@@ -667,7 +723,7 @@ impl Region {
         let Some(index) = self.decompose(reference) else {
             return false;
         };
-        if index >= self.next {
+        if index >= self.next() {
             return false; // never allocated
         }
 
@@ -699,20 +755,20 @@ impl Region {
         }
         for offset in 0..cells {
             let cell = index + offset;
-            if cell >= self.next {
+            if cell >= self.next() {
                 break;
             }
             // Threaded onto the free list through its own first slot — the slot
             // costs nothing extra because the cell's fields are dead the moment
             // it is freed.
             let word = self.word_of(cell);
-            let link = match self.free_head {
+            let link = match self.free_head() {
                 Some(next) => u64::from(next),
                 None => NO_NEXT,
             };
             self.set_word(word, FREE_MARKER);
             self.set_word(word + 1, link);
-            self.free_head = Some(cell);
+            self.set_free_head(Some(cell));
             if let Some(flag) = self.spanned_interior.get_mut(cell as usize) {
                 *flag = false;
             }
@@ -741,7 +797,7 @@ impl Region {
     /// Writes a field of a cell.
     pub fn set_field(&mut self, reference: u32, slot: u32, value: u64) -> Option<()> {
         let index = self.decompose(reference)?;
-        if slot >= self.width_at(index)? || index >= self.next {
+        if slot >= self.width_at(index)? || index >= self.next() {
             return None;
         }
         let at = self.word_of(index) + 1 + slot as usize;
@@ -757,7 +813,7 @@ impl Region {
     /// offsets.
     pub fn set_type(&mut self, reference: u32, ty: u32) -> Option<()> {
         let index = self.decompose(reference)?;
-        if index >= self.next {
+        if index >= self.next() {
             return None;
         }
         let at = self.word_of(index);
@@ -917,7 +973,7 @@ impl Region {
     /// region did not hand out.
     pub fn address_of(&self, reference: u32) -> Option<u64> {
         let index = self.decompose(reference)?;
-        if index >= self.next {
+        if index >= self.next() {
             return None;
         }
         Some(self.base() + u64::from(index) * u64::from(STRIDE))
@@ -1115,7 +1171,7 @@ impl Region {
     /// Measured on a loop allocating 400 000 short-lived objects: six cycles,
     /// each freeing 62 902 cells of 65 536.
     pub fn each_live(&self, mut visit: impl FnMut(u32)) {
-        for index in 0..self.next {
+        for index in 0..self.next() {
             if self.is_spanned_interior(index) {
                 continue;
             }

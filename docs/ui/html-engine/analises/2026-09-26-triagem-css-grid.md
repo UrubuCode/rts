@@ -1,5 +1,7 @@
 # Triage of the css-grid WPT reftest failures — 2026-09-26
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 Measured on `main` = `1ff2031bd` with `target/raster-base.exe`, from the sweep in
 `Documents/wpt-base2/css-grid/relatorio.json` (1 627 reftests: 337 pass, 34
 pass-empty, 1 231 fail, 25 partial). Method as in

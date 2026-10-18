@@ -181,15 +181,32 @@ impl ObjectPrototype {
         let key = with_current(|context| {
             context.well_known_text(&format!("{}toStringTag", super::symbol::PREFIX))
         });
-        let declared = super::computed::get_indexed(this, key);
+        // `null` and `undefined` have no properties to read: the specification
+        // answers their fixed tags before `@@toStringTag` is ever asked, and
+        // reading it threw "Cannot read properties of null".
+        let nullish = with_current(|context| {
+            this == Value::from_singleton(context.singletons.undefined).bits()
+                || this == Value::from_singleton(context.singletons.null).bits()
+        });
+        let declared = if nullish {
+            with_current(|context| undefined_of(context))
+        } else {
+            super::computed::get_indexed(this, key)
+        };
         if super::throw::in_flight() {
             return with_current(|context| undefined_of(context));
         }
         with_current(|context| {
+            let proxied_this = Value(this).as_slot().is_some_and(|cell| context.proxy_at(cell).is_some());
             let tag = match Value(declared).as_slot().and_then(|cell| context.text_at(cell)) {
                 // Only a STRING counts. The specification says so, and it
                 // matters: a tag that is a number would otherwise print as
                 // `[object 5]` for an object that never claimed to be one.
+                // An arguments object fakes its class with an own tag property, which
+                // a Proxy would forward; a real one has no slot a Proxy can show.
+                Some(text) if text.to_rust().as_deref() == Some("Arguments") && proxied_this => {
+                    object_tag(context, this).to_owned()
+                }
                 Some(text) => text.to_rust().unwrap_or_else(|| object_tag(context, this).to_owned()),
                 None => object_tag(context, this).to_owned(),
             };
@@ -362,12 +379,14 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     // A chain, because a proxy's target may be another one, and bounded for the
     // reason every walk in this file is: the chain is data a program built.
     let mut this = this;
+    let mut proxied = false;
     for _ in 0..super::objects::CHAIN_LIMIT {
         let Some(target) = Value(this).as_slot().and_then(|cell| context.proxy_at(cell))
         else {
             break;
         };
         this = target.0;
+        proxied = true;
     }
     if this == Value::from_singleton(context.singletons.undefined).bits() {
         return "Undefined";
@@ -383,9 +402,15 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     }
     if Value(this)
         .as_slot()
-        .is_some_and(|cell| context.callable_at(cell).is_some())
+        .is_some_and(|cell| context.is_callable_cell(cell))
     {
         return "Function";
+    }
+    // Only the array and callable rows see through a proxy; every other row
+    // needs an internal slot (Date, RegExp, Error, Arguments, boxed…) that the
+    // proxy does not have, so V8 answers the Object fallback.
+    if proxied {
+        return "Object";
     }
     if Value(this).as_bool().is_some() {
         return "Boolean";
@@ -471,14 +496,36 @@ pub(in crate::entry) fn extends_class(context: &mut Context, mut cell: u32, name
 /// Written once because two members ask it and they must not drift: the whole
 /// content of `propertyIsEnumerable`'s documentation is that it answers the same
 /// as `hasOwnProperty` here, and two bodies is where that stops being true.
-fn owns(this: u64, key: u64) -> bool {
+pub(super) fn owns(this: u64, key: u64) -> bool {
     if let Some(owned) = super::proxy::owns(this, key) {
         return owned;
+    }
+    // ToPropertyKey on an OBJECT key runs its `toString`/`@@toPrimitive`, which is
+    // user code and so happens before the borrow below. A symbol is an
+    // object-looking client value but not an object, and stays itself.
+    let key = if with_current(|context| super::primitive::is_object_in(context, key)) {
+        super::primitive::to_primitive(key, crate::coerce::Hint::String)
+    } else {
+        key
+    };
+    if super::throw::in_flight() {
+        return false;
     }
     with_current(|context| {
         let Some(cell) = Value(this).as_slot() else {
             return false;
         };
+        // A typed array's elements live in its buffer, not in `elements_at`; an
+        // integer-indexed key is own iff in range, and a canonical numeric key
+        // that is not an index (`-1`, `1.5`) is never a property at all.
+        if super::buffers::is_element_key(context, cell, Value(key)) {
+            return match super::array::as_index(context, Value(key)) {
+                Some(at) => context
+                    .view_at(cell)
+                    .is_some_and(|view| at < view.count()),
+                None => false,
+            };
+        }
         // An array element is own storage that no shape records, so the index
         // question is asked before the key is turned into text —
         // `ToPropertyKey` would turn `0` into `"0"` and lose it.
@@ -509,6 +556,9 @@ fn owns(this: u64, key: u64) -> bool {
         let Some(key) = own_key(context, key) else {
             return false;
         };
+        if super::buffers::is_inherited_fact(context, cell, key) {
+            return false;
+        }
         if super::objects::own_property(context, cell, key).is_some() {
             return true;
         }
@@ -531,6 +581,33 @@ fn owns(this: u64, key: u64) -> bool {
 /// answer `false` for every symbol-keyed property in the program, including
 /// `Map.prototype`'s own. `ToPropertyKey` says the symbol case comes first
 /// precisely because it is not a conversion: a symbol already IS a key.
+/// Whether `key` is STILL an own, enumerable property of `object` — the
+/// per-key re-check `EnumerableOwnProperties` does before each read, so a getter
+/// that deletes or hides a later key makes that key vanish from the result.
+///
+/// Conservative: anything that is not a plain cell (a primitive string source,
+/// say) answers `true`, because the key list was built from it moments ago.
+pub(in crate::entry) fn still_enumerable(object: u64, key: u64) -> bool {
+    // A boxed primitive keeps its units outside the cell storage `owns` reads
+    // (`new String("hi").hasOwnProperty("0")` is a separate known gap), so it is
+    // exempt rather than wrongly emptied.
+    if super::inspect_facts::boxed_primitive(object).is_some() {
+        return true;
+    }
+    if Value(object).as_slot().is_none() || !owns(object, key) {
+        return Value(object).as_slot().is_none();
+    }
+    with_current(|context| {
+        let Some(cell) = Value(object).as_slot() else {
+            return true;
+        };
+        match own_key(context, key) {
+            Some(Key::Name(machine)) => super::integrity::enumerable(context, cell, machine),
+            _ => true,
+        }
+    })
+}
+
 fn own_key(context: &mut Context, key: u64) -> Option<Key> {
     if let Some(text) = super::symbol::key_text_of(context, key) {
         let text = crate::text::Str::from_str(&text);

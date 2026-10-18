@@ -1038,7 +1038,16 @@ pub(super) fn declare_flattened(
     }
 
     for (property, written) in fields {
+        // NamedEvaluation, as `emit_object` does for the same literal when it
+        // is NOT taken apart: `{ p: () => 1 }` names the arrow `p`. The scalar
+        // field replaces the property but the function is still the property's
+        // value, so it keeps the property's name -- without this every function
+        // in a literal that never escaped read `.name === ""`.
+        if super::stmt::anonymous_definition(written) {
+            ctx.lend_name(property);
+        }
         let produced = super::expr::emit_expr(builder, scope, ctx, written)?;
+        let _ = ctx.take_lent_name();
         let field = field_name(ctx, object, property);
         super::binding::declare(builder, scope, ctx, field, produced)?;
     }

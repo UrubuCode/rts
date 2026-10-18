@@ -1,5 +1,7 @@
 # O motor de CSS e layout — o que foi feito, o que falta
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem. Alguns caminhos `crates/rts-dom/src/...` / `crates/rts-egui/src/...` citados abaixo já não existem exactamente nesse caminho (p.ex. `layout/*.rs` são agora os directórios `layout/{block,flex,float,fragment,grid,inline,measure,positioned,replaced}`; `painteffects.rs`, `style/parse.rs`, `style/props.rs` e `rts-egui/src/frame.rs` são agora directórios ou não existem); não foram mapeados ficheiro a ficheiro.
+
 Estado em **2026-08-18**, no fim da campanha de paridade com o Chrome, com a
 lista de valor **refeita em 2026-08-21** e os resultados da sessão desse dia
 (secções "A sessão de 2026-08-21" e "O que falta").

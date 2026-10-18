@@ -7,6 +7,14 @@ Everything between those two numbers belongs to the layers above the machine,
 and until this measurement existed there was no way to say that rather than
 believe it.
 
+> **Date-note, 2026-10-18.** The machine's own call (1.1 ns) is a property of the
+> machine and was not re-measured. The "35" is the 2026-08-28 toll through the
+> dynamic door. Since then: a statically resolved light leaf module function skips
+> the door (`f9298d814`, ~2 ns net, near the 1.6 ns `call_direct` floor); the
+> built-ins with brand-checked direct entries are 20-27 ns (`Map.get` 26,
+> `Set.has` 20, `plan-2026-09-27.md`); the light door took `ic call mono` 37.5 ->
+> 23.8 ns. The conclusion — the machine is not the fault — stands.
+
 ---
 
 ## 1. The instrument was blind, and said so if you read it

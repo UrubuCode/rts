@@ -124,7 +124,7 @@ fn define_or_report(object: u64, name: u64, stated: u64, refusal: Refusal) -> bo
         }
         Refusal::Reported => match descriptor::apply(object, name, &wanted) {
             descriptor::Verdict::Done => true,
-            descriptor::Verdict::Refused => false,
+            descriptor::Verdict::Refused | descriptor::Verdict::BadIndex => false,
             // A raise for both spellings: step 1 of `Reflect.defineProperty`
             // refuses a non-object target before it reaches the validation that
             // could report, so `Reflect.defineProperty(1, "x", {})` is a
@@ -166,6 +166,9 @@ pub(in crate::entry) fn define_read(object: u64, name: u64, wanted: &descriptor:
         }
         descriptor::Verdict::NotObject => {
             super::super::throw::type_error("Object.defineProperty called on non-object");
+        }
+        descriptor::Verdict::BadIndex => {
+            super::super::throw::type_error("Invalid typed array index");
         }
         // A `RangeError` and not a `TypeError`, and it is `ArraySetLength`'s
         // own: `a.length = 1.5` is not a property that refuses to be redefined,

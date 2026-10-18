@@ -56,15 +56,18 @@
 
 mod binding;
 pub(crate) use binding::OUTER;
+pub(crate) use object::INLINE_FIELDS;
 mod body_state;
 pub(crate) mod call;
 pub(crate) mod math;
+pub(crate) mod core_call;
 pub(crate) mod methods;
 pub(crate) mod light_arguments;
 mod chunk;
 pub(crate) mod evidence;
 mod class_layout;
 mod light_call;
+mod direct_call;
 pub(crate) mod statics;
 pub(crate) mod capture;
 mod choice;
@@ -75,6 +78,7 @@ mod delegate;
 mod destructure;
 mod dynamic;
 mod escape;
+mod factory;
 mod eval;
 mod expr;
 mod fold;
@@ -96,6 +100,7 @@ mod module;
 mod nonstrict;
 mod object;
 mod omit;
+mod operator_direct;
 mod optional;
 mod page;
 mod primordial;
@@ -107,6 +112,7 @@ mod receiver;
 mod regex;
 mod scope;
 mod serde_names;
+mod treeshake;
 mod settled;
 mod sloppy;
 mod stmt;
@@ -632,6 +638,10 @@ pub struct Ctx<'a> {
     /// expressions and may sit inside any nested function, several emissions
     /// below the one place that knows which file is being compiled.
     pub module_specifier: Option<String>,
+    /// Whose code is being compiled: the embedded standard library or the user's.
+    /// Set per unit by `emit_modules`; read where an `rts:core` import is bound,
+    /// to refuse the unsafe primitives outside std. Defaults to `User`.
+    pub origin: Origin,
     /// For each name this module exports FROM A BINDING OF ITS OWN, the names
     /// the outside sees it under.
     ///
@@ -680,12 +690,30 @@ pub struct Ctx<'a> {
     /// Whether the next body emitted is a module's or a script's own, whose
     /// named top-level functions the pickle may name. Taken by that body.
     pub(in crate::emit) names_top_level: bool,
+    /// For the next body emitted: the number of leading parameter-prologue
+    /// statements and the names the body must give a binding of its own (a
+    /// separate parameter scope), or `None` for the ordinary single scope.
+    /// Set immediately before `emit_body`, taken by it.
+    pub(in crate::emit) parameter_split: Option<(usize, Vec<Name>, Vec<Name>)>,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
     /// `primordial`. False is the safe answer and the default: a program this
     /// has not been computed for gets the call it has always got.
     math_primordial: bool,
+    /// Names bound by `import { … } from "rts:core"` in the module being emitted,
+    /// to the primitive each means. Compile-time only: the import emits nothing.
+    /// Reset per module beside `live_imports`.
+    pub(crate) core_imports: std::collections::BTreeMap<Name, crate::runtime::core_names::Bound>,
+    /// Top-level `@intrinsic("op")` functions of THIS unit (std only), by name. Unlike
+    /// `core_imports` these are real, declared functions: only a direct call lowers to
+    /// the op; value uses read the function. Reset per unit by `register_intrinsics`.
+    pub(crate) intrinsic_fns: std::collections::BTreeMap<Name, rts_corelib::CorePrimitive>,
+    /// Every Std `@intrinsic` EXPORT of the graph, by (canonical specifier, exported name).
+    /// Whole-graph, rebuilt once per `emit_modules`; an importer's named binding of one
+    /// puts its local name in `intrinsic_fns` (`register_intrinsics`).
+    pub(crate) intrinsic_exports:
+        std::collections::BTreeMap<(String, String), rts_corelib::CorePrimitive>,
     /// Which of `Number`, `Array`, `Object`, `isNaN` and `isFinite` the whole
     /// program leaves as the language's — `emit/statics`, on `Math`'s terms.
     statics_primordial: statics::Primordials,
@@ -699,6 +727,10 @@ pub struct Ctx<'a> {
     /// to the function it was declared as is a fact about the entire tree, and
     /// nothing smaller than that can answer it without guessing. See `inline`.
     inlinable: std::collections::BTreeMap<Name, std::rc::Rc<inline::Inlinable>>,
+    /// Declarations a call may reach by machine call -- `direct_call`.
+    direct_candidates: std::collections::BTreeMap<Name, direct_call::Direct>,
+    /// Those of them already emitted, by name: the id a call is made to.
+    direct_targets: std::collections::BTreeMap<Name, FuncId>,
     /// The classes whose instances are a list of fields, by name — see
     /// `class_layout`. Computed where `inlinable` is, from the same two facts.
     layouts: std::collections::BTreeMap<Name, std::rc::Rc<class_layout::Layout>>,
@@ -706,6 +738,12 @@ pub struct Ctx<'a> {
     /// not written to and nothing spells a definition — a fact about the WHOLE
     /// program, folded over every unit like `math_primordial`.
     layouts_allowed: bool,
+    /// What `x instanceof R` can be answered from at compile time — see
+    /// `class_layout::fold`. Empty wherever `layouts_allowed` is false.
+    instance_fold: class_layout::Fold,
+    /// `a OP b` (`+ - * / % **`) between two proven instances of one `[operators.<op>]` class, as a
+    /// direct method call — see `operator_direct`. Inert unless the module proves it.
+    operator_direct: operator_direct::Direct,
     /// Every name the whole program reads as a value — `receiver::handed_over`,
     /// folded over every unit. What a function handed to anything may have had
     /// done to it is unknown, so `f.call` on one is left as written.
@@ -811,17 +849,26 @@ impl<'a> Ctx<'a> {
             class_fields: types::Classes::default(),
             globals: std::collections::BTreeSet::new(),
             module_specifier: None,
+            origin: Origin::User,
             exported_locals: std::collections::BTreeMap::new(),
             live_imports: true,
             module_paths: None,
             module_key: None,
             names_top_level: false,
+            parameter_split: None,
             math_primordial: false,
+            core_imports: std::collections::BTreeMap::new(),
+            intrinsic_fns: std::collections::BTreeMap::new(),
+            intrinsic_exports: std::collections::BTreeMap::new(),
             statics_primordial: statics::Primordials::default(),
             json_primordial: false,
             inlinable: std::collections::BTreeMap::new(),
+            direct_candidates: std::collections::BTreeMap::new(),
+            direct_targets: std::collections::BTreeMap::new(),
             layouts: std::collections::BTreeMap::new(),
             layouts_allowed: false,
+            instance_fold: class_layout::Fold::default(),
+            operator_direct: operator_direct::Direct::default(),
             handed_over: std::collections::BTreeSet::new(),
             substituting: Vec::new(),
             body: body_state::BodyState::default(),
@@ -1191,6 +1238,10 @@ pub fn emit_program_with_exports(
     // Its own entry, key `""` — when it can reach the pickle (`serde_names`).
     ctx.module_key = serde_names::script_reaches_pickle(imports, body, ctx).then(String::new);
     ctx.names_top_level = true;
+    if treeshake::wanted() {
+        let unit = treeshake::Unit { imports, body, publications };
+        treeshake::report(&[unit], ctx.names);
+    }
     emit_program_into(body, imports, specifier, publications, &nothing, ctx)
 }
 
@@ -1239,6 +1290,8 @@ pub(super) fn emit_program_into(
     // and one module mentioning `eval` must not take the next module's imports
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
+    ctx.core_imports.clear();
+    register_intrinsics(body, &[], ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1283,6 +1336,8 @@ pub(super) fn emit_program_into(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.direct_candidates = direct_call::candidates(body, eval_name, global_this);
+    ctx.direct_targets.clear();
     let object_name = ctx.names.intern("Object");
     ctx.layouts_allowed = primordial::untouched(body, object_name, eval_name, global_this)
         && !class_layout::setters_reachable(body, &ctx.names);
@@ -1299,6 +1354,28 @@ pub(super) fn emit_program_into(
         ),
         false => std::collections::BTreeMap::new(),
     };
+    ctx.instance_fold = instance_fold(ctx, body, eval_name, global_this, &std::collections::BTreeSet::new());
+    // `Object`/`Reflect` only as bases is the same clause `instance_fold` asks: no alias of
+    // either reaches a relink or a symbol recovery through a key built at run time.
+    let layouts_allowed = ctx.layouts_allowed;
+    let handed_over = ctx.handed_over.clone();
+    ctx.operator_direct = operator_direct::facts(
+        body,
+        &imports.iter().collect::<Vec<_>>(),
+        &std::collections::BTreeSet::new(),
+        ctx.names,
+        layouts_allowed,
+        eval_name,
+        global_this,
+        &handed_over,
+        |names| {
+            let prototype = names.intern("prototype");
+            let object = names.intern("Object");
+            let reflect = names.intern("Reflect");
+            primordial::only_a_base(body, object, eval_name, global_this, prototype)
+                && primordial::only_a_base(body, reflect, eval_name, global_this, prototype)
+        },
+    );
 
     let mut emitted = function::emit_body(
         ctx,
@@ -1354,8 +1431,21 @@ fn finish(entry: FuncId, ctx: &mut Ctx) -> Program {
     }
 }
 
+/// Whose source a unit is. Fail-closed: the default is `User`, so a caller that
+/// says nothing gets the unsafe `rts:core` primitives refused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Origin {
+    /// The embedded standard library: may import the unsafe primitives.
+    Std,
+    /// A program's own code (and everything not known to be std).
+    #[default]
+    User,
+}
+
 /// One module of a multi-module compilation: its specifier and its items.
 pub struct Unit<'a> {
+    /// Whether this is std or user code (the `rts:core` unsafe-primitive gate).
+    pub origin: Origin,
     /// What an `import` of it names. The host resolved it.
     pub specifier: String,
     /// Its parsed body.
@@ -1412,6 +1502,30 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         }
         let body = chunk::split(body, ctx);
         lowered.push((unit, imports, body, publications));
+    }
+    // Std `@intrinsic` exports, found in the LOWERED bodies (what `register_intrinsics` of each
+    // importer needs before any unit emits). `rewrite` made every `import.source` equal the
+    // exporter's `Unit.specifier`, so the keys meet directly. User units are never recorded.
+    ctx.intrinsic_exports.clear();
+    for (unit, _, body, publications) in &lowered {
+        if unit.origin != Origin::Std {
+            continue;
+        }
+        for publication in publications {
+            let module::PublicationSource::Local(local) = &publication.source else {
+                continue;
+            };
+            let intrinsic = body.iter().find_map(|statement| match &statement.kind {
+                crate::syntax::StmtKind::Function(function) if function.name == Some(*local) => {
+                    function.intrinsic
+                }
+                _ => None,
+            });
+            if let Some(primitive) = intrinsic {
+                ctx.intrinsic_exports
+                    .insert((unit.specifier.clone(), publication.exported.clone()), primitive);
+            }
+        }
     }
 
     // `Math` IS UNTOUCHED ONLY IF EVERY UNIT LEAVES IT ALONE, which is what
@@ -1609,6 +1723,64 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     // load-bearing: `Name` ids are handed out in interning order, and moving
     // this earlier would renumber every map keyed by one.
     whole_program_facts(&program, ctx);
+    // Names an import or a renaming export can bind to something other than
+    // the class of that spelling are not folded on (see `class_layout::fold`).
+    let mut unfoldable = std::collections::BTreeSet::new();
+    for (_, imports, _, held) in lowered.iter() {
+        for import in imports.iter() {
+            for binding in &import.bindings {
+                match binding {
+                    crate::syntax::ImportBinding::Default(local)
+                    | crate::syntax::ImportBinding::Namespace(local) => {
+                        unfoldable.insert(*local);
+                    }
+                    crate::syntax::ImportBinding::Named { exported, local } => {
+                        unfoldable.insert(*local);
+                        unfoldable.insert(ctx.names.intern(exported));
+                    }
+                }
+            }
+        }
+        for publication in held.iter() {
+            unfoldable.insert(ctx.names.intern(&publication.exported));
+            if let module::PublicationSource::Local(local) = &publication.source {
+                unfoldable.insert(*local);
+            }
+        }
+    }
+    ctx.instance_fold = instance_fold(ctx, &program, eval_name, global_this, &unfoldable);
+    // The same pass over the whole graph: the proof reads every unit's text and imports, and
+    // a site fires only where its own scope resolves `operators` (see `operator_direct`).
+    {
+        let all_imports: Vec<&crate::syntax::Import> =
+            lowered.iter().flat_map(|(_, imports, _, _)| imports.iter()).collect();
+        let layouts_allowed = ctx.layouts_allowed;
+        let handed_over = ctx.handed_over.clone();
+        ctx.operator_direct = operator_direct::facts(
+            &program,
+            &all_imports,
+            &unfoldable,
+            ctx.names,
+            layouts_allowed,
+            eval_name,
+            global_this,
+            &handed_over,
+            |names| {
+                let prototype = names.intern("prototype");
+                let object = names.intern("Object");
+                let reflect = names.intern("Reflect");
+                primordial::only_a_base(&program, object, eval_name, global_this, prototype)
+                    && primordial::only_a_base(&program, reflect, eval_name, global_this, prototype)
+            },
+        );
+    }
+    if treeshake::wanted() {
+        let all: Vec<treeshake::Unit> = lowered
+            .iter()
+            .map(|(_, imports, body, publications)| treeshake::Unit { imports, body, publications })
+            .collect();
+        treeshake::report(&all, ctx.names);
+    }
 
     // ANY module reaching the pickle registers EVERY module — `serde_names`.
     let registers = serde_names::program_reaches_pickle(units, ctx);
@@ -1616,6 +1788,7 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
     for (unit, imports, body, publications) in &lowered {
         let (imports, body, publications) = (imports, body, publications);
         ctx.module_paths = Some(unit.paths.clone());
+        ctx.origin = unit.origin;
         // The entry is the LAST unit — dependencies first — and every key is
         // relative to it, so the same program compiled elsewhere names its
         // classes the same way.
@@ -1638,6 +1811,74 @@ pub fn emit_modules(units: &[Unit<'_>], ctx: &mut Ctx) -> EmitResult<Emitted> {
         program: finish(last, ctx),
         entries,
     })
+}
+
+/// Records this unit's top-level `@intrinsic("op")` functions in `ctx.intrinsic_fns`, BEFORE any
+/// body emits (declarations hoist, so a call may precede its declaration). Std only: a
+/// user unit carrying one is refused. The name must be declared exactly once in the whole
+/// body and never written (`direct_call`'s proof), so a bare `f(...)` cannot be a shadow
+/// and the emitter needs no scope test; anything else is refused rather than guessed.
+fn register_intrinsics(
+    body: &[Stmt],
+    imports: &[crate::syntax::Import],
+    ctx: &mut Ctx,
+) -> EmitResult<()> {
+    ctx.intrinsic_fns.clear();
+    // CROSS-MODULE: a named import of a Std `@intrinsic` export (`intrinsic_exports`, built
+    // whole-graph by `emit_modules`). The import is still bound normally (a value use reads the
+    // real function); only a direct call lowers. The imported local has no declaration to
+    // prove, so the proof is the converse: nothing in this body declares the name (an
+    // import is not in `body`, so any declaration is a shadow) and nothing writes it. A name
+    // failing it just stays an ordinary call; never an error.
+    let mut imported = Vec::new();
+    if !ctx.intrinsic_exports.is_empty() {
+        for import in imports {
+            for binding in &import.bindings {
+                if let crate::syntax::ImportBinding::Named { exported, local } = binding
+                    && let Some(&primitive) =
+                        ctx.intrinsic_exports.get(&(import.source.clone(), exported.clone()))
+                {
+                    imported.push((*local, primitive));
+                }
+            }
+        }
+    }
+    if !imported.is_empty() {
+        let eval_name = ctx.names.intern("eval");
+        let global_this = ctx.names.intern("globalThis");
+        let declared = inline::Declarations::of(body);
+        let writes = primordial::disturbed(body, eval_name, global_this);
+        for (local, primitive) in imported {
+            if declared.count(local) == 0 && writes.untouched(local) {
+                ctx.intrinsic_fns.insert(local, primitive);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    for statement in body {
+        if let crate::syntax::StmtKind::Function(function) = &statement.kind
+            && let (Some(name), Some(primitive)) = (function.name, function.intrinsic)
+        {
+            found.push((name, primitive));
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    if ctx.origin != Origin::Std {
+        return Err(module::refuse("@intrinsic is std-only"));
+    }
+    let eval_name = ctx.names.intern("eval");
+    let global_this = ctx.names.intern("globalThis");
+    let declared = inline::Declarations::of(body);
+    let writes = primordial::disturbed(body, eval_name, global_this);
+    for (name, primitive) in found {
+        if declared.count(name) != 1 || !writes.untouched(name) {
+            return Err(module::refuse("an @intrinsic function declared more than once or reassigned"));
+        }
+        ctx.intrinsic_fns.insert(name, primitive);
+    }
+    Ok(())
 }
 
 /// One module's body as a function, without taking the compilation apart.
@@ -1673,6 +1914,8 @@ fn emit_unit(
     // and one module mentioning `eval` must not take the next module's imports
     // with it. Turned off, where it is, by `emit_body_into`.
     ctx.live_imports = true;
+    ctx.core_imports.clear();
+    register_intrinsics(body, imports, ctx)?;
     // The proof that lets `Math.sqrt(x)` be one instruction. Computed once,
     // over the whole program, because that is the only scale at which it is a
     // fact rather than a guess — see `primordial` for why this engine can ask
@@ -1690,6 +1933,8 @@ fn emit_unit(
     let length_name = ctx.names.intern("length");
     let arguments_name = ctx.names.intern("arguments");
     ctx.inlinable = inline::candidates(body, eval_name, global_this, length_name, arguments_name);
+    ctx.direct_candidates = direct_call::candidates(body, eval_name, global_this);
+    ctx.direct_targets.clear();
     // `ctx.layouts` is the whole program's, set by `emit_modules` before the
     // first unit — a class is constructed across module boundaries.
     let nothing = Scope::new();
@@ -1880,19 +2125,14 @@ mod tests {
         // so the test follows the refusal to the next construct rather than
         // being deleted with the gap it happened to name.
         //
-        // `using` is that construct: it needs `Symbol.dispose`, which the
-        // runtime does not have. Written inside a function because the checker
-        // refuses one at a script's top level before emission is reached — a
-        // different refusal, and pinning it here would be testing the checker.
-        let error =
-            emit_source("function f() { using r = {}; }").expect_err("`using` is not emitted");
-        assert_eq!(
-            error,
-            EmitError::Unsupported {
-                construct: "`using`, which needs `Symbol.dispose`"
-            },
-            "the name is the deliverable — a gap reported as `Unsupported` with              no word in it is indistinguishable from any other gap"
-        );
+        // A `using` declaration is rewritten by the parser to a `try`/`finally`,
+        // and so is the for-head spelling now: each pass gets its own, so the
+        // disposal runs once per iteration. Written inside a function because
+        // the checker refuses a top-level one first -- a different refusal.
+        // What the test pins is that the gap this used to name is gone; the
+        // shape of a named refusal is pinned by `tests/bridge.rs`.
+        emit_source("function f() { for (using r of []) {} }")
+            .expect("a `using` for-head emits");
     }
 
     /// `[...a, , 1]` is elision beside a spread, and elision is not `undefined`.
@@ -2339,4 +2579,254 @@ mod tests {
         emit_body_of("let i = 0; while (i) { while (i) { break; } i = 1; } return i;")
             .expect("emits");
     }
+
+    /// Emits a module under the given origin, for the `rts:core` path gate.
+    fn emit_module_from(source: &str, origin: Origin) -> EmitResult<()> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let program = crate::parse::parse_module(source, &mut names).expect("parses");
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        ctx.origin = origin;
+        emit_module(&program.body, &mut ctx).map(|_| ())
+    }
+
+    #[test]
+    fn an_unsafe_core_primitive_is_refused_from_user_code_and_accepted_from_std() {
+        let source = r#"import { alloc } from "rts:core";"#;
+        // The default origin is `User`, and an explicit one agrees.
+        assert_eq!(Origin::default(), Origin::User);
+        let refused = emit_module_from(source, Origin::User).expect_err("user code is refused");
+        assert!(
+            format!("{refused:?}").contains("an unsafe rts:core primitive outside std"),
+            "{refused:?}"
+        );
+        // Std passes the gate; nothing is CALLED, so no lowering is needed.
+        emit_module_from(source, Origin::Std).expect("std may import an unsafe primitive");
+        // A PUBLIC primitive is unaffected in both directions.
+        let public = r#"import { sqrt, min } from "rts:core";"#;
+        emit_module_from(public, Origin::User).expect("user code may import a public one");
+        emit_module_from(public, Origin::Std).expect("so may std");
+    }
+
+    /// The printed IR of every function a module compiles to, under the given origin.
+    fn ir_of(source: &str, origin: Origin) -> EmitResult<String> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let program = crate::parse::parse_module(source, &mut names).expect("parses");
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        ctx.origin = origin;
+        let emitted = emit_module(&program.body, &mut ctx)?;
+        Ok(emitted.functions.iter().map(|(_, function)| format!("{function}")).collect::<Vec<_>>().join("
+"))
+    }
+
+    #[test]
+    fn an_intrinsic_call_lowers_to_the_op_in_std_and_is_refused_in_user_code() {
+        // The body is the identity, so a `sqrt` instruction can only come from the op.
+        let decorated = "@intrinsic(\"sqrt\") function mysqrt(x: number) { return x; }
+";
+        let calls = "function viaFn(a: number) { return mysqrt(a); }
+viaFn(2);
+const t = mysqrt(9);
+";
+        let std = ir_of(&format!("{decorated}{calls}"), Origin::Std).expect("std honours it");
+        assert!(std.to_lowercase().contains("sqrt"), "call must lower to the op:
+{std}");
+        // Each site alone, so neither emitter's lowering can hide behind the other's.
+        let nested = ir_of(&format!("{decorated}function viaFn(a: number) {{ return mysqrt(a); }}
+viaFn(2);
+"), Origin::Std).expect("emits");
+        assert!(nested.to_lowercase().contains("sqrt"), "a call inside a function lowers:
+{nested}");
+        let top = ir_of(&format!("{decorated}const t = mysqrt(9);
+"), Origin::Std).expect("emits");
+        assert!(top.to_lowercase().contains("sqrt"), "a top-level call lowers:
+{top}");
+        // Controls: the same source undecorated, and decorated but only used as a value.
+        let plain = ir_of(&format!("function mysqrt(x: number) {{ return x; }}
+{calls}"), Origin::Std).expect("emits");
+        assert!(!plain.to_lowercase().contains("sqrt"), "control must not sqrt:
+{plain}");
+        let value = ir_of(&format!("{decorated}const g = mysqrt;
+[1].map(mysqrt);
+g(1);
+"), Origin::Std)
+            .expect("a value use of an intrinsic still compiles");
+        assert!(!value.to_lowercase().contains("sqrt"), "a value use is the real function:
+{value}");
+        // User code may not carry one.
+        let refused = ir_of(&format!("{decorated}{calls}"), Origin::User).expect_err("user code is refused");
+        assert!(format!("{refused:?}").contains("@intrinsic is std-only"), "{refused:?}");
+        // A shadowing declaration is refused rather than guessed at.
+        let shadow = ir_of(&format!("{decorated}function f(mysqrt: number) {{ return mysqrt; }}
+"), Origin::Std)
+            .expect_err("a second declaration of the name is refused");
+        assert!(format!("{shadow:?}").contains("declared more than once"), "{shadow:?}");
+    }
+
+    #[test]
+    fn a_repr_i32_parameter_wraps_in_std_and_is_refused_in_user_code() {
+        let repr = "function mix(@repr(i32) h: number, @repr(i32) c: number) { return h * 31 + c; }
+mix(1, 2);
+";
+        let plain = "function mix(h: number, c: number) { return h * 31 + c; }
+mix(1, 2);
+";
+        let std = ir_of(repr, Origin::Std).expect("std honours it");
+        // WRAPPING INTEGER ARITHMETIC: the result is an `IntArith` over two I32 registers (the
+        // entry coercions join as I32, not as a Tagged phi). The multiply stays the f64 one
+        // (`ToInt32` of a rounded product is what the `|0` oracle does) and is truncated back
+        // to an int32 at once. The f64 add the fold replaced is left dead in the text.
+        assert!(std.contains("I32 = IntArith(Add"), "the sum must be an integer add:\n{std}");
+        // Control: the same source without the decorator is the language's f64 sum.
+        let ordinary = ir_of(plain, Origin::Std).expect("emits");
+        assert!(!ordinary.contains("IntArith(Add"), "control must not wrap:\n{ordinary}");
+        assert!(ordinary.contains("FloatArith(Add"), "control keeps the f64 add:\n{ordinary}");
+        // The decorator is std-only, as `@intrinsic` is.
+        let refused = ir_of(repr, Origin::User).expect_err("user code is refused");
+        assert!(format!("{refused:?}").contains("@repr(i32) is std-only"), "{refused:?}");
+        // A misspelt representation is a parse error, never a silent drop.
+        let mut names = Names::default();
+        let misspelt = "function f(@repr(i23) x: number) { return x; }";
+        assert!(crate::parse::parse_module(misspelt, &mut names).is_err());
+    }
+
+    /// The printed IR of a whole graph (`(specifier, origin, source)`, dependencies first).
+    fn graph_ir(units: &[(&str, Origin, &str)]) -> EmitResult<String> {
+        let mut names = Names::default();
+        let mut tags = TagRegistry::new();
+        let model = ValueModel::declare(&mut tags);
+        let types = TypeRegistry::default();
+        let mut funcs = FuncRegistry::new();
+        let mut calls = RuntimeCalls::new();
+        let programs: Vec<_> = units
+            .iter()
+            .map(|(_, _, source)| crate::parse::parse_module(source, &mut names).expect("parses"))
+            .collect();
+        let graph: Vec<Unit> = units
+            .iter()
+            .zip(&programs)
+            .map(|((specifier, origin, _), program)| Unit {
+                origin: *origin,
+                specifier: specifier.to_string(),
+                items: &program.body,
+                paths: (String::new(), String::new()),
+            })
+            .collect();
+        let mut keys = rts_cranelift::shape::KeyRegistry::new();
+        let mut ctx = Ctx::new(&model, &mut funcs, &mut calls, &mut keys, &mut names, &types);
+        let emitted = emit_modules(&graph, &mut ctx)?;
+        Ok(emitted.program.functions.iter().map(|(_, function)| format!("{function}")).collect::<Vec<_>>().join("\n"))
+    }
+
+    #[test]
+    fn a_cross_module_intrinsic_call_lowers_to_the_op_and_a_value_use_reads_the_function() {
+        // The exporter's body is the identity, so a `sqrt` instruction can only be the op.
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\nexport function other(x: number) { return x; }\n";
+        let graph = |importer: &'static str, origin: Origin| {
+            graph_ir(&[("/std/m.ts", Origin::Std, exporter), ("/main.ts", origin, importer)])
+        };
+        let call = graph("import { mysqrt } from \"/std/m.ts\";\nconst t = mysqrt(4);\n", Origin::User).expect("emits");
+        assert!(call.to_lowercase().contains("sqrt"), "an imported call lowers:\n{call}");
+        let nested = graph("import { mysqrt } from \"/std/m.ts\";\nfunction f(a: number) { return mysqrt(a); }\nf(4);\n", Origin::User)
+            .expect("emits");
+        assert!(nested.to_lowercase().contains("sqrt"), "a nested imported call lowers:\n{nested}");
+        let alias = graph("import { mysqrt as r } from \"/std/m.ts\";\nconst t = r(4);\n", Origin::User).expect("emits");
+        assert!(alias.to_lowercase().contains("sqrt"), "an aliased import lowers:\n{alias}");
+        // A value use is NOT refused and reads the real function: no op without a call.
+        let value = graph("import { mysqrt } from \"/std/m.ts\";\nconst g = mysqrt;\n[1].map(mysqrt);\ng(1);\n", Origin::User)
+            .expect("a value use of an imported intrinsic compiles");
+        assert!(!value.to_lowercase().contains("sqrt"), "a value use is the function:\n{value}");
+        // Controls: the exporter undecorated; and a local shadow of the imported name.
+        let plain = graph_ir(&[
+            ("/std/m.ts", Origin::Std, "export function mysqrt(x: number) { return x; }\n"),
+            ("/main.ts", Origin::User, "import { mysqrt } from \"/std/m.ts\";\nconst t = mysqrt(4);\n"),
+        ])
+        .expect("emits");
+        assert!(!plain.to_lowercase().contains("sqrt"), "undecorated control:\n{plain}");
+        let shadow = graph("import { mysqrt } from \"/std/m.ts\";\nfunction f(mysqrt: (n: number) => number) { return mysqrt(4); }\nf((n: number) => n);\n", Origin::User)
+            .expect("emits");
+        assert!(!shadow.to_lowercase().contains("sqrt"), "a parameter shadow stays a call:\n{shadow}");
+        // A USER exporter's `@intrinsic` is refused at the exporter, never honoured by an importer.
+        let user = graph_ir(&[
+            ("/u.ts", Origin::User, exporter),
+            ("/main.ts", Origin::User, "import { mysqrt } from \"/u.ts\";\nmysqrt(4);\n"),
+        ])
+        .expect_err("refused");
+        assert!(format!("{user:?}").contains("@intrinsic is std-only"), "{user:?}");
+    }
+
+    #[test]
+    fn a_mixed_import_lowers_only_the_intrinsic_and_the_rest_binds_normally() {
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\nexport function other(x: number) { return x + 1; }\n";
+        let ir = graph_ir(&[
+            ("/std/m.ts", Origin::Std, exporter),
+            ("/main.ts", Origin::User, "import { mysqrt, other } from \"/std/m.ts\";\nconst a = mysqrt(4);\nconst b = other(4);\n"),
+        ])
+        .expect("emits");
+        assert!(ir.to_lowercase().contains("sqrt"), "mysqrt lowers:\n{ir}");
+        assert!(ir.contains("CachedGet"), "`other` is still read off the namespace:\n{ir}");
+        // Only `other` imported: nothing lowers, the module still evaluates (it is imported).
+        let rest = graph_ir(&[
+            ("/std/m.ts", Origin::Std, exporter),
+            ("/main.ts", Origin::User, "import { other } from \"/std/m.ts\";\nother(1);\n"),
+        ])
+        .expect("emits");
+        assert!(!rest.to_lowercase().contains("sqrt"), "{rest}");
+    }
+
+    #[test]
+    fn a_reexport_or_namespace_import_of_an_intrinsic_falls_back_to_the_function() {
+        let exporter = "@intrinsic(\"sqrt\") export function mysqrt(x: number) { return x; }\n";
+        for importer in [
+            "import * as m from \"/std/m.ts\";\nm.mysqrt(4);\n",
+            "import m from \"/std/m.ts\";\nm(4);\n",
+            "export { mysqrt } from \"/std/m.ts\";\n",
+            "export * from \"/std/m.ts\";\n",
+        ] {
+            let ir = graph_ir(&[("/std/m.ts", Origin::Std, exporter), ("/main.ts", Origin::User, importer)])
+                .unwrap_or_else(|error| panic!("{importer} must compile: {error:?}"));
+            assert!(!ir.to_lowercase().contains("sqrt"), "{importer} stays the function:\n{ir}");
+        }
+    }
+}
+
+/// The compile-time `instanceof` facts of `program`, or none where the layout
+/// proof is off or `Object`/`Reflect` could be reached through an alias.
+fn instance_fold(
+    ctx: &mut Ctx,
+    program: &[Stmt],
+    eval_name: Name,
+    global_this: Name,
+    excluded: &std::collections::BTreeSet<Name>,
+) -> class_layout::Fold {
+    if !ctx.layouts_allowed || ctx.layouts.is_empty() {
+        return class_layout::Fold::default();
+    }
+    let prototype = ctx.names.intern("prototype");
+    let object = ctx.names.intern("Object");
+    let reflect = ctx.names.intern("Reflect");
+    if !primordial::only_a_base(program, object, eval_name, global_this, prototype)
+        || !primordial::only_a_base(program, reflect, eval_name, global_this, prototype)
+    {
+        return class_layout::Fold::default();
+    }
+    class_layout::fold_facts(
+        program,
+        &ctx.layouts,
+        &inline::Declarations::of(program),
+        &primordial::disturbed(program, eval_name, global_this),
+        &receiver::ordinary_of(program),
+        excluded,
+    )
 }

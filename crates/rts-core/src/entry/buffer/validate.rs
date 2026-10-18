@@ -198,6 +198,31 @@ pub(in crate::entry) fn legacy_length(value: u64, limit: usize) -> Option<usize>
     Some((number as usize).min(limit))
 }
 
+/// One of `buf.compare`'s four range arguments (Node's `validateOffset`).
+///
+/// `undefined` answers `default`; anything else must be a number that is an
+/// integer, then in `0..=max` (`max` is `Number.MAX_SAFE_INTEGER` for the two
+/// start arguments, the buffer length for the two end arguments).
+pub(in crate::entry) fn compare_offset(name: &str, value: u64, default: usize, max: usize) -> Option<usize> {
+    let number = match shape_of(value) {
+        Shape::Absent => return Some(default),
+        Shape::Number(number) => number,
+        _ => {
+            errors::invalid_arg_type(name, "number", value);
+            return None;
+        }
+    };
+    if !number.is_finite() || number.fract() != 0.0 {
+        errors::out_of_range(name, "an integer", value);
+        return None;
+    }
+    if number < 0.0 || number > max as f64 {
+        errors::out_of_range_number(name, &format!(">= 0 && <= {max}"), number, true);
+        return None;
+    }
+    Some(number as usize)
+}
+
 /// `Buffer.copy` uses JavaScript number coercion for its range arguments.
 fn copy_integer(value: u64) -> Option<f64> {
     let number = super::super::class_support::to_number(value);

@@ -59,6 +59,20 @@ pub(in crate::entry) fn above(context: &mut Context, start: u32, key: Key) -> Op
     None
 }
 
+/// `object.[[Set]](key, value)` when a proxy stands in its PROTOTYPE chain: the
+/// proxy's `set` trap (or, absent one, its target's ordinary set) is asked with
+/// `object` as the receiver. `None` when no proxy claims the key.
+pub(in crate::entry) fn set_above(object: u64, key: Key, value: u64) -> Option<bool> {
+    let proxy = crate::entry::with_current(|context| {
+        if !context.any_proxy() {
+            return None;
+        }
+        let slot = Value(object).as_slot()?;
+        above(context, slot, key)
+    })?;
+    super::set_verdict_on(proxy, key, value, object)
+}
+
 /// `handler.getPrototypeOf(target)`, or the target's prototype.
 pub(in crate::entry) fn prototype_of(object: u64) -> Option<u64> {
     let trap = super::trap_for(object, "getPrototypeOf")?;

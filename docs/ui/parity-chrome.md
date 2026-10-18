@@ -1,5 +1,7 @@
 # Paridade com o Chrome — a régua do motor de layout
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 Este documento não descreve como o motor funciona (isso é `dom-crate.md`) nem o
 que o CSS cobre (`css-support.md`). Responde a uma pergunta só: **quão perto do
 browser é que o nosso layout está, e onde é que diverge.**

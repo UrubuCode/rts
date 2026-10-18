@@ -89,6 +89,11 @@ pub enum Alias {
     /// A name this module exports. The binding holds the value, as any local
     /// does; an assignment to it also writes the namespace an importer reads.
     Export,
+    /// The self-binding of a NAMED FUNCTION EXPRESSION. Its own name lives in a
+    /// scope enclosing the parameters and is immutable: a write is dropped in
+    /// sloppy code and throws a `TypeError` in strict code. A declaration of the
+    /// same spelling (parameter, `var`, `let`) suspends this like any alias.
+    Immutable,
 }
 
 impl Binding {
@@ -205,6 +210,9 @@ pub struct Scope {
     /// The name `this` is held under, for a function where it is assigned
     /// partway through rather than handed over — see [`Scope::bind_this_late`].
     late_this: Option<Name>,
+    /// For an ARROW: the name the enclosing function holds its `new.target`
+    /// under, when it handed one over. `None` everywhere else.
+    held_new_target: Option<Name>,
     /// Whether THIS function owns `late_this` as a derived constructor, rather
     /// than borrowing an enclosing function's as an arrow does.
     ///
@@ -239,6 +247,7 @@ impl Scope {
             captured: BTreeSet::new(),
             this_value: None,
             late_this: None,
+            held_new_target: None,
             derived: false,
             aliases: BTreeMap::new(),
             module_body: false,
@@ -351,6 +360,7 @@ impl Scope {
             from_enclosing,
             this_value: None,
             late_this: None,
+            held_new_target: None,
             derived: false,
             aliases,
             module_body: false,
@@ -461,6 +471,16 @@ impl Scope {
         // for a derived constructor is `undefined` and would silently be the
         // wrong object.
         self.this_value = None;
+    }
+
+    /// Records, for an arrow, the name its enclosing function holds `new.target` under.
+    pub fn set_held_new_target(&mut self, name: Option<Name>) {
+        self.held_new_target = name;
+    }
+
+    /// The enclosing function's `new.target` name, inside an arrow that was handed one.
+    pub fn held_new_target(&self) -> Option<Name> {
+        self.held_new_target
     }
 
     /// The name `this` is held under, when it is held rather than passed.

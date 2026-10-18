@@ -155,16 +155,73 @@ enum Made {
     Built(u64, String, String),
 }
 
+/// Whether the receiver carries a compiled pattern; if not, raises the
+/// `TypeError` V8 raises (a Proxy over a regexp has no `[[RegExpMatcher]]`).
+fn branded(this: u64) -> bool {
+    let ok = with_current(|context| {
+        Value(this)
+            .as_slot()
+            .is_some_and(|cell| context.regexp_at(cell).is_some())
+    });
+    if !ok {
+        super::super::throw::type_error("Method RegExp.prototype.exec called on incompatible receiver");
+    }
+    ok
+}
+
+/// `test` on a receiver with no compiled pattern: `RegExpExec` reads `exec` off
+/// it and calls it when callable; only the builtin fallback needs the slot, so
+/// a non-callable `exec` (or a non-object) throws the brand `TypeError`.
+fn test_generic(this: u64, subject: u64) -> u64 {
+    let is_object = with_current(|_| Value(this).as_slot().is_some());
+    if is_object {
+        let name = with_current(|context| context.intern_value(Str::from_str("exec")).bits());
+        let method = super::super::computed::get_indexed(this, name);
+        if super::super::throw::in_flight() {
+            return with_current(|context| undefined_of(context));
+        }
+        let callable = with_current(|context| {
+            Value(method)
+                .as_slot()
+                .is_some_and(|cell| context.is_callable_cell(cell))
+        });
+        if callable {
+            let absent = with_current(|context| undefined_of(context));
+            let found = super::super::functions::call(method, this, subject, absent, absent, absent);
+            if super::super::throw::in_flight() {
+                return absent;
+            }
+            let null = with_current(|context| null_of(context));
+            let object_or_null = found == null || Value(found).as_slot().is_some();
+            if !object_or_null {
+                super::super::throw::type_error("object null is not a function");
+                return absent;
+            }
+            return Value::from_bool(found != null).bits();
+        }
+    }
+    super::super::throw::type_error("Method RegExp.prototype.test called on incompatible receiver");
+    with_current(|context| undefined_of(context))
+}
+
 /// `re.test(s)` — whether there is a match.
 ///
 /// Answers `false` for a receiver that is not a regular expression, where the
 /// language throws a `TypeError`. The same stated gap the rest of this crate
 /// has while a throw cannot find a handler in a caller.
 extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    let real = with_current(|context| {
+        Value(this)
+            .as_slot()
+            .is_some_and(|cell| context.regexp_at(cell).is_some())
+    });
     // `ToString(S)` FIRST and outside every borrow — see [`coerced`].
     let Some(subject) = coerced(subject) else {
         return with_current(|context| undefined_of(context));
     };
+    if !real {
+        return test_generic(this, subject);
+    }
     with_current(|context| {
         // A pattern that tracks `lastIndex` still goes through `search`, which
         // is what advances it — the boolean is not the whole observable effect of
@@ -218,6 +275,9 @@ extern "C" fn test(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
 /// says is collected first, the borrow is released, and the array is filled in a
 /// second one. The same two-step shape `own_keys` has, for the same reason.
 extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u64, _a3: u64) -> u64 {
+    if !branded(this) {
+        return with_current(|context| undefined_of(context));
+    }
     // `ToString(S)` FIRST and outside every borrow — see [`coerced`].
     let Some(subject) = coerced(subject) else {
         return with_current(|context| undefined_of(context));
@@ -293,7 +353,7 @@ extern "C" fn exec(_environment: u64, this: u64, subject: u64, _a1: u64, _a2: u6
                 // is not the empty string and does not compare like one.
                 None => absent,
             };
-            if let Some(elements) = context.elements_at_mut(cell) {
+            if let Some(mut elements) = context.elements_at_mut(cell) {
                 elements[position] = value;
             }
         }

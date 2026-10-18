@@ -71,6 +71,10 @@ pub(super) fn lexical_read(
     ctx: &mut Ctx,
     name: Name,
 ) -> EmitResult<ValueId> {
+    // A name imported from `rts:core` is compile-time only: it has no value.
+    if ctx.core_imports.contains_key(&name) && scope.lookup(name).is_none() {
+        return Err(super::module::refuse("a use of a name imported from rts:core other than calling it"));
+    }
     if scope.in_dead_zone(name) && !ctx.in_cleanup {
         return dead_zone(builder, ctx, name);
     }
@@ -229,6 +233,22 @@ pub(super) fn lexical_write(
     if let Some(super::scope::Alias::Import { property }) = scope.alias_of(name) {
         let namespace = storage_read(builder, scope, ctx, name)?;
         return super::property::emit_write(builder, ctx, namespace, property, value);
+    }
+    // THE SELF-BINDING OF A NAMED FUNCTION EXPRESSION IS IMMUTABLE: strict code
+    // throws, sloppy code drops the write and the assignment still evaluates to
+    // the assigned value.
+    if matches!(scope.alias_of(name), Some(super::scope::Alias::Immutable)) {
+        if ctx.sloppy {
+            return Ok(value);
+        }
+        let type_error = ctx.names.intern("TypeError");
+        let constructor = super::globals::force_read(builder, ctx, type_error)?;
+        let message = super::expr::string_literal(builder, ctx, "Assignment to constant variable.")?;
+        let error = super::call::construct_value(builder, ctx, constructor, &[message])?;
+        builder.throw(super::protect::JS_THROW, error);
+        let unreached = builder.create_block();
+        builder.switch_to(unreached);
+        return Ok(super::expr::undefined(builder, ctx));
     }
     // AN EXPORTED NAME IS WRITTEN HERE AND REPUBLISHED, which is the other half
     // of a live binding: the importer reads this module's namespace at its use,
@@ -474,12 +494,7 @@ pub fn push_environment(
         .expect("a captured name means the function built an environment");
     // One slot per name plus the link — the same width rule `function::emit`
     // uses when it builds the activation's own environment.
-    let width = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(names.len() as u64 + 1),
-    });
-    let width = builder.use_const(width);
-    let fresh = super::expr::call(builder, ctx, crate::runtime::RuntimeOp::ObjectNew, &[width])?[0];
+    let fresh = super::expr::object_new(builder, ctx, names.len() as u64 + 1)?;
     let outer = outer_link(ctx);
     super::property::emit_write(builder, ctx, fresh, outer, enclosing)?;
     Ok(Some(scope.enter_environment(fresh, names)))

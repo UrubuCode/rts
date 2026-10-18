@@ -19,6 +19,7 @@
 //! collect, drop the borrow, call, re-borrow to store.
 
 use super::super::super::objects::undefined_of;
+use super::super::super::buffers;
 use super::super::super::string::absent;
 use super::super::super::{Context, functions, throw, with_current};
 use super::super::built;
@@ -73,6 +74,17 @@ pub(super) extern "C" fn sort(
         );
         return nothing();
     }
+    // A typed array borrowed with `.call`: `Array.prototype.sort` is generic over
+    // an array-like, so it sorts in place by `ToString` order (not the numeric
+    // order `%TypedArray%.prototype.sort` uses) and answers the receiver.
+    if buffers::typed_visit::is_typed_array(this) {
+        let elements = buffers::typed_visit::listed(this).unwrap_or_default();
+        let ordered = ordered(elements, comparator);
+        if !super::super::super::throw::in_flight() {
+            buffers::typed_visit::write_back(this, &ordered);
+        }
+        return this;
+    }
     let Some(elements) = snapshot(this) else {
         return nothing();
     };
@@ -95,7 +107,7 @@ pub(super) extern "C" fn sort(
         let Some(cell) = Value(this).as_slot() else {
             return this;
         };
-        let Some(elements) = context.elements_at_mut(cell) else {
+        let Some(mut elements) = context.elements_at_mut(cell) else {
             return this;
         };
         // Bounded by what is there NOW as well as by the length the sort was

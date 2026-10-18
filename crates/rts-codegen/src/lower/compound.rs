@@ -111,7 +111,7 @@ impl Lowering<'_> {
         match store {
             Store::Name(name) => {
                 let of = self.type_of(value);
-                self.bind(*name, value, of, at)
+                self.bind_assigned(*name, value, of, at)
             }
             Store::Field(receiver, key) => {
                 self.prim(JsPrim::FieldWrite, vec![*receiver, *key, value], at);

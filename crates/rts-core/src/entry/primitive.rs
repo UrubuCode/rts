@@ -121,6 +121,15 @@ pub(super) fn to_primitive(value: u64, hint: Hint) -> u64 {
             );
             return value;
         }
+        // GetMethod: `undefined` and `null` mean "absent" and fall through to
+        // the ordinary pair; any other non-callable value is a `TypeError`.
+        if super::throw::in_flight() {
+            return value;
+        }
+        if with_current(|context| super::objects::nullish(context, method).is_none()) {
+            super::throw::type_error("Symbol.toPrimitive is not a function");
+            return value;
+        }
     }
 
     // `Hint::Default` behaves as `Hint::Number` for every object without a
@@ -216,6 +225,16 @@ pub(super) fn operands(left: u64, right: u64, order: [Side; 2], hint: Hint) -> (
         if super::throw::in_flight() {
             break;
         }
+    }
+    // A symbol has no numeric form: `Symbol() * 2`, `-sym` and `sym < 1` are a
+    // `TypeError`, not `NaN`. Asked after the conversions, as `class_support::to_number`
+    // does, so an object whose `Symbol.toPrimitive` answers a symbol is refused too.
+    if !super::throw::in_flight()
+        && with_current(|context| {
+            super::symbol::is_symbol(context, pair[0]) || super::symbol::is_symbol(context, pair[1])
+        })
+    {
+        super::throw::type_error("Cannot convert a Symbol value to a number");
     }
     (pair[0], pair[1])
 }

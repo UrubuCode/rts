@@ -332,6 +332,16 @@ fn plain_key(key: &crate::syntax::ClassKey) -> Option<Name> {
     }
 }
 
+/// The classes of `program` that are `ordinary` (no `Symbol.hasInstance`), for
+/// `class_layout::fold`.
+pub(super) fn ordinary_of(program: &[Stmt]) -> BTreeSet<Name> {
+    let mut classes: BTreeMap<Name, &Class> = BTreeMap::new();
+    for statement in program {
+        class_declarations(statement, &mut classes);
+    }
+    ordinary_classes(program, &classes)
+}
+
 /// Every name the program reads as a value, by the rule [`resolve`] reads
 /// receivers and classes by. For `class_layout`, which asks the same thing of
 /// a class for the same reason: what is never handed over cannot be changed

@@ -7,6 +7,46 @@ now. What this file still holds that the new one does not repeat is the section
 "What I am NOT proposing": the fifty-five refuted candidates and the reason each
 one lost, which are as binding as they were.
 
+> **Status as of 2026-10-18 — a reader's map of what has moved since 08-21 (each
+> line checked against the tree or git log; the body is left as written, because
+> it is the record of what the investigators saw at `97f66385`).**
+>
+> - **S1 / the ~28 ns call tax.** `SetCallName` was removed (shipped, see
+>   `native-call-floor.md` §4). A statically resolved, light, captureless leaf
+>   module function is now a DIRECT call (`f9298d814`, 2026-10-15, ~2 ns net),
+>   so "there is no direct-call path at all" in §9 is no longer true; the door
+>   (~22-27 ns) remains for methods, capturing closures, imports and anything
+>   dynamic. The light door (`emit/light_call.rs`, 09-29) skips the argument
+>   stacks for functions that never read them.
+> - **L5 / `prop instanceof` (240 ns) and the "160 ns" premise.** `HAS_INSTANCE`
+>   is in `CACHED_KEYS` and a `has_instance_absent` memo (shape-keyed, validated
+>   by `CHAIN_EPOCH`) answers the absent-hook case; `instanceof` is ~32 ns net,
+>   ~25 after the per-receiver result cache (`382409d5a`), and is folded to a
+>   constant where the whole class chain is known (`7dc3f124e`). Poly4 /
+>   megamorphic dispatch (~45-71 ns) is now the larger number.
+> - **S4 / allocation.** The bump is inlined (`CellAlloc`, `5f08f5dd6`, 2026-10-15;
+>   ~5-7 ns); a non-escaping literal is scalar-replaced (~1 ns). What an escaping
+>   allocation still pays is the collector (per-table sweep), not the allocation.
+> - **§9 "Scalar-replace class instances".** Refuted on 08-21 by the reasoning
+>   given there; a different route (`emit/class_layout`, 2026-09-29, a class that
+>   is never read as a value becomes its fields) now does it: 80 -> 4.5 ns for a
+>   non-escaping instance. See `plan-2026-09-27.md`.
+> - **§9 "Per-kind inline-cache cell sizing".** The reversal recorded there was a
+>   real memory-corruption hazard of THAT attempt. `4b5fb8fbc` (2026-10-16) later
+>   gave indirect METHOD sites a 128-byte two-entry cell (`declare_caches`,
+>   `DUPLEX_MARK`) with every other cache kind left at 64 bytes; poly2 method calls
+>   went ~60 -> ~32 ns. The warning about the kind-walk stands for any further change.
+> - **L6 / `ToInt32` of a constant, `ToInt32` branch-free.** The fold exists
+>   (`ir/fold.rs::to_int32_answer`) and `ToInt32` is no longer branch-free (since
+>   2026-08-25); see `the-missing-pass.md`. Integer arithmetic is range-typed
+>   (`Type::Ranged`, `219248373`).
+> - **§8.1** (an arrow carries a `prototype`): not reproduced with the 2026-10-17
+>   release binary (`Object.getOwnPropertyNames((x)=>x)` -> `name,length`; Node's
+>   order is `length,name`). **§8.2** (`Function.prototype[Symbol.hasInstance]`
+>   missing): still reproduced with the same binary (`typeof` -> `undefined`).
+> - Not re-checked: S2, S3, S5-S7, the object-model and startup sections, L1-L4,
+>   L7-L14 and §8.3-8.7. Treat them as of 2026-08-21.
+
 **What produced this.** Ten investigators, one per cost area of the engine, each
 reading the code against the measured table in [`measurements.md`](measurements.md)
 and required to cite a `file:line` for every claim. Their 79 candidates were then

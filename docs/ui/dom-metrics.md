@@ -1,5 +1,7 @@
 # Measuring the DOM engine
 
+> **Status as of 2026-10-18 (additive note):** substantial `rts-dom` work (grid/subgrid/layout/table) landed since this snapshot per the 2026-10 merge; specific capability claims below predate it and were not re-verified in this pass.
+
 > `crates/rts-dom/src/metrics/` (counters, phases, samples, audit — feature
 > `metrics`) + `crates/rts-dom/examples/dom_metrics/` (the harness).
 > First measurement: **2026-08-17**.

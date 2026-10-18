@@ -374,6 +374,11 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
         if context.proxy_at(slot).is_some() {
             return Some(Handled::Proxy(key));
         }
+        // A proxy standing in the PROTOTYPE chain claims the write: its `set`
+        // trap is handed this object as the receiver.
+        if let Some(proxy) = super::proxy::above(context, slot, key) {
+            return Some(Handled::ProxyAbove(proxy, key));
+        }
         match resolve_store(context, slot, key) {
             Store::Setter(setter) => Some(Handled::Setter(setter)),
             Store::Refused(why) => Some(Handled::Refused(why)),
@@ -411,6 +416,18 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
             }
             value
         }
+        Some(Handled::ProxyAbove(proxy, key)) => {
+            if super::proxy::set_verdict_on(proxy, key, value, object) == Some(false)
+                && !sloppy
+                && !super::throw::in_flight()
+            {
+                super::throw::type_error(&format!(
+                    "'set' on proxy: trap returned falsish for property '{}'",
+                    super::proxy::spelled(key)
+                ));
+            }
+            value
+        }
         Some(Handled::Setter(setter)) => {
             let undefined = with_current(|context| undefined_of(context));
             super::functions::call(setter, object, value, undefined, undefined, undefined);
@@ -434,6 +451,8 @@ fn store_property(object: u64, key: i64, value: u64, sloppy: bool) -> u64 {
 enum Handled {
     /// A proxy's `set` trap, with the key already resolved.
     Proxy(Key),
+    /// A proxy reached as a PROTOTYPE of the receiver, with the key resolved.
+    ProxyAbove(u64, Key),
     /// A setter found on the receiver or above it.
     Setter(u64),
     /// The language refuses this write, with the message it refuses it by.
@@ -501,10 +520,46 @@ pub(in crate::entry) fn resolve_store(context: &mut Context, slot: u32, key: Key
             key_text(context, key)
         ));
     }
+    // A key the receiver does not own but INHERITS as a read-only data
+    // property (a frozen prototype, or `writable: false` up the chain) refuses
+    // the write too: `OrdinarySet` finds the property above and answers false
+    // instead of creating an own copy. Only asked when the key is absent from
+    // the receiver, so the hot path of overwriting an own property never pays.
+    if let Key::Name(named) = key {
+        if own_property(context, slot, key).is_none() {
+            if let Some(parent) = inherited_from(context, slot) {
+                if super::reflect::inherited_readonly(context, parent, key) {
+                    return Store::Refused(format!(
+                        "Cannot assign to read only property '{}' of object",
+                        key_text(context, Key::Name(named))
+                    ));
+                }
+            }
+        }
+    }
     // A key the object does not have yet is GROWTH, which all three integrity
     // levels refuse — and a sealed object refuses only that, which is why the
     // question is asked of presence rather than of the level.
+    // An array element is not in the shape, so presence for an index is asked
+    // of the element row: otherwise overwriting an element of a sealed or
+    // non-extensible array was refused as if it were a new index.
+    let element_at = match key {
+        Key::Index(at) => Some(at as usize),
+        // A computed key arrives as a NAME even when it spells an index.
+        Key::Name(named) => context
+            .interner
+            .text(named)
+            .and_then(crate::object::as_array_index)
+            .map(|at| at as usize),
+    };
+    let element_present = element_at.is_some_and(|at| {
+        context.elements_at(slot).is_some_and(|row| {
+            row.get(at)
+                .is_some_and(|held| !super::array::is_hole(context, *held))
+        })
+    });
     if super::integrity::refuses_growth(context, slot)
+        && !element_present
         && own_property(context, slot, key).is_none()
     {
         return Store::Refused(format!(
@@ -1023,13 +1078,30 @@ pub(in crate::entry) fn access_refusal(
     reading: bool,
 ) -> Option<String> {
     let word = nullish(context, object)?;
+    let verb = if reading { "reading" } else { "setting" };
+    // A symbol key is stored as reserved text (`@@iterator`, `@@sym:17`); Node
+    // names it by its description, `Symbol(Symbol.iterator)` / `Symbol(zz)`.
+    let key_text = match key {
+        Some(Key::Name(key)) => context.interner.text(key).and_then(crate::text::Str::to_rust),
+        _ => None,
+    };
+    let symbol_text = key_text
+        .as_deref()
+        .filter(|text| text.starts_with("@@"))
+        .and_then(|text| super::symbol::value_of_key_text(context, text))
+        .and_then(|symbol| super::symbol::described(context, symbol));
+    if let (Some(symbol), true, "@@iterator") = (&symbol_text, reading, key_text.as_deref().unwrap_or("")) {
+        // V8 words an iterator read on null/undefined as "not iterable".
+        let subject = if word == "null" { "object null" } else { word };
+        return Some(format!("{subject} is not iterable (cannot read property {symbol})"));
+    }
     let named = match key {
-        Some(Key::Name(key)) => context
-            .interner
-            .text(key)
-            .and_then(crate::text::Str::to_rust)
-            .map(|text| format!(" (reading '{text}')")),
-        Some(Key::Index(at)) => Some(format!(" (reading '{at}')")),
+        Some(Key::Name(_)) => match (&symbol_text, &key_text) {
+            (Some(symbol), _) => Some(format!(" ({verb} '{symbol}')")),
+            (None, Some(text)) => Some(format!(" ({verb} '{text}')")),
+            _ => None,
+        },
+        Some(Key::Index(at)) => Some(format!(" ({verb} '{at}')")),
         None => None,
     };
     let what = if reading { "read" } else { "set" };
@@ -1370,6 +1442,53 @@ pub fn object_spread(target: u64, source: u64) -> u64 {
     target
 }
 
+/// `...rest` of an object pattern: a fresh object holding the source's own
+/// enumerable properties less the `excluded` keys (an array of key values).
+///
+/// `CopyDataProperties` is one loop -- `[[OwnPropertyKeys]]` once, then per key
+/// `[[GetOwnProperty]]` and `[[Get]]` alternating -- and an excluded key is
+/// neither described nor read. The loop is the shared `each_enumerable_own_except`,
+/// so a proxy's handler sees the order every other engine shows it.
+#[rtse::entry("__rts_object_rest")]
+pub fn object_rest(source: u64, excluded: u64) -> u64 {
+    let keys: Vec<Key> = with_current(|context| {
+        let held: Vec<u64> = Value(excluded)
+            .as_slot()
+            .and_then(|cell| context.elements_at(cell))
+            .map(<[u64]>::to_vec)
+            .unwrap_or_default();
+        held.into_iter()
+            .filter_map(|value| super::computed::property_key(context, Value(value)))
+            .collect()
+    });
+    let mut guard = super::rooted::Rooted::new();
+    let rest = object_new(0);
+    guard.values().push(rest);
+    super::object_global::each_enumerable_own_except(source, &keys, |key| {
+        let value = super::computed::get_indexed(source, key);
+        if super::throw::in_flight() {
+            return;
+        }
+        super::computed::set_indexed(rest, key, value, 0);
+    });
+    // The string walk above never reports a symbol key on an ordinary source (a
+    // proxy's listing already carried them), so they follow, as a spread does.
+    if !super::proxy::is_proxy(source) && !super::throw::in_flight() {
+        let symbols = with_current(|context| super::array::symbol_keyed(context, source));
+        for (key, value) in symbols {
+            if keys.contains(&key) {
+                continue;
+            }
+            with_current(|context| {
+                if let Some(cell) = Value(rest).as_slot() {
+                    put(context, cell, key, value);
+                }
+            });
+        }
+    }
+    rest
+}
+
 /// The symbol half of a spread, which no fast path changes.
 fn copy_symbol_keyed(target: u64, source: u64) {
     let symbols = with_current(|context| super::array::symbol_keyed(context, source));
@@ -1548,7 +1667,7 @@ fn reconcile_length(context: &mut Context, slot: u32, key: Key, value: u64) {
     // `Object.keys(a)` is `["0"]` — where filling with `undefined` makes both
     // answer as though the program had written the value there.
     let absent = super::array::hole_of(context);
-    let Some(elements) = context.elements_at_mut(slot) else {
+    let Some(mut elements) = context.elements_at_mut(slot) else {
         return;
     };
     if elements.len() != wanted {

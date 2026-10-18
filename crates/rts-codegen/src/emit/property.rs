@@ -204,9 +204,37 @@ pub(super) fn emit_read_keyed(
     // element or a typed array's value in one borrow and hands anything else to
     // the very read below: 14.7 ns a read became the entry's own cost, with no
     // key to convert and nothing to resolve.
+    //
+    // The element is read INLINE first, from the run table the runtime keeps for
+    // an array whose elements are in their own store, and only a case the table
+    // cannot answer reaches that entry: a receiver that is not a reference, no
+    // row, a position that is not a whole number inside the run, an absent
+    // element. `Terminator::RunRead` states why its operand is the receiver and
+    // not an address -- the withdrawn `ElementsBase` hoisted an address and the
+    // collector freed the run under a loop that no longer held the array.
     if builder.repr_of(key) == Repr::F64 {
         let receiver = tagged(builder, receiver);
-        return Ok(call(builder, ctx, RuntimeOp::IndexNumberDirect, &[receiver, key])?[0]);
+        let as_reference = builder.create_block();
+        let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+        let slow = builder.create_block();
+        let join = builder.create_block();
+        let result = builder.add_block_param(join, UNPROVEN);
+
+        builder.guard(
+            receiver,
+            Repr::Ref(RefKind::Opaque),
+            (as_reference, &[]),
+            (slow, &[]),
+        )?;
+        builder.switch_to(as_reference);
+        builder.run_read(narrowed, key, (join, &[]), (slow, &[]))?;
+
+        builder.switch_to(slow);
+        let answered = call(builder, ctx, RuntimeOp::IndexNumberDirect, &[receiver, key])?[0];
+        builder.jump(join, &[answered])?;
+
+        builder.switch_to(join);
+        return Ok(result);
     }
     if matches!(builder.repr_of(key), Repr::F64 | Repr::I32 | Repr::I64) {
         let receiver = tagged(builder, receiver);
@@ -243,6 +271,46 @@ pub(super) fn emit_read_keyed(
 
     builder.switch_to(join);
     Ok(result)
+}
+
+/// `a[i] = v` with a position PROVEN to be a double: the element overwritten in place
+/// when it already exists, and `SetIndexed` for every other case.
+///
+/// The mirror of the inline read in [`emit_read_keyed`]; what the row answers and what
+/// it hands to the call is `rts_cranelift::ir::inst::Terminator::RunWrite`'s to say. The
+/// call is the whole of the old behaviour -- growth, holes, frozen arrays, a typed
+/// array's out-of-range no-op, strict-mode refusals -- so this only ever removes work.
+/// The assignment's value is the value written, on both paths.
+pub(super) fn emit_write_indexed(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    receiver: ValueId,
+    key: ValueId,
+    value: ValueId,
+) -> EmitResult<ValueId> {
+    let receiver = tagged(builder, receiver);
+    let value = tagged(builder, value);
+    let as_reference = builder.create_block();
+    let narrowed = builder.add_block_param(as_reference, Repr::Ref(RefKind::Opaque));
+    let slow = builder.create_block();
+    let join = builder.create_block();
+
+    builder.guard(
+        receiver,
+        Repr::Ref(RefKind::Opaque),
+        (as_reference, &[]),
+        (slow, &[]),
+    )?;
+    builder.switch_to(as_reference);
+    builder.run_write(narrowed, key, value, (join, &[]), (slow, &[]))?;
+
+    builder.switch_to(slow);
+    let mode = write_mode(builder, ctx);
+    call(builder, ctx, RuntimeOp::SetIndexed, &[receiver, key, value, mode])?;
+    builder.jump(join, &[])?;
+
+    builder.switch_to(join);
+    Ok(value)
 }
 
 /// Reads a property the site may last have found on something the receiver

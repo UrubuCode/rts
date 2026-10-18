@@ -344,7 +344,7 @@ fn step_value(
 /// multiply: a double is its own `ToNumber` (including `-0`), so the fast side
 /// is the narrowed value re-tagged, and the slow side is the call that used to
 /// be `Multiply`.
-fn to_number(builder: &mut FuncBuilder, ctx: &mut Ctx, value: ValueId) -> EmitResult<ValueId> {
+pub(super) fn to_number(builder: &mut FuncBuilder, ctx: &mut Ctx, value: ValueId) -> EmitResult<ValueId> {
     use rts_cranelift::repr::Repr;
     match builder.repr_of(value) {
         Repr::F64 => return Ok(value),

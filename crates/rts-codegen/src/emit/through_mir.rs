@@ -158,6 +158,32 @@ fn attempt(
     if resolution.omitted(function.at) {
         return Err("an arrow folded into a function this stage did not compile".to_owned());
     }
+    // A CALL TO A STATEMENT-BODY HELPER the running emitter would substitute.
+    // `substitutes` below admits one-expression bodies only, so a call to a
+    // `const`/`let`/guard helper stayed a real call here (~26 ns) while the same
+    // call the running emitter compiles is spliced (~5 ns): `inline.rs` accepted
+    // the shape and this door never asked. Declined, so the emitter that can
+    // substitute it does.
+    {
+        let mut called = Vec::new();
+        match &function.body {
+            crate::syntax::FunctionBody::Block(statements) => {
+                statements.iter().for_each(|held| called_in_statement(held, &mut called))
+            }
+            crate::syntax::FunctionBody::Expression(expr) => called_in(expr, &mut called),
+        }
+        if called.iter().any(|name| {
+            ctx.inlinable_here(*name).is_some_and(|candidate| {
+                !candidate.statements.is_empty()
+                    && candidate.rest_length.is_none()
+                    && is_call_free(&candidate)
+                    && (candidate.free_proved || ctx.omits(*name))
+                    && (ctx.omits(*name) || enclosing.lookup(*name).is_some())
+            })
+        }) {
+            return Err("a call to a statement-body helper the running emitter substitutes".to_owned());
+        }
+    }
     // THE FUNCTIONS WRITTEN DIRECTLY INSIDE, whose closures this function makes. Their
     // BODIES are emitted by the running emitter -- in the scope this function sits in,
     // which is what they reach: a function this door takes builds no environment, so
@@ -272,11 +298,44 @@ fn attempt(
         }
         sites.insert(template.at, ctx.template(pieces));
     }
+    // THE DECLARATIONS A CALL MAY REACH BY MACHINE CALL, numbered after the functions
+    // written inside (`direct_call` has the proof). Only those already emitted have an id.
+    let mut directs: Vec<(crate::names::resolve::BindingId, rts_cranelift::ir::FuncId)> = Vec::new();
+    if let Some(body_scope) = resolution.function_scope(function.at) {
+        for (name, id) in &ctx.direct_targets {
+            let Some(candidate) = ctx.direct_candidates.get(name) else {
+                continue;
+            };
+            if enclosing.lookup(*name).is_none()
+                || candidate.globals.iter().any(|held| enclosing.lookup(*held).is_some())
+            {
+                continue;
+            }
+            if let Some(binding) = resolution.binding_in(body_scope, *name) {
+                directs.push((binding, *id));
+            }
+        }
+    }
+    let direct_base = positions.len();
     let callees = crate::lower::Callees::of_positions(&positions)
+        .with_functions(
+            directs
+                .iter()
+                .enumerate()
+                .map(|(at, (binding, _))| (*binding, rts_mir::cfg::FuncId((direct_base + at) as u32))),
+        )
         .with_templates(sites)
         .with_substitutes(substitutes(ctx, enclosing, function))
         .with_methods(methods(ctx, enclosing, function))
         .with_math_primordial(ctx.math_primordial)
+        .with_core_imports(
+            ctx.core_imports
+                .iter()
+                .filter(|(name, _)| enclosing.lookup(**name).is_none())
+                .map(|(name, primitive)| (*name, *primitive))
+                .collect(),
+        )
+        .with_intrinsic_fns(ctx.intrinsic_fns.clone())
         .with_statics_primordial(ctx.statics_primordial)
         .with_collections(ctx.collection_evidence.clone());
     let mut domain = crate::domain::Js::new();
@@ -304,11 +363,28 @@ fn attempt(
         ctx.sloppy,
     )
     .map_err(|held| format!("lowering: {held:?}"))?;
+    crate::lower_module::verify_after("lower", &graph);
     // THE LANGUAGE'S PASSES, before the checks and the inference read the graph --
     // `optimize/` says which and why each is this crate's rather than `rts_mir`'s.
-    crate::optimize::fold_constants(&mut graph, &domain);
+    // FOLD, THEN ACT ON WHAT FOLDED: a comparison of constants becomes a truth value, a
+    // branch over one becomes a jump, and the arm nothing reaches is deleted. Repeated
+    // because deleting an arm leaves values unread, and `remove_dead` is what lets the
+    // next round see a smaller graph.
+    loop {
+        let folded = crate::optimize::fold_constants(&mut graph, &domain);
+        crate::lower_module::verify_after("fold_constants", &graph);
+        let simplified = rts_mir::passes::simplify_cfg(&mut graph);
+        crate::lower_module::verify_after("simplify_cfg", &graph);
+        rts_mir::passes::remove_dead(&mut graph);
+        crate::lower_module::verify_after("remove_dead", &graph);
+        if folded + simplified == 0 {
+            break;
+        }
+    }
     crate::optimize::replace_scalars(&mut graph, &domain);
+    crate::lower_module::verify_after("replace_scalars", &graph);
     rts_mir::passes::remove_dead(&mut graph);
+    crate::lower_module::verify_after("remove_dead", &graph);
     // A TEXT CONSTANT IS A CALL (`machine/ops.rs`), so one written inside a loop moves to
     // the entry -- `emit/expr.rs::string_const` makes the same decision, for the same
     // two reasons, and says why nothing cheaper is worth the live range.
@@ -316,11 +392,29 @@ fn attempt(
         matches!(held, rts_mir::cfg::Const::Declared(index)
             if matches!(domain.declared(*index), Some(crate::domain::JsConst::Text(_))))
     });
+    crate::lower_module::verify_after("hoist_loop_constants", &graph);
+    // A LOOP WHOSE ACCUMULATOR CAN BE A DOUBLE gets a clone in which it is one -- see
+    // `optimize/version.rs`. `RTS_VERSION=0` turns it off, for measuring the same binary.
+    if std::env::var("RTS_VERSION").map_or(true, |held| held != "0") {
+        let versioned = crate::optimize::version_loops(&mut graph, &domain);
+        crate::lower_module::verify_after("version_loops", &graph);
+        if versioned > 0 && std::env::var(TRACE).is_ok() {
+            eprintln!(
+                "[version] {versioned} loop(s) of {}",
+                function.name.map_or("<anonymous>", |name| ctx.names.text(name))
+            );
+        }
+    }
     // AND ONE AFTER THE INFERENCE, because what it removes is only removable where a type
     // was proved -- inferred again when it changed anything, since what the machine reads
     // is the types of the graph it is handed.
+    if std::env::var(TRACE).as_deref() == Ok("pre") {
+        eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
+    }
     let mut inferred = rts_mir::infer::infer(&graph, &domain);
-    if crate::optimize::fuse_templates(&mut graph, &domain, &inferred) > 0 {
+    let fused = crate::optimize::fuse_templates(&mut graph, &domain, &inferred);
+    crate::lower_module::verify_after("fuse_templates", &graph);
+    if fused > 0 {
         inferred = rts_mir::infer::infer(&graph, &domain);
     }
     // A number's `toString`/`toFixed` over a receiver the inference typed, under the
@@ -329,14 +423,21 @@ fn attempt(
         to_string: ctx.names.find("toString"),
         to_fixed: ctx.names.find("toFixed"),
     };
-    if ctx.statics_primordial.number
-        && crate::optimize::fuse_number_methods(&mut graph, &domain, &inferred, members) > 0
-    {
-        inferred = rts_mir::infer::infer(&graph, &domain);
+    if ctx.statics_primordial.number {
+        let fused = crate::optimize::fuse_number_methods(&mut graph, &domain, &inferred, members);
+        crate::lower_module::verify_after("fuse_number_methods", &graph);
+        if fused > 0 {
+            inferred = rts_mir::infer::infer(&graph, &domain);
+        }
     }
     // `RTS_MIR_TRACE=graph` prints what the machine is handed.
     if std::env::var(TRACE).as_deref() == Ok("graph") {
         eprintln!("{}", rts_mir::text::print(&graph, &rts_mir::text::Indices));
+    }
+    if std::env::var(TRACE).as_deref() == Ok("types") {
+        for value in 0..graph.values {
+            eprintln!("[types] v{value}: {:?}", inferred.of(rts_mir::cfg::ValueId(value)));
+        }
     }
     let unbound = agrees(ctx, enclosing, &graph, &domain)?;
     let written = graph.block(graph.entry()).params.len();
@@ -405,6 +506,10 @@ fn attempt(
         }
     }
     ctx.restore_lent_name(outer_name);
+    if module.len() != direct_base {
+        return Err("the module list disagrees with the positions it was numbered from".to_owned());
+    }
+    module.extend(directs.iter().map(|(_, id)| *id));
     let lowered = {
         let mut into = rts_cranelift::ir::FuncBuilder::new(&mut machine, ctx.types, entry);
         let parts = crate::machine::Parts {
@@ -464,7 +569,7 @@ fn agrees(
             rts_mir::Op::Call {
                 callee: rts_mir::cfg::Callee::Func(_),
                 ..
-            } => return Err("a call by number".to_owned()),
+            } => {}
             // A WRITE TO A GLOBAL is the running emitter's `globals::write` only for a
             // name its lists place; any other is a program it refuses to compile, or a
             // page script's window, and neither is this door's to decide.
@@ -683,6 +788,31 @@ fn methods(
         );
     }
     out
+}
+
+/// Whether a substitutable body makes no call at all. A body that calls can
+/// capture or throw a stack, and substituting it drops its frame from
+/// `Error.stack` (`claude-error-capture-stack-trace.test.ts` caught
+/// `captureStackTrace` in a helper), so only call-free bodies are taken here.
+fn is_call_free(candidate: &super::inline::Inlinable) -> bool {
+    fn free(expr: &crate::syntax::Expr) -> bool {
+        use crate::syntax::ExprKind;
+        if matches!(
+            expr.kind,
+            ExprKind::Call { .. } | ExprKind::New { .. } | ExprKind::TaggedTemplate { .. } | ExprKind::Function(_) | ExprKind::Class(_)
+        ) {
+            return false;
+        }
+        let mut ok = true;
+        crate::emit::capture::walk_expr(expr, &mut |child| match child {
+            crate::emit::capture::Child::Expr(inner) => ok &= free(inner),
+            _ => ok = false,
+        });
+        ok
+    }
+    let mut exprs = Vec::new();
+    candidate.statements.iter().for_each(|held| exprs_in_statement(held, &mut exprs));
+    exprs.into_iter().all(free) && free(&candidate.body) && candidate.defaults.iter().flatten().all(free)
 }
 
 /// Every `o.m(...)` in an expression, nested functions aside.
@@ -919,6 +1049,8 @@ fn helper_of(value: crate::syntax::Expr) -> Function {
         is_async: false,
         is_generator: false,
         advertised_length: None,
+        intrinsic: None,
+        inline: false,
         at,
     }
 }

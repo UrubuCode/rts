@@ -29,7 +29,7 @@
 //!
 //! # `options.signal` — supported, with its timing stated
 //!
-//! An aborted signal REJECTS the promise, with the signal's own `reason`. It is
+//! An aborted signal REJECTS the promise, with an `AbortError` (`cause`: the signal's `reason`). It is
 //! noticed by polling in [`super::pump`] rather than delivered at the moment of
 //! the abort, because `AbortSignal` records an abort as two plain properties and
 //! offers no registry to subscribe to; `super::reject_aborted` documents what

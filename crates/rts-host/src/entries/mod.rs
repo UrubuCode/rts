@@ -111,6 +111,18 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         RuntimeOp::MathDirect1 => (CoreEntry::MathDirect1, {
             rts_core::entry::math_direct1 as extern "C" fn(i64, f64) -> f64 as *const u8
         }),
+        RuntimeOp::SysMemory => (CoreEntry::SysMemory, {
+            rts_core::entry::sys_memory as extern "C" fn(i64) -> f64 as *const u8
+        }),
+        RuntimeOp::SysText => (CoreEntry::SysText, {
+            rts_core::entry::sys_text as extern "C" fn(i64) -> u64 as *const u8
+        }),
+        RuntimeOp::F64ToBits => (CoreEntry::F64ToBits, {
+            rts_core::entry::f64_to_bits as extern "C" fn(f64) -> u64 as *const u8
+        }),
+        RuntimeOp::F64FromBits => (CoreEntry::F64FromBits, {
+            rts_core::entry::f64_from_bits as extern "C" fn(u64) -> f64 as *const u8
+        }),
         RuntimeOp::MathDirect2 => (CoreEntry::MathDirect2, {
             rts_core::entry::math_direct2 as extern "C" fn(i64, f64, f64) -> f64 as *const u8
         }),
@@ -140,6 +152,10 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::GeneratorNew => (CoreEntry::GeneratorNew, {
             rts_core::entry::generator_new
+                as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::AsyncGeneratorNew => (CoreEntry::AsyncGeneratorNew, {
+            rts_core::entry::async_generator_new
                 as extern "C" fn(i64, u64, u64, u64, u64, u64, u64) -> u64 as *const u8
         }),
         RuntimeOp::AsyncStart => (CoreEntry::AsyncStart, {
@@ -179,6 +195,15 @@ pub(crate) fn resolve(op: RuntimeOp) -> (CoreEntry, *const u8) {
         }),
         RuntimeOp::ObjectSpread => (CoreEntry::ObjectSpread, {
             rts_core::entry::object_spread as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::ObjectRest => (CoreEntry::ObjectRest, {
+            rts_core::entry::object_rest as extern "C" fn(u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::SetFunctionNameFromKey => (CoreEntry::SetFunctionNameFromKey, {
+            rts_core::entry::set_function_name_from_key as extern "C" fn(u64, u64, u64) -> u64 as *const u8
+        }),
+        RuntimeOp::StrictCallee => (CoreEntry::StrictCallee, {
+            rts_core::entry::strict_callee as extern "C" fn(u64) -> u64 as *const u8
         }),
         RuntimeOp::KeyNumber => (CoreEntry::KeyNumber, {
             rts_core::entry::key_number as extern "C" fn(u64) -> i64 as *const u8

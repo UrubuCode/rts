@@ -69,6 +69,10 @@ pub(in crate::entry) enum Verdict {
     /// rather than a refusal, which is why it is a fourth verdict and not
     /// `Refused` with a different message.
     BadLength,
+    /// A typed array key that is canonical-numeric but not a valid element
+    /// (`Object.defineProperty` raises "Invalid typed array index"; `Reflect`
+    /// reports `false`).
+    BadIndex,
 }
 
 /// `CompletePropertyDescriptor` then `FromPropertyDescriptor` — a descriptor
@@ -263,6 +267,9 @@ pub(in crate::entry) fn apply(object: u64, name: u64, wanted: &Descriptor) -> Ve
     // would define a property describing a store it never touched. See
     // [`super::arrays`] for the four facts that came apart when it did.
     if let Some(verdict) = super::arrays::define(object, name, wanted) {
+        return verdict;
+    }
+    if let Some(verdict) = super::typed::define(object, name, wanted) {
         return verdict;
     }
     with_current(|context| {

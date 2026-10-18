@@ -205,7 +205,7 @@ fn element(cell: u32, at: usize, wanted: &Descriptor) -> Option<Verdict> {
                 };
                 let named = context.well_known(&text);
                 super::super::objects::put(context, cell, named, value);
-            } else if let Some(elements) = context.elements_at_mut(cell) {
+            } else if let Some(mut elements) = context.elements_at_mut(cell) {
                 elements[at] = value;
             }
         }
@@ -256,7 +256,7 @@ fn resize(context: &mut Context, cell: u32, length: usize) {
     // stays as it is, same as the plain-assignment path in `objects.rs`.
     if length <= array::DENSE_LIMIT {
         let hole = array::hole_of(context);
-        if let Some(elements) = context.elements_at_mut(cell) {
+        if let Some(mut elements) = context.elements_at_mut(cell) {
             elements.resize(length, hole);
         }
     }

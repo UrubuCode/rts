@@ -53,6 +53,23 @@ pub(super) fn accessor_name(
     ctx.names.intern(&spelled)
 }
 
+/// `SetFunctionName(function, key, prefix)` for a COMPUTED key, whose text exists only at
+/// run time: `{ [k]: () => {} }`, `{ get [s]() {} }`, a class's `static [k]() {}`.
+/// One call after the closure is made; the written-key case is lent a name instead.
+pub(super) fn name_from_key(
+    builder: &mut FuncBuilder,
+    ctx: &mut Ctx,
+    function: ValueId,
+    key: ValueId,
+    prefix: &str,
+) -> EmitResult<()> {
+    let function = tagged(builder, function);
+    let key = tagged(builder, key);
+    let prefix = super::expr::string_literal(builder, ctx, prefix)?;
+    call(builder, ctx, RuntimeOp::SetFunctionNameFromKey, &[function, key, prefix])?;
+    Ok(())
+}
+
 /// `enumerable` is the caller's, and the two callers disagree on purpose: an
 /// object literal's accessor is enumerable and a class body's is not, which is
 /// the same split `DefineMethod` draws for an ordinary member. Both passed
@@ -84,7 +101,7 @@ pub(super) fn define_accessor(
 
 /// How many fields an object born under its prototype holds in its own cell.
 /// A literal with more takes the ordinary road, which sizes the cell for them.
-const INLINE_FIELDS: u32 = 15;
+pub(crate) const INLINE_FIELDS: u32 = 15;
 
 /// Emits an object literal.
 ///
@@ -100,14 +117,6 @@ pub(super) fn emit_object(
     ctx: &mut Ctx,
     properties: &[Property],
 ) -> EmitResult<ValueId> {
-    // How many slots this literal will need, so the runtime can take a cell
-    // wide enough in one go. A hint and not a shape: the writes below still
-    // decide the layout, and a wrong count costs a slot rather than an answer.
-    let expected = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(properties.len() as u64),
-    });
-    let expected = builder.use_const(expected);
     // A literal that OPENS with its prototype is born under it. Only where it
     // is written first: the prototype's expression is then the first thing the
     // literal evaluates either way, and nothing has been written to the object
@@ -118,7 +127,7 @@ pub(super) fn emit_object(
             let value = super::expr::as_value(builder, value);
             (call(builder, ctx, RuntimeOp::ObjectNewUnder, &[value])?[0], rest)
         }
-        _ => (call(builder, ctx, RuntimeOp::ObjectNew, &[expected])?[0], properties),
+        _ => (super::expr::object_new(builder, ctx, properties.len() as u64)?, properties),
     };
     // A method of this literal may write `super`, and the object it resolves
     // against is THIS one — a literal has a `[[HomeObject]]` exactly as a class
@@ -204,7 +213,17 @@ pub(super) fn emit_object(
                 {
                     ctx.lend_name(*name);
                 }
+                let anonymous_function = matches!(
+                    &value.kind,
+                    crate::syntax::ExprKind::Function(function) if function.name.is_none()
+                );
                 let value = emit_expr(builder, scope, ctx, value)?;
+                // A COMPUTED key names an anonymous function too, but only at run
+                // time: `{ [k]: () => {} }` is `ToString(k)` and a symbol is
+                // `"[description]"`.
+                if let (true, Some(computed)) = (anonymous_function, computed_key) {
+                    name_from_key(builder, ctx, value, computed, "")?;
+                }
                 // Anything the initialiser did not take is dropped: a lent name
                 // that outlived its initialiser would be picked up by the next
                 // function emitted anywhere, which is a wrong name rather than a
@@ -225,6 +244,9 @@ pub(super) fn emit_object(
                     }
                     None => super::function::emit_closure_method(builder, scope, ctx, function)?,
                 };
+                if let Some(computed) = computed_key {
+                    name_from_key(builder, ctx, value, computed, "")?;
+                }
                 let _ = ctx.take_lent_name();
                 (key, value)
             }
@@ -250,6 +272,15 @@ pub(super) fn emit_object(
                     }
                     None => super::function::emit_closure_method(builder, scope, ctx, function)?,
                 };
+                if let Some(computed) = computed_key {
+                    name_from_key(
+                        builder,
+                        ctx,
+                        closure,
+                        computed,
+                        if is_getter { "get " } else { "set " },
+                    )?;
+                }
                 match key {
                     PropertyKey::Named(name) => {
                         // ENUMERABLE: an object literal's accessor is, and this

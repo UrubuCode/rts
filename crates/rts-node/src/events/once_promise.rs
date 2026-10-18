@@ -45,7 +45,7 @@
 //! refused up front — see [`super::abort::is_abort_signal`]'s own doc for why
 //! that check, and not the looser one, is the right one here.
 //!
-//! An already-aborted signal rejects immediately, with `signal.reason` (or a
+//! An already-aborted signal rejects immediately, with an `AbortError` whose `cause` is `signal.reason` (or a
 //! constructed `Error` if a program built a signal with none).
 //!
 //! # Not implemented, by name
@@ -227,8 +227,7 @@ fn is_aborted(signal: u64) -> bool {
 /// with none.
 fn abort_reason(signal: u64) -> u64 {
     let reason = entry::with_runtime(|context| entry::get_member(context, signal, "reason"));
-    match reason == entry::undefined_value() {
-        true => entry::make_named_error("Error", "The operation was aborted").unwrap_or(reason),
-        false => reason,
-    }
+    // Node rejects with `new AbortError(undefined, { cause: signal.reason })`,
+    // not with the reason itself.
+    crate::errors::abort_error(reason)
 }

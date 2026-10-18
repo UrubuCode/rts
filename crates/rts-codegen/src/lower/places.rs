@@ -71,7 +71,7 @@ impl Lowering<'_> {
         };
         let held = self.expression(value)?;
         let of = self.type_of(held);
-        self.bind(*name, held, of, expr)?;
+        self.bind_assigned(*name, held, of, expr)?;
         // The value of an assignment is what was assigned, which is what
         // makes `a = b = 1` work.
         Ok(held)
@@ -187,7 +187,7 @@ impl Lowering<'_> {
         match place {
             Place::Name(name) => {
                 let of = self.type_of(after);
-                self.bind(name, after, of, at)?;
+                self.bind_assigned(name, after, of, at)?;
             }
             Place::Field(receiver, key) => {
                 self.prim(JsPrim::FieldWrite, vec![receiver, key, after], at);

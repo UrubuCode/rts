@@ -54,10 +54,95 @@ macro_rules! tables {
         /// Called from `collect_cycle::release`, which owns the order around it:
         /// the text payload and the weak watches are cleared before, and the
         /// region's own `free` comes after.
+        #[allow(dead_code)] // the unrestricted reference form `release_active` is held to
         pub(in crate::entry) fn release_tables(context: &mut Context, cell: u32) {
             $( bury(context, cell, SideTable::$table); )*
         }
+
+        /// A reference below which [`release_tables`] MIGHT find something, and
+        /// at or above which it provably finds nothing in any table.
+        ///
+        /// The sweep asks this once and skips `release_tables` for every dead
+        /// cell past it. The same list as `release_tables`, so it is total for
+        /// the same reason: a table cannot be added without being counted here.
+        #[allow(dead_code)]
+        pub(in crate::entry) fn table_bound(context: &Context) -> u64 {
+            0 $( .max(bound_of(context, SideTable::$table)) )*
+        }
+
+        /// The tables that MIGHT hold something, each with the reference at or
+        /// past which it provably holds nothing, in [`release_tables`]'s order.
+        ///
+        /// `everything` lists every table with an unbounded reach: exactly the
+        /// full path (`RTS_FAST_SWEEP=0`). Built from the same list as
+        /// [`release_tables`], so a table cannot be left out of it.
+        pub(in crate::entry) fn active_tables(context: &Context, everything: bool) -> Active {
+            let mut active = Active {
+                listed: [(SideTable::SpillOf, 0); LISTED.len()],
+                len: 0,
+            };
+            $(
+                {
+                    let bound = match everything {
+                        true => u64::MAX,
+                        false => bound_of(context, SideTable::$table),
+                    };
+                    active.offer(SideTable::$table, bound);
+                }
+            )*
+            active
+        }
     };
+}
+
+/// The tables a sweep has to ask, decided once for the whole sweep.
+///
+/// # Why this is sound
+///
+/// It is the per-table form of what [`table_bound`] already hoists. A table with
+/// `bound == 0` is empty (`Aside::bound`), and `Aside::remove` on an empty table
+/// answers `None` before reading anything; a cell at or past a table's bound is
+/// past its reach, which `remove` answers `None` for as well. So every call this
+/// skips would have returned `None` and changed nothing.
+///
+/// It cannot go stale mid-sweep because no arm of [`bury`] inserts into a side
+/// table: they only `remove`, free region cells, free slab/arena slots, retract a
+/// run row, or park a buffer in the spare pile. A table that EMPTIES during the
+/// sweep stays listed, which only means one `remove` that answers `None`.
+///
+/// Order is preserved (`offer` appends in call order), and [`bury`] is still the
+/// one exhaustive `match`, so no table's death is written down twice or not at
+/// all.
+pub(in crate::entry) struct Active {
+    listed: [(SideTable, u64); SideTable::ALL.len()],
+    len: usize,
+}
+
+impl Active {
+    #[inline]
+    fn offer(&mut self, table: SideTable, bound: u64) {
+        if bound > 0 {
+            self.listed[self.len] = (table, bound);
+            self.len += 1;
+        }
+    }
+
+    /// Whether no table can hold anything for any cell.
+    #[inline]
+    pub(in crate::entry) fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+/// Buries `cell` in every listed table that can reach it: [`release_tables`],
+/// restricted to the tables [`active_tables`] says might hold something.
+#[inline]
+pub(in crate::entry) fn release_active(context: &mut Context, cell: u32, active: &Active) {
+    for &(table, bound) in &active.listed[..active.len] {
+        if u64::from(cell) < bound {
+            bury(context, cell, table);
+        }
+    }
 }
 
 tables!(
@@ -65,6 +150,37 @@ tables!(
     Helpers, Prototypes, Accessors, Boxed, ProtoTypes, PendingStacks, BufferOf, Detached, Regexes,
     Integrity, Attributes, Derived, ChainLinks, Foreign,
 );
+
+/// The reference past which `table` cannot hold an entry. Exhaustive, like
+/// [`bury`], so a new table is counted or the crate does not compile.
+#[inline(always)]
+fn bound_of(context: &Context, table: SideTable) -> u64 {
+    match table {
+        SideTable::SpillOf => context.spill_of.bound(),
+        SideTable::ArrayElements => context.array_elements.bound(),
+        SideTable::BufferOf => context.buffer_of.bound(),
+        SideTable::Detached => context.detached.bound(),
+        SideTable::Prototypes => context.prototypes.bound(),
+        SideTable::ProtoTypes => context.proto_types.bound(),
+        SideTable::Callables => context.callables.bound(),
+        SideTable::Proxies => context.proxies.bound(),
+        SideTable::Cursors => context.cursors.bound(),
+        SideTable::Bound => context.bound.bound(),
+        SideTable::Views => context.views.bound(),
+        SideTable::Collections => context.collections.bound(),
+        SideTable::Generators => context.generators.bound(),
+        SideTable::Helpers => context.helpers.bound(),
+        SideTable::Regexes => context.regexes.bound(),
+        SideTable::Accessors => context.accessors.bound(),
+        SideTable::Integrity => context.integrity.bound(),
+        SideTable::Attributes => context.attributes.bound(),
+        SideTable::Derived => context.derived.bound(),
+        SideTable::ChainLinks => context.chain_links.bound(),
+        SideTable::Boxed => context.boxed.bound(),
+        SideTable::PendingStacks => context.pending_stacks.bound(),
+        SideTable::Foreign => context.foreign.bound(),
+    }
+}
 
 /// What one table gives up when a cell dies. Inlined with a constant `table`,
 /// so only the named arm survives.
@@ -80,10 +196,16 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
                 }
             }
             SideTable::ArrayElements => {
-                if let Some(elements) = context.array_elements.remove(cell)
-                    && let Some(buffer) = context.arrays.free(elements)
-                {
-                    crate::entry::array_spare::keep(context, buffer);
+                if let Some(elements) = context.array_elements.remove(cell) {
+                    // The row first, and unconditionally: it names the buffer
+                    // freed below, and the cell number is about to belong to a
+                    // stranger. Compiled code reads the row with no check that
+                    // the cell is still an array.
+                    let number = context.region.cell_of_reference(cell);
+                    context.region.runs_mut().retract(number);
+                    if let Some(buffer) = context.arrays.free(elements) {
+                        crate::entry::array_spare::keep(context, buffer);
+                    }
                 }
             }
             SideTable::BufferOf => {
@@ -119,7 +241,12 @@ fn bury(context: &mut Context, cell: u32, table: SideTable) {
                 context.bound.remove(cell);
             }
             SideTable::Views => {
-                context.views.remove(cell);
+                if context.views.remove(cell).is_some() {
+                    // The row names bytes the cell's buffer owns; compiled code
+                    // reads it with no check the cell is still a view.
+                    let number = context.region.cell_of_reference(cell);
+                    context.region.runs_mut().retract(number);
+                }
             }
             SideTable::Collections => {
                 context.collections.remove(cell);

@@ -2,6 +2,31 @@
 
 **Measured 2026-08-21, not yet acted on.** `bench/isolated/src/bin/loop_shapes.rs`.
 
+> **Status as of 2026-10-18 — read this before the rest.** The measurements below
+> are 2026-08-21 history and were correct for the tree they describe; three of the
+> things they call "absent" have since landed (checked against the current tree):
+>
+> - **`ToInt32` of a constant is folded.** `ir/fold.rs::to_int32_answer` settles
+>   `ToInt32(const)` while the builder runs (`Int32Answer::Settled`), reuses the
+>   operand for `ToInt32(ToF64(i32))`, and since `298ab2dd7` (2026-10-16) lowers
+>   `(a|0)±(b|0)|0` to a wrapping `i32` add/sub. The "+3.08 ns" row 3 is no longer
+>   paid by `i & 1023`.
+> - **`ToInt32` is no longer the branch-free seven-instruction chain.** Since
+>   2026-08-25 `lower/body.rs` emits a range compare, a branch, and two
+>   instructions on the taken side (`int and` 6.76 → 3.28 ns, measured in the
+>   comment there). The section "Why `ToInt32` costs that much" describes the
+>   08-21 lowering; the "branch-free design point" it says RULE 0 would have to
+>   change was in fact changed, with the reason, in that comment.
+> - **Int32 arithmetic is typed.** `Type::Ranged(lo, hi)` in
+>   `rts-codegen/src/domain/mod.rs` (`219248373`, 2026-10-17) with branch
+>   refinement and loop-head widening gives provably non-overflowing integer ops
+>   an integer type, so the "accumulator is `Tagged` across the back edge"
+>   family of costs is attacked at the type, not by a late IR pass.
+>
+> What is NOT claimed fixed here: the cross-block case (a `ToInt32` over a block
+> parameter) is still the traversal `fold.rs` says does not live there, and the
+> 137-of-794 guard count below is a 2026-08-28 census that was not redone.
+
 The answer is concentrated in one place and it is not the place the IR makes it
 look like: **`ToInt32` costs 3.1–3.7 ns per occurrence, and boxing costs about
 one nanosecond for a whole round trip.** Anyone reading the emitted code would

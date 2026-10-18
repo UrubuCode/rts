@@ -58,7 +58,7 @@ use rts_cranelift::abi::{Convention, EntryDesc, Signature};
 
 use super::accessor::{
     DEFINE_FIELD_ENTRY, DEFINE_GETTER_ENTRY, DEFINE_METHOD_ENTRY, DEFINE_SETTER_ENTRY,
-    SET_FUNCTION_NAME_ENTRY,
+    SET_FUNCTION_NAME_ENTRY, SET_FUNCTION_NAME_FROM_KEY_ENTRY, STRICT_CALLEE_ENTRY,
 };
 use super::array::{
     ARRAY_LENGTH_ENTRY, ARRAY_NEW_ENTRY, ARRAY_OF_ENTRY, ENUMERATE_KEYS_ENTRY, OWN_KEYS_ENTRY,
@@ -84,6 +84,8 @@ use super::collections::{
 use super::functions::ARGUMENT_AT_ENTRY;
 use super::primitives::SAME_VALUE_ENTRY;
 use super::math::MATH_RANDOM_ENTRY;
+use super::sys::{SYS_MEMORY_ENTRY, SYS_TEXT_ENTRY};
+use super::bigints::{F64_FROM_BITS_ENTRY, F64_TO_BITS_ENTRY};
 use super::math_direct::{MATH_DIRECT1_ENTRY, MATH_DIRECT2_ENTRY};
 use super::template_join::TEMPLATE_JOIN_ENTRY;
 use super::text::STRING_OF_ENTRY;
@@ -104,11 +106,13 @@ use super::functions::{
     SET_CALL_NAME_ENTRY, SUPER_CONSTRUCT_ENTRY, SUPER_CONSTRUCT_WITH_ARGS_ENTRY,
 };
 use super::objects::{
-    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_SPREAD_ENTRY,
+    GET_PROPERTY_ENTRY, GET_SUPER_PROPERTY_ENTRY, OBJECT_NEW_ENTRY, OBJECT_REST_ENTRY, OBJECT_SPREAD_ENTRY,
     SET_PROPERTY_ENTRY, SET_SUPER_PROPERTY_ENTRY,
 };
 use super::function_proto::RUNNING_FUNCTION_ENTRY;
-use super::generator::{DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY};
+use super::generator::{
+    ASYNC_GENERATOR_NEW_ENTRY, DELEGATE_STEP_ENTRY, GENERATOR_NEW_ENTRY, GENERATOR_YIELD_ENTRY,
+};
 use super::arguments::ARGUMENTS_OBJECT_ENTRY;
 use super::eval_scope::EVAL_DIRECT_ENTRY;
 use super::promise::ASYNC_START_ENTRY;
@@ -846,6 +850,28 @@ pub enum CoreEntry {
     MapNewDirect = 131,
     /// [`super::set_new_direct`] — the same for `new Set()`.
     SetNewDirect = 132,
+    /// [`super::sys_memory`] -- `totalmem`/`freemem` from `"rts:sys"`, selected
+    /// by an integer. A host entry: it asks the operating system.
+    SysMemory = 133,
+    /// [`super::sys_text`] -- `hostname`/`homedir`/`tmpdir` from `"rts:sys"`: an
+    /// interned string, selected by an integer. Allocates.
+    SysText = 134,
+    /// [`super::f64_to_bits`] -- `rts:core`'s `f64ToBits`: a double's IEEE-754 bits as
+    /// an unsigned bigint. Allocates.
+    F64ToBits = 135,
+    /// [`super::f64_from_bits`] -- `f64FromBits`: the double a bigint's low 64 bits spell.
+    F64FromBits = 136,
+    /// [`super::async_generator_new`] -- the object an `async function*` call answers:
+    /// `GeneratorNew`'s frame under the async generator's prototype. Allocates.
+    AsyncGeneratorNew = 137,
+
+    /// [`super::object_rest`] -- the rest object of an object pattern.
+    ObjectRest = 138,
+
+    /// [`super::set_function_name_from_key`] -- a function's `name` from a computed key.
+    SetFunctionNameFromKey = 139,
+    /// [`super::strict_callee`] -- the throwing `callee` of a strict arguments object.
+    StrictCallee = 140,
 }
 
 /// How many entry points exist.
@@ -853,7 +879,7 @@ pub enum CoreEntry {
 /// One past the last number, not a count of variants: a removed entry leaves its
 /// number unused, and a dense array keyed by the number must still have room for
 /// it.
-pub const CORE_ENTRY_COUNT: usize = 133;
+pub const CORE_ENTRY_COUNT: usize = 141;
 
 impl CoreEntry {
     /// Every entry, in numbered order.
@@ -994,6 +1020,14 @@ impl CoreEntry {
         CoreEntry::ModuleEvaluate,
         CoreEntry::MapNewDirect,
         CoreEntry::SetNewDirect,
+        CoreEntry::SysMemory,
+        CoreEntry::SysText,
+        CoreEntry::F64ToBits,
+        CoreEntry::F64FromBits,
+        CoreEntry::AsyncGeneratorNew,
+        CoreEntry::ObjectRest,
+        CoreEntry::SetFunctionNameFromKey,
+        CoreEntry::StrictCallee,
     ];
 
     /// The number a call site holds.
@@ -1142,6 +1176,14 @@ impl CoreEntry {
             CoreEntry::FunctionApplyListedDirect => FUNCTION_APPLY_LISTED_DIRECT_ENTRY,
             CoreEntry::SpreadList => SPREAD_LIST_ENTRY,
             CoreEntry::ModuleEvaluate => MODULE_EVALUATE_ENTRY,
+            CoreEntry::SysMemory => SYS_MEMORY_ENTRY,
+            CoreEntry::SysText => SYS_TEXT_ENTRY,
+            CoreEntry::F64ToBits => F64_TO_BITS_ENTRY,
+            CoreEntry::F64FromBits => F64_FROM_BITS_ENTRY,
+            CoreEntry::AsyncGeneratorNew => ASYNC_GENERATOR_NEW_ENTRY,
+            CoreEntry::ObjectRest => OBJECT_REST_ENTRY,
+            CoreEntry::SetFunctionNameFromKey => SET_FUNCTION_NAME_FROM_KEY_ENTRY,
+            CoreEntry::StrictCallee => STRICT_CALLEE_ENTRY,
         }
     }
 

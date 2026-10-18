@@ -45,6 +45,28 @@ impl PositionMap {
         Self { runs }
     }
 
+    /// Every run as `(start, end, position)`, for the compiled-code cache.
+    pub(crate) fn raw_runs(&self) -> Vec<(u32, u32, u32)> {
+        self.runs
+            .iter()
+            .map(|run| (run.start, run.end, run.position.raw()))
+            .collect()
+    }
+
+    /// The inverse of [`Self::raw_runs`].
+    pub(crate) fn from_raw_runs(runs: Vec<(u32, u32, u32)>) -> Self {
+        Self {
+            runs: runs
+                .into_iter()
+                .map(|(start, end, position)| Run {
+                    start,
+                    end,
+                    position: Position(position),
+                })
+                .collect(),
+        }
+    }
+
     /// Where the code at an offset came from, if anything said.
     ///
     /// Answered by bisection: the runs do not overlap and are in order, so the

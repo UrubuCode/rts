@@ -601,8 +601,8 @@ fn padded(this: u64, width: u64, fill: u64, at_start: bool) -> u64 {
             match arg_units(context, fill) {
                 // An empty fill pads with nothing, which the specification says
                 // leaves the string alone rather than looping forever.
-                Some(units) if units.is_empty() => return answer(context, &units),
-                Some(units) => units,
+                Some(fill_units) if fill_units.is_empty() => return answer(context, &units),
+                Some(fill_units) => fill_units,
                 None => return nothing(context),
             }
         };

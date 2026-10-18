@@ -553,6 +553,9 @@ pub(in crate::entry) fn restrict(object: u64, level: Integrity) -> u64 {
         context.integrity.set(cell, reached);
         if reached == Integrity::Frozen {
             retype(context, cell);
+            // Compiled code overwrites an element of a run in place, and a frozen
+            // array refuses that: republish the row read-only.
+            context.publish_run(cell);
         }
         false
     });

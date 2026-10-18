@@ -98,6 +98,9 @@ pub(in crate::entry) fn from(
     length: u64,
 ) -> u64 {
     let source = string_wrapper_source(source);
+    if generic_object(source) {
+        return from_object(source, encoding_or_offset, length);
+    }
     let source = primitive_source(source);
     if super::super::throw::in_flight() {
         return undefined();
@@ -124,13 +127,10 @@ pub(in crate::entry) fn from(
         _ => String::from("utf8"),
     };
     let bytes = match shape {
-        Shape::Other => match with_current(|context| object_source_bytes(context, source)) {
-            Some(bytes) => bytes,
-            None => {
-                errors::invalid_buffer_source(source);
-                return undefined();
-            }
-        },
+        Shape::Other => {
+            errors::invalid_buffer_source(source);
+            return undefined();
+        }
         _ => with_current(|context| source_bytes(context, source, &encoding)).unwrap_or_default(),
     };
     with_current(|context| made(context, &bytes))
@@ -177,46 +177,117 @@ fn primitive_source(value: u64) -> u64 {
     }
 }
 
-/// Reads the object forms Node accepts as a Buffer source.
-fn object_source_bytes(context: &mut super::super::Context, value: u64) -> Option<Vec<u8>> {
-    let cell = Value(value).as_slot()?;
-    let type_key = context.well_known("type");
-    if let Some(kind) = super::super::objects::read_property(context, cell, type_key)
-        .and_then(|kind| kind.as_slot())
-        .and_then(|kind| context.text_at(kind))
-        .and_then(|kind| kind.to_rust())
-        && kind == "Buffer"
-    {
-        let data_key = context.well_known("data");
-        let data = super::super::objects::read_property(context, cell, data_key)?;
-        return array_values(context, data.bits());
-    }
+/// A plain (non-callable, non-view, non-string, non-array) object source.
+fn generic_object(value: u64) -> bool {
+    matches!(validate::shape_of(value), Shape::Other)
+        && with_current(|context| {
+            super::super::primitive::is_object_in(context, value)
+                && !super::super::modules::is_callable_in(context, value)
+        })
+}
 
+/// A property read by name through the full `[[Get]]` (getters, prototypes),
+/// outside any borrow because it may run user code.
+fn get_named(object: u64, name: &str) -> u64 {
+    let key = with_current(|context| {
+        context.intern_value(crate::text::Str::from_str(name)).bits()
+    });
+    super::super::computed::get_indexed(object, key)
+}
+
+/// `Buffer.from(object)` in Node's order: `valueOf()` when it yields a string or
+/// another object, then the array-like / `{type:'Buffer', data}` forms, then a
+/// `Symbol.toPrimitive` string, else the invalid-source refusal.
+fn from_object(source: u64, encoding_or_offset: u64, length: u64) -> u64 {
+    let absent = with_current(|context| undefined_of(context));
+    // 1. valueOf
+    let value_of = get_named(source, "valueOf");
+    if super::super::throw::in_flight() {
+        return absent;
+    }
+    if with_current(|context| super::super::modules::is_callable_in(context, value_of)) {
+        let answer = super::super::functions::call(value_of, source, absent, absent, absent, absent);
+        if super::super::throw::in_flight() {
+            return absent;
+        }
+        let usable = answer != source
+            && (matches!(validate::shape_of(answer), Shape::Text(_))
+                || with_current(|context| super::super::primitive::is_object_in(context, answer)));
+        if usable {
+            return from(answer, encoding_or_offset, length);
+        }
+    }
+    // 2. array-like forms
+    if let Some(bytes) = array_like_bytes(source) {
+        return with_current(|context| made(context, &bytes));
+    }
+    if super::super::throw::in_flight() {
+        return absent;
+    }
+    // 3. Symbol.toPrimitive('string')
+    let answer = primitive_source(source);
+    if super::super::throw::in_flight() {
+        return absent;
+    }
+    if answer != source && matches!(validate::shape_of(answer), Shape::Text(_)) {
+        return from(answer, encoding_or_offset, length);
+    }
+    errors::invalid_buffer_source(source);
+    absent
+}
+
+/// The array-like forms (`obj.length !== undefined || obj.buffer`, and the JSON
+/// `{type:'Buffer', data:[…]}`). `None` means "not one of them".
+fn array_like_bytes(source: u64) -> Option<Vec<u8>> {
+    let absent = with_current(|context| undefined_of(context));
+    let length = get_named(source, "length");
+    if super::super::throw::in_flight() {
+        return None;
+    }
+    if length != absent {
+        // Node: a non-number `length` yields an empty Buffer.
+        let Some(number) = Value(length).numeric() else {
+            return Some(Vec::new());
+        };
+        let count = if number.is_nan() { 0 } else { super::super::buffers::as_count(number) };
+        let mut bytes = Vec::with_capacity(count.min(1 << 20));
+        for index in 0..count {
+            let key = Value::from_f64(index as f64).bits();
+            let held = super::super::computed::get_indexed(source, key);
+            if super::super::throw::in_flight() {
+                return None;
+            }
+            let number = super::super::class_support::to_number(held);
+            if super::super::throw::in_flight() {
+                return None;
+            }
+            bytes.push(if number.is_finite() {
+                number.trunc().rem_euclid(256.0) as u8
+            } else {
+                0
+            });
+        }
+        return Some(bytes);
+    }
     // An object carrying `buffer` is accepted as an Array-like source even when
     // it has no length; the resulting Buffer is empty, matching Node's legacy
     // structural overload and the SharedArrayBuffer regression test.
-    let buffer_key = context.well_known("buffer");
-    if super::super::objects::read_property(context, cell, buffer_key).is_some() {
+    if get_named(source, "buffer") != absent {
         return Some(Vec::new());
     }
-
-    let length_key = context.well_known("length");
-    let length = super::super::objects::read_property(context, cell, length_key)?;
-    let number = operators::as_number(context, length).unwrap_or(f64::NAN);
-    let count = super::super::buffers::as_count(number);
-    let mut bytes = Vec::with_capacity(count);
-    for index in 0..count {
-        let key = crate::object::Key::Index(index as u32);
-        let held = super::super::objects::read_property(context, cell, key)
-            .map(|value| operators::as_number(context, value).unwrap_or(0.0))
-            .unwrap_or(0.0);
-        bytes.push(if held.is_finite() {
-            held.trunc().rem_euclid(256.0) as u8
-        } else {
-            0
-        });
+    let kind = get_named(source, "type");
+    let is_buffer = with_current(|context| {
+        Value(kind)
+            .as_slot()
+            .and_then(|kind| context.text_at(kind))
+            .and_then(|kind| kind.to_rust())
+            .is_some_and(|kind| kind == "Buffer")
+    });
+    if is_buffer {
+        let data = get_named(source, "data");
+        return with_current(|context| array_values(context, data));
     }
-    Some(bytes)
+    None
 }
 
 /// Copies numeric entries from a JSON Buffer `data` array.
@@ -401,6 +472,55 @@ pub(in crate::entry) fn compare_values(a: u64, b: u64, first: &str, second: &str
         let a = view_of(context, a).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
         let b = view_of(context, b).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
         match a.cmp(&b) {
+            std::cmp::Ordering::Less => -1.0,
+            std::cmp::Ordering::Equal => 0.0,
+            std::cmp::Ordering::Greater => 1.0,
+        }
+    })
+}
+
+/// `buf.compare(target, targetStart, targetEnd, sourceStart, sourceEnd)`.
+///
+/// Node's order: validate the four ranges (starts up to MAX_SAFE_INTEGER, ends
+/// up to the respective length), then an empty/inverted range loses to a
+/// non-empty one; starts past the end therefore just mean "empty".
+pub(in crate::entry) fn compare_ranged(
+    this: u64,
+    other: u64,
+    target_start: u64,
+    target_end: u64,
+    source_start: u64,
+    source_end: u64,
+) -> f64 {
+    const SAFE: usize = 9_007_199_254_740_991;
+    let Some(source_len) = validate::bytes("source", this) else {
+        return 0.0;
+    };
+    let Some(target_len) = validate::bytes("target", other) else {
+        return 0.0;
+    };
+    let Some(ts) = validate::compare_offset("targetStart", target_start, 0, SAFE) else {
+        return 0.0;
+    };
+    let Some(te) = validate::compare_offset("targetEnd", target_end, target_len, target_len) else {
+        return 0.0;
+    };
+    let Some(ss) = validate::compare_offset("sourceStart", source_start, 0, SAFE) else {
+        return 0.0;
+    };
+    let Some(se) = validate::compare_offset("sourceEnd", source_end, source_len, source_len) else {
+        return 0.0;
+    };
+    if ss >= se {
+        return if ts >= te { 0.0 } else { -1.0 };
+    }
+    if ts >= te {
+        return 1.0;
+    }
+    with_current(|context| {
+        let a = view_of(context, this).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
+        let b = view_of(context, other).and_then(|view| window(context, &view)).map(<[u8]>::to_vec).unwrap_or_default();
+        match a[ss..se].cmp(&b[ts..te]) {
             std::cmp::Ordering::Less => -1.0,
             std::cmp::Ordering::Equal => 0.0,
             std::cmp::Ordering::Greater => 1.0,

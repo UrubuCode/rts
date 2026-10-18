@@ -14,6 +14,13 @@ use crate::types::{AggregateLayout, TypeId, TypeRegistry};
 /// the cost in reaching a field at all, not in how much space it takes.
 pub const SLOT_BYTES: u32 = 8;
 
+/// Word seven of an indirect site's 128-byte duplex cache cell.
+///
+/// The machine declares such a cell with this in word seven and a second entry
+/// at words eight to thirteen; the resolver writes that second entry only when
+/// it finds this, so a 64-byte cell is never written past its end.
+pub const DUPLEX_MARK: i64 = 0x44_55_50_4c_45_58_21;
+
 /// What every object carries, whatever its type.
 ///
 /// One word: the type. The collector needs to know which fields to trace, and

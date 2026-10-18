@@ -21,11 +21,27 @@
 //! and drops the trailing padding when there are not. Asking it here is what
 //! makes both ends of that rule one rule.
 
+use super::is_proxy;
 use crate::entry::{array_proto, functions, modules, throw, with_current};
 use crate::value::Value;
 
 /// `handler.apply(target, thisArg, args)`, or a call to the target.
 pub(in crate::entry) fn apply(object: u64, this: u64, arguments: [u64; 4]) -> Option<u64> {
+    if !super::is_proxy(object) {
+        return None;
+    }
+    // `[[Call]]` exists only when the target has it: a proxy over a plain
+    // object is not callable, and its `apply` trap is never even looked up.
+    // A revoked callable proxy still has it, and reaches the trap lookup that
+    // raises the revoked `TypeError`.
+    if !with_current(|context| {
+        Value(object)
+            .as_slot()
+            .is_some_and(|cell| context.is_callable_cell(cell))
+    }) {
+        throw::type_error("proxy is not a function");
+        return Some(super::absent());
+    }
     let trap = super::trap_for(object, "apply")?;
     if trap.refused {
         return Some(super::absent());
@@ -63,12 +79,36 @@ pub(in crate::entry) fn construct(
     arguments: [u64; 4],
     new_target: u64,
 ) -> Option<u64> {
+    if !super::is_proxy(object) {
+        return None;
+    }
+    // `[[Construct]]` likewise belongs to the target: an arrow, a method, a
+    // generator or an async function is callable and still refuses `new`.
+    if !with_current(|context| super::constructs_through(context, object)) {
+        throw::type_error("proxy is not a constructor");
+        return Some(super::absent());
+    }
     let trap = super::trap_for(object, "construct")?;
     if trap.refused {
         return Some(super::absent());
     }
     let listed = passed(arguments);
     let Some(callee) = trap.callee else {
+        // Forwarding with `newTarget` = this proxy makes the target's
+        // allocation do `GetPrototypeFromConstructor(newTarget)`, which is a
+        // `[[Get]]` of `"prototype"` on the PROXY — one `get` lookup on the
+        // handler that Node performs and that allocation, which runs inside a
+        // borrow and cannot call a trap, cannot. Asked here so the trap sees
+        // it; the allocation then reads the target's slot as it always did, so
+        // a `get` trap that LIES about `prototype` is still not honoured (the
+        // stated limit of `allocate_for_target`).
+        if is_proxy(new_target) {
+            let key = with_current(|context| context.well_known_text("prototype"));
+            let _ = crate::entry::computed::get_indexed(new_target, key);
+            if throw::in_flight() {
+                return Some(super::absent());
+            }
+        }
         return Some(functions::construct_args_on(trap.target, listed, new_target));
     };
     let answered = functions::call(

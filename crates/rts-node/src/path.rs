@@ -77,6 +77,16 @@ pub fn namespace(context: &mut Context) -> u64 {
     namespace
 }
 
+/// `node:path/posix` as a stand-alone native (fallback behind the TS module).
+pub fn posix_namespace(context: &mut Context) -> u64 {
+    flavor_namespace(context, '/')
+}
+
+/// `node:path/win32` as a stand-alone native (fallback behind the TS module).
+pub fn win32_namespace(context: &mut Context) -> u64 {
+    flavor_namespace(context, '\\')
+}
+
 /// One flavor's namespace — `path.posix` or `path.win32` — built from the
 /// same function set at a different separator.
 fn flavor_namespace(context: &mut Context, sep: char) -> u64 {

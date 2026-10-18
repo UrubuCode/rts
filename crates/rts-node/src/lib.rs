@@ -31,6 +31,7 @@
 #![deny(missing_docs)]
 #![deny(dead_code)]
 
+pub mod embedded;
 mod fetch;
 mod errors;
 pub(crate) mod host_exports;
@@ -131,6 +132,8 @@ const LAZY: &[(&str, fn(&mut Context) -> u64)] = &[
     ("net", net::namespace),
     ("os", os::namespace),
     ("path", path::namespace),
+    ("path/posix", path::posix_namespace),
+    ("path/win32", path::win32_namespace),
     ("punycode", punycode::namespace),
     ("querystring", querystring::namespace),
     ("readline", readline::namespace),
@@ -471,13 +474,7 @@ pub fn install(context: &mut Context) {
     //
     // Two files in the suite import them this way, and every assertion in both
     // read `undefined`, which is what an unresolved specifier leaves behind.
-    let paths = rts_core::entry::module_at_name(context, "node:path");
-    {
-        let posix = rts_core::entry::get_member(context, paths, "posix");
-        rts_core::entry::declare_module(context, "node:path/posix", posix);
-        rts_core::entry::declare_module(context, "path/posix", posix);
-        let win32 = rts_core::entry::get_member(context, paths, "win32");
-        rts_core::entry::declare_module(context, "node:path/win32", win32);
-        rts_core::entry::declare_module(context, "path/win32", win32);
-    }
+    //
+    // NOW lazy natives (see LAZY): building `node:path` eagerly here would mark
+    // it built and defeat the TypeScript `node:path` that replaces it.
 }

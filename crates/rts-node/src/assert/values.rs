@@ -177,6 +177,14 @@ pub(super) fn member(object: u64, name: &str) -> u64 {
     entry::get_indexed(object, string(name))
 }
 
+/// A property of the global object — `Object`, `Array`, `Error`.
+pub(super) fn global_member(name: &str) -> u64 {
+    entry::with_runtime(|context| {
+        let global = entry::global_object(context);
+        entry::get_member(context, global, name)
+    })
+}
+
 /// A named member, called with no arguments and `object` as the receiver.
 ///
 /// `undefined` when the member is not callable, so a caller duck-typing a

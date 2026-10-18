@@ -342,6 +342,20 @@ pub enum JsPrim {
     /// reads `NewObject` as "an object nothing but its own keys can be asked
     /// of", and one with a prototype answers for keys it does not own.
     NewObjectUnder,
+    /// Whether a value is a number, in either of its two encodings. Pure, and answers a
+    /// boolean. Emitted only by `optimize::version_loops`, to branch on.
+    NumberTest,
+    /// A value known to be a number, as a double: `[value, test]`, where `test` is the
+    /// [`JsPrim::NumberTest`] of the same value and the instruction sits where that test
+    /// held. The test is an operand so the dependence is in the graph and a pass cannot
+    /// separate them. Emitted only by `optimize::version_loops`.
+    NumberOf,
+    /// Whether `object.key` is, RIGHT NOW, an own data property holding a number: the
+    /// receiver and the key a [`JsPrim::FieldRead`] takes. It runs no getter, throws
+    /// nothing and writes nothing -- a property the site's cache cannot answer, an
+    /// accessor, a receiver that is not an object all answer false. Emitted only by
+    /// `optimize::version_loops`; its number is [`JsPrim::NumberOf`] of the test.
+    NumberPeek,
 }
 
 impl JsPrim {

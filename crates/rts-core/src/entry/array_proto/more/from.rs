@@ -65,7 +65,7 @@ pub(in crate::entry) extern "C" fn from(
     // getter, a `Symbol.iterator` method, or the mapper.
     match source(items) {
         Source::Like => {
-            let elements = like::values_of(items);
+            let elements = like::values_of(items, false);
             if throw::in_flight() {
                 return nothing();
             }
@@ -122,7 +122,7 @@ pub(in crate::entry) fn finish(this: u64, elements: Vec<u64>) -> u64 {
     let is_constructor = with_current(|context| {
         Value(this)
             .as_slot()
-            .is_some_and(|cell| context.callable_at(cell).is_some())
+            .is_some_and(|cell| context.is_callable_cell(cell))
     });
     if !is_constructor {
         return built(elements);

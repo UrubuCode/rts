@@ -27,6 +27,7 @@ impl Body<'_> {
     ) -> Result<(), LowerError> {
         match terminator {
             Terminator::Jump(call) => {
+                self.emit_hoisted_rows(builder, block);
                 let args = self.block_args(&call.args);
                 let target = self.blocks[&call.block];
                 builder.ins().jump(target, &args);
@@ -135,6 +136,29 @@ impl Body<'_> {
                 miss,
             } => {
                 self.lower_cached_get_keyed(builder, block, *object, *key, *cache, hit, miss)?;
+            }
+
+            Terminator::RunRead {
+                owner,
+                index,
+                hit,
+                miss,
+            } => {
+                self.lower_run_read(builder, block, *owner, *index, hit, miss)?;
+            }
+
+            Terminator::RunWrite {
+                owner,
+                index,
+                value,
+                hit,
+                miss,
+            } => {
+                self.lower_run_write(builder, block, *owner, *index, *value, hit, miss)?;
+            }
+
+            Terminator::CellAlloc { hit, miss } => {
+                self.lower_cell_alloc(builder, hit, miss)?;
             }
 
             Terminator::CachedSet {

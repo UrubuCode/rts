@@ -138,6 +138,29 @@ impl Promise {
         super::rejected_by(this, reason)
     }
 
+    /// `Promise.try(f, ...args)` — call `f` now, and answer a promise for it.
+    ///
+    /// A throw becomes a rejection and a returned thenable is followed, which is
+    /// the difference from `new Promise(r => r(f()))` that a synchronous `throw`
+    /// in `f` would otherwise escape. The call is made in this frame, not on a
+    /// microtask: `Promise.try(() => log("a")); log("b")` prints `a` first.
+    ///
+    /// Three arguments are forwarded, the same reach as `Function.prototype.call`'s
+    /// inline slots and for the same reason: a fourth would need the vector door.
+    #[stat]
+    #[js("try")]
+    #[arity(1)]
+    fn try_call(this: u64, callback: u64, a: u64, b: u64, c: u64) -> u64 {
+        let absent = super::undefined();
+        let produced = crate::entry::functions::call(callback, absent, a, b, c, absent);
+        // Asked before the answer is read: a callee that threw answers
+        // `undefined`, which is a value and would fulfil the promise.
+        match crate::entry::throw::caught() {
+            Some(reason) => super::rejected_by(this, reason),
+            None => super::resolved_by(this, produced),
+        }
+    }
+
     /// `Promise.all(values)` — every value, or the first rejection.
     #[stat]
     fn all(this: u64, values: u64) -> u64 {
@@ -241,10 +264,11 @@ fn attached(this: u64, make: impl FnOnce(PromiseId) -> Handler) -> u64 {
             .and_then(|cell| context.promises.id_of(cell))
     });
     let Some(source) = source else {
-        // `Promise.prototype.then.call({})`. The language throws a
-        // `TypeError`; this answers `undefined`, the same stated gap every
-        // refusal in this crate settles on while there is nowhere for a
-        // throw to land.
+        // `Promise.prototype.then.call({})` and a Proxy over a promise: no
+        // promise slot, so V8 throws a `TypeError` and so does this.
+        crate::entry::throw::type_error(
+            "Method Promise.prototype.then called on incompatible receiver",
+        );
         return super::undefined();
     };
     let built = match super::capability::species_of(this) {

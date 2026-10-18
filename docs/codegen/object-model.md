@@ -18,6 +18,34 @@ dated to `97f66385` and two of its rows are stale by one write barrier per cache
 store. Every subtraction here is arithmetic on those rows. Re-measure before
 quoting an absolute.
 
+> **Status as of 2026-10-18.** The VERDICT (keep the hidden-class model; the money is
+> in the collector, the call protocol and the fixed-stride cell) is unchanged and
+> nothing since has argued against it. Three of the "structural facts" in §7 and the
+> "genuinely open" question in §8 have since been acted on, so read their numbers as
+> 2026-08-22:
+>
+> - **§7 fact 1, "the allocation is a call, not an instruction"** and the "path to
+>   single digits: inline the allocation with a fast-path bump" — done. `CellAlloc`
+>   (`5f08f5dd6`, 2026-10-15) inlines the bump into compiled code for escaping
+>   object literals and environments (~5-7 ns over control); what remains of an
+>   escaping-allocation loop is the collector (§7 fact 3), not the allocation. A
+>   class that qualifies for `emit/class_layout` is rewritten to a born-under-
+>   prototype literal (~38 ns) rather than the `__rts_construct` door; the ~55 ns
+>   door path remains for classes that are read as a value, extend with logic,
+>   return from the constructor, use `new.target` or have effectful field initialisers.
+> - **§7 fact 4, "`plan.md:373` records there is no direct-call path at all"** —
+>   no longer true for a light, captureless leaf module function (`f9298d814`);
+>   a constructor call is still not one.
+> - **§8 "the second argument, genuinely open" (two same-shaped classes thrash a
+>   monomorphic site).** A property-read cache is already a 2-entry duplex
+>   (`rts-core/src/entry/cache.rs`, `remember`), and indirect METHOD sites got the
+>   same 2-entry cell in `4b5fb8fbc` (2026-10-16): poly2 ~60 -> ~32 ns, mono speed.
+>   Four layouts still thrash. The "4-way cache is refused" entry stands for reads;
+>   a 3+-entry method cell is the open lever for poly4 / megamorphic (~71 ns).
+> - The `new` cost rows (90.89 / 76.38 ns) are 2026-08 numbers. `new C()` that
+>   qualifies for a layout and does not escape is ~4.5 ns; escaping, ~52 ns
+>   (`plan-2026-09-27.md`, 2026-09-29 sections).
+
 ---
 
 # The object model: keep it, mend the surroundings

@@ -1,5 +1,7 @@
 # Inventário de lacunas CSS/DOM — RTS versus Blink
 
+> **Estado em 2026-10-18 (nota aditiva):** trabalho substancial em `rts-dom` (grid/subgrid/layout/table) entrou depois deste snapshot, segundo o merge de 2026-10; as afirmações de capacidade abaixo são anteriores a esse trabalho e **não foram re-verificadas** nesta passagem.
+
 **Estado de referência:** `origin/main` após o merge do PR #2582, commit `f2cea6976003945c34c03d00514daca1fa5dc7ac`.
 
 **Medição (2026-08-27):** corpus local de 49 fixtures, Chrome/Blink a 1280×800, tolerância de 1 px, através de `examples/claude-css-runner.ts`: **41/49 fixtures aprovadas**, com **23 desvios em 8 fixtures**; `rts-dom` com 713 testes aprovados (`docs/ui/blink-parity-2026-08-27.md`).

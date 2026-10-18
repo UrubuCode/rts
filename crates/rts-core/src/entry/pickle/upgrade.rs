@@ -91,7 +91,7 @@ pub(super) fn pending(context: &mut Context, graph: &Graph) -> Vec<Pending> {
         }
         let key = context.well_known(super::names::UPGRADE);
         let upgrade = super::super::objects::own_property(context, constructor, key)
-            .filter(|found| found.as_slot().is_some_and(|cell| context.callable_at(cell).is_some()));
+            .filter(|found| found.as_slot().is_some_and(|cell| context.is_callable_cell(cell)));
         if let Some(upgrade) = upgrade {
             found.push(Pending {
                 at,

@@ -84,13 +84,7 @@ impl JsMachine<'_> {
                 if let Ok(exact) = into.arith(NumOp::Rem, left, right) {
                     return Ok(Some(exact));
                 }
-                return self
-                    .call_runtime(
-                        into,
-                        crate::runtime::RuntimeOp::NumberRemainder,
-                        &[left, right],
-                    )
-                    .map(Some);
+                return self.remainder_call(into, left, right).map(Some);
             }
             // `**` OF TWO DOUBLES is the unboxed call the running engine makes for it
             // (`emit/expr.rs`, `Proven::NumberCall`): there is no instruction to try.
@@ -106,6 +100,65 @@ impl JsMachine<'_> {
             _ => return Ok(None),
         };
         into.arith(op, left, right).map(Some).map_err(machine)
+    }
+
+    /// `left % right` over two doubles the machine declined: the unboxed call,
+    /// except where `right` is a constant positive i32, when an integer `srem`
+    /// is taken under a run-time guard.
+    ///
+    /// JS `%` is the float remainder; `srem` agrees with it ONLY for
+    /// integer-valued operands. The guard: `ToInt32(left)` converted back equals
+    /// `left` (an integer in i32 range; NaN, infinities, fractions and wider
+    /// values miss) and `ToInt32(left) > 0` (negatives and -0 miss, so the sign
+    /// of a zero result never arises). A positive constant divisor cannot make
+    /// `srem` trap. Every miss is the original call, unchanged.
+    fn remainder_call(
+        &mut self,
+        into: &mut FuncBuilder,
+        left: MachineValue,
+        right: MachineValue,
+    ) -> Result<MachineValue, String> {
+        use rts_cranelift::ir::{ConstDecl, ScalarBits};
+        let entry = crate::runtime::RuntimeOp::NumberRemainder;
+        let Some(divisor) = into.positive_i32_divisor(right) else {
+            return self.call_runtime(into, entry, &[left, right]);
+        };
+        let check = into.create_block();
+        let fast = into.create_block();
+        let slow = into.create_block();
+        let join = into.create_block();
+        let result = into.add_block_param(join, Repr::F64);
+
+        let int = into.to_int32(left).map_err(machine)?;
+        let back = into.to_f64(int).map_err(machine)?;
+        let same = into.compare(CmpOp::Eq, back, left).map_err(machine)?;
+        into.branch(same, (check, &[]), (slow, &[])).map_err(machine)?;
+
+        into.switch_to(check);
+        let zero = into.declare_const(ConstDecl::Scalar {
+            repr: Repr::I32,
+            bits: ScalarBits(0),
+        });
+        let zero = into.use_const(zero);
+        let positive = into.compare(CmpOp::Gt, int, zero).map_err(machine)?;
+        into.branch(positive, (fast, &[]), (slow, &[])).map_err(machine)?;
+
+        into.switch_to(fast);
+        let divisor = into.declare_const(ConstDecl::Scalar {
+            repr: Repr::I32,
+            bits: ScalarBits(divisor as u32 as u64),
+        });
+        let divisor = into.use_const(divisor);
+        let rest = into.arith(NumOp::Rem, int, divisor).map_err(machine)?;
+        let rest = into.to_f64(rest).map_err(machine)?;
+        into.jump(join, &[rest]).map_err(machine)?;
+
+        into.switch_to(slow);
+        let answered = self.call_runtime(into, entry, &[left, right])?;
+        into.jump(join, &[answered]).map_err(machine)?;
+
+        into.switch_to(join);
+        Ok(result)
     }
 
     /// The bitwise rows over two doubles, as `emit/expr.rs` emits them: `ToInt32` both,
@@ -160,7 +213,7 @@ impl JsMachine<'_> {
         let ([a, b], [held_a, held_b]) = (args, of) else {
             return Ok(None);
         };
-        let proven = |held: &ValueId| matches!(self.types.of(*held), Type::Int32 | Type::Double);
+        let proven = |held: &ValueId| matches!(self.types.of(*held), Type::Int32 | Type::Ranged(..) | Type::Double);
         let (a_proven, b_proven) = (proven(held_a), proven(held_b));
         // AN OPERAND THAT MAY BE A DOUBLE is one the lattice knows nothing about. Anything
         // it DID name -- a string, a boolean, a singleton, an object -- is never one.
@@ -228,6 +281,24 @@ impl JsMachine<'_> {
         let answered = self
             .generic(into, which, &[*a, *b])?
             .ok_or_else(|| format!("{which:?} is a guarded row with no generic form"))?;
+        // A BITWISE ROW OVER AT LEAST ONE PROVED NUMBER ANSWERS AN INT32, on the slow arm as
+        // on the fast one: the other operand cannot be a BigInt (mixing the two throws before
+        // this join), so the runtime's answer is a Number holding an int32. Narrowing it
+        // here, losslessly, joins the two arms as an `I32` instead of a Tagged phi -- which is
+        // what lets `x | 0` hand a following `+` an integer register rather than a value to
+        // guard again, the boundary `@repr(i32)` exists to remove. `>>>` is excluded: its
+        // answer is a uint32 and does not fit an `I32`.
+        let int32_row = matches!(
+            which,
+            JsPrim::BitAnd | JsPrim::BitOr | JsPrim::BitXor | JsPrim::ShiftLeft | JsPrim::ShiftRight
+        ) && (a_proven || b_proven);
+        let answered = match int32_row && into.repr_of(answered) == Repr::Tagged {
+            true => {
+                let double = super::unbox_number(into, answered)?;
+                into.to_int32(double).map_err(machine)?
+            }
+            false => answered,
+        };
         let joined = into.repr_of(answered);
         let join = into.create_block();
         let result = into.add_block_param(join, joined);

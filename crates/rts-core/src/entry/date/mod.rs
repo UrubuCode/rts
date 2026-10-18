@@ -53,6 +53,7 @@ mod support;
 // these four lines beside `Intl.DateTimeFormat` would have made that sentence
 // false the day someone read it.
 pub(in crate::entry) use support::now_ms;
+pub use support::inspect_text;
 
 // The declared-type const travels with the registration, as `collections` does
 // it: `entry::declared` names one item per class and the class is in `class.rs`.

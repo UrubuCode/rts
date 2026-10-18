@@ -204,6 +204,19 @@ pub enum VerifyError {
         found: Repr,
     },
 
+    /// A run read was given a position that is not a proven double.
+    ///
+    /// The lowering converts the position with an instruction that is only
+    /// defined for a double and checks the conversion by converting back. A
+    /// generic value in that place would have its tag bits read as a number,
+    /// which is a wrong element rather than a failure.
+    RunIndexNotDouble {
+        /// Where the read is.
+        from: BlockId,
+        /// What the position was.
+        found: Repr,
+    },
+
     /// A handler does not receive the thrown value.
     ///
     /// A handler that did not receive it would have to find it somewhere else,

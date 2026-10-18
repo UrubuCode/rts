@@ -47,7 +47,18 @@ pub(super) fn held(array: u64) -> Option<Vec<u64>> {
 /// A closure and not a returned list, because a list is what forces the wrong
 /// order: the caller's work for key *a* has to happen before the descriptor of
 /// key *b* is asked for.
-pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u64)) {
+pub(in crate::entry) fn each_enumerable_own(object: u64, visit: impl FnMut(u64)) {
+    each_enumerable_own_except(object, &[], visit);
+}
+
+/// [`each_enumerable_own`] less the `excluded` keys, which are filtered BEFORE
+/// the descriptor is asked for -- `CopyDataProperties` never describes or reads an
+/// excluded key, so a proxy's trap log and a getter under it both stay quiet.
+pub(in crate::entry) fn each_enumerable_own_except(
+    object: u64,
+    excluded: &[crate::object::Key],
+    mut visit: impl FnMut(u64),
+) {
     let filter = super::super::proxy::is_proxy(object);
     let listed = match filter {
         true => super::super::proxy::own_keys(object).unwrap_or(object),
@@ -60,6 +71,14 @@ pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u
         return;
     };
     for name in names {
+        if !excluded.is_empty() {
+            let key = with_current(|context| {
+                super::super::computed::property_key(context, Value(name))
+            });
+            if key.is_some_and(|key| excluded.contains(&key)) {
+                continue;
+            }
+        }
         if filter {
             let described = super::describe_of(object, name);
             // Rule 8: the descriptor came from a handler, so it may not have
@@ -77,6 +96,14 @@ pub(in crate::entry) fn each_enumerable_own(object: u64, mut visit: impl FnMut(u
             if !enumerable.is_some_and(|found| super::super::primitives::to_boolean(found)) {
                 continue;
             }
+        }
+        // A getter run for an earlier key may have deleted or hidden this one;
+        // the spec asks the descriptor again per key and skips it if gone.
+        if !filter && !super::super::object_proto::still_enumerable(object, name) {
+            if super::super::throw::in_flight() {
+                return;
+            }
+            continue;
         }
         visit(name);
         if super::super::throw::in_flight() {
@@ -104,6 +131,12 @@ pub(super) extern "C" fn assign(
     a2: u64,
     a3: u64,
 ) -> u64 {
+    if !super::coercible(target, "Object.assign") {
+        return target;
+    }
+    // `ToObject(target)`: a primitive target is boxed (and an object is
+    // answered unchanged), so the result is the wrapper, not the bare value.
+    let target = super::make(0, 0, target, 0, 0, 0);
     for source in [source, a2, a3] {
         // An absent argument arrives as `undefined`, and `undefined` has no own
         // keys — so the same skip serves both the spec's rule (a null or
@@ -114,8 +147,15 @@ pub(super) extern "C" fn assign(
             // source runs and a setter on the target runs — which is what
             // `assign` does and what a slot-to-slot copy would have skipped.
             let value = super::super::computed::get_indexed(source, name);
+            // A throwing getter aborts the copy before this key is written.
+            if super::super::throw::in_flight() {
+                return;
+            }
             super::super::computed::set_indexed(target, name, value, 0 /* strict: um native que escreve reporta a recusa */);
         });
+        if super::super::throw::in_flight() {
+            return target;
+        }
         // `own_keys` never reports a symbol — it is the string enumeration,
         // and a symbol has no string spelling for it to report — so a
         // `[sym]: v` entry used to vanish across `Object.assign` and spread

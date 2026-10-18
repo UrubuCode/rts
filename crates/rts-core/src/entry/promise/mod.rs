@@ -220,7 +220,7 @@ fn array_of(values: Vec<u64>) -> u64 {
     let array = super::array::array_new(values.len() as i64);
     with_current(|context| {
         if let Some(cell) = Value(array).as_slot()
-            && let Some(elements) = context.elements_at_mut(cell)
+            && let Some(mut elements) = context.elements_at_mut(cell)
         {
             *elements = values;
         }
@@ -288,4 +288,23 @@ pub fn settled(context: &mut super::Context, value: u64, rejected: bool) -> u64 
         false => state::resolve(context, id, value),
     }
     crate::value::Value::from_slot(cell).bits()
+}
+
+/// How `console.log` shows a promise: `None` for anything that is not one,
+/// `Some(None)` while pending, `Some(Some((rejected, value)))` once settled.
+///
+/// Read from the machine's own table, so a subclass instance and a host-made
+/// promise answer the same as `new Promise` does. Looking at a settlement here
+/// is not handling it — the unhandled-rejection tracking is left as it was.
+pub fn inspect_outcome(value: u64) -> Option<Option<(bool, u64)>> {
+    super::with_current(|context| {
+        let cell = crate::value::Value(value).as_slot()?;
+        let id = context.promises.id_of(cell)?;
+        Some(
+            context
+                .promises
+                .outcome(id)
+                .map(|(how, settled)| (how == rts_cranelift::sched::Settlement::Rejected, settled)),
+        )
+    })
 }

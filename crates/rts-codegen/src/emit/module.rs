@@ -105,6 +105,44 @@ pub fn emit_import(
     ctx: &mut Ctx,
     import: &Import,
 ) -> EmitResult<()> {
+    // `rts:core` is compile-time sugar, not a module: bind each name to its
+    // primitive and emit nothing.
+    if import.source == crate::runtime::core_names::SPECIFIER {
+        for binding in &import.bindings {
+            let ImportBinding::Named { exported, local } = binding else {
+                return Err(refuse("a default or namespace import of rts:core"));
+            };
+            let Some(found) = crate::runtime::core_names::lookup(exported) else {
+                return Err(refuse("an unknown name imported from rts:core"));
+            };
+            // The path gate: an unsafe primitive (raw memory) is std-only. Refused
+            // at the IMPORT, so user code cannot even bind the name.
+            if !found.public && ctx.origin != super::Origin::Std {
+                return Err(refuse("an unsafe rts:core primitive outside std"));
+            }
+            ctx.core_imports
+                .insert(*local, crate::runtime::core_names::Bound::Core(found.primitive));
+        }
+        return Ok(());
+    }
+    // `rts:sys`: the same mechanism, host-only.
+    if import.source == crate::runtime::core_names::SYS_SPECIFIER {
+        if !crate::runtime::core_names::host_available() {
+            return Err(refuse("rts:sys on a target with no host"));
+        }
+        for binding in &import.bindings {
+            let ImportBinding::Named { exported, local } = binding else {
+                return Err(refuse("a default or namespace import of rts:sys"));
+            };
+            let Some(found) = crate::runtime::core_names::lookup_sys(exported) else {
+                return Err(refuse("an unknown name imported from rts:sys"));
+            };
+            ctx.core_imports
+                .insert(*local, crate::runtime::core_names::Bound::Sys(found));
+        }
+        return Ok(());
+    }
+
     // The specifier is a string the program wrote, so it is already in the
     // literal table — the same table `string_const` reads, and the number is
     // what crosses rather than the text.

@@ -287,134 +287,22 @@ fn object_rest(
     at: Position,
     depth: u32,
 ) -> EmitResult<ValueId> {
-    let zero = builder.declare_const(rts_cranelift::ir::ConstDecl::Scalar {
-        repr: rts_cranelift::repr::Repr::I64,
-        bits: rts_cranelift::ir::ScalarBits(0),
-    });
-    let zero = builder.use_const(zero);
-    let rest_obj = super::expr::call(builder, ctx, RuntimeOp::ObjectNew, &[zero])?[0];
-    let rest = ctx
-        .names
-        .intern(&format!("__rts_destructure_restobj_{depth}"));
-    super::binding::declare(builder, scope, ctx, rest, rest_obj)?;
-
+    // One call: `CopyDataProperties` interleaves a descriptor and a read per key, which a
+    // loop over `OwnKeys` cannot (that asks every descriptor first), and never touches an
+    // excluded key.
     let source_value = super::binding::read(builder, scope, ctx, src)?;
-    let keys_arr = super::expr::call(builder, ctx, RuntimeOp::OwnKeys, &[source_value])?[0];
-    let keys = ctx.names.intern(&format!("__rts_destructure_keys_{depth}"));
-    super::binding::declare(builder, scope, ctx, keys, keys_arr)?;
-
-    let index_name = ctx.names.intern(&format!("__rts_destructure_i_{depth}"));
-    let key_name = ctx.names.intern(&format!("__rts_destructure_k_{depth}"));
-    let length = ctx.names.intern("length");
-
-    let init = ForInit::Declare {
-        kind: BindingKind::Let,
-        bindings: vec![SyntaxBinding {
-            target: Pattern::Name(index_name),
-            value: Some(number(0.0, at)),
-            claim: None,
-        }],
-    };
-    let test = Expr {
-        kind: ExprKind::Binary {
-            op: BinaryOp::Less,
-            left: Box::new(ident(index_name, at)),
-            right: Box::new(member_expr(ident(keys, at), length, at)),
+    let list = Expr {
+        kind: ExprKind::Array {
+            elements: excluded
+                .iter()
+                .map(|key| Some(crate::syntax::Spreadable::Single(key.clone())))
+                .collect(),
         },
         at,
     };
-    let update = Expr {
-        kind: ExprKind::Update {
-            op: UpdateOp::Increment,
-            position: UpdatePosition::Postfix,
-            target: Box::new(ident(index_name, at)),
-        },
-        at,
-    };
-
-    let key_decl = Stmt {
-        kind: StmtKind::Declare {
-            kind: BindingKind::Let,
-            bindings: vec![SyntaxBinding {
-                target: Pattern::Name(key_name),
-                value: Some(index_expr(ident(keys, at), ident(index_name, at), at)),
-                claim: None,
-            }],
-        },
-        at,
-    };
-
-    let mut already_named: Option<Expr> = None;
-    for key in excluded {
-        let matches = Expr {
-            kind: ExprKind::Binary {
-                op: BinaryOp::StrictEqual,
-                left: Box::new(key.clone()),
-                right: Box::new(ident(key_name, at)),
-            },
-            at,
-        };
-        already_named = Some(match already_named {
-            None => matches,
-            Some(previous) => Expr {
-                kind: ExprKind::Logical {
-                    op: LogicalOp::Or,
-                    left: Box::new(previous),
-                    right: Box::new(matches),
-                },
-                at,
-            },
-        });
-    }
-
-    let copy = plain_assign_stmt(
-        index_expr(ident(rest, at), ident(key_name, at), at),
-        index_expr(ident(src, at), ident(key_name, at), at),
-        at,
-    );
-
-    let body_stmts = match already_named {
-        None => vec![key_decl, copy],
-        Some(condition) => {
-            let not_named = Expr {
-                kind: ExprKind::Unary {
-                    op: crate::syntax::UnaryOp::Not,
-                    operand: Box::new(condition),
-                },
-                at,
-            };
-            vec![
-                key_decl,
-                Stmt {
-                    kind: StmtKind::If {
-                        condition: not_named,
-                        then_branch: Box::new(copy),
-                        else_branch: None,
-                    },
-                    at,
-                },
-            ]
-        }
-    };
-    let body = Stmt {
-        kind: StmtKind::Block(body_stmts),
-        at,
-    };
-
-    let mut loops = Loops::default();
-    super::loops::emit_for(
-        builder,
-        scope,
-        ctx,
-        &mut loops,
-        Some(&init),
-        Some(&test),
-        Some(&update),
-        &body,
-        None,
-    )?;
-
-    super::binding::read(builder, scope, ctx, rest)
+    let keys = super::expr::emit_expr(builder, scope, ctx, &list)?;
+    let _ = depth;
+    Ok(super::expr::call(builder, ctx, RuntimeOp::ObjectRest, &[source_value, keys])?[0])
 }
 
 /// Applies a slot's default, if it has one and the value read was `undefined`.
@@ -521,14 +409,7 @@ fn ident(name: Name, at: Position) -> Expr {
         at,
     }
 }
-
-/// A number literal, as a synthetic expression.
-fn number(value: f64, at: Position) -> Expr {
-    Expr {
-        kind: ExprKind::Literal(Literal::Number(value)),
-        at,
-    }
-}
+
 
 /// `object.property`, as a synthetic expression.
 fn member_expr(object: Expr, property: Name, at: Position) -> Expr {

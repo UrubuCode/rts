@@ -5,10 +5,10 @@ let out = "";
 const sp = new URLSearchParams("a=1&b=2");
 
 // keys()/values() — Vec
-const ks = sp.keys();
+const ks = Array.from(sp.keys());
 out += ks.join(",") + "\n";    // a,b
 
-const vs = sp.values();
+const vs = Array.from(sp.values());
 out += vs.join(",") + "\n";    // 1,2
 
 // append (v0 = set)

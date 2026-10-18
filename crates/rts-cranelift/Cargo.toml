@@ -34,6 +34,10 @@ cranelift-jit = "0.131"
 cranelift-object = "0.131"
 anyhow = "1.0"
 
+# The compiled-code cache's content hash (`target/codecache.rs`). Already in the
+# tree through rts-cli and rts-linker, so it adds nothing to the build.
+sha2 = "0.10"
+
 # The parallel machine-compile phase in `target/` — `Context::compile` run
 # across a pool, never `lower/`'s IR construction (see `target/mod.rs`'s
 # `MachineModule::prepare` doc for why that half must stay serial).

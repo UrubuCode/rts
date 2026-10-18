@@ -771,10 +771,59 @@ fn open_sequence(
 
     let stepped = builder.create_block();
     let listed = builder.create_block();
+    let recheck = builder.create_block();
+    let probe = builder.create_block();
     let join = builder.create_block();
     let held = builder.add_block_param(join, UNPROVEN);
     let elements = builder.add_block_param(join, UNPROVEN);
-    builder.branch(asked, (stepped, &[]), (listed, &[]))?;
+    builder.branch(asked, (stepped, &[]), (recheck, &[]))?;
+
+    // A source whose `@@iterator` IS the primordial array one, yet that is not an
+    // array holding its own elements (a Proxy over one, an array with a replaced
+    // `next`): `Iterate` below would read `@@iterator` a SECOND time through the
+    // source's own `get`, an observable double read. Step it with the method
+    // already in hand instead. Reached only when the cheap identity test passed,
+    // so a plain array pays for the one `ArrayPatternDirect` and nothing else.
+    builder.switch_to(recheck);
+    let same = Expr {
+        kind: ExprKind::Logical {
+            op: LogicalOp::And,
+            left: Box::new(Expr {
+                kind: ExprKind::Binary {
+                    op: BinaryOp::StrictEqual,
+                    left: Box::new(ident(method_name, at)),
+                    right: Box::new(ident(walked_name, at)),
+                },
+                at,
+            }),
+            right: Box::new(Expr {
+                kind: ExprKind::Binary {
+                    op: BinaryOp::StrictEqual,
+                    left: Box::new(ident(text_name, at)),
+                    right: Box::new(Expr {
+                        kind: ExprKind::Unary {
+                            op: UnaryOp::Void,
+                            operand: Box::new(Expr {
+                                kind: ExprKind::Literal(crate::syntax::Literal::Number(0.0)),
+                                at,
+                            }),
+                        },
+                        at,
+                    }),
+                },
+                at,
+            }),
+        },
+        at,
+    };
+    let same = super::expr::emit_expr(builder, scope, ctx, &same)?;
+    let same = super::expr::to_boolean(builder, ctx, same)?;
+    builder.branch(same, (probe, &[]), (listed, &[]))?;
+
+    builder.switch_to(probe);
+    let direct = super::expr::call(builder, ctx, RuntimeOp::ArrayPatternDirect, &[source])?[0];
+    let direct = super::expr::to_boolean(builder, ctx, direct)?;
+    builder.branch(direct, (listed, &[]), (stepped, &[]))?;
 
     builder.switch_to(stepped);
     let absent = super::expr::undefined(builder, ctx);

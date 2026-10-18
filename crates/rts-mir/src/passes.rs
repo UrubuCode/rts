@@ -15,7 +15,10 @@ use crate::infer::infer;
 
 mod hoist;
 
+mod simplify_cfg;
+
 pub use hoist::hoist_loop_constants;
+pub use simplify_cfg::simplify_cfg;
 
 /// What a pass did, so that a caller can say so instead of claiming it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

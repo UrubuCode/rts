@@ -73,6 +73,77 @@ impl HeapImports {
     }
 }
 
+/// The symbol a baked heap base is read from, in relocatable-immediate mode.
+pub const IMM_BASE: &str = "rts.imm.base";
+/// The symbol the cell cursor's address is read from, in the same mode.
+pub const IMM_CURSOR: &str = "rts.imm.cursor";
+/// The symbol the run table's address is read from, in the same mode.
+pub const IMM_RUNS: &str = "rts.imm.runs";
+
+impl RegionBases {
+    /// The addresses lowering would bake into code as 64-bit immediates, each
+    /// with the symbol that stands for it in relocatable-immediate mode.
+    ///
+    /// The ONE list of such addresses. `lower/` bakes exactly these three
+    /// (`memory::materialize`, `cell_alloc`, `run_read`), and a fourth baked
+    /// address added there without being added here would be a number frozen
+    /// into code the compiled-code cache replays in another process. The
+    /// lowering side panics rather than bake when it is in relocatable mode and
+    /// finds no symbol, so the omission is loud.
+    pub fn immediate_values(&self) -> Vec<(&'static str, u64)> {
+        let mut values = Vec::new();
+        match self.addressing() {
+            Addressing::Single {
+                base: RegionBase::Immediate(address),
+                ..
+            }
+            | Addressing::Sharded {
+                table: RegionBase::Immediate(address),
+                ..
+            } => values.push((IMM_BASE, *address)),
+            _ => {}
+        }
+        if let Some(cursor) = self.cursor() {
+            values.push((IMM_CURSOR, cursor));
+        }
+        if let Some(runs) = self.runs() {
+            values.push((IMM_RUNS, runs));
+        }
+        values
+    }
+}
+
+/// The module's identifiers for the symbols standing in for baked addresses.
+///
+/// Declared once, before any function is lowered, for the reason
+/// [`HeapImports`] is: an identifier handed out on a worker would depend on
+/// scheduling.
+#[derive(Clone, Copy, Default)]
+pub struct ImmediateIds {
+    /// Stands for the heap base (or the table of region bases).
+    pub base: Option<DataId>,
+    /// Stands for the cell cursor's address.
+    pub cursor: Option<DataId>,
+    /// Stands for the run table's address.
+    pub runs: Option<DataId>,
+}
+
+impl ImmediateIds {
+    /// Declares one import per address `bases` would have baked.
+    pub fn declare(module: &mut dyn Module, bases: &RegionBases) -> Result<Self, ModuleError> {
+        let mut ids = Self::default();
+        for (name, _) in bases.immediate_values() {
+            let id = module.declare_data(name, Linkage::Import, false, false)?;
+            match name {
+                IMM_BASE => ids.base = Some(id),
+                IMM_CURSOR => ids.cursor = Some(id),
+                _ => ids.runs = Some(id),
+            }
+        }
+        Ok(ids)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

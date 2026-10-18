@@ -116,7 +116,9 @@ fn type_name_of(context: &mut Context, value: u64) -> TypeName {
             Kind::Reference(slot) => {
                 let slot = slot as u32;
                 match context.region.type_of(slot) {
-                    _ if context.callable_at(slot).is_some() => TypeName::Function,
+                    // A proxy has `[[Call]]` exactly when its target does, and
+                    // keeps it after `revoke()`; `is_callable_cell` follows it.
+                    _ if context.is_callable_cell(slot) => TypeName::Function,
                     // A string.s cell, which `shape_of` already refuses to
                     // treat as an object for exactly this reason: what a
                     // reference IS is readable from beside the cell rather

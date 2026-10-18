@@ -164,6 +164,8 @@ pub(super) fn empty(context: &mut Context, class: &ErrorClass) -> u64 {
     let Some(cell) = super::super::native::plain(context) else {
         return undefined_of(context);
     };
+    // Bare slot index across class_prototype, which can register a class (allocate).
+    let pin = super::super::buffers::Pin::new(cell);
     let prototype = match class {
         ErrorClass::Builtin(name) => super::build::class_prototype(context, name)
             .or_else(|| super::build::class_prototype(context, "Error")),
@@ -172,6 +174,7 @@ pub(super) fn empty(context: &mut Context, class: &ErrorClass) -> u64 {
     if let Some(prototype) = prototype {
         context.set_prototype(cell, prototype);
     }
+    pin.release();
     crate::value::Value::from_slot(cell).bits()
 }
 

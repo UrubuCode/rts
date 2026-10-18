@@ -234,6 +234,108 @@ pub(super) fn decorated_class_declaration(
     Ok(Stmt::new(StmtKind::Block(stmts), at))
 }
 
+/// The operator spellings `@operator("op")` accepts, and the `operators.<name>` symbol each is.
+///
+/// The SPELLING of the operator, not the symbol's name: `@operator("+")` reads as the
+/// expression it overloads. The binary operators are written as themselves; unary minus,
+/// which shares `-` with subtraction, is `"unary-"`. The twelve are exactly the ones
+/// `rts-core/src/entry/overload.rs` dispatches and `emit::operator_direct` handles.
+const OPERATORS: [(&str, &str); 12] = [
+    ("+", "add"),
+    ("-", "sub"),
+    ("*", "mul"),
+    ("/", "div"),
+    ("%", "mod"),
+    ("**", "pow"),
+    ("<", "lt"),
+    ("<=", "le"),
+    (">", "gt"),
+    (">=", "ge"),
+    ("==", "eq"),
+    ("unary-", "neg"),
+];
+
+/// The `operators.<name>` symbol an `@operator("op")` decorator on this method names, or `None`
+/// for a method that has no such decorator.
+///
+/// `@operator("+") add(o, r) {}` is sugar for `[operators.add](o, r) {}` and nothing more:
+/// the method is keyed by that computed member, so the runtime's overload protocol and
+/// `emit::operator_direct` see exactly the tree the symbol spelling produces. A malformed
+/// decorator (a bare `@operator`, anything but one string literal, a string naming no operator,
+/// a second `@operator`, or any other decorator beside it) is an error, never a silent drop:
+/// a misspelt operator would otherwise leave an ordinary method the author believed overloaded.
+fn operator_name(method: &swc::ClassMethod) -> Result<Option<&'static str>> {
+    let decorators = &method.function.decorators;
+    let is_operator = |d: &swc::Decorator| match &*d.expr {
+        swc::Expr::Ident(ident) => &*ident.sym == "operator",
+        swc::Expr::Call(call) => matches!(&call.callee, swc::Callee::Expr(callee)
+            if matches!(&**callee, swc::Expr::Ident(i) if &*i.sym == "operator")),
+        _ => false,
+    };
+    let Some(first) = decorators.iter().find(|d| is_operator(d)) else {
+        return Ok(None);
+    };
+    if decorators.len() != 1 {
+        return unsupported("@operator together with another decorator", position(first.span));
+    }
+    let malformed = || {
+        super::ParseError::Syntax(format!(
+            "@operator takes one string naming an operator ({}), e.g. @operator(\"+\")",
+            OPERATORS.map(|(spelling, _)| format!("\"{spelling}\"")).join(" ")
+        ))
+    };
+    let swc::Expr::Call(call) = &*first.expr else {
+        return Err(malformed());
+    };
+    let [argument] = call.args.as_slice() else {
+        return Err(malformed());
+    };
+    if argument.spread.is_some() {
+        return Err(malformed());
+    }
+    let swc::Expr::Lit(swc::Lit::Str(spelled)) = &*argument.expr else {
+        return Err(malformed());
+    };
+    let spelled = spelled.value.to_string_lossy();
+    match OPERATORS.iter().find(|(spelling, _)| *spelling == spelled) {
+        Some((_, symbol)) => Ok(Some(symbol)),
+        None => Err(super::ParseError::Syntax(format!("@operator(\"{spelled}\") names no operator"))),
+    }
+}
+
+/// The computed key `operators.<name>` for an `@operator("op")` method, or `None` for any other.
+///
+/// The base is the module's own `operators` import when it has one, else a hidden
+/// `__rts_operators` import `item::program` prepends -- so the decorator needs no import,
+/// and a module that has one keeps exactly one (the shape `operator_direct` needs).
+pub(super) fn operator_key(cx: &mut Cx, method: &swc::ClassMethod) -> Result<Option<Expr>> {
+    let Some(symbol) = operator_name(method)? else {
+        return Ok(None);
+    };
+    let at = position(method.span);
+    let base = match cx.operators {
+        Some(base) => base,
+        None => {
+            if cx.goal != crate::syntax::Goal::Module {
+                return unsupported("@operator in a script (add an import or export to make the file a module)", at);
+            }
+            let base = cx.name("__rts_operators");
+            cx.operators = Some(base);
+            cx.operators_injected = true;
+            base
+        }
+    };
+    let property = cx.name(symbol);
+    Ok(Some(Expr::new(
+        ExprKind::Member {
+            object: Box::new(ident(base, at)),
+            property,
+            optional: false,
+        },
+        at,
+    )))
+}
+
 /// Whether anything in this class is decorated — the class, a member, or a
 /// parameter of a member or of the constructor.
 ///
@@ -275,8 +377,11 @@ fn is_decorated(member: &swc::ClassMember) -> bool {
             .any(|parameter| !parameter.decorators.is_empty())
     };
     match member {
+        // An `@operator` method is not decorated in this sense: it is rekeyed by
+        // `operator_key` and stays an ordinary method.
         swc::ClassMember::Method(method) => {
-            !method.function.decorators.is_empty() || parameters_decorated(&method.function)
+            (!method.function.decorators.is_empty() && operator_name(method).ok().flatten().is_none())
+                || parameters_decorated(&method.function)
         }
         swc::ClassMember::PrivateMethod(method) => {
             !method.function.decorators.is_empty() || parameters_decorated(&method.function)
@@ -301,6 +406,10 @@ fn member_decorations(
     }
 
     let (key, is_static, own_decorators, parameters, at, has_descriptor) = match member {
+        // Its key is the symbol, not the string a parameter decorator would be handed.
+        swc::ClassMember::Method(method) if operator_name(method)?.is_some() => {
+            return unsupported("a parameter decorator on an @operator method", position(method.span));
+        }
         swc::ClassMember::Method(method) => (
             key_text(&method.key)?,
             method.is_static,

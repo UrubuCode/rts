@@ -20,12 +20,10 @@
 //! module, because a test that checks an error path is how a library's edges
 //! get tested at all.
 //!
-//! # What is still not here, and why that is not a stub
+//! # Rejections
 //!
-//! `rejects` and `doesNotReject` stay refused, for the reason that has not
-//! changed: they need a rejection reason read from a promise and a promise that
-//! settles later, and `entry::settled` mints only an already-settled one. A
-//! rejection is not a throw, so nothing in this file reaches them.
+//! `rejects` and `doesNotReject` react to the promise with `bind`-carried natives
+//! (`drive`): a stateless native cannot await, but it can be a `then` reaction.
 
 use rts_core::entry;
 
@@ -33,15 +31,14 @@ use super::values::{self, member, report_failure, string_of};
 
 /// What an expectation says about the error that was raised.
 ///
-/// Three answers and not two, because "this is not the error you named" is not
-/// the same as "this assertion failed" — see [`Verdict::Reraise`].
-enum Verdict {
+/// Two answers: it is what the caller said to expect, or the assertion failed.
+/// A class that did not match FAILS the assertion (an `AssertionError`) rather
+/// than re-raising the original, which is what Node does.
+pub(super) enum Verdict {
     /// The error is what the caller said to expect.
     Matched,
     /// It is not, and that is this assertion failing — with this detail.
     Failed(String),
-    /// It is not, and the ORIGINAL error is what should travel on.
-    Reraise,
 }
 
 /// Runs `fn` and answers what it raised, or `None` if it returned.
@@ -137,20 +134,29 @@ fn satisfies(error: u64, expected: u64) -> Verdict {
         // form, and a class is callable too. `instance_of` decides, which is
         // the answer the `instanceof` operator gives — including for a class
         // that defines `Symbol.hasInstance`, since that is where the operator's
-        // step 1 lives.
-        if entry::instance_of(error, expected) {
+        // step 1 lives. Only a function WITH a `prototype` is asked: an arrow
+        // function is a validator, and `instanceof` on it is a TypeError.
+        if member(expected, "prototype") != entry::undefined_value()
+            && entry::instance_of(error, expected)
+        {
             return Verdict::Matched;
         }
-        // An error CLASS that did not match re-raises the original rather than
-        // reporting a mismatch. Node's rule, and it reads backwards until you
-        // see what it protects: a test that named `TypeError` and met a
-        // `RangeError` hit a DIFFERENT bug, and burying that under "expected
-        // TypeError" loses the one that matters.
+        // An error CLASS that did not match FAILS the assertion, with Node's
+        // wording: the program named one class and met another.
         if inherits_from_error(expected) {
-            return Verdict::Reraise;
+            let wanted = string_of(member(expected, "name")).unwrap_or_default();
+            let mut detail = format!("The error is expected to be an instance of \"{wanted}\"");
+            match string_of(member(member(error, "constructor"), "name")) {
+                Some(name) if !name.is_empty() => detail.push_str(&format!(". Received \"{name}\"")),
+                _ => detail.push_str(&format!(". Received \"{text}\"")),
+            }
+            if let Some(message) = string_of(member(error, "message")) {
+                detail.push_str(&format!("\n\nError message:\n\n{message}"));
+            }
+            return Verdict::Failed(detail);
         }
         // Otherwise a validation function: Node calls it with the error and
-        // reads the answer as the verdict.
+        // requires the answer to be exactly `true`.
         let absent = entry::undefined_value();
         let answer = entry::call(expected, absent, error, absent, absent, absent);
         if entry::thrown() != 0 {
@@ -160,12 +166,17 @@ fn satisfies(error: u64, expected: u64) -> Verdict {
                 values::render(raised)
             ));
         }
-        return match entry::to_boolean(answer) {
-            true => Verdict::Matched,
-            false => Verdict::Failed(format!(
-                "The validation function answered false. Raised: {text}"
-            )),
+        if answer == entry::boolean_value(true) {
+            return Verdict::Matched;
+        }
+        let named = match string_of(member(expected, "name")) {
+            Some(name) if !name.is_empty() => format!("\"{name}\" "),
+            _ => String::new(),
         };
+        return Verdict::Failed(format!(
+            "The {named}validation function is expected to return \"true\". Received {}\n\nCaught error:\n\n{text}",
+            values::render(answer)
+        ));
     }
     // An object: every own property must be on the error and equal to it.
     // `same_value` and not `===`, for the reason `equality` documents — a test
@@ -237,7 +248,7 @@ pub(super) extern "C" fn throws(
     let (expected, message) = shift(expected, message);
 
     let Some(error) = raised_by(callee) else {
-        let detail = values::describe_message(message, "Missing expected exception.");
+        let detail = missing_detail("exception", expected, message);
         report_failure("throws", &detail);
         return absent;
     };
@@ -250,11 +261,125 @@ pub(super) extern "C" fn throws(
             let detail = values::describe_message(message, &why);
             report_failure("throws", &detail);
         }
-        // Put it back exactly as it arrived: the program asked about one error
-        // and met another, and the other is the news.
-        Verdict::Reraise => entry::throw_value(error),
     }
     absent
+}
+
+/// Node's tail for a missing throw/rejection: ` (Name)` when `expected` names a
+/// class, then `: message` or a period.
+fn missing_detail(kind: &str, expected: u64, message: u64) -> String {
+    let mut details = String::new();
+    // Not read off `undefined`: that is a raise, and it would replace this one.
+    if expected != entry::undefined_value() {
+        if let Some(name) = string_of(member(expected, "name")) {
+            if !name.is_empty() {
+                details.push_str(&format!(" ({name})"));
+            }
+        }
+    }
+    match message == entry::undefined_value() {
+        true => details.push('.'),
+        false => details.push_str(&format!(": {}", values::describe_message(message, ""))),
+    }
+    format!("Missing expected {kind}{details}")
+}
+
+// The three reactions below take `([expected, message], settled)` — the first
+// arrives pre-bound (`Function.prototype.bind`), because a stateless native has
+// nowhere else to carry what the assertion was asked.
+
+/// `rejects`' reaction to a rejection: the same verdict `throws` gives.
+extern "C" fn rejection_check(_e: u64, _this: u64, pack: u64, error: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let (expected, message) = unpack(pack);
+    if expected == absent {
+        return absent;
+    }
+    if let Verdict::Failed(why) = satisfies(error, expected) {
+        report_failure("rejects", &values::describe_message(message, &why));
+    }
+    absent
+}
+
+/// `rejects`' reaction to a fulfilment: it wanted a rejection.
+extern "C" fn rejection_missing(_e: u64, _this: u64, pack: u64, _value: u64, _c: u64, _d: u64) -> u64 {
+    let (expected, message) = unpack(pack);
+    report_failure("rejects", &missing_detail("rejection", expected, message));
+    entry::undefined_value()
+}
+
+/// `doesNotReject`' reaction to a rejection: it wanted a fulfilment.
+extern "C" fn rejection_unwanted(_e: u64, _this: u64, pack: u64, error: u64, _c: u64, _d: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let (expected, message) = unpack(pack);
+    if expected != absent && !matches!(satisfies(error, expected), Verdict::Matched) {
+        entry::throw_value(error);
+        return absent;
+    }
+    let detail = values::describe_message(
+        message,
+        &format!("Got unwanted rejection.\nActual message: {}", values::render(error)),
+    );
+    report_failure("doesNotReject", &detail);
+    absent
+}
+
+/// The packed `(expected, message)`, shifted as `throws` shifts them.
+fn unpack(pack: u64) -> (u64, u64) {
+    let at = |index: f64| entry::get_indexed(pack, entry::make_number(index));
+    shift(at(0.0), at(1.0))
+}
+
+/// A reaction that does nothing — `doesNotReject` on a fulfilment.
+extern "C" fn nothing(_e: u64, _this: u64, _a: u64, _b: u64, _c: u64, _d: u64) -> u64 {
+    entry::undefined_value()
+}
+
+/// `native.bind(undefined, [expected, message])` — packed in one array, because a
+/// trailing `undefined` argument is not counted and would shift the settled
+/// value into its place.
+fn bound(code: super::Provided, expected: u64, message: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let native = entry::with_runtime(|context| entry::make_callable(context, code));
+    let bind = member(native, "bind");
+    let pack = entry::make_array(vec![expected, message]);
+    entry::call(bind, native, absent, pack, absent, absent)
+}
+
+/// Reacts to `subject` (a promise, or a function returning one) with the two
+/// reactions and answers the resulting promise.
+fn drive(on_fulfilled: super::Provided, on_rejected: super::Provided, subject: u64, expected: u64, message: u64) -> u64 {
+    let absent = entry::undefined_value();
+    let mut promise = subject;
+    if values::is_callable(subject) {
+        promise = entry::call(subject, absent, absent, absent, absent, absent);
+        if entry::thrown() != 0 {
+            // A synchronous raise is a rejection, as it is for an async function.
+            let raised = entry::take_thrown();
+            let reject = member(values::global_member("Promise"), "reject");
+            promise = entry::call(reject, values::global_member("Promise"), raised, absent, absent, absent);
+        }
+    }
+    if !values::is_callable(member(promise, "then")) {
+        entry::throw_type_error(&format!(
+            "Expected instance of Promise to be returned from the \"promiseFn\" function but got {}.",
+            values::render(promise)
+        ));
+        return absent;
+    }
+    let fulfilled = bound(on_fulfilled, expected, message);
+    let rejected = bound(on_rejected, expected, message);
+    entry::call(member(promise, "then"), promise, fulfilled, rejected, absent, absent)
+}
+
+/// `assert.rejects(promiseFn, expected?, message?)`.
+pub(super) extern "C" fn rejects(_e: u64, _this: u64, subject: u64, expected: u64, message: u64, _d: u64) -> u64 {
+    drive(rejection_missing, rejection_check, subject, expected, message)
+}
+
+/// `assert.doesNotReject(promiseFn, expected?, message?)`.
+pub(super) extern "C" fn does_not_reject(_e: u64, _this: u64, subject: u64, expected: u64, message: u64, _d: u64) -> u64 {
+    drive(nothing, rejection_unwanted, subject, expected, message)
 }
 
 /// `assert.doesNotThrow(fn[, expected[, message]])`.

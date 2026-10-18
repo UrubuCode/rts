@@ -338,6 +338,10 @@ pub fn negate(value: u64) -> u64 {
         if let Some(held) = super::bigints::digits_of(context, value).map(crate::bigint::BigInt::neg) {
             return Held::Big(held);
         }
+        // A symbol is not a number, and `Ask` is the path that refuses it.
+        if super::symbol::is_symbol(context, value) {
+            return Held::Ask;
+        }
         match as_number(context, Value(value)) {
             Some(number) => Held::Number(number),
             None => Held::Ask,

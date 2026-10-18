@@ -34,11 +34,58 @@ use crate::entry::{functions, throw};
 use crate::value::Value;
 
 /// Every element of the receiver, or `None` when it is not a view at all.
-fn listed(this: u64) -> Option<Vec<u64>> {
+pub(in crate::entry) fn listed(this: u64) -> Option<Vec<u64>> {
     with_current(|context| {
         let view = super::view_of(context, this)?;
         Some(typed::elements(context, &view))
     })
+}
+
+/// Whether the receiver is a typed array (any of the eleven), as opposed to
+/// a plain array, a `DataView` or anything else.
+pub(in crate::entry) fn is_typed_array(this: u64) -> bool {
+    with_current(|context| {
+        super::view_of(context, this)
+            .is_some_and(|view| super::typed_classes::named(view.kind).is_some())
+    })
+}
+
+/// The receiver brand check every %TypedArray%.prototype method begins with:
+/// answers `true` for a typed array over a LIVE buffer, and otherwise raises the
+/// `TypeError` and answers `false` so the caller returns without touching the
+/// receiver.
+///
+/// This is also the one place a detached buffer is refused for the prototype
+/// methods (`ValidateTypedArray`): the bytes are gone, so `t.fill(0)` on a
+/// view of a transferred buffer is a `TypeError` rather than a silent no-op.
+/// `method` is the name V8 prints, which is not always the one called
+/// (`toString` reports `join`, `findLastIndex` reports `findIndexLast`,
+/// `subarray` reports its species construction).
+pub(in crate::entry) fn brand(this: u64, method: &str) -> bool {
+    let (typed, detached) = with_current(|context| match super::view_of(context, this) {
+        Some(view) => (
+            super::typed_classes::named(view.kind).is_some(),
+            context.buffer_detached(view.buffer) || super::view_out_of_bounds(context, &view),
+        ),
+        None => (false, false),
+    });
+    if !typed {
+        throw::type_error("this is not a typed array.");
+        return false;
+    }
+    if detached {
+        throw::type_error(&detached_message(method));
+        return false;
+    }
+    true
+}
+
+/// V8's text for a typed-array operation refused over a detached buffer.
+pub(in crate::entry) fn detached_message(method: &str) -> String {
+    match method {
+        "subarray" => "Cannot perform Construct on a detached ArrayBuffer".to_string(),
+        _ => format!("Cannot perform %TypedArray%.prototype.{method} on a detached ArrayBuffer"),
+    }
 }
 
 /// The receiver's element kind.
@@ -80,6 +127,7 @@ pub(super) fn built(kind: Kind, values: &[u64]) -> u64 {
             offset: 0,
             length: values.len() * size,
             kind,
+            tracking: false,
         };
         if let Some(window) = super::window_mut(context, &view) {
             for (at, word) in words.iter().enumerate() {
@@ -138,7 +186,7 @@ fn calls(value: u64) -> bool {
     with_current(|context| {
         Value(value)
             .as_slot()
-            .is_some_and(|cell| context.callable_at(cell).is_some())
+            .is_some_and(|cell| context.is_callable_cell(cell))
     })
 }
 
@@ -405,7 +453,7 @@ pub(in crate::entry) fn to_string(this: u64) -> u64 {
 }
 
 /// Writes element values back into the receiver's own window.
-fn write_back(this: u64, elements: &[u64]) {
+pub(in crate::entry) fn write_back(this: u64, elements: &[u64]) {
     with_current(|context| {
         let Some(view) = super::view_of(context, this) else {
             return;
@@ -434,6 +482,28 @@ fn write_back(this: u64, elements: &[u64]) {
 /// mapper threw — and this adds only the narrowing into elements of `kind`. A
 /// second walk here would be a second answer to "what is iterable", which is
 /// what the array module's own first page refuses.
+/// The typed array kind a constructor value builds, if it is one of the
+/// typed array classes (read off its own `name`).
+pub(in crate::entry) fn kind_of_constructor(this: u64) -> Option<Kind> {
+    // Walks the constructor chain: `from`/`of` now live on `%TypedArray%`, so a
+    // subclass (`class F extends Float64Array`) must resolve to its typed base.
+    with_current(|context| {
+        let mut cell = Value(this).as_slot()?;
+        for _ in 0..16 {
+            let key = context.well_known("name");
+            if let Some(found) = crate::entry::objects::own_property(context, cell, key)
+                && let Some(text) = found.as_slot().and_then(|slot| context.text_at(slot))
+                && let Some(name) = text.to_rust()
+                && let Some(kind) = super::typed_classes::kind_named(&name)
+            {
+                return Some(kind);
+            }
+            cell = Value(context.prototype_at(cell)?).as_slot()?;
+        }
+        None
+    })
+}
+
 pub(in crate::entry) fn from(kind: Kind, source: u64, mapper: u64, receiver: u64) -> u64 {
     let absent = super::undefined();
     let listed = crate::entry::array_proto::more::from::from(0, absent, source, mapper, receiver, absent);

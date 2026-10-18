@@ -109,6 +109,7 @@ fn runs_nothing(of: &Type) -> bool {
             | Type::Null
             | Type::Bool(_)
             | Type::Int32
+            | Type::Ranged(..)
             | Type::Double
             | Type::Str
             | Type::BigInt
