@@ -223,13 +223,43 @@ pub(in crate::layout) fn layout_children_horizontal(
         // documenta o WPT que isto media errado).
         let (max_main, declared_min) =
             super::limits::item_limits(dom, child, &ccss, content_w, font_size, ctx);
-        let min_main = if transferred {
+        // Um item TRANSFERIDO (§9.2) toma a sua `base` como piso — mas isso só
+        // vale para um REPLACED, cujo conteúdo é a média e não tem min-content de
+        // caixa. Um não-replaced transferido pela razão (uma `<div
+        // aspect-ratio>` esticada) AINDA tem o min-content do seu conteúdo como
+        // piso automático (§4.5): um item `aspect-ratio:1/2` com filho `width:
+        // 100` fica 100, não os 50 da razão (WPT `flex-aspect-ratio-049`). Sem
+        // esta distinção, ou o não-replaced ignorava o conteúdo (049), ou o
+        // replaced apanhava um piso que o erguia acima do stretch
+        // (`intrinsic-percent-replaced-027`).
+        // Um item transferido pela razão a partir do CROSS esticado (sem height
+        // própria) ainda tem o min-content do conteúdo como piso automático
+        // (§4.5): `aspect-ratio:1/2` com filho `width:100` fica 100, não os 50 da
+        // razão (WPT `flex-aspect-ratio-049`). MAS só nesse caso — se o item TEM
+        // height própria (a razão veio dela, não do stretch), o piso NÃO se
+        // aplica, senão o min-content de um filho replaced grande ergue o item
+        // acima do que a razão/altura mandam (`intrinsic-percent-replaced-027`:
+        // `.test{height:100%;aspect-ratio:1/1}` com um `<canvas>` default de
+        // 300). Um item transferido REPLACED nunca apanha o piso (o seu conteúdo
+        // é a média, sem min-content de caixa).
+        let replaced = matches!(
+            &dom.node(child).kind,
+            crate::dom::NodeKind::Element { tag }
+                if matches!(tag.as_str(), "img" | "canvas" | "video" | "svg" | "object" | "embed" | "iframe")
+        );
+        let do_content_floor = transferred && !replaced && ccss.height.is_none();
+        let min_main = if transferred && !do_content_floor {
             base
         } else {
             let min_main = crate::table::min_content(dom, child, font_size, ctx);
-            super::limits::automatic_min(
+            let auto = super::limits::automatic_min(
                 dom, child, min_main, &ccss, content_w, font_size, ctx, max_main,
-            )
+            );
+            if transferred {
+                base.max(auto)
+            } else {
+                auto
+            }
         };
         let min_main = declared_min.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex

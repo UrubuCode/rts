@@ -172,6 +172,32 @@ mod palavras_chave_intrinsecas {
         assert_eq!((item.w, item.h), (500.0, 500.0), "{item:?}");
     }
 
+    /// Um item flex não-replaced com `aspect-ratio` e sem tamanho, esticado numa
+    /// row de altura definida, deriva o main (largura) do cross pela razão:
+    /// `display:flex;height:100` com filho `aspect-ratio:1/1` dá 100×100, não
+    /// 0×100 (WPT `flex-aspect-ratio-009`).
+    #[test]
+    fn item_flex_esticado_deriva_main_do_cross_pela_razao() {
+        let fonte = "<div style='display:flex;height:100px'>\
+            <div style='background:green;aspect-ratio:1/1;min-width:0' id='item'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let item = rect(&d, &l, "div", 1);
+        assert_eq!((item.w, item.h), (100.0, 100.0), "{item:?}");
+    }
+
+    /// O min-content do conteúdo é piso do main transferido pela razão num item
+    /// flex não-replaced: `aspect-ratio:1/2` (main pela razão = 50) com filho
+    /// `width:100` fica 100, não 50 (WPT `flex-aspect-ratio-049`).
+    #[test]
+    fn min_content_e_piso_do_main_transferido_no_flex() {
+        let fonte = "<div style='display:flex;width:0px;height:100px'>\
+            <div style='background:green;aspect-ratio:1/2' id='item'>\
+            <div style='width:100px'></div></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let item = rect(&d, &l, "div", 1);
+        assert!((item.w - 100.0).abs() < 1.0, "{item:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
