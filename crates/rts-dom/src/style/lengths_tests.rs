@@ -329,6 +329,20 @@ mod palavras_chave_intrinsecas {
         assert_eq!((s.w, s.h), (100.0, 100.0), "max-height: {s:?}");
     }
 
+    /// `aspect-ratio: auto 5/1` num `<object>` svg PREFERE a razão natural — o
+    /// `viewBox='0 0 1 1'` DENTRO do data-URI (1:1), não o 5/1 de reserva — por
+    /// isso `width:100px` dá 100×100, não 100×20 (WPT `replaced-element-020`).
+    #[test]
+    fn object_svg_aspect_ratio_auto_prefere_o_viewbox_embutido() {
+        let data = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' style='background-color: green'%3E%3C/svg%3E";
+        let fonte = format!(
+            "<object type=\"image/svg+xml\" data=\"{data}\" style='width:100px;aspect-ratio:auto 5/1' id='o'></object>"
+        );
+        let (d, l) = geometria(&fonte, 1280.0);
+        let o = rect(&d, &l, "object", 0);
+        assert_eq!((o.w, o.h), (100.0, 100.0), "{o:?}");
+    }
+
     /// Um `<object type="image/svg+xml" data="data:image/svg+xml,…">` é um SVG
     /// embutido: a caixa é 100×100 (width + aspect-ratio) e pinta a cor de
     /// DENTRO do SVG (verde), não o placeholder cinza — WPT
