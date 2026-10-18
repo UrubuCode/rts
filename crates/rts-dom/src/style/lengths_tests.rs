@@ -28,6 +28,41 @@ mod palavras_chave_intrinsecas {
         );
     }
 
+    /// `fit-content(<length-percentage>)` — a forma FUNCIONAL — é parseada para
+    /// `FitContentLength`, distinta da keyword `fit-content`, com o argumento
+    /// (px ou %) preservado no `CalcLen`.
+    #[test]
+    fn fit_content_funcional_e_parseado_com_o_argumento() {
+        match parse_inline("width:fit-content(100px)").width {
+            Some(Dimension::FitContentLength(c)) => {
+                assert_eq!(c.px, 100.0, "o px do argumento tem de viajar");
+                assert_eq!(c.pct, 0.0);
+            }
+            outro => panic!("esperava FitContentLength, veio {outro:?}"),
+        }
+        match parse_inline("width:fit-content(40%)").width {
+            Some(Dimension::FitContentLength(c)) => assert_eq!(c.pct, 40.0),
+            outro => panic!("esperava FitContentLength(%), veio {outro:?}"),
+        }
+    }
+
+    /// `fit-content(L)` = `max(min-content, min(L, max-content))`: com dois
+    /// blocos de 60px (min-content 60, max-content 120), `fit-content(100px)`
+    /// assenta nos 100 — nem encolhe ao min nem transborda ao max (WPT
+    /// `fit-content-length-percentage-001`).
+    #[test]
+    fn fit_content_funcional_clampa_entre_min_e_max() {
+        let fonte = "<div style='width:fit-content(100px);height:50px' id='alvo'>\
+            <div style='display:inline-block;width:60px'></div>\
+            <div style='display:inline-block;width:60px'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert!(
+            (a.w - 100.0).abs() < 1.0,
+            "fit-content(100px) entre 60 e 120 tem de dar 100: {a:?}"
+        );
+    }
+
     /// A largura passa a ser a do CONTEÚDO, e transborda o pai em vez de ceder.
     #[test]
     fn max_content_mede_o_conteudo_e_transborda_o_pai() {

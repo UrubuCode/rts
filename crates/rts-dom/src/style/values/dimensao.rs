@@ -199,6 +199,13 @@ pub enum Dimension {
     MinContent,
     /// `fit-content` — shrink-to-fit sizing keyword.
     FitContent,
+    /// `fit-content(<length-percentage>)` — a forma FUNCIONAL (CSS Sizing 3
+    /// §4.1): `max(min-content, min(L, max-content))`, com `L` o argumento
+    /// resolvido contra o eixo. Difere da keyword `FitContent` (que cede ao
+    /// disponível) por ter um LIMITE explícito `L` no lugar do disponível.
+    /// Resolve `None` como os outros keywords — o layout é que aplica o clamp;
+    /// o argumento viaja como [`CalcLen`] (px/%/em/… por valor, mantém `Copy`).
+    FitContentLength(CalcLen),
     /// `stretch` (CSS Sizing 4) — o tamanho de "esticar" (preencher o espaço
     /// disponível no eixo). Para a LARGURA de um bloco em fluxo normal já é o
     /// que `auto` dá; difere de `auto` num contexto shrink-to-fit (float,
@@ -252,7 +259,7 @@ impl Dimension {
             // segundo). Responder `None` aqui é o mesmo que o `auto` faz, e é o
             // que faz um chamador sem contexto cair no seu caminho de fallback em
             // vez de inventar um número.
-            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::Stretch => return None,
+            Dimension::Auto | Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::FitContentLength(_) | Dimension::Stretch => return None,
             Dimension::Px(v) => v,
             // A percentage whose basis is not a FINITE number has no basis at
             // all, and CSS says what that computes to: `auto` (CSS 2.1 §10.2
@@ -356,7 +363,7 @@ impl Dimension {
             // quem o ler não sabe distinguir os dois, e a alternativa (uma
             // faixa nova) obrigaria o lado TS a saber medir conteúdo, que é
             // o que ele não pode fazer.
-            Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::Stretch => return -1,
+            Dimension::MaxContent | Dimension::MinContent | Dimension::FitContent | Dimension::FitContentLength(_) | Dimension::Stretch => return -1,
         };
         unit * DIM_RANGE + (val * 1000.0) as i64
     }

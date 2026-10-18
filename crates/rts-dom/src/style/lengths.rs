@@ -61,6 +61,15 @@ pub(crate) fn parse_dimension(v: &str) -> Option<Dimension> {
     {
         return super::calc::parse_calc_dim(inner);
     }
+    // `fit-content(<length-percentage>)` — a forma FUNCIONAL. O argumento usa a
+    // mesma gramática de comprimento linear do `calc()` (um átomo simples como
+    // `100px`/`50%` é expressão válida ali), por isso reaproveita `parse_calc`.
+    if let Some(inner) = low_full
+        .strip_prefix("fit-content(")
+        .and_then(|r| r.strip_suffix(')'))
+    {
+        return super::calc::parse_calc(inner).map(Dimension::FitContentLength);
+    }
     // (sufixo, construtor, clamp_max) — `%`/`vw`/`vh` em 0..=100; resto sem teto.
     let num = |s: &str| s.trim().parse::<f32>().ok().filter(|n| *n >= 0.0);
     let low = v.to_ascii_lowercase();
@@ -348,6 +357,9 @@ pub(crate) fn parse_dimension_signed(v: &str) -> Option<Dimension> {
         Dimension::MaxContent => Dimension::MaxContent,
         Dimension::MinContent => Dimension::MinContent,
         Dimension::FitContent => Dimension::FitContent,
+        // `fit-content(L)` não tem negação com sentido (não é um comprimento
+        // simples); viaja inalterado, como os outros keywords acima.
+        Dimension::FitContentLength(c) => Dimension::FitContentLength(c),
         Dimension::Px(x) => Dimension::Px(-x),
         Dimension::Percent(x) => Dimension::Percent(-x),
         Dimension::Em(x) => Dimension::Em(-x),

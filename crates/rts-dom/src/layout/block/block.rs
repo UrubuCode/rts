@@ -416,6 +416,25 @@ pub(crate) fn layout_block(
             )
         } else if css.width == Some(crate::style::Dimension::MinContent) {
             (crate::table::min_content(dom, id, font_for_content, ctx) - frame).max(0.0)
+        } else if let Some(crate::style::Dimension::FitContentLength(c)) = css.width {
+            // `width: fit-content(L)` (CSS Sizing 3 §4.1):
+            // `max(min-content, min(L, max-content))`, tudo em espaço de CONTEÚDO.
+            // `L` resolve contra o eixo (px/%/em/…); em `border-box` inclui o
+            // frame, logo desconta-se. Se `L` não resolve (p.ex. `%` sem base
+            // finita), cai no shrink-to-fit no disponível, como a keyword.
+            let maxc = crate::layout::flex::column_wrap_width::max_content_width(
+                dom, id, box_id, font_for_content, avail_h, &css, ctx,
+            );
+            let minc =
+                (crate::table::min_content(dom, id, font_for_content, ctx) - frame).max(0.0);
+            let limit = match crate::style::Dimension::Calc(c)
+                .resolve_family(&resolve, css.font_family.as_deref())
+            {
+                Some(l) if border_box => (l - frame).max(0.0),
+                Some(l) => l,
+                None => (avail_w - frame).max(0.0),
+            };
+            maxc.min(limit).max(minc)
         } else {
             match css
                 .width
