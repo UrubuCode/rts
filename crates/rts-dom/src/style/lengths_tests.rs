@@ -298,6 +298,18 @@ mod palavras_chave_intrinsecas {
         assert_eq!(pct.h, 0.0, "{pct:?}");
     }
 
+    /// Uma `aspect-ratio` CSS declarada vence a razão natural do `viewBox` de um
+    /// `<svg>` (CSS Sizing 4 §5.1): `<svg viewBox='0 0 5 1' style='width:100;
+    /// aspect-ratio:1/1'>` é 100×100, não 100×20 (WPT
+    /// `aspect-ratio/replaced-element-007`).
+    #[test]
+    fn aspect_ratio_css_vence_o_viewbox_do_svg() {
+        let fonte = "<svg viewBox='0 0 5 1' style='width:100px;aspect-ratio:1/1;background:green' id='s'></svg>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let s = rect(&d, &l, "svg", 0);
+        assert_eq!((s.w, s.h), (100.0, 100.0), "{s:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT

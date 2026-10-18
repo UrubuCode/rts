@@ -135,13 +135,24 @@ pub(in crate::layout) fn layout_svg_placeholder(
         .filter(|h| *h > 0.0);
     let w0 = forced_w.or(css_w).or_else(|| attr_px("width"));
     let h0 = forced_h.or(css_h).or_else(|| attr_px("height"));
+    // Uma `aspect-ratio` CSS declarada VENCE a razão natural do `viewBox` (CSS
+    // Sizing 4 §5.1): `<svg viewBox='0 0 5 1' style='width:100;aspect-ratio:1/1'>`
+    // é 100×100, não 100×20 (WPT `replaced-element-007`). MAS a forma `auto
+    // <ratio>` PREFERE a razão natural quando há uma (o `viewBox`): `aspect-ratio:
+    // auto 5/1` num svg `viewBox='0 0 1 1'` usa 1:1, não 5:1 (WPT `-015`).
+    let declarada = crate::layout::measure::aspect_ratio::declared_ratio(css);
+    let eff_ratio = if css.aspect_ratio_auto == Some(true) {
+        vb_ratio.or(declarada)
+    } else {
+        declarada.or(vb_ratio)
+    };
     let (w, h) = match (w0, h0) {
         (Some(w), Some(h)) => (w, h),
-        (Some(w), None) => (w, vb_ratio.map(|r| w / r).unwrap_or(w)),
-        (None, Some(h)) => (vb_ratio.map(|r| h * r).unwrap_or(h), h),
+        (Some(w), None) => (w, eff_ratio.map(|r| w / r).unwrap_or(w)),
+        (None, Some(h)) => (eff_ratio.map(|r| h * r).unwrap_or(h), h),
         (None, None) => {
             let h = 24.0;
-            (vb_ratio.map(|r| h * r).unwrap_or(h), h)
+            (eff_ratio.map(|r| h * r).unwrap_or(h), h)
         }
     };
     let w = if forced_outer_w.is_some() {
