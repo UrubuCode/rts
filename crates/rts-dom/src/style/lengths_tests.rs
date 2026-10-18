@@ -226,6 +226,19 @@ mod palavras_chave_intrinsecas {
         assert_eq!(p.w, 100.0, "{p:?}");
     }
 
+    /// `height:stretch` num abspos com UM só inset vertical estica entre esse
+    /// inset e a posição estática do bordo em falta: `height:stretch;
+    /// bottom:100` num CB de 200 fica 100 de alto, ancorado ao topo (y=0), não
+    /// 200 deslocado para y=-100 (WPT `css-sizing/stretch/abspos-2`).
+    #[test]
+    fn stretch_abspos_com_um_inset_estica_ate_o_static() {
+        let fonte = "<div style='width:100px;height:200px;position:relative'>\
+            <div style='width:100%;height:stretch;position:absolute;bottom:100px;background:green' id='a'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 1);
+        assert_eq!((a.y, a.w, a.h), (0.0, 100.0, 100.0), "{a:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
