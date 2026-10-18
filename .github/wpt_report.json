@@ -1,9 +1,9 @@
 {
   "pasta": "/home/runner/work/_temp/wpt/css/css-flexbox",
   "total": 870,
-  "passam": 625,
+  "passam": 632,
   "passam_vazio": 30,
-  "falham": 210,
+  "falham": 203,
   "falha_parcial": 4,
   "erros": 1,
   "nao_rasterizaram": [
@@ -32,12 +32,6 @@
       "script": false
     },
     {
-      "nome": "flexbox-writing-mode-013",
-      "pct": 13.600781249999999,
-      "n": 139272,
-      "script": false
-    },
-    {
       "nome": "flex-direction-with-element-insert",
       "pct": 12.331640625,
       "n": 126276,
@@ -59,30 +53,6 @@
       "nome": "percentage-heights-023",
       "pct": 11.71875,
       "n": 120000,
-      "script": false
-    },
-    {
-      "nome": "intrinsic-size/col-wrap-012",
-      "pct": 11.4453125,
-      "n": 117200,
-      "script": false
-    },
-    {
-      "nome": "intrinsic-size/col-wrap-015",
-      "pct": 11.4453125,
-      "n": 117200,
-      "script": false
-    },
-    {
-      "nome": "intrinsic-size/col-wrap-016",
-      "pct": 11.4453125,
-      "n": 117200,
-      "script": false
-    },
-    {
-      "nome": "intrinsic-size/col-wrap-017",
-      "pct": 11.4453125,
-      "n": 117200,
       "script": false
     },
     {
@@ -128,27 +98,9 @@
       "script": false
     },
     {
-      "nome": "percentage-heights-015",
-      "pct": 8.30078125,
-      "n": 85000,
-      "script": false
-    },
-    {
       "nome": "flexbox_align-items-stretch-3",
       "pct": 8.06640625,
       "n": 82600,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-015",
-      "pct": 7.8173828125,
-      "n": 80050,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-014",
-      "pct": 6.8357421875,
-      "n": 69998,
       "script": false
     },
     {
@@ -164,6 +116,12 @@
       "script": false
     },
     {
+      "nome": "percentage-heights-015",
+      "pct": 4.39453125,
+      "n": 45000,
+      "script": false
+    },
+    {
       "nome": "flex-minimum-width-flex-items-013",
       "pct": 4.3896484375,
       "n": 44950,
@@ -176,9 +134,9 @@
       "script": false
     },
     {
-      "nome": "flexbox-writing-mode-012",
-      "pct": 4.0748046875,
-      "n": 41726,
+      "nome": "flexbox-writing-mode-015",
+      "pct": 4.0960937500000005,
+      "n": 41944,
       "script": false
     },
     {
@@ -206,27 +164,9 @@
       "script": false
     },
     {
-      "nome": "flexbox-writing-mode-011",
-      "pct": 3.8830078125,
-      "n": 39762,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-010",
-      "pct": 3.3312500000000003,
-      "n": 34112,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-srl-row-mix",
-      "pct": 3.0759765625,
-      "n": 31498,
-      "script": false
-    },
-    {
-      "nome": "flexbox-writing-mode-slr-row-mix",
-      "pct": 3.0501953125,
-      "n": 31234,
+      "nome": "flexbox-writing-mode-013",
+      "pct": 3.5498046875,
+      "n": 36350,
       "script": false
     },
     {
@@ -239,6 +179,18 @@
       "nome": "relayout-intrinsic-block-size",
       "pct": 2.9296875,
       "n": 30000,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-012",
+      "pct": 2.9275390625,
+      "n": 29978,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-011",
+      "pct": 2.8083984374999997,
+      "n": 28758,
       "script": false
     },
     {
@@ -269,6 +221,12 @@
       "nome": "abspos/flex-abspos-align-self-safe-outer-cb-001.tentative",
       "pct": 2.292578125,
       "n": 23476,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-014",
+      "pct": 2.11201171875,
+      "n": 21627,
       "script": false
     },
     {
@@ -323,6 +281,12 @@
       "nome": "flex-container-max-content-001",
       "pct": 1.90126953125,
       "n": 19469,
+      "script": false
+    },
+    {
+      "nome": "flexbox-writing-mode-010",
+      "pct": 1.809765625,
+      "n": 18532,
       "script": false
     },
     {
@@ -1179,12 +1143,6 @@
       "nome": "flexbox_visibility-collapse",
       "pct": 0.11249999999999999,
       "n": 1152,
-      "script": false
-    },
-    {
-      "nome": "flexbox-safe-overflow-position-001",
-      "pct": 0.10957031250000002,
-      "n": 1122,
       "script": false
     },
     {
@@ -2146,18 +2104,18 @@
       "estado": "passa"
     },
     {
-      "nome": "balance/balance-min-line-count-003",
-      "mascarados": [
-        1,
-        1
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "balance/balance-min-line-count-002",
       "mascarados": [
         3,
         3
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "balance/balance-min-line-count-003",
+      "mascarados": [
+        1,
+        1
       ],
       "estado": "passa"
     },
@@ -2388,6 +2346,14 @@
       "estado": "passa"
     },
     {
+      "nome": "css-flexbox-img-expand-evenly",
+      "mascarados": [
+        1,
+        1
+      ],
+      "estado": "passa"
+    },
+    {
       "nome": "css-flexbox-row-reverse-wrap-reverse",
       "mascarados": [
         1,
@@ -2397,12 +2363,13 @@
       "pct": 1.04296875
     },
     {
-      "nome": "css-flexbox-img-expand-evenly",
+      "nome": "css-flexbox-row-reverse-wrap",
       "mascarados": [
         1,
         1
       ],
-      "estado": "passa"
+      "estado": "falha",
+      "pct": 1.04296875
     },
     {
       "nome": "css-flexbox-row-reverse",
@@ -2412,15 +2379,6 @@
       ],
       "estado": "falha",
       "pct": 0.515625
-    },
-    {
-      "nome": "css-flexbox-row-reverse-wrap",
-      "mascarados": [
-        1,
-        1
-      ],
-      "estado": "falha",
-      "pct": 1.04296875
     },
     {
       "nome": "css-flexbox-row-wrap-reverse",
@@ -2639,7 +2597,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-002",
+      "nome": "flex-abspos-inset-nested-001",
       "mascarados": [
         1,
         1
@@ -2647,7 +2605,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-abspos-inset-nested-001",
+      "nome": "flex-abspos-inset-nested-002",
       "mascarados": [
         1,
         1
@@ -2759,7 +2717,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-007",
+      "nome": "flex-aspect-ratio-img-column-006",
       "mascarados": [
         3,
         3
@@ -2767,7 +2725,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-006",
+      "nome": "flex-aspect-ratio-img-column-007",
       "mascarados": [
         3,
         3
@@ -2792,15 +2750,6 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-aspect-ratio-img-column-012",
-      "mascarados": [
-        1,
-        1
-      ],
-      "estado": "falha",
-      "pct": 1.220703125
-    },
-    {
       "nome": "flex-aspect-ratio-img-column-010",
       "mascarados": [
         3,
@@ -2808,6 +2757,15 @@
       ],
       "estado": "falha",
       "pct": 0.390625
+    },
+    {
+      "nome": "flex-aspect-ratio-img-column-012",
+      "mascarados": [
+        1,
+        1
+      ],
+      "estado": "falha",
+      "pct": 1.220703125
     },
     {
       "nome": "flex-aspect-ratio-img-column-013",
@@ -3039,7 +2997,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-003",
+      "nome": "flex-basis-004",
       "mascarados": [
         3,
         3
@@ -3047,7 +3005,7 @@
       "estado": "passa"
     },
     {
-      "nome": "flex-basis-004",
+      "nome": "flex-basis-003",
       "mascarados": [
         3,
         3
@@ -4095,18 +4053,18 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox-align-self-stretch-vert-002",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox-align-self-stretch-vert-001",
       "mascarados": [
         1,
         1
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-align-self-stretch-vert-002",
+      "mascarados": [
+        0,
+        0
       ],
       "estado": "passa"
     },
@@ -4135,6 +4093,22 @@
       "estado": "passa"
     },
     {
+      "nome": "flexbox-baseline-empty-001b",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox-baseline-multi-item-horiz-001a",
+      "mascarados": [
+        5,
+        5
+      ],
+      "estado": "passa"
+    },
+    {
       "nome": "flexbox-baseline-align-self-baseline-vert-001",
       "mascarados": [
         0,
@@ -4144,23 +4118,7 @@
       "pct": 0.5224609375
     },
     {
-      "nome": "flexbox-baseline-empty-001b",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox-baseline-multi-item-horiz-001b",
-      "mascarados": [
-        5,
-        5
-      ],
-      "estado": "passa"
-    },
-    {
-      "nome": "flexbox-baseline-multi-item-horiz-001a",
       "mascarados": [
         5,
         5
@@ -4482,14 +4440,6 @@
       "pct": 0.579296875
     },
     {
-      "nome": "flexbox-flex-basis-content-003a",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox-flex-basis-content-002b",
       "mascarados": [
         0,
@@ -4497,6 +4447,14 @@
       ],
       "estado": "falha",
       "pct": 0.579296875
+    },
+    {
+      "nome": "flexbox-flex-basis-content-003a",
+      "mascarados": [
+        0,
+        0
+      ],
+      "estado": "passa"
     },
     {
       "nome": "flexbox-flex-basis-content-003b",
@@ -4869,8 +4827,7 @@
         0,
         0
       ],
-      "estado": "falha",
-      "pct": 0.10957031250000002
+      "estado": "passa"
     },
     {
       "nome": "flexbox-safe-overflow-position-002",
@@ -5059,7 +5016,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 3.3312500000000003
+      "pct": 1.809765625
     },
     {
       "nome": "flexbox-writing-mode-011",
@@ -5068,7 +5025,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 3.8830078125
+      "pct": 2.8083984374999997
     },
     {
       "nome": "flexbox-writing-mode-012",
@@ -5077,7 +5034,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 4.0748046875
+      "pct": 2.9275390625
     },
     {
       "nome": "flexbox-writing-mode-013",
@@ -5086,7 +5043,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 13.600781249999999
+      "pct": 3.5498046875
     },
     {
       "nome": "flexbox-writing-mode-014",
@@ -5095,7 +5052,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 6.8357421875
+      "pct": 2.11201171875
     },
     {
       "nome": "flexbox-writing-mode-015",
@@ -5104,7 +5061,7 @@
         0
       ],
       "estado": "falha",
-      "pct": 7.8173828125
+      "pct": 4.0960937500000005
     },
     {
       "nome": "flexbox-writing-mode-016",
@@ -5128,8 +5085,7 @@
         0,
         0
       ],
-      "estado": "falha",
-      "pct": 3.0501953125
+      "estado": "passa"
     },
     {
       "nome": "flexbox-writing-mode-slr",
@@ -5153,8 +5109,7 @@
         0,
         0
       ],
-      "estado": "falha",
-      "pct": 3.0759765625
+      "estado": "passa"
     },
     {
       "nome": "flexbox-writing-mode-srl",
@@ -6190,18 +6145,18 @@
       "estado": "passa"
     },
     {
-      "nome": "flexbox_flex-natural-mixed-basis-auto",
-      "mascarados": [
-        0,
-        0
-      ],
-      "estado": "passa"
-    },
-    {
       "nome": "flexbox_flex-natural-mixed-basis",
       "mascarados": [
         4,
         4
+      ],
+      "estado": "passa"
+    },
+    {
+      "nome": "flexbox_flex-natural-mixed-basis-auto",
+      "mascarados": [
+        0,
+        0
       ],
       "estado": "passa"
     },
@@ -7351,8 +7306,7 @@
         3,
         3
       ],
-      "estado": "falha",
-      "pct": 11.4453125
+      "estado": "passa"
     },
     {
       "nome": "intrinsic-size/col-wrap-013",
@@ -7376,8 +7330,7 @@
         3,
         3
       ],
-      "estado": "falha",
-      "pct": 11.4453125
+      "estado": "passa"
     },
     {
       "nome": "intrinsic-size/col-wrap-016",
@@ -7385,8 +7338,7 @@
         3,
         3
       ],
-      "estado": "falha",
-      "pct": 11.4453125
+      "estado": "passa"
     },
     {
       "nome": "intrinsic-size/col-wrap-017",
@@ -7394,8 +7346,7 @@
         3,
         3
       ],
-      "estado": "falha",
-      "pct": 11.4453125
+      "estado": "passa"
     },
     {
       "nome": "intrinsic-size/col-wrap-020",
@@ -7788,7 +7739,7 @@
         1
       ],
       "estado": "falha",
-      "pct": 8.30078125
+      "pct": 4.39453125
     },
     {
       "nome": "percentage-heights-016",
