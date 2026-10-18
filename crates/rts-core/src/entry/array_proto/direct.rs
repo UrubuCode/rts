@@ -22,7 +22,7 @@ pub fn array_push_direct(this: u64, value: u64, name: i64) -> u64 {
         let cell = Value(this)
             .as_slot()
             .filter(|cell| context.elements_at(*cell).is_some())?;
-        if super::stack::refuses_append(context, cell) {
+        if super::stack::refuses_push(context, cell) {
             return None;
         }
         let mut elements = context.elements_at_mut(cell)?;

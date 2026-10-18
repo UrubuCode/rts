@@ -333,8 +333,38 @@ pub(in crate::entry) fn delete_own(object: u64, key: u64) -> bool {
         // BURACO — `a.length` não muda, `a[0]` lê `undefined` e `0 in a` passa a
         // ser falso. É o único caminho que cria um buraco num array que já
         // existe; os outros dois (o literal e o crescimento) o criam ao nascer.
+        // A string's own index and `length` are non-configurable: the removal is
+        // refused (`false`), and a string has no other own keys to fall through to.
+        if super::super::string::text::string_element(context, slot, Value(key)).is_some() {
+            return false;
+        }
+        if let Some(named) = property_key(context, Value(key))
+            && super::super::string::text::string_property(context, slot, named).is_some()
+        {
+            return false;
+        }
         if let Some(at) = super::super::array::as_index(context, Value(key)) {
             let vazio = super::super::array::hole_of(context);
+            // A present element of a sealed/frozen array, or one pinned with
+            // `configurable: false`, is not removed.
+            let present = context.elements_at(slot).is_some_and(|row| {
+                row.get(at)
+                    .is_some_and(|held| !super::super::array::is_hole(context, *held))
+            });
+            if present {
+                let spelled = context.well_known(&at.to_string());
+                let refused = match spelled {
+                    crate::object::Key::Name(k) => {
+                        super::super::integrity::refuses_key_removal(context, slot, k)
+                    }
+                    crate::object::Key::Index(_) => {
+                        super::super::integrity::refuses_removal(context, slot)
+                    }
+                };
+                if refused {
+                    return false;
+                }
+            }
             if let Some(mut elements) = context.elements_at_mut(slot) {
                 // Além do fim não há o que remover, e `delete` responde `true`
                 // por não existir — a mesma leitura que o caminho de shape faz.

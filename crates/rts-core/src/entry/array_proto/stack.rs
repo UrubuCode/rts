@@ -55,7 +55,7 @@ pub(super) extern "C" fn push(_e: u64, this: u64, a0: u64, a1: u64, a2: u64, a3:
         // Nothing to add is nothing to refuse: `a.push()` re-states the length
         // it already has, and re-stating the same value is permitted even on a
         // non-writable property.
-        if !more.is_empty() && refuses_append(context, cell) {
+        if !more.is_empty() && refuses_push(context, cell) {
             return (Some(undefined_of(context)), Some(Ok(refusal(context, cell))));
         }
         // Appended IN PLACE. `staged` copies, and it copies for a reason —
@@ -118,6 +118,12 @@ pub(super) fn refuses_append(context: &mut Context, cell: u32) -> bool {
     }
 }
 
+/// Whether `push` refuses: the pinned `length` or frozen array of
+/// [`refuses_append`], and also a non-extensible one, since a push adds an index.
+pub(super) fn refuses_push(context: &mut Context, cell: u32) -> bool {
+    refuses_append(context, cell) || super::super::integrity::refuses_growth(context, cell)
+}
+
 /// What the refusal SAYS, which differs by which of the two caused it.
 ///
 /// The message is the only part of a `TypeError` a program usually reads, and
@@ -126,6 +132,10 @@ pub(super) fn refuses_append(context: &mut Context, cell: u32) -> bool {
 /// changed. One message for both would name the wrong one half the time.
 fn refusal(context: &Context, cell: u32) -> String {
     if super::super::integrity::refuses_write(context, cell) {
+        let at = context.elements_at(cell).map_or(0, <[u64]>::len);
+        return format!("Cannot add property {at}, object is not extensible");
+    }
+    if super::super::integrity::refuses_growth(context, cell) {
         let at = context.elements_at(cell).map_or(0, <[u64]>::len);
         return format!("Cannot add property {at}, object is not extensible");
     }
@@ -145,7 +155,8 @@ pub(super) extern "C" fn pop(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _
         if context
             .elements_at(cell)
             .is_some_and(|elements| !elements.is_empty())
-            && refuses_append(context, cell)
+            && (refuses_append(context, cell)
+                || super::super::integrity::refuses_removal(context, cell))
         {
             return (Some(undefined_of(context)), Some(refusal(context, cell)));
         }

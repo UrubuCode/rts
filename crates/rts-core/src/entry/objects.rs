@@ -504,7 +504,26 @@ pub(in crate::entry) fn resolve_store(context: &mut Context, slot: u32, key: Key
     // A key the object does not have yet is GROWTH, which all three integrity
     // levels refuse — and a sealed object refuses only that, which is why the
     // question is asked of presence rather than of the level.
+    // An array element is not in the shape, so presence for an index is asked
+    // of the element row: otherwise overwriting an element of a sealed or
+    // non-extensible array was refused as if it were a new index.
+    let element_at = match key {
+        Key::Index(at) => Some(at as usize),
+        // A computed key arrives as a NAME even when it spells an index.
+        Key::Name(named) => context
+            .interner
+            .text(named)
+            .and_then(crate::object::as_array_index)
+            .map(|at| at as usize),
+    };
+    let element_present = element_at.is_some_and(|at| {
+        context.elements_at(slot).is_some_and(|row| {
+            row.get(at)
+                .is_some_and(|held| !super::array::is_hole(context, *held))
+        })
+    });
     if super::integrity::refuses_growth(context, slot)
+        && !element_present
         && own_property(context, slot, key).is_none()
     {
         return Store::Refused(format!(
