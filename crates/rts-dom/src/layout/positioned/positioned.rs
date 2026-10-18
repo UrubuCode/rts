@@ -242,7 +242,7 @@ pub(in crate::layout) fn layout_out_of_flow(
     // abspos-007`). Scoped to the abspos path on purpose — a flex/grid item's
     // height is governed by its container, not by this transfer, and that path
     // never reaches here.
-    let (h, forced_outer_h) = if css.aspect_ratio.is_some()
+    let (w, forced_outer_w, h, forced_outer_h) = if css.aspect_ratio.is_some()
         && css.height.is_none()
         && !stretch_h
         && forced_outer_h.is_none()
@@ -250,6 +250,8 @@ pub(in crate::layout) fn layout_out_of_flow(
         let [bt, brd_r, bb_b, brd_l] = crate::style::borders::used_widths(&css);
         let frame_h = css.padding.resolve_h(&resolve) + brd_l + brd_r;
         let frame_v = css.padding.resolve_v(&resolve) + bt + bb_b;
+        let margin_h = css.margin.resolve_h(&resolve);
+        let margin_v = css.margin.resolve_v(&resolve);
         let content_w = (w - frame_h).max(0.0);
         match crate::layout::measure::aspect_ratio::height_for_width(
             &css, content_w, frame_h, frame_v,
@@ -261,14 +263,45 @@ pub(in crate::layout) fn layout_out_of_flow(
             // minimum in `block.rs`): `width:100;aspect-ratio:2/1` with a 100px
             // child is 100 tall, not the ratio's 50 (WPT `abspos-012`).
             Some(content_h) => {
-                let bb_h = (content_h + frame_v).max(h);
-                let margin_v = css.margin.resolve_v(&resolve);
-                (bb_h, Some(bb_h + margin_v))
+                let content_h = content_h.max((h - frame_v).max(0.0));
+                // A `min-height`/`max-height` TRANSFERS through the ratio to the
+                // width (CSS Sizing 4 §5.1): clamp the height, and when the
+                // clamp bites re-derive the width from the clamped height — so
+                // an `inset:0; max-height:100px; aspect-ratio:1/1` box in a
+                // 200-wide block is 100×100, not the 200 the inset stretch gave
+                // (WPT `abspos-021`/`-008`). `%` of max/min-height is against the
+                // containing block's height, like `height` itself.
+                let to_content = |v: f32| {
+                    if css.border_box.unwrap_or(false) {
+                        (v - frame_v).max(0.0)
+                    } else {
+                        v
+                    }
+                };
+                let max_hc = resolve_height(css.max_height, Some(cb.h), &resolve).map(to_content);
+                let min_hc = resolve_height(css.min_height, Some(cb.h), &resolve).map(to_content);
+                let clamped_h = crate::style::clamp_size(content_h, min_hc, max_hc);
+                if (clamped_h - content_h).abs() > 0.01 {
+                    // the constraint bit → the width follows the clamped height.
+                    let new_cw = crate::layout::measure::aspect_ratio::width_for_height(
+                        &css, clamped_h, frame_h, frame_v,
+                    )
+                    .unwrap_or(content_w);
+                    (
+                        new_cw + frame_h,
+                        Some(new_cw + frame_h + margin_h),
+                        clamped_h + frame_v,
+                        Some(clamped_h + frame_v + margin_v),
+                    )
+                } else {
+                    let bb_h = content_h + frame_v;
+                    (w, forced_outer_w, bb_h, Some(bb_h + margin_v))
+                }
             }
-            None => (h, forced_outer_h),
+            None => (w, forced_outer_w, h, forced_outer_h),
         }
     } else {
-        (h, forced_outer_h)
+        (w, forced_outer_w, h, forced_outer_h)
     };
     // Os offsets são RELATIVOS ao container: soma a origem do containing block.
     // Sem NENHUM dos dois insets de um eixo, a posição não é a origem do

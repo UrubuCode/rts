@@ -12,6 +12,7 @@ mod freelist;
 mod geometria_cache;
 mod invalidacao;
 mod logicas_eixo_proprio;
+mod zzz_probe;
 mod medidor_ativo;
 mod mutacao;
 mod parser;

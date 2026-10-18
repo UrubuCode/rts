@@ -161,3 +161,17 @@ fn abspos_explicit_height_plus_ratio_sizes_width_over_inset_stretch() {
     let (dom, list) = geometria(three, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
 }
+
+/// A `max-height` transfers through the aspect-ratio to the WIDTH of an
+/// out-of-flow box (CSS Sizing 4 §5.1): `inset:0; max-height:100px;
+/// aspect-ratio:1/1` in a 200-wide block clamps the height to 100 and the
+/// width follows to 100, not the 200 the inset stretch gave (WPT
+/// `css-sizing/aspect-ratio/abspos-021`/`-008`).
+#[test]
+fn abspos_max_height_transfers_through_ratio_to_width() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="position:relative;width:200px;height:300px">
+      <div id="t" style="position:absolute;left:0;right:0;top:0;bottom:0;max-height:100px;aspect-ratio:1/1"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
