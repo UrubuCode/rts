@@ -265,6 +265,10 @@ fn fetch_big(this: u64, at: f64, kind: Kind, little: bool) -> u64 {
 /// and the bytes keep what they held. Coercing would make a program no other
 /// engine accepts run and answer something.
 fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
+    // ToBigInt first, outside every borrow (it can run user code or throw).
+    let Some(value) = super::coerce_for_store(value, kind) else {
+        return super::undefined();
+    };
     let Some(index) = position(this, at, kind) else {
         return super::undefined();
     };

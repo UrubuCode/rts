@@ -141,6 +141,15 @@ pub(in crate::entry) fn construct(
         let is_string = Value(source)
             .as_slot()
             .is_some_and(|cell| context.text_at(cell).is_some());
+        if let Some(from) = Value(source).as_slot().and_then(|c| context.view_at(c))
+            && from.kind != Kind::Raw
+            && from.kind.is_bigint() != kind.is_bigint()
+        {
+            failure = Some(Failure::Type(
+                "Cannot mix BigInt and other types, use explicit conversions".to_string(),
+            ));
+            return undefined_of(context);
+        }
         let values = match source == absent || is_string {
             true => Vec::new(),
             false => match &array_like {
@@ -626,16 +635,12 @@ pub(in crate::entry) fn fill(this: u64, value: u64, begin: u64, end: u64) -> u64
     // A bigint element takes the value AS IT ARRIVED: `ToNumber` of a bigint is
     // the `TypeError` the two families refuse each other with, and coercing
     // here would have made every `BigInt64Array.fill(1n)` fill zeros.
-    let value = match with_current(|context| {
-        let numeric = super::view_of(context, this).is_none_or(|view| !view.kind.is_bigint());
-        numeric && super::super::bigints::digits_of(context, value).is_none()
-    }) {
-        true => Value::from_f64(super::super::class_support::to_number(value)).bits(),
-        false => value,
-    };
-    if crate::entry::throw::in_flight() {
+    let Some(kind) = super::store_kind(this) else {
         return super::undefined();
-    }
+    };
+    let Some(value) = super::coerce_for_store(value, kind) else {
+        return super::undefined();
+    };
     with_current(|context| {
         if let Some(view) = super::view_of(context, this) {
             let (first, last) = super::range(view.count(), begin, end);
@@ -778,6 +783,20 @@ pub(super) fn word_of(context: &Context, value: u64, kind: Kind) -> u64 {
     super::element_word(context, value, kind).unwrap_or(0)
 }
 
+/// Element-versus-needle equality. Two bigints are cells, so identity is the
+/// wrong test: they are equal when their digits are.
+fn same_element(context: &Context, held: u64, search: u64, zero: bool) -> bool {
+    let a = crate::entry::bigints::digits_of(context, held);
+    let b = crate::entry::bigints::digits_of(context, search);
+    if a.is_some() || b.is_some() {
+        return a.is_some() && a == b;
+    }
+    match zero {
+        true => crate::value::same_value_zero(Value(held), Value(search), |x, y| context.same_text(x, y)),
+        false => crate::value::strict_equals(Value(held), Value(search), |x, y| context.same_text(x, y)),
+    }
+}
+
 /// `t.includes(search, from)` — strict equality, like `Array.prototype`'s,
 /// except `NaN` matches itself here as it does there for `includes` (unlike
 /// `indexOf`).
@@ -799,7 +818,7 @@ pub(in crate::entry) fn includes(this: u64, search: u64, from: u64) -> bool {
             .get(start..)
             .unwrap_or_default()
             .iter()
-            .any(|held| crate::value::same_value_zero(Value(*held), Value(search), |a, b| context.same_text(a, b)))
+            .any(|held| same_element(context, *held, search, true))
     })
 }
 
@@ -822,7 +841,7 @@ pub(in crate::entry) fn index_of(this: u64, search: u64, from: u64) -> f64 {
         let values = elements(context, &view);
         let start = relative_start(from, values.len());
         for (at, held) in values.iter().enumerate().skip(start) {
-            if crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b)) {
+            if same_element(context, *held, search, false) {
                 return at as f64;
             }
         }
@@ -858,7 +877,7 @@ pub(in crate::entry) fn last_index_of(this: u64, search: u64, from: u64) -> f64 
         };
         for at in (0..=last).rev() {
             let Some(held) = values.get(at) else { continue };
-            if crate::value::strict_equals(Value(*held), Value(search), |a, b| context.same_text(a, b)) {
+            if same_element(context, *held, search, false) {
                 return at as f64;
             }
         }
