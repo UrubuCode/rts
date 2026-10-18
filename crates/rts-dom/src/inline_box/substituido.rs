@@ -245,6 +245,24 @@ pub(crate) fn replaced_inline_size(
             }
             _ => None,
         });
+    // A propriedade CSS `aspect-ratio` (quando presente como `<ratio>` puro —
+    // `auto W/H` nem parseia hoje) SOBREPÕE a razão natural/dos-atributos para
+    // o replaced (CSS Sizing 4 §5): um `<img height:100; aspect-ratio:1/2>` é
+    // 50 de largura (height×ratio), não a largura natural nem o atributo (WPT
+    // `css-sizing/aspect-ratio/flex-aspect-ratio-017` e a família replaced). Até
+    // aqui `ratio` só vinha dos pixels/atributos, e a propriedade era ignorada.
+    // Gatado a content-box: com `box-sizing:border-box` a razão aplica-se à
+    // BORDER-BOX (padding/borda inclusos), mas `clamp_replaced` opera na
+    // content-box e o frame só entra depois — aplicar a razão aqui poria o 1:1
+    // no conteúdo e a caixa sairia torta sob padding assimétrico (WPT
+    // `replaced-element-013`/`-014`). Esse caso fica no caminho da razão natural
+    // como antes; o override da propriedade cobre o content-box, que é a
+    // esmagadora maioria.
+    let ratio = css
+        .aspect_ratio
+        .filter(|r| *r > 0.0 && r.is_finite() && css.border_box != Some(true))
+        .map(|r| (r, 1.0))
+        .or(ratio);
     let natural = match (ratio, default_box) {
         (Some(r), _) => r,
         (None, Some(d)) => d,

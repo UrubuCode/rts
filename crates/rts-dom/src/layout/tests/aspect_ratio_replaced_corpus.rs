@@ -175,3 +175,17 @@ fn abspos_max_height_transfers_through_ratio_to_width() {
     let (dom, list) = geometria(html, 800.0);
     assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
 }
+
+/// The CSS `aspect-ratio` property on a REPLACED element (content-box)
+/// overrides the natural/attribute ratio and derives the missing axis (CSS
+/// Sizing 4 §5): `<img height:100; aspect-ratio:1/2>` is 50 wide (WPT
+/// `css-sizing/aspect-ratio/flex-aspect-ratio-017` and the replaced family).
+/// Before, the property was ignored and only the pixel/attribute ratio fed the
+/// transfer.
+#[test]
+fn css_aspect_ratio_on_replaced_overrides_and_transfers() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><img id="t" src="x.png" style="height:100px;aspect-ratio:1/2"></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (50.0, 100.0));
+}
