@@ -487,22 +487,19 @@ pub(in crate::layout) fn layout_children_column(
                     viewport_w: ctx.viewport_w,
                     viewport_h: ctx.viewport_h,
                 };
-                // `flex-basis: content`/`max-content` IGNORA a `height` do item
-                // para o main (que passa a ser content-based), por isso a altura
-                // só conta se a base NÃO for de conteúdo (WPT
-                // `percentage-heights-016/017/018`: `flex:1 1 content; height:100`
-                // → o neto `height:100%` é `auto`).
-                let fb_content = matches!(
-                    ccss.flex_basis,
-                    Some(crate::style::Dimension::MaxContent | crate::style::Dimension::MinContent | crate::style::Dimension::FitContent)
-                );
+                // A `height` do item só determina a FLEX BASE (e portanto o main)
+                // quando `flex-basis` é `auto`/omitido — qualquer base explícita
+                // (`0`, `0%`, `content`, `100px`) IGNORA a `height` (WPT
+                // `percentage-heights-016/017/018`: `flex:1 1 content|0|0%;
+                // height:100` → o neto `height:100%` é `auto`, não 100).
+                let fb_is_auto = matches!(ccss.flex_basis, None | Some(crate::style::Dimension::Auto));
                 let fb_definite = ccss.flex_basis.and_then(|b| crate::style::dimensao_absoluta(b, &r)).is_some();
                 // `min-height` só fixa o main quando é um comprimento > 0 (um
                 // `min-height:0` não constrange nada).
                 let min_h_definite = ccss.min_height
                     .and_then(|m| crate::style::dimensao_absoluta(m, &r))
                     .is_some_and(|v| v > 0.0);
-                (!fb_content && ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some())
+                (fb_is_auto && ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some())
                     || ccss.aspect_ratio.is_some()
                     // `flex-basis` ABSOLUTO dá um main definido (WPT
                     // `percentage-heights-007`: `flex: 0 0 100px`).
