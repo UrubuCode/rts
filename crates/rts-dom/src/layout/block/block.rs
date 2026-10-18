@@ -370,8 +370,25 @@ pub(crate) fn layout_block(
             padding_h + border_h,
             frame_v,
         )?;
-        // capado pelo max-width definido — o transferido não o ultrapassa.
-        Some(mxw.map_or(transferido, |mx| transferido.min(mx)))
+        // O mínimo TRANSFERIDO não ultrapassa um tamanho DEFINIDO no mesmo eixo:
+        // nem o `max-width` definido (WPT `block-aspect-ratio-045`), nem uma
+        // `width` definida (WPT `block-aspect-ratio-048`, onde `width:100` com
+        // `min-height:100; ratio 2/1` fica 100 de largura, não os 200 que a
+        // razão pede de volta). CSS Sizing 4 §5.1.
+        let def_w = css.width.and_then(|w| {
+            crate::style::dimensao_absoluta(w, &resolve).map(|v| {
+                if border_box {
+                    (v - (padding_h + border_h)).max(0.0)
+                } else {
+                    v
+                }
+            })
+        });
+        let teto = match (mxw, def_w) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        Some(teto.map_or(transferido, |t| transferido.min(t)))
     });
     // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
     // em três sítios da `aspect-ratio`: a largura-por-razão aqui, a altura-por-
