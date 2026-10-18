@@ -327,6 +327,26 @@ pub(crate) fn layout_block(
     // ocupar o pai. É a diferença mais visível entre uma tabela e um `<div>`, e
     // sem ela cada tabela da página nasce com a largura da coluna inteira.
     let shrink_to_fit = shrink_to_fit || used.is_some_and(crate::style::DisplayKind::is_table_box);
+    // `mxw` é computado ANTES de `mnw` porque o mínimo TRANSFERIDO pela razão
+    // (de `min-height`, abaixo) é limitado pelo `max-width` DEFINIDO — a regra
+    // "the definite max-width should win the transferred minimum" (CSS Sizing 4
+    // §5.1, WPT `block-aspect-ratio-045`). Um `min-width` EXPLÍCITO continua a
+    // vencer o max (CSS normal, via `clamp_size`); só o transferido é capado.
+    let mxw = crate::layout::measure::intrinsic_min_max::resolve(
+        css.max_width,
+        dom,
+        id,
+        font_for_content,
+        ctx,
+        &resolve,
+    )
+    .map(|v| {
+        if border_box {
+            (v - (padding_h + border_h)).max(0.0)
+        } else {
+            v
+        }
+    });
     let mnw = crate::layout::measure::intrinsic_min_max::resolve(
         css.min_width,
         dom,
@@ -344,22 +364,14 @@ pub(crate) fn layout_block(
     })
     .or_else(|| {
         let mnh = resolve_height(css.min_height, avail_h, &resolve)?;
-        crate::layout::measure::aspect_ratio::width_for_height(&css, mnh, padding_h + border_h, frame_v)
-    });
-    let mxw = crate::layout::measure::intrinsic_min_max::resolve(
-        css.max_width,
-        dom,
-        id,
-        font_for_content,
-        ctx,
-        &resolve,
-    )
-    .map(|v| {
-        if border_box {
-            (v - (padding_h + border_h)).max(0.0)
-        } else {
-            v
-        }
+        let transferido = crate::layout::measure::aspect_ratio::width_for_height(
+            &css,
+            mnh,
+            padding_h + border_h,
+            frame_v,
+        )?;
+        // capado pelo max-width definido — o transferido não o ultrapassa.
+        Some(mxw.map_or(transferido, |mx| transferido.min(mx)))
     });
     // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
     // em três sítios da `aspect-ratio`: a largura-por-razão aqui, a altura-por-
