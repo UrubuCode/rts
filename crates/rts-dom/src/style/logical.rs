@@ -99,7 +99,12 @@ pub(crate) fn e_direction_dependente(prop: &str) -> bool {
         || prop.contains("inline-end")
         || matches!(
             prop,
-            "margin-start" | "margin-end" | "padding-start" | "padding-end" | "border-start" | "border-end"
+            "margin-start"
+                | "margin-end"
+                | "padding-start"
+                | "padding-end"
+                | "border-start"
+                | "border-end"
         )
 }
 
@@ -129,7 +134,12 @@ pub(crate) fn e_bloco_writing_mode_dependente(prop: &str) -> bool {
 pub(crate) fn e_writing_mode_dependente(prop: &str) -> bool {
     matches!(
         prop,
-        "inline-size" | "block-size" | "min-inline-size" | "min-block-size" | "max-inline-size" | "max-block-size"
+        "inline-size"
+            | "block-size"
+            | "min-inline-size"
+            | "min-block-size"
+            | "max-inline-size"
+            | "max-block-size"
     )
 }
 
@@ -144,7 +154,11 @@ fn to_physical(prop: &str, wm: WritingMode, dir: Direction) -> Option<String> {
     // Vertical: TROCADOS — inline=Y (`eixo_y_forward`), bloco=X
     // (`eixo_x_forward`, que já ignora `direction` nesse caso).
     let (inline_start, inline_end) = if wm.is_horizontal() {
-        if eixo_x_forward(wm, dir) { ("left", "right") } else { ("right", "left") }
+        if eixo_x_forward(wm, dir) {
+            ("left", "right")
+        } else {
+            ("right", "left")
+        }
     } else if eixo_y_forward(wm, dir) {
         ("top", "bottom")
     } else {
@@ -231,6 +245,26 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             }
             return true;
         }
+    }
+    if prop == "border-inline"
+        || prop == "border-inline-width"
+        || prop == "border-inline-style"
+        || prop == "border-inline-color"
+    {
+        let suffix = &prop["border-inline".len()..];
+        let _ = try_apply(css, &format!("border-inline-start{suffix}"), val);
+        let _ = try_apply(css, &format!("border-inline-end{suffix}"), val);
+        return true;
+    }
+    if prop == "border-block"
+        || prop == "border-block-width"
+        || prop == "border-block-style"
+        || prop == "border-block-color"
+    {
+        let suffix = &prop["border-block".len()..];
+        let _ = try_apply(css, &format!("border-block-start{suffix}"), val);
+        let _ = try_apply(css, &format!("border-block-end{suffix}"), val);
+        return true;
     }
 
     // As DIMENSÕES lógicas: `inline-size` é a largura e `block-size` a altura,
@@ -341,7 +375,10 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
 /// which is also what keeps a nested box from entering a second frame.
 ///
 /// A horizontal `frame` answers the style unchanged. Pure; the caller caches.
-pub(crate) fn rotate_into_frame(css: &ComputedStyle, frame: super::values::AxisMap) -> ComputedStyle {
+pub(crate) fn rotate_into_frame(
+    css: &ComputedStyle,
+    frame: super::values::AxisMap,
+) -> ComputedStyle {
     use super::borders::SideName;
     use super::values::{Axis, AxisMap, Edges};
     let mut out = css.clone();
@@ -351,7 +388,12 @@ pub(crate) fn rotate_into_frame(css: &ComputedStyle, frame: super::values::AxisM
     let m = AxisMap::new(frame.writing_mode(), Direction::Ltr);
     // The physical side each frame side reads, in frame order top, right,
     // bottom, left: block-start, inline-end, block-end, inline-start.
-    let src = [m.start(Axis::Block), m.end(Axis::Inline), m.end(Axis::Block), m.start(Axis::Inline)];
+    let src = [
+        m.start(Axis::Block),
+        m.end(Axis::Inline),
+        m.end(Axis::Block),
+        m.start(Axis::Inline),
+    ];
     fn pick<T: Copy>(side: SideName, [t, r, b, l]: [T; 4]) -> T {
         match side {
             SideName::Top => t,
@@ -361,22 +403,68 @@ pub(crate) fn rotate_into_frame(css: &ComputedStyle, frame: super::values::AxisM
         }
     }
     fn permute<T: Copy>(src: [SideName; 4], a: [T; 4]) -> [T; 4] {
-        [pick(src[0], a), pick(src[1], a), pick(src[2], a), pick(src[3], a)]
+        [
+            pick(src[0], a),
+            pick(src[1], a),
+            pick(src[2], a),
+            pick(src[3], a),
+        ]
     }
     let four = |a| permute(src, a);
     let edges = |e: &Edges| {
         let [top, right, bottom, left] = four([e.top, e.right, e.bottom, e.left]);
-        Edges { top, right, bottom, left }
+        Edges {
+            top,
+            right,
+            bottom,
+            left,
+        }
     };
     out.margin = edges(&css.margin);
     out.padding = edges(&css.padding);
     out.border_widths = edges(&css.border_widths);
-    [out.border_top_style, out.border_right_style, out.border_bottom_style, out.border_left_style] =
-        permute(src, [css.border_top_style, css.border_right_style, css.border_bottom_style, css.border_left_style]);
-    [out.border_top_color, out.border_right_color, out.border_bottom_color, out.border_left_color] =
-        permute(src, [css.border_top_color, css.border_right_color, css.border_bottom_color, css.border_left_color]);
-    [out.inset_top, out.inset_right, out.inset_bottom, out.inset_left] =
-        permute(src, [css.inset_top, css.inset_right, css.inset_bottom, css.inset_left]);
+    [
+        out.border_top_style,
+        out.border_right_style,
+        out.border_bottom_style,
+        out.border_left_style,
+    ] = permute(
+        src,
+        [
+            css.border_top_style,
+            css.border_right_style,
+            css.border_bottom_style,
+            css.border_left_style,
+        ],
+    );
+    [
+        out.border_top_color,
+        out.border_right_color,
+        out.border_bottom_color,
+        out.border_left_color,
+    ] = permute(
+        src,
+        [
+            css.border_top_color,
+            css.border_right_color,
+            css.border_bottom_color,
+            css.border_left_color,
+        ],
+    );
+    [
+        out.inset_top,
+        out.inset_right,
+        out.inset_bottom,
+        out.inset_left,
+    ] = permute(
+        src,
+        [
+            css.inset_top,
+            css.inset_right,
+            css.inset_bottom,
+            css.inset_left,
+        ],
+    );
     // The frame's width is the inline dimension: the physical height.
     (out.width, out.height) = (css.height, css.width);
     (out.min_width, out.min_height) = (css.min_height, css.min_width);
@@ -386,7 +474,11 @@ pub(crate) fn rotate_into_frame(css: &ComputedStyle, frame: super::values::AxisM
     // A corner is named by its two sides, and its two radii swap axes with
     // the frame: the horizontal radius becomes the vertical one.
     let corner = |a: SideName, b: SideName| -> (Option<f32>, Option<f32>) {
-        let (v, h) = if matches!(a, SideName::Top | SideName::Bottom) { (a, b) } else { (b, a) };
+        let (v, h) = if matches!(a, SideName::Top | SideName::Bottom) {
+            (a, b)
+        } else {
+            (b, a)
+        };
         let (x, y) = match (v, h) {
             (SideName::Top, SideName::Left) => (css.corner_tl, css.corner_tl_y),
             (SideName::Top, _) => (css.corner_tr, css.corner_tr_y),

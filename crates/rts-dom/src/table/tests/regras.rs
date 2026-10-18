@@ -195,4 +195,3 @@ fn a_legenda_nao_vira_uma_coluna_da_tabela() {
         "a legenda devia ficar ACIMA da grade"
     );
 }
-

@@ -46,7 +46,8 @@ fn fonte_de_picture(dom: &Dom, img: NodeIdx, viewport_w: f32) -> Option<NodeIdx>
         // Sem `media` a `<source>` casa sempre; é a forma que serve só para
         // oferecer outro formato ou outra densidade.
         dom.node(f).attr("media").is_none_or(|m| {
-            crate::style::stylesheet::MediaQuery::parse(m).matches(&dom.media_context_at_width(viewport_w))
+            crate::style::stylesheet::MediaQuery::parse(m)
+                .matches(&dom.media_context_at_width(viewport_w))
         })
     })
 }
@@ -169,6 +170,10 @@ pub(crate) fn replaced_inline_size(
     let declarado = |d: Option<crate::style::Dimension>, attr: &str| match d {
         Some(crate::style::Dimension::Auto) => None,
         Some(crate::style::Dimension::Percent(_)) if !base_de_percentagem_definida => None,
+        // `width: stretch` (CSS Sizing 4): a largura disponível, como num bloco.
+        // Só com base finita (uma medição intrínseca mede com `avail_w`
+        // infinito, e aí não há contra o quê esticar).
+        Some(crate::style::Dimension::Stretch) => avail_w.is_finite().then_some(avail_w),
         Some(d) => d.resolve(&resolve),
         None => hint_px(attr),
     };
@@ -182,8 +187,14 @@ pub(crate) fn replaced_inline_size(
     // indefinite by definition (`height-percentage-005`, WPT: an `<img
     // height:100%>` in an auto-height `<div>` is its natural square).
     let vertical = |d: Option<crate::style::Dimension>| match d {
-        Some(crate::style::Dimension::Percent(_)) => crate::layout::resolve_height(d, cb_h, &resolve),
-        Some(crate::style::Dimension::Calc(c)) if c.pct != 0.0 => crate::layout::resolve_height(d, cb_h, &resolve),
+        // `height: stretch` preenche a altura definida do containing block.
+        Some(crate::style::Dimension::Stretch) => cb_h,
+        Some(crate::style::Dimension::Percent(_)) => {
+            crate::layout::resolve_height(d, cb_h, &resolve)
+        }
+        Some(crate::style::Dimension::Calc(c)) if c.pct != 0.0 => {
+            crate::layout::resolve_height(d, cb_h, &resolve)
+        }
         d => d.and_then(|d| d.resolve(&resolve)),
     };
     let declarado_altura = |d: Option<crate::style::Dimension>, attr: &str| match d {
@@ -219,17 +230,69 @@ pub(crate) fn replaced_inline_size(
     // `<source>` já lhe deu as duas dimensões), então a diferença não importa.
     let ratio = dom
         .image_dims(id)
-        .map(|(iw, ih)| if rotated { (ih as f32, iw as f32) } else { (iw as f32, ih as f32) })
+        .map(|(iw, ih)| {
+            if rotated {
+                (ih as f32, iw as f32)
+            } else {
+                (iw as f32, ih as f32)
+            }
+        })
         .or_else(|| match (attr_px("width"), attr_px("height")) {
             (Some(aw), Some(ah)) if aw > 0.0 && ah > 0.0 => Some((aw, ah)),
             // A canvas always has an intrinsic size: a missing attribute is
             // its default, 300 wide or 150 tall.
             (aw, ah) if is_canvas => {
-                let (dw, dh) = if rotated { (150.0, 300.0) } else { (300.0, 150.0) };
+                let (dw, dh) = if rotated {
+                    (150.0, 300.0)
+                } else {
+                    (300.0, 150.0)
+                };
                 Some((aw.unwrap_or(dw), ah.unwrap_or(dh))).filter(|(w, h)| *w > 0.0 && *h > 0.0)
             }
             _ => None,
         });
+    // A `<canvas>` COERCES its intrinsic size to a declared `aspect-ratio`
+    // (HTML §4.12.5 / CSS Sizing 4): it keeps its width and derives its height
+    // from the ratio, so a `40×10` canvas with `aspect-ratio:1` is
+    // intrinsically 40×40 and a `10×40` one is 10×10 (WPT `replaced-element-045`
+    // /`-046`). This is the canvas's own size, so it applies whatever the box
+    // sizing — unlike the `declarada` override below, which the border-box case
+    // skips. Only the pure `<ratio>` form; `auto <ratio>` keeps the attributes'
+    // ratio. An `<img>` is untouched: its natural size stays as the pixels say
+    // (013/014).
+    let ratio = match (is_canvas, ratio) {
+        (true, Some((rw, _))) => css
+            .aspect_ratio
+            .filter(|r| *r > 0.0 && r.is_finite() && css.aspect_ratio_auto != Some(true))
+            .map(|r| (rw, rw / r))
+            .or(ratio),
+        _ => ratio,
+    };
+    // A propriedade CSS `aspect-ratio` (quando presente como `<ratio>` puro —
+    // `auto W/H` nem parseia hoje) SOBREPÕE a razão natural/dos-atributos para
+    // o replaced (CSS Sizing 4 §5): um `<img height:100; aspect-ratio:1/2>` é
+    // 50 de largura (height×ratio), não a largura natural nem o atributo (WPT
+    // `css-sizing/aspect-ratio/flex-aspect-ratio-017` e a família replaced). Até
+    // aqui `ratio` só vinha dos pixels/atributos, e a propriedade era ignorada.
+    // Gatado a content-box: com `box-sizing:border-box` a razão aplica-se à
+    // BORDER-BOX (padding/borda inclusos), mas `clamp_replaced` opera na
+    // content-box e o frame só entra depois — aplicar a razão aqui poria o 1:1
+    // no conteúdo e a caixa sairia torta sob padding assimétrico (WPT
+    // `replaced-element-013`/`-014`). Esse caso fica no caminho da razão natural
+    // como antes; o override da propriedade cobre o content-box, que é a
+    // esmagadora maioria.
+    let declarada = css
+        .aspect_ratio
+        .filter(|r| *r > 0.0 && r.is_finite() && css.border_box != Some(true))
+        .map(|r| (r, 1.0));
+    let ratio = if css.aspect_ratio_auto == Some(true) {
+        // `auto <ratio>`: a razão NATURAL do replaced vence; a `<ratio>`
+        // declarada é só fallback quando não há natural (CSS Sizing 4 §5).
+        ratio.or(declarada)
+    } else {
+        // `<ratio>` puro SOBREPÕE o natural.
+        declarada.or(ratio)
+    };
     let natural = match (ratio, default_box) {
         (Some(r), _) => r,
         (None, Some(d)) => d,
@@ -243,7 +306,8 @@ pub(crate) fn replaced_inline_size(
     // is `replaced_clamp`'s, and why it is its own module is written there.
     let dim = |d: Option<crate::style::Dimension>| d.and_then(|d| d.resolve(&resolve));
     let lw = super::replaced_clamp::AxisLimits::new(dim(css.min_width), dim(css.max_width));
-    let lh = super::replaced_clamp::AxisLimits::new(vertical(css.min_height), vertical(css.max_height));
+    let lh =
+        super::replaced_clamp::AxisLimits::new(vertical(css.min_height), vertical(css.max_height));
     let (w, h) = super::replaced_clamp::clamp_replaced(w0, h0, ratio, natural, lw, lh);
     // A caixa de um replaced é a BORDER-BOX, que é o que `getBoundingClientRect`
     // devolve — e os clamps acima são sobre a content box (`box-sizing` inicial é
@@ -272,7 +336,10 @@ pub(crate) fn replaced_inline_size(
     let pr = p.right.resolve(&resolve).unwrap_or(0.0);
     let pb = p.bottom.resolve(&resolve).unwrap_or(0.0);
     let pl = p.left.resolve(&resolve).unwrap_or(0.0);
-    Some((w.max(0.0) + bl + br + pl + pr, h.max(0.0) + bt + bb + pt + pb))
+    Some((
+        w.max(0.0) + bl + br + pl + pr,
+        h.max(0.0) + bt + bb + pt + pb,
+    ))
 }
 
 /// A razão de aspeto de um replaced (`id` cru, sem resolver `<picture>`): a
@@ -314,13 +381,15 @@ pub(crate) fn largura_min_content_por_razao(
     css: &ComputedStyle,
     resolve: &ResolveCtx,
 ) -> Option<f32> {
-    let h = css
-        .height
-        .and_then(|d| d.resolve(resolve))
-        .or_else(|| css.min_height.and_then(|d| d.resolve(resolve)))
+    let non_pct = |d: Option<crate::style::Dimension>| match d {
+        Some(crate::style::Dimension::Percent(_)) | None => None,
+        Some(d) => d.resolve(resolve),
+    };
+    let h = non_pct(css.height)
+        .or_else(|| non_pct(css.min_height))
         .map(|h| {
-            let h = css.max_height.and_then(|d| d.resolve(resolve)).map_or(h, |mx| h.min(mx));
-            css.min_height.and_then(|d| d.resolve(resolve)).map_or(h, |mn| h.max(mn))
+            let h = non_pct(css.max_height).map_or(h, |mx| h.min(mx));
+            non_pct(css.min_height).map_or(h, |mn| h.max(mn))
         })
         .filter(|h| *h > 0.0)?;
     let (nw, nh) = ratio_do_replaced(dom, id)?;
@@ -342,8 +411,13 @@ pub(crate) fn altura_min_content_por_razao(
         .and_then(|d| d.resolve(resolve))
         .or_else(|| css.min_width.and_then(|d| d.resolve(resolve)))
         .map(|w| {
-            let w = css.max_width.and_then(|d| d.resolve(resolve)).map_or(w, |mx| w.min(mx));
-            css.min_width.and_then(|d| d.resolve(resolve)).map_or(w, |mn| w.max(mn))
+            let w = css
+                .max_width
+                .and_then(|d| d.resolve(resolve))
+                .map_or(w, |mx| w.min(mx));
+            css.min_width
+                .and_then(|d| d.resolve(resolve))
+                .map_or(w, |mn| w.max(mn))
         })
         .filter(|w| *w > 0.0)?;
     let (nw, nh) = ratio_do_replaced(dom, id)?;

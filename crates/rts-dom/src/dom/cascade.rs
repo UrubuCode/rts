@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     /// Resolve o `ComputedStyle` final de um nó pela cascade da MDN (estágio 1
     /// origem/importância → especificidade → ordem). É o estado que o LAYOUT (em
     /// TS) e o render leem para decidir cor/caixa/tamanho. `None` se o id não
@@ -132,7 +131,9 @@ impl Dom {
         let pai = self.computed_style_idx(idx);
         let direction = pai.as_deref().and_then(|p| p.direction);
         let writing_mode = pai.as_deref().and_then(|p| p.writing_mode);
-        let decls = self.stylesheet.declarations_from(&matched, None, direction, writing_mode);
+        let decls = self
+            .stylesheet
+            .declarations_from(&matched, None, direction, writing_mode);
         // Herda do originante e só depois aplica o que o pseudo declara — a
         // ordem inversa perderia a herança para qualquer propriedade que o
         // pseudo não declare.
@@ -157,11 +158,7 @@ impl Dom {
     /// mudaria a MEDIDA da linha (`ctx.measurer`), e essa medida é decidida em
     /// `layout/inline/line.rs`/`layout/inline/runs.rs`, fora deste lote (lote S). Aplicar
     /// só a cor é seguro porque pintar não muda geometria nenhuma.
-    pub fn marker_color(
-        &self,
-        idx: NodeIdx,
-        herdado: &crate::style::ComputedStyle,
-    ) -> Option<u32> {
+    pub fn marker_color(&self, idx: NodeIdx, herdado: &crate::style::ComputedStyle) -> Option<u32> {
         if !self.stylesheet.has_generated_content() {
             return None;
         }
@@ -183,7 +180,12 @@ impl Dom {
         if matched.is_empty() {
             return None;
         }
-        let decls = self.stylesheet.declarations_from(&matched, None, herdado.direction, herdado.writing_mode);
+        let decls = self.stylesheet.declarations_from(
+            &matched,
+            None,
+            herdado.direction,
+            herdado.writing_mode,
+        );
         let mut css = herdado.clone();
         css.merge_over(&decls.normal);
         css.merge_over(&decls.important);
@@ -256,7 +258,10 @@ impl Dom {
     /// Núcleo da cascade — computa o ALVO-BASE de um nó (SEM a camada de animação; o
     /// override interpolado é sobreposto por quem consome, em `computed_style_idx`).
     /// Chamado via `base_style_idx` (memoizado por revisão estrutural).
-    pub(in crate::dom) fn computed_style_idx_inner(&self, idx: NodeIdx) -> Option<crate::style::ComputedStyle> {
+    pub(in crate::dom) fn computed_style_idx_inner(
+        &self,
+        idx: NodeIdx,
+    ) -> Option<crate::style::ComputedStyle> {
         use crate::style;
         let tag = match &self.nodes[idx].kind {
             NodeKind::Element { tag } => tag.as_str(),
@@ -364,33 +369,32 @@ impl Dom {
                 )
             })
         };
-        let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> =
-            match (
-                parent_vars,
-                own_customs.is_empty() && own_customs_important.is_empty(),
-            ) {
-                (p, true) => p, // só herda: compartilha o Arc (O(1))
-                (p, false) => {
-                    crate::bump!(custom_maps_built);
-                    let mut m = p.map(|a| (*a).clone()).unwrap_or_default();
-                    // Normais entram primeiro; as importantes vencem por nome.
-                    for (k, v) in own_customs
-                        .into_iter()
-                        .chain(own_customs_important.into_iter())
-                    {
-                        // AUTO-REFERÊNCIA DIRETA (`--c: ...var(--c)...`): a declaração é
-                        // guaranteed-invalid (spec) — o Chrome a DESCARTA e mantém a
-                        // anterior válida. Se já há um valor para `k` e a nova declaração
-                        // se auto-referencia, ignora a nova. Sem valor anterior, insere
-                        // e o consumidor corta o ciclo.
-                        if references_self(&k, &v) && m.contains_key(&k) {
-                            continue;
-                        }
-                        m.insert(k, v);
+        let vars_arc: Option<std::sync::Arc<std::collections::HashMap<String, String>>> = match (
+            parent_vars,
+            own_customs.is_empty() && own_customs_important.is_empty(),
+        ) {
+            (p, true) => p, // só herda: compartilha o Arc (O(1))
+            (p, false) => {
+                crate::bump!(custom_maps_built);
+                let mut m = p.map(|a| (*a).clone()).unwrap_or_default();
+                // Normais entram primeiro; as importantes vencem por nome.
+                for (k, v) in own_customs
+                    .into_iter()
+                    .chain(own_customs_important.into_iter())
+                {
+                    // AUTO-REFERÊNCIA DIRETA (`--c: ...var(--c)...`): a declaração é
+                    // guaranteed-invalid (spec) — o Chrome a DESCARTA e mantém a
+                    // anterior válida. Se já há um valor para `k` e a nova declaração
+                    // se auto-referencia, ignora a nova. Sem valor anterior, insere
+                    // e o consumidor corta o ciclo.
+                    if references_self(&k, &v) && m.contains_key(&k) {
+                        continue;
                     }
-                    Some(std::sync::Arc::new(m))
+                    m.insert(k, v);
                 }
-            };
+                Some(std::sync::Arc::new(m))
+            }
+        };
         // `@property … initial-value` (item 4): um `var(--x)` sem declaração
         // alcançável usa o inicial registado em vez do fallback vazio de
         // sempre. `seed_defaults` só ACRESCENTA nomes ausentes — uma
@@ -409,13 +413,21 @@ impl Dom {
         // Stylesheet de autor resolvido para este nó (normal + important separados;
         // PASS B — as declarações com var() resolvem na posição da regra, contra
         // as vars acima). O matcher navega a árvore via `matches_complex`.
+        // O `direction`/`writing-mode` FINAL do elemento: ver `eixos_proprios`.
+        let override_node = self.style_overrides.get(&idx);
+        let (own_dir, own_wm) = super::eixos_proprios::compose(
+            self.stylesheet.rule_axes(&matched),
+            &inline,
+            override_node,
+            parent_direction,
+            parent_writing_mode,
+        );
         let author = if self.stylesheet.is_empty() {
             style::DeclBlock::default()
         } else {
             self.stylesheet
-                .declarations_from(&matched, Some(vars_ref), parent_direction, parent_writing_mode)
+                .declarations_with_axes(&matched, Some(vars_ref), own_dir, own_wm)
         };
-        let override_node = self.style_overrides.get(&idx);
 
         // ── Passe 1: NORMAIS (fraco → forte) ────────────────────────────────────
         let mut css = style::lookup_style(&tag).unwrap_or_default(); // UA/defineStyle
@@ -429,9 +441,9 @@ impl Dom {
         css.merge_over(&inline.normal); // style="" inline
         for (prop, raw, important) in &inline.pending {
             if !important {
-                let dir = css.direction.or(parent_direction);
-                let wm = css.writing_mode.or(parent_writing_mode);
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
+                crate::style::stylesheet::apply_resolved_decl(
+                    &mut css, prop, raw, vars_ref, own_dir, own_wm,
+                );
             }
         }
         if let Some(ov) = override_node {
@@ -448,9 +460,9 @@ impl Dom {
         css.merge_over(&inline.important); // inline !important
         for (prop, raw, important) in &inline.pending {
             if *important {
-                let dir = css.direction.or(parent_direction);
-                let wm = css.writing_mode.or(parent_writing_mode);
-                crate::style::stylesheet::apply_resolved_decl(&mut css, prop, raw, vars_ref, dir, wm);
+                crate::style::stylesheet::apply_resolved_decl(
+                    &mut css, prop, raw, vars_ref, own_dir, own_wm,
+                );
             }
         }
         // o mapa de vars entra no computado (os FILHOS herdam daqui).
@@ -508,7 +520,7 @@ impl Dom {
             };
             css.font_size = d
                 .resolve(&rctx)
-                .filter(|v| *v > 0.0)
+                .filter(|v| *v >= 0.0)
                 .map(style::Dimension::Px);
         }
         // A fonte do `<html>` é a BASE DO `rem` para a árvore inteira — o idioma

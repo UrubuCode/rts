@@ -24,9 +24,21 @@ fn shy_quebra_com_manual_e_nao_com_none() {
     let manual = rect(&dom, &list, "#manual", 0);
     let nenhum = rect(&dom, &list, "#nenhum", 0);
     let semshy = rect(&dom, &list, "#semshy", 0);
-    assert_eq!((manual.y, manual.h), (0.0, 40.0), "Blink: duas linhas com `manual`");
-    assert_eq!((nenhum.y, nenhum.h), (45.0, 20.0), "Blink: uma linha com `none`");
-    assert_eq!((semshy.y, semshy.h), (70.0, 20.0), "Blink: sem &shy; não quebra");
+    assert_eq!(
+        (manual.y, manual.h),
+        (0.0, 40.0),
+        "Blink: duas linhas com `manual`"
+    );
+    assert_eq!(
+        (nenhum.y, nenhum.h),
+        (45.0, 20.0),
+        "Blink: uma linha com `none`"
+    );
+    assert_eq!(
+        (semshy.y, semshy.h),
+        (70.0, 20.0),
+        "Blink: sem &shy; não quebra"
+    );
 }
 
 /// O hífen suave não pesa: a mesma palavra com e sem `&shy;`, num container

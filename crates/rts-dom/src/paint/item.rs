@@ -146,10 +146,7 @@ pub enum DisplayItem {
     /// desenha o triângulo de CSS), e uma barra rectangular por lado pinta o
     /// vizinho por cima. Só `border_items` o emite, e só nesse caso; com cores
     /// iguais a sobreposição é invisível e as barras continuam.
-    Quad {
-        pts: [(f32, f32); 4],
-        color: u32,
-    },
+    Quad { pts: [(f32, f32); 4], color: u32 },
     /// IMAGEM (`<img>` / background-image) — um bitmap RGBA8 já decodificado. O
     /// `pixels_handle` é um Buffer no HandleTable com `img_w*img_h*4` bytes RGBA
     /// (a partir do offset `pixels_off`); o backend sobe como textura e pinta no
@@ -342,18 +339,35 @@ pub(crate) fn rotate_item(it: &mut DisplayItem, frame: &crate::paint::transform:
             *rect = m.transform_rect_bbox(*rect);
             let c = *radius;
             *radius = if mirrored {
-                Corners { tl: c.tl, tr: c.bl, br: c.br, bl: c.tr }
+                Corners {
+                    tl: c.tl,
+                    tr: c.bl,
+                    br: c.br,
+                    bl: c.tr,
+                }
             } else if clockwise {
-                Corners { tl: c.bl, tr: c.tl, br: c.tr, bl: c.br }
+                Corners {
+                    tl: c.bl,
+                    tr: c.tl,
+                    br: c.tr,
+                    bl: c.br,
+                }
             } else {
-                Corners { tl: c.tr, tr: c.br, br: c.bl, bl: c.tl }
+                Corners {
+                    tl: c.tr,
+                    tr: c.br,
+                    br: c.bl,
+                    bl: c.tl,
+                }
             };
         }
         DisplayItem::Shadow { rect, dx, dy, .. } => {
             *rect = m.transform_rect_bbox(*rect);
             (*dx, *dy) = vector(*dx, *dy);
         }
-        DisplayItem::GradientRect { rect, angle_deg, .. } => {
+        DisplayItem::GradientRect {
+            rect, angle_deg, ..
+        } => {
             *rect = m.transform_rect_bbox(*rect);
             // CSS angles point at (sin a, -cos a).
             let (s, c) = angle_deg.to_radians().sin_cos();
@@ -363,15 +377,30 @@ pub(crate) fn rotate_item(it: &mut DisplayItem, frame: &crate::paint::transform:
         DisplayItem::Border { rect, .. }
         | DisplayItem::Image { rect, .. }
         | DisplayItem::Pixels { rect, .. } => *rect = m.transform_rect_bbox(*rect),
-        DisplayItem::BeginClip { rect, offset_x, offset_y, .. } => {
+        DisplayItem::BeginClip {
+            rect,
+            offset_x,
+            offset_y,
+            ..
+        } => {
             *rect = m.transform_rect_bbox(*rect);
             (*offset_x, *offset_y) = vector(*offset_x, *offset_y);
         }
-        DisplayItem::Text { x, y, size, orientation, .. } => {
+        DisplayItem::Text {
+            x,
+            y,
+            size,
+            orientation,
+            ..
+        } => {
             let (px, py) = m.apply(*x, *y);
             *x = if mirrored { px + *size } else { px };
             *y = py;
-            *orientation = if mirrored || clockwise { Orientation::SidewaysRl } else { Orientation::SidewaysLr };
+            *orientation = if mirrored || clockwise {
+                Orientation::SidewaysRl
+            } else {
+                Orientation::SidewaysLr
+            };
         }
         DisplayItem::Quad { pts, .. } => {
             for p in pts.iter_mut() {

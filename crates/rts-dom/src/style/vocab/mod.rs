@@ -22,19 +22,19 @@
 //! propriedades entra por um módulo próprio, ligado por UM braço em cada um dos
 //! dois — que é a regra da casa para código novo em ficheiro já grande.
 
-pub(in crate::style::vocab) use super::background::BgPosition;
 pub(in crate::style::vocab) use super::aplica::set_if;
+pub(in crate::style::vocab) use super::background::BgPosition;
 pub(in crate::style::vocab) use super::lengths::{parse_dimension, split_top_ws};
 pub(in crate::style::vocab) use super::props::ComputedStyle;
 pub(in crate::style::vocab) use super::values::{AlignItems, Dimension, JustifyContent};
 
-mod tipos;
 mod aplicar;
 mod computado;
+mod tipos;
 
-pub use tipos::*;
 pub use aplicar::*;
 pub use computado::*;
+pub use tipos::*;
 
 // Os corpos movidos dizem `super::color::…`, `super::lengths::…` e mais quatro,
 // como o ficheiro único dizia. Aí `super` era `style`; aqui é `vocab`. Reimportar

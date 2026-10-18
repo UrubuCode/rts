@@ -22,7 +22,7 @@ mod max_width_floor;
 use max_width_floor::comprimento_outer;
 mod anonima;
 mod colunas;
-pub(crate) use colunas::colunas_min_max;
+pub(crate) use colunas::{cell_min_max, colunas_min_max, em_linha};
 
 use crate::layout::LayoutCtx;
 use crate::style::ResolveCtx;
@@ -83,16 +83,6 @@ impl Coluna {
 /// As larguras intrínsecas de UMA célula, já com o frame (padding+borda) dentro:
 /// a coluna é dimensionada em caixa de BORDA, porque é isso que ocupa espaço na
 /// linha.
-pub(crate) fn cell_min_max(dom: &Dom, id: NodeIdx, parent_font: f32, ctx: &LayoutCtx) -> Coluna {
-    let tree = dom.box_tree();
-    let caixa = match tree.boxes_of(id) {
-        [caixa] => *caixa,
-        [] => return Coluna::default(),
-        caixas => panic!("a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata", caixas.len()),
-    };
-    cell_min_max_na_arvore(dom, &tree, id, caixa, parent_font, ctx)
-}
-
 pub(crate) fn cell_min_max_na_arvore(
     dom: &Dom,
     tree: &crate::boxes::BoxTree,
@@ -217,7 +207,10 @@ fn percentagem_declarada(
         _ => {}
     }
     let v = dom.node(id).attr("width")?.trim();
-    v.strip_suffix('%')?.parse::<f32>().ok().filter(|p| *p > 0.0)
+    v.strip_suffix('%')?
+        .parse::<f32>()
+        .ok()
+        .filter(|p| *p > 0.0)
 }
 
 /// O atributo HTML `width` de uma célula/coluna (`<td width="120">`, ainda vivo
@@ -262,13 +255,7 @@ pub(crate) fn largura_declarada(
     };
     let frame = css.padding.resolve_h(&resolve) + 2.0 * css.border_width.unwrap_or(0.0);
     largura_absoluta(css.width, &resolve)
-        .map(|w| {
-            if css.border_box.unwrap_or(false) {
-                w
-            } else {
-                w + frame
-            }
-        })
+        .map(|w| if css.border_box.unwrap_or(false) { w } else { w + frame })
         .or_else(|| largura_de_atributo(dom, id))
 }
 
@@ -341,7 +328,18 @@ pub(super) fn min_content_na_arvore(
         // floor in Times (144px for "XXXX" at 50px) beat an Arial item's own
         // width (133); measured with the parent's `nowrap`/`pre` flag alone, a
         // `pre` text's newline joined its lines into one.
-        NodeKind::Text(_) => crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx),
+        NodeKind::Text(_) => {
+            let parent_is_vertical = dom
+                .node(id)
+                .parent
+                .and_then(|p| dom.computed_style_idx(p))
+                .map_or(false, |c| c.writing_mode.unwrap_or_default().is_vertical());
+            if parent_is_vertical {
+                font * 1.125
+            } else {
+                crate::layout::measure::text::intrinsic_text_width(dom, id, font, true, ctx)
+            }
+        }
         NodeKind::Element { tag } => {
             if crate::layout::is_non_rendered_tag(tag) {
                 return 0.0;
@@ -349,6 +347,9 @@ pub(super) fn min_content_na_arvore(
             let css = dom.computed_style_idx(id).unwrap_or_default();
             if css.effective_display() == Some(crate::style::DisplayKind::None) {
                 return 0.0;
+            }
+            if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) {
+                return crate::layout::grid::max_content::grid_min_content_width(dom, tree, id, Some(caixa), font, ctx);
             }
             let f = crate::layout::font_px(&css, font);
             let mono = css
@@ -363,8 +364,12 @@ pub(super) fn min_content_na_arvore(
                 viewport_w: ctx.viewport_w,
                 viewport_h: ctx.viewport_h,
             };
-            let frame = css.padding.resolve_h(&resolve)
-                + css.margin.resolve_h(&resolve)
+            // Margem e padding em PERCENTAGEM resolvem contra ZERO no sizing de
+            // conteúdo (CSS Sizing 3): `margin-left:calc(10% + 100px)` contribui
+            // 100, não 10%×viewport + 100 (WPT `calc-margins-block`). Por isso a
+            // variante `_intrinseco`, que anula o termo percentual.
+            let frame = css.padding.resolve_h_intrinseco(&resolve)
+                + css.margin.resolve_h_intrinseco(&resolve)
                 + 2.0 * css.border_width.unwrap_or(0.0);
             // Uma caixa REPLACED não encolhe abaixo da sua largura — e esta linha
             // dizia-o num comentário enquanto o código só o cumpria quando a
@@ -389,14 +394,34 @@ pub(super) fn min_content_na_arvore(
             // min-content diferente do max-content: ele não quebra. Passar a
             // largura da viewport devolveria o que coubesse nela, que é outra
             // pergunta.
-            if let Some((w, _)) =
-                crate::inline_box::replaced_inline_size(dom, id, &css, f32::INFINITY, None, (None, None), ctx)
+            if let Some((w, _)) = crate::inline_box::replaced_inline_size(
+                dom, id, &css, f32::INFINITY, None, (None, None), ctx,
+            ) {
+                if let Some(cw) = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve) {
+                    return cw + frame;
+                }
+                return w + css.margin.resolve_h(&resolve);
+            }
+            if css
+                .effective_display()
+                .is_some_and(crate::style::DisplayKind::is_grid_container)
             {
-                // Candidato (d) do `min-width:auto` (Flexbox §4.5, `inline_box`):
-                // com razão de aspeto, o piso vem dela, não da `width` acima
-                // (essa é a caixa REAL).
-                let w = crate::inline_box::largura_min_content_por_razao(dom, id, &css, &resolve).unwrap_or(w);
-                return w + frame;
+                let w = crate::layout::grid::max_content::grid_min_content_width(
+                    dom,
+                    tree,
+                    id,
+                    Some(caixa),
+                    f,
+                    ctx,
+                ) + frame;
+                let declarada = comprimento_outer(css.width, &css, &resolve, frame);
+                let max_width_cap = comprimento_outer(css.max_width, &css, &resolve, frame);
+                return if floor_width {
+                    let piso = declarada.unwrap_or(0.0).max(w);
+                    max_width_cap.map_or(piso, |mx| piso.min(mx.max(declarada.unwrap_or(0.0))))
+                } else {
+                    w
+                };
             }
             // Um `width` explícito é um PISO e não um teto, e a diferença é o
             // defeito inteiro. Isto respondia a largura declarada e **voltava
@@ -434,7 +459,15 @@ pub(super) fn min_content_na_arvore(
                     // para a árvore de caixas. Uma caixa anónima é SEMPRE de
                     // bloco (`boxes::context::formatting_context`), por isso
                     // entra pelo máximo `m`, nunca pela soma `linha`.
-                    let w = anonima::min_content_anonima(dom, tree, caixa_filho, f, ctx, sem_quebra, mono);
+                    let w = anonima::min_content_anonima(
+                        dom,
+                        tree,
+                        caixa_filho,
+                        f,
+                        ctx,
+                        sem_quebra,
+                        mono,
+                    );
                     m = m.max(w);
                     continue;
                 };
@@ -450,34 +483,41 @@ pub(super) fn min_content_na_arvore(
                     m = m.max(w);
                 }
             }
+            // Um bloco NÃO-replaced com altura DEFINIDA e `aspect-ratio` tem uma
+            // largura transferida (altura×razão, CSS Sizing 4 §5) que é o seu
+            // min-content, mesmo com conteúdo vazio: `width:min-content` num pai
+            // de `<div height:100px; aspect-ratio:1/1>` é 100, não 0 (WPT
+            // `aspect-ratio/intrinsic-size-001..`). O replaced já saiu acima com
+            // `largura_min_content_por_razao`; este é o caso não-replaced, em
+            // espaço de CONTEÚDO (o `+ frame` abaixo junta-lhe a moldura).
+            let ratio_floor = {
+                let non_pct = |d: Option<crate::style::Dimension>| match d {
+                    Some(crate::style::Dimension::Percent(_)) | None => None,
+                    Some(d) => d.resolve(&resolve),
+                };
+                non_pct(css.height).and_then(|h| {
+                    let border = css.border_width.unwrap_or(0.0);
+                    let frame_h = css.padding.resolve_h(&resolve) + 2.0 * border;
+                    let frame_v = css.padding.resolve_v(&resolve) + 2.0 * border;
+                    let content_h = if css.border_box.unwrap_or(false) {
+                        (h - frame_v).max(0.0)
+                    } else {
+                        h
+                    };
+                    crate::layout::measure::aspect_ratio::width_for_height(
+                        &css, content_h, frame_h, frame_v,
+                    )
+                })
+            };
+            let conteudo = m.max(linha).max(ratio_floor.unwrap_or(0.0));
             if floor_width {
-                let piso = (m.max(linha) + frame).max(declarada.unwrap_or(0.0));
+                let piso = (conteudo + frame).max(declarada.unwrap_or(0.0));
                 // teto nunca abaixo do `width` declarado (ordem de `clamp_size`).
                 max_width_cap.map_or(piso, |mx| piso.min(mx.max(declarada.unwrap_or(0.0))))
             } else {
-                m.max(linha) + frame
+                conteudo + frame
             }
         }
         _ => 0.0,
     }
 }
-
-/// `true` se este nó partilha linha com os irmãos — texto, ou um elemento cujo
-/// `display` é de nível inline. Um elemento sem `display` nenhum (um `<a>`, um
-/// `<span>`) também flui na linha, que é o default do browser para as tags que
-/// não estão registadas como bloco.
-pub(super) fn em_linha(dom: &Dom, id: NodeIdx) -> bool {
-    match &dom.node(id).kind {
-        NodeKind::Text(_) => true,
-        NodeKind::Element { .. } => match dom
-            .computed_style_idx(id)
-            .and_then(|c| c.effective_display())
-        {
-            Some(d) => d.is_inline_level(),
-            None => true,
-        },
-        _ => false,
-    }
-}
-
-

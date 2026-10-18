@@ -100,14 +100,22 @@ fn negativo_aninhado_nao_e_negativo_de_raiz() {
     let chave_grupo = crate::paint::stacking::stacking_key(&dom, grupo);
     let chave_raiz = crate::paint::stacking::stacking_key(&dom, raiz);
 
-    assert_eq!(chave_filho, vec![0, -1], "contexto do grupo, depois o próprio negativo");
+    assert_eq!(
+        chave_filho,
+        vec![0, -1],
+        "contexto do grupo, depois o próprio negativo"
+    );
     assert_eq!(
         chave_filho.first().copied().unwrap_or(0),
         0,
         "o primeiro componente é o do CONTEXTO (0), não o do filho (-1): não é negativo de raiz"
     );
     assert_eq!(chave_grupo, vec![0]);
-    assert_eq!(chave_raiz, vec![-1], "sem contexto ancestral: o negativo de raiz abre já com -1");
+    assert_eq!(
+        chave_raiz,
+        vec![-1],
+        "sem contexto ancestral: o negativo de raiz abre já com -1"
+    );
     assert_eq!(
         chave_raiz.first().copied().unwrap_or(0),
         -1,

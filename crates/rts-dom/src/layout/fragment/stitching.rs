@@ -35,11 +35,7 @@ pub(in crate::layout) fn same_children_sequence(
     pai_novo: BoxId,
 ) -> bool {
     let (a, b) = (antiga.children(pai_antigo), nova.children(pai_novo));
-    a.len() == b.len()
-        && a
-            .iter()
-            .zip(b)
-            .all(|(&x, &y)| same_box(antiga, x, nova, y))
+    a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| same_box(antiga, x, nova, y))
 }
 
 fn same_box(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
@@ -82,12 +78,8 @@ fn same_box(antiga: &BoxTree, x: BoxId, nova: &BoxTree, y: BoxId) -> bool {
 /// reusa esses itens tal como estavam. A comparação antiga com a lista de
 /// elementos do DOM garantia isto por tabela, e só para filhos ELEMENTO;
 /// comparando caixas deixou de garantir, e a pergunta passa a ser explícita.
-pub(in crate::layout) fn dirt_covered(
-    tree: &BoxTree,
-    dirty: &[NodeIdx],
-    pieces: &[Piece],
-) -> bool {
-    dirty
-        .iter()
-        .all(|&dirty_node| children(pieces).any(|child| tree.node_of(child.box_id) == Some(dirty_node)))
+pub(in crate::layout) fn dirt_covered(tree: &BoxTree, dirty: &[NodeIdx], pieces: &[Piece]) -> bool {
+    dirty.iter().all(|&dirty_node| {
+        children(pieces).any(|child| tree.node_of(child.box_id) == Some(dirty_node))
+    })
 }

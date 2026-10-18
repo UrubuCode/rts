@@ -18,8 +18,8 @@ use crate::layout::{LayoutCtx, TextMeasurer};
 use crate::paint::{DisplayList, Rect};
 use crate::style::{ComputedStyle, ResolveCtx};
 
-mod substituido;
 pub(crate) mod replaced_clamp;
+mod substituido;
 pub(crate) use self::substituido::{
     altura_min_content_por_razao, largura_min_content_por_razao, replaced_inline_size,
 };
@@ -97,7 +97,11 @@ impl AtomicKind {
     pub(crate) fn tem_corpo(self) -> bool {
         matches!(
             self,
-            Self::Widget | Self::Replaced | Self::Block | Self::Break | Self::Generated(_, GeneratedPart::Atom)
+            Self::Widget
+                | Self::Replaced
+                | Self::Block
+                | Self::Break
+                | Self::Generated(_, GeneratedPart::Atom)
         )
     }
 
@@ -312,7 +316,11 @@ pub(crate) fn arestas_do_inline(
 /// box is the former — Blink reports a 17px `<span>` in an 18px line. This
 /// answered the line height until the metrics became real ones
 /// (`layout/measure/font_metrics.rs`), when the gap stopped being zero.
-pub(crate) fn altura_do_conteudo(font_size: f32, family: Option<&str>, m: &dyn TextMeasurer) -> f32 {
+pub(crate) fn altura_do_conteudo(
+    font_size: f32,
+    family: Option<&str>,
+    m: &dyn TextMeasurer,
+) -> f32 {
     m.font_ascent_family(font_size, family) + m.font_descent_family(font_size, family)
 }
 
@@ -340,7 +348,12 @@ pub(crate) fn meia_entrelinha(altura_da_linha: f32, conteudo: f32) -> f32 {
 /// holding both, wider than either — which is what the browser returns too.
 /// Since BT-2c that union is a VIEW (`layout/fragment/box_rects.rs`, invariant I4):
 /// what is recorded here is the fragment of `line`, and a box keeps one per line.
-pub(crate) fn union_rect(list: &mut DisplayList, idx: NodeIdx, fragment: Rect, line: &crate::layout::LineScope) {
+pub(crate) fn union_rect(
+    list: &mut DisplayList,
+    idx: NodeIdx,
+    fragment: Rect,
+    line: &crate::layout::LineScope,
+) {
     // A node with no box (text, `display:none`) has nowhere to record; the
     // empty list answers that with no special case. Only the boxes of THIS
     // flow: a split inline's other fragments are other flows' (`LineScope`).
@@ -383,7 +396,7 @@ pub(crate) enum BreakWithin {
 /// `layout/inline/break_opportunities.rs`). `auto-phrase` (phrase analysis)
 /// answers `Never`: nothing here segments by phrase.
 pub(crate) fn quebra_dentro(css: &ComputedStyle) -> BreakWithin {
-    use crate::style::{painting::LineBreak, OverflowWrap, WordBreak};
+    use crate::style::{OverflowWrap, WordBreak, painting::LineBreak};
     match css.word_break {
         Some(WordBreak::BreakAll) => return BreakWithin::Always,
         // Legado: `word-break: break-word` é, por MDN, o mesmo que
@@ -475,14 +488,14 @@ pub(crate) fn prefixo_que_cabe(
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod quebra_de_linha;
-#[cfg(test)]
 mod espaco_que_nao_colapsa;
-#[cfg(test)]
-mod sonda_ul;
 #[cfg(test)]
 mod inline_declarado_e_dono;
 #[cfg(test)]
+mod quebra_de_linha;
+#[cfg(test)]
 mod quebra_forcada;
+#[cfg(test)]
+mod sonda_ul;
+#[cfg(test)]
+mod tests;

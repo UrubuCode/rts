@@ -22,7 +22,10 @@ fn coluna_quebra_em_duas_colunas_quando_a_altura_nao_chega() {
 <div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
 </body></html>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // Medido no Blink (`tests/css/claude-flex-column-wrap-multicoluna.esperado.json`):
     // 2 itens de 80px cabem nos 160px do contentor (a 3ª unidade — 3×80=240 —
     // não cabe), então a 3ª e a 4ª abrem uma 2ª coluna. `align-content:normal`
@@ -30,7 +33,11 @@ fn coluna_quebra_em_duas_colunas_quando_a_altura_nao_chega() {
     // — daí o x=640 da 2ª coluna, não 100 (encostada) nem outro valor.
     assert_eq!(r("#i1"), (0.0, 0.0, 100.0, 80.0));
     assert_eq!(r("#i2"), (0.0, 80.0, 100.0, 80.0));
-    assert_eq!(r("#i3"), (640.0, 0.0, 100.0, 80.0), "2a coluna: align-content:normal estica p/ 1280/2");
+    assert_eq!(
+        r("#i3"),
+        (640.0, 0.0, 100.0, 80.0),
+        "2a coluna: align-content:normal estica p/ 1280/2"
+    );
     assert_eq!(r("#i4"), (640.0, 80.0, 100.0, 80.0));
 }
 
@@ -55,7 +62,10 @@ fn coluna_reversa_e_wrap_reverso_juntos_derivado_da_spec_nao_medido() {
 <div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
 </body></html>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // Agrupamento (ordem do documento, ANTES de qualquer reversão): coluna A
     // = [i1,i2] (160=2×80 cabe nos 160 do contentor), coluna B = [i3,i4].
     // `column-reverse` espelha a posição DENTRO de cada coluna: A vira
@@ -64,10 +74,26 @@ fn coluna_reversa_e_wrap_reverso_juntos_derivado_da_spec_nao_medido() {
     // calculada) vai para a ESQUERDA (x=0), A vai para a DIREITA (x=640) —
     // o mesmo "cross-start↔cross-end" que `align-content:normal` já estica
     // para 640 cada, como no primeiro teste.
-    assert_eq!(r("#i4"), (0.0, 0.0, 100.0, 80.0), "coluna B, invertida: i4 no topo");
-    assert_eq!(r("#i3"), (0.0, 80.0, 100.0, 80.0), "coluna B, invertida: i3 no fundo");
-    assert_eq!(r("#i2"), (640.0, 0.0, 100.0, 80.0), "coluna A, invertida: i2 no topo");
-    assert_eq!(r("#i1"), (640.0, 80.0, 100.0, 80.0), "coluna A, invertida: i1 no fundo");
+    assert_eq!(
+        r("#i4"),
+        (0.0, 0.0, 100.0, 80.0),
+        "coluna B, invertida: i4 no topo"
+    );
+    assert_eq!(
+        r("#i3"),
+        (0.0, 80.0, 100.0, 80.0),
+        "coluna B, invertida: i3 no fundo"
+    );
+    assert_eq!(
+        r("#i2"),
+        (640.0, 0.0, 100.0, 80.0),
+        "coluna A, invertida: i2 no topo"
+    );
+    assert_eq!(
+        r("#i1"),
+        (640.0, 80.0, 100.0, 80.0),
+        "coluna A, invertida: i1 no fundo"
+    );
 }
 
 /// `min-height:0` NÃO é um limiar de wrap — regressão apanhada pela régua
@@ -102,14 +128,56 @@ fn min_height_zero_no_item_nao_e_limiar_de_wrap_para_o_seu_proprio_column_wrap()
   </div>
 </div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // Medido com `claude-paint-dump` (motor próprio) contra a referência do
     // WPT (mesma marcação interna, floats só na metade de fora) — os 3
     // `innerItem` numa PILHA VERTICAL de uma coluna só, `.item` a conter os
     // três (2px de borda de cada lado): antes do fix saíam a (2,2)/(2,2)/(2,2)
     // (uma coluna por item, `.item` com h=16 em vez de 40).
-    assert_eq!(r(".item"), (0.0, 0.0, 55.0, 40.0), ".item empilha em 1 coluna, nao 3 colunas de 1");
+    assert_eq!(
+        r(".item"),
+        (0.0, 0.0, 55.0, 40.0),
+        ".item empilha em 1 coluna, nao 3 colunas de 1"
+    );
     assert_eq!(r("innerItem"), (2.0, 2.0, 17.0, 12.0));
-    assert_eq!(rect(&dom, &list, "innerItem", 1).y, 14.0, "2o item por baixo do 1o, nao ao lado");
-    assert_eq!(rect(&dom, &list, "innerItem", 2).y, 26.0, "3o item por baixo do 2o");
+    assert_eq!(
+        rect(&dom, &list, "innerItem", 1).y,
+        14.0,
+        "2o item por baixo do 1o, nao ao lado"
+    );
+    assert_eq!(
+        rect(&dom, &list, "innerItem", 2).y,
+        26.0,
+        "3o item por baixo do 2o"
+    );
+}
+
+// WPT `css-flexbox/intrinsic-size/col-wrap-012` (e 015/016/017, mesma causa):
+// durante o passo de `max-content` do contentor, um item com `width:100%`
+// (indefinido contra um contentor cuja largura ainda se calcula) tem de
+// contribuir com a sua PRÓPRIA max-content, não com a largura da viewport.
+// Antes: a largura cruzada do item1 era medida com a viewport como disponível
+// (`measure_block(viewport_w)`), `width:100%` dava 1000px, o item2 ia para uma
+// 2ª coluna e o contentor saía a 140px onde o Chrome dá 100 (quadrado verde).
+#[test]
+fn col_wrap_max_content_trata_largura_percentual_do_item_como_conteudo() {
+    const HTML: &str = r#"<style>body{margin:0}
+  .grandchild{float:left;width:50px;height:50px}</style>
+<body>
+<div id="f" style="display:flex;flex-flow:column wrap;width:max-content;height:100px">
+  <div id="it1" style="width:100%;flex:0 0 auto;min-height:0">
+    <div class="grandchild"></div><div class="grandchild"></div>
+  </div>
+  <div id="it2" style="width:90px;height:50px;flex:0 0 auto;min-height:0"></div>
+</div></body>"#;
+    let (dom, list) = geometria(HTML, 1000.0);
+    // Os dois itens (50px de altura cada) cabem nos 100px → UMA coluna só;
+    // a coluna tem a largura do maior item (it1 = os dois floats = 100px),
+    // então o contentor `max-content` mede 100, não 140 nem 1000.
+    assert_eq!(rect(&dom, &list, "#f", 0).w, 100.0, "contentor = 1 coluna de 100px");
+    assert_eq!(rect(&dom, &list, "#it1", 0).w, 100.0, "width:100% resolve contra os 100px, nao a viewport");
+    assert_eq!(rect(&dom, &list, "#it2", 0).y, 50.0, "it2 fica na MESMA coluna, por baixo de it1");
 }

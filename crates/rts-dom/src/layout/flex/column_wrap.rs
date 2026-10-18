@@ -25,9 +25,9 @@
 //! cruzado (cross-start↔cross-end, spec §5.3) — a primeira coluna calculada
 //! vai para o fim do eixo cruzado, nunca troca item de coluna.
 
+use super::column_wrap_item::Item;
 use super::*;
 use crate::layout::flex::column::{align_offset, justify_and_align, justify_offsets};
-use super::column_wrap_item::Item;
 
 #[allow(clippy::too_many_arguments)]
 pub(in crate::layout) fn layout_children_column_wrap(
@@ -73,116 +73,21 @@ pub(in crate::layout) fn layout_children_column_wrap(
 
     // ── PASSO 1: mede cada filho nos DOIS eixos (mesma base de `column.rs`,
     // mais a largura NATURAL para decidir a largura de cada coluna) ─────────
-    let mut items: Vec<Item> = Vec::new();
     let tree = std::rc::Rc::clone(&list.tree);
-    for &box_id in tree.children_without_generated(container) {
-        let Some(child) = tree.node_of(box_id) else {
-            continue;
-        };
-        if let NodeKind::Element { tag } = &dom.node(child).kind {
-            if is_non_rendered_tag(tag) {
-                continue;
-            }
-        }
-        if is_out_of_flow(dom, child) {
-            continue;
-        }
-        if is_display_none(dom, child) {
-            continue;
-        }
-        if matches!(dom.node(child).kind, NodeKind::Text(_)) {
-            let text = collect_text(dom, child);
-            if text.trim().is_empty() {
-                continue;
-            }
-            let h = crate::inline_box::altura_da_linha(css, font_size, ctx.measurer);
-            let w = ctx
-                .measurer
-                .text_width(&text, font_size, false, false, false);
-            items.push(Item {
-                node: child,
-                box_id,
-                main: h,
-                cross: w,
-                is_text: true,
-                grow: 0.0,
-                shrink: 0.0, // texto solto não encolhe, como em `column.rs`/`row.rs`.
-                min_main: h,
-                align_self: None,
-                can_stretch: false,
-                order: 0,
-                mt_auto: false,
-                mb_auto: false,
-            });
-            continue;
-        }
-        let ccss = dom.computed_style_idx(child).unwrap_or_default();
-        let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
-        let natural_h = if stretched {
-            measure_block(dom, child, box_id, content_w, Some(container_content_h), None, None, false, ctx).1
-        } else {
-            child_outer_height(dom, child, box_id, content_w, Some(container_content_h), css, font_size, ctx)
-        };
-        let child_font = font_px(&ccss, font_size);
-        let main = super::column_shrink::base_outer(
-            &ccss,
-            natural_h,
-            Some(container_content_h),
-            content_w,
-            child_font,
-            ctx,
-        );
-        let child_resolve = ResolveCtx {
-            parent_content_w: content_w,
-            node_font_size: child_font,
-            root_font_size: crate::style::root_font_size(),
-            viewport_w: ctx.viewport_w,
-            viewport_h: ctx.viewport_h,
-        };
-        // `column_shrink::min_main` (lote `flex-coluna-shrink`, retrabalho):
-        // decide entre o declarado, `min-content` (§4.5, não some sob
-        // overflow não-visível) e o automático — a mesma pergunta que
-        // `column.rs` faz, agora numa função só.
-        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, Some(container_content_h), &child_resolve, ctx);
-        // Largura NATURAL (shrink-to-fit): para um item de `width` explícito
-        // é essa largura, qualquer que seja a coluna — layout_block honra o
-        // `width` declarado antes de olhar para o `avail_w`. É o que permite
-        // medir a largura de CADA item antes de se saber a largura da coluna
-        // (que depende do MAIOR item dela).
-        let (cross, _) = measure_block(
-            dom,
-            child,
-            box_id,
-            content_w,
-            Some(container_content_h),
-            None,
-            None,
-            true,
-            ctx,
-        );
-        items.push(Item {
-            node: child,
-            box_id,
-            main,
-            cross,
-            is_text: false,
-            grow: ccss.flex_grow.unwrap_or(0.0),
-            shrink: ccss.flex_shrink.unwrap_or(1.0),
-            min_main,
-            align_self: ccss.align_self,
-            can_stretch: ccss.width.is_none(),
-            order: ccss.order.unwrap_or(0),
-            mt_auto: ccss.margin.top.is_auto(),
-            mb_auto: ccss.margin.bottom.is_auto(),
-        });
-    }
+    let items = super::column_wrap_item::collect_items(
+        dom,
+        &tree,
+        container,
+        content_w,
+        container_content_h,
+        css,
+        align,
+        font_size,
+        ctx,
+    );
     if items.is_empty() {
         return 0.0;
     }
-    // `order` (empate = ordem do documento) — a MESMA ordem em que a
-    // grupagem por colunas abaixo lê a lista; ver o comentário do cabeçalho
-    // sobre por que `reverse` NÃO entra aqui.
-    items.sort_by_key(|it| it.order);
 
     // ── PASSO 2: agrupa em COLUNAS pela BASE do eixo principal (o mesmo
     // empacotamento guloso de `row.rs`, eixo trocado) ──────────────────────
@@ -304,34 +209,20 @@ pub(in crate::layout) fn layout_children_column_wrap(
     let mut leading_cross = 0.0f32;
     let mut between_cross = 0.0f32;
     if content_w > 0.0 {
-        let used_cross: f32 = col_cross.iter().sum::<f32>()
-            + (columns.len().saturating_sub(1)) as f32 * cross_gap;
+        let used_cross: f32 =
+            col_cross.iter().sum::<f32>() + (columns.len().saturating_sub(1)) as f32 * cross_gap;
         let free = (content_w - used_cross).max(0.0);
         match css.align_content {
-            // `align-content` declarado não tem efeito com uma LINHA só
-            // (Flexbox §8.3, "this property has no effect when the flex
-            // container has only a single line") — só distribui espaço
-            // ENTRE colunas, que só existe com mais de uma.
-            Some(v) if columns.len() > 1 => {
-                let (l, b) = justify_offsets(v, free, columns.len());
-                leading_cross = l;
-                between_cross = b;
-            }
-            // `normal` (não declarado) comporta-se como `stretch` no eixo
-            // cruzado (CSS Box Alignment 3 §8.3) — mesma regra que já valia
-            // para várias colunas, agora TAMBÉM com uma só. Isto não é
-            // `align-content` a fazer algo com 1 linha (o `Some(v)` acima
-            // continua sem efeito nesse caso): é `align-items:stretch`, cujo
-            // alvo é a largura da PRÓPRIA coluna — sem isto, uma coluna
-            // sozinha ficava na largura NATURAL do maior item (o
-            // shrink-to-fit de um item sem `width`, por vezes só a borda) e
-            // nunca crescia até `content_w` (`flexbox-flex-wrap-vert-001`,
-            // WPT: um item único deveria esticar à largura do contentor).
-            None => {
+            Some(crate::style::JustifyContent::Stretch) | None => {
                 let extra = free / columns.len() as f32;
                 for cw in col_cross.iter_mut() {
                     *cw += extra;
                 }
+            }
+            Some(v) if columns.len() > 1 => {
+                let (l, b) = justify_offsets(v, free, columns.len());
+                leading_cross = l;
+                between_cross = b;
             }
             _ => {}
         }
@@ -423,8 +314,7 @@ pub(in crate::layout) fn layout_children_column_wrap(
                 });
             } else {
                 let item_align = it.align_self.unwrap_or(align);
-                let stretches =
-                    item_align == crate::style::AlignItems::Stretch && it.can_stretch;
+                let stretches = item_align == crate::style::AlignItems::Stretch && it.can_stretch;
                 // `direction:rtl` no eixo cruzado (lote `flex-justify-logico`,
                 // `column_rtl::cross_x`): a mesma pergunta do caminho de UMA
                 // coluna, só que aqui o "content-box" a espelhar dentro É a

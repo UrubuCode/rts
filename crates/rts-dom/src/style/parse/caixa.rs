@@ -86,7 +86,10 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         }
         // `outline`: uma borda que não ocupa espaço (fora do box model).
         "outline" => crate::style::borders::apply_outline_shorthand(css, val),
-        "outline-width" => set_if(&mut css.outline_width, crate::style::borders::parse_width_token(val)),
+        "outline-width" => set_if(
+            &mut css.outline_width,
+            crate::style::borders::parse_width_token(val),
+        ),
         "outline-style" => {
             css.outline_style = if val.trim().eq_ignore_ascii_case("auto") {
                 Some(BorderStyle::Solid)

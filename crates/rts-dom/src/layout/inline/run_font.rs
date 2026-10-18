@@ -33,7 +33,12 @@ impl Font {
 
 /// The font of the innermost owner, or `None` when it is the container's own
 /// (same size AND same family list) or there is no owner.
-fn of_owner(dom: &Dom, owners: &[NodeIdx], base_family: Option<&str>, base_size: f32) -> Option<(Font, std::rc::Rc<ComputedStyle>)> {
+fn of_owner(
+    dom: &Dom,
+    owners: &[NodeIdx],
+    base_family: Option<&str>,
+    base_size: f32,
+) -> Option<(Font, std::rc::Rc<ComputedStyle>)> {
     let css = dom.computed_style_idx(*owners.last()?)?;
     let size = font_px(&css, base_size);
     let family = css.font_family.clone();
@@ -54,17 +59,39 @@ pub(in crate::layout) struct Fonts<'a> {
 }
 
 impl<'a> Fonts<'a> {
-    pub(in crate::layout) fn of_flow(dom: &Dom, runs: &[InlineRun], family: Option<&'a str>, size: f32, mono: bool) -> Self {
+    pub(in crate::layout) fn of_flow(
+        dom: &Dom,
+        runs: &[InlineRun],
+        family: Option<&'a str>,
+        size: f32,
+        mono: bool,
+    ) -> Self {
         let per_run = runs
             .iter()
-            .map(|r| if r.atomic.is_some() { None } else { of_owner(dom, &r.owners, family, size).map(|(f, _)| f) })
+            .map(|r| {
+                if r.atomic.is_some() {
+                    None
+                } else {
+                    of_owner(dom, &r.owners, family, size).map(|(f, _)| f)
+                }
+            })
             .collect();
-        Fonts { base_family: family, base_size: size, base_mono: mono, per_run }
+        Fonts {
+            base_family: family,
+            base_size: size,
+            base_mono: mono,
+            per_run,
+        }
     }
 
     /// A flow of one font — the generated box's own text.
     pub(in crate::layout) fn uniform(family: Option<&'a str>, size: f32, mono: bool) -> Self {
-        Fonts { base_family: family, base_size: size, base_mono: mono, per_run: Vec::new() }
+        Fonts {
+            base_family: family,
+            base_size: size,
+            base_mono: mono,
+            per_run: Vec::new(),
+        }
     }
 
     pub(in crate::layout) fn base_ahem(&self) -> bool {
@@ -73,12 +100,26 @@ impl<'a> Fonts<'a> {
 
     /// The width of `t` in the font of run `i` (any index past the runs — the
     /// container's own space — is the base font).
-    pub(in crate::layout) fn width(&self, m: &dyn TextMeasurer, i: usize, t: &str, bold: bool, italic: bool) -> f32 {
+    pub(in crate::layout) fn width(
+        &self,
+        m: &dyn TextMeasurer,
+        i: usize,
+        t: &str,
+        bold: bool,
+        italic: bool,
+    ) -> f32 {
         match self.per_run.get(i).and_then(Option::as_ref) {
             Some(f) if f.ahem() => t.chars().count() as f32 * f.size,
             Some(f) => m.text_width_family(t, f.size, f.family.as_deref(), f.mono, bold, italic),
             None if self.base_ahem() => t.chars().count() as f32 * self.base_size,
-            None => m.text_width_family(t, self.base_size, self.base_family, self.base_mono, bold, italic),
+            None => m.text_width_family(
+                t,
+                self.base_size,
+                self.base_family,
+                self.base_mono,
+                bold,
+                italic,
+            ),
         }
     }
 }
@@ -110,5 +151,11 @@ pub(in crate::layout) fn of_segment(
     let content = crate::inline_box::altura_do_conteudo(font.size, font_family, m);
     let box_height = crate::inline_box::altura_da_linha(&css, font.size, m);
     let box_ascent = crate::inline_box::meia_entrelinha(box_height, content) + ascent;
-    Some(SegmentFont { ahem: font.ahem(), font, ascent, box_height, box_ascent })
+    Some(SegmentFont {
+        ahem: font.ahem(),
+        font,
+        ascent,
+        box_height,
+        box_ascent,
+    })
 }

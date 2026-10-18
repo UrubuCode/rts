@@ -18,6 +18,14 @@ const HTML: &str = r#"<style>
 fn justify_left_e_right_sao_fisicos() {
     let (dom, list) = geometria(HTML, 1280.0);
     let x = |s: &str| rect(&dom, &list, s, 0).x;
-    assert_eq!((x("#l3"), x("#l1")), (0.0, 120.0), "left em row-reverse: 3 a esquerda, 1 a x=120");
-    assert_eq!((x("#r1"), x("#r3")), (220.0, 340.0), "right em row: encostados a direita");
+    assert_eq!(
+        (x("#l3"), x("#l1")),
+        (0.0, 120.0),
+        "left em row-reverse: 3 a esquerda, 1 a x=120"
+    );
+    assert_eq!(
+        (x("#r1"), x("#r3")),
+        (220.0, 340.0),
+        "right em row: encostados a direita"
+    );
 }

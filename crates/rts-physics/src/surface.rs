@@ -14,7 +14,9 @@
 //! which is four arguments — the most a native takes. The sub-step count went
 //! into `world[3]`, which the kernel's own layout leaves unused and comments as
 //! `-`. Nothing is remembered, so nothing can be stale, and the only thing that
-//! survives a call is the scratch in [`Solver`], which holds no body state.
+//! survives a call is numeric scratch in [`Solver`] and an exact cache of fully
+//! sleeping inputs. No JS object or pointer survives; changing any input
+//! invalidates the cache, including when calls alternate between worlds.
 //!
 //! # The borrow is dropped before the solver runs, and that is not optional
 //!
@@ -55,9 +57,9 @@ thread_local! {
     /// this is only ever reached from the thread running JavaScript — the
     /// workers below it never see it.
     ///
-    /// It holds no body state: a grid and two snapshot vectors, all overwritten
-    /// at the top of every sub-step. So a program stepping two different scenes
-    /// through one solver gets the same answer as stepping them through two.
+    /// Scratch and the sleeping cache contain owned numeric copies, never JS
+    /// buffers or identities. A program stepping two different scenes through
+    /// one solver gets the same answer as stepping them through two.
     static SOLVER: std::cell::RefCell<Solver> = std::cell::RefCell::new(Solver::new());
 }
 
@@ -86,16 +88,20 @@ extern "C" fn step(_e: u64, _this: u64, pos: u64, vel: u64, ext: u64, world: u64
     let (ext, world) = unsafe { (floats(ext), floats(world)) };
 
     use crate::solver::material::{
-        PHYSICS_LAYOUT_VERSION, WORLD_HEADER_FLOATS, WORLD_PARAM_LAYOUT_VERSION, WORLD_PARAM_SUBSTEPS,
+        PHYSICS_LAYOUT_VERSION, WORLD_HEADER_FLOATS, WORLD_PARAM_LAYOUT_VERSION,
+        WORLD_PARAM_SUBSTEPS,
     };
-    if world.len() < WORLD_HEADER_FLOATS || world[WORLD_PARAM_LAYOUT_VERSION] != PHYSICS_LAYOUT_VERSION {
+    if world.len() < WORLD_HEADER_FLOATS
+        || world[WORLD_PARAM_LAYOUT_VERSION] != PHYSICS_LAYOUT_VERSION
+    {
         return entry::make_number(0.0);
     }
 
-    let substeps = match world[WORLD_PARAM_SUBSTEPS].is_finite() && world[WORLD_PARAM_SUBSTEPS] >= 1.0 {
-        true => world[WORLD_PARAM_SUBSTEPS] as usize,
-        false => 1,
-    };
+    let substeps =
+        match world[WORLD_PARAM_SUBSTEPS].is_finite() && world[WORLD_PARAM_SUBSTEPS] >= 1.0 {
+            true => world[WORLD_PARAM_SUBSTEPS] as usize,
+            false => 1,
+        };
     SOLVER.with(|solver| solver.borrow_mut().step(pos, vel, ext, world, substeps));
     entry::make_number((pos.len() / 4) as f64)
 }

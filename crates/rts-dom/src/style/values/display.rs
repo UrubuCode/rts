@@ -197,6 +197,16 @@ impl DisplayKind {
         matches!(self, DisplayKind::Grid | DisplayKind::InlineGrid)
     }
 
+    pub fn is_flex_container(self) -> bool {
+        matches!(
+            self,
+            DisplayKind::Flex
+                | DisplayKind::InlineFlex
+                | DisplayKind::FlexWrap
+                | DisplayKind::InlineFlexWrap
+        )
+    }
+
     /// `true` para a caixa de TABELA em si — `table` ou `inline-table` — e NAO
     /// para as suas partes internas, que sao [`is_table_part`].
     pub fn is_table_box(self) -> bool {
@@ -211,7 +221,9 @@ impl DisplayKind {
     pub fn is_row_group(self) -> bool {
         matches!(
             self,
-            DisplayKind::TableRowGroup | DisplayKind::TableHeaderGroup | DisplayKind::TableFooterGroup
+            DisplayKind::TableRowGroup
+                | DisplayKind::TableHeaderGroup
+                | DisplayKind::TableFooterGroup
         )
     }
 
@@ -258,6 +270,22 @@ pub enum JustifyContent {
     /// `getComputedStyle` tem de responder o keyword usado.
     Start,
     End,
+    /// `stretch` (CSS Box Alignment Level 3 §5): estica as trilhas/linhas para preencher o contentor.
+    Stretch,
+    /// `baseline` / `first baseline` (Box Alignment §5.4): baseline content-alignment.
+    Baseline,
+    /// `last baseline` (Box Alignment §5.4).
+    LastBaseline,
+    /// `safe center` (Box Alignment §4.4): centra, MAS se o conteúdo
+    /// transbordar o contentor cai em `start` (free negativo → 0), para não
+    /// perder dados do lado de início. A única diferença de [`Center`] é esse
+    /// grampo no overflow — o mesmo que [`AlignItems::SafeCenter`] já faz no
+    /// eixo cruzado. `unsafe center` colapsa em [`Center`] no parse (não há
+    /// grampo), e por isso não tem variante própria.
+    SafeCenter,
+    /// `safe end` / `safe flex-end` (Box Alignment §4.4): como [`FlexEnd`],
+    /// mas com o mesmo grampo de overflow de [`SafeCenter`].
+    SafeEnd,
 }
 
 impl JustifyContent {
@@ -281,6 +309,16 @@ impl JustifyContent {
             "space-between" => JustifyContent::SpaceBetween,
             "space-around" => JustifyContent::SpaceAround,
             "space-evenly" => JustifyContent::SpaceEvenly,
+            "stretch" => JustifyContent::Stretch,
+            "baseline" | "first baseline" => JustifyContent::Baseline,
+            "last baseline" => JustifyContent::LastBaseline,
+            // `safe`/`unsafe` overflow-position (Box Alignment §4.4). Only the
+            // `safe` prefix on center/end keeps a distinct variant (the
+            // overflow clamp); `unsafe` means "no clamp" — the plain keyword.
+            "safe center" => JustifyContent::SafeCenter,
+            "safe end" | "safe flex-end" => JustifyContent::SafeEnd,
+            "unsafe center" => JustifyContent::Center,
+            "unsafe end" | "unsafe flex-end" => JustifyContent::FlexEnd,
             _ => return None,
         })
     }
@@ -289,6 +327,9 @@ impl JustifyContent {
 /// `align-items` — alinhamento dos itens no EIXO CRUZADO. Default `Stretch`. Egui-free.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AlignItems {
+    /// O alinhamento default do CSS Box Alignment: `stretch` em não-substituídos,
+    /// `start` em substituídos/com aspecto (Grid §10.1).
+    Normal,
     /// O flex ESTICA de fato (`layout/flex.rs::stretches`); numa coluna
     /// (`coluna.rs`) o item ocupa a largura do contentor.
     Stretch,
@@ -317,30 +358,35 @@ pub enum AlignItems {
     /// fallback físico nunca diverge entre um teste e a sua referência do
     /// jeito que um ascent mal medido divergiria.
     LastBaseline,
+    Left,
+    Right,
+    SelfStart,
+    SelfEnd,
 }
 
 impl AlignItems {
+    pub fn parse_justify(v: &str) -> Option<AlignItems> {
+        match v.trim().to_ascii_lowercase().as_str() {
+            "left" => Some(AlignItems::Left),
+            "right" => Some(AlignItems::Right),
+            _ => Self::parse(v),
+        }
+    }
+
     pub fn parse(v: &str) -> Option<AlignItems> {
         Some(match v.trim().to_ascii_lowercase().as_str() {
-            "stretch" | "normal" => AlignItems::Stretch,
-            // `flow-start`/`flow-end`: see the sibling aliases on
-            // `JustifyContent::parse` — same collapse, same reason.
-            "flex-start" | "start" | "self-start" | "flow-start" => AlignItems::FlexStart,
-            "flex-end" | "end" | "self-end" | "flow-end" => AlignItems::FlexEnd,
-            "center" => AlignItems::Center,
+            "normal" => AlignItems::Normal,
+            "stretch" => AlignItems::Stretch,
+            "self-start" | "unsafe self-start" => AlignItems::SelfStart,
+            "self-end" | "unsafe self-end" => AlignItems::SelfEnd,
+            "flex-start" | "start" | "flow-start" => AlignItems::FlexStart,
+            "flex-end" | "end" | "flow-end" => AlignItems::FlexEnd,
+            "center" | "unsafe center" => AlignItems::Center,
             "safe center" => AlignItems::SafeCenter,
             "safe end" | "safe flex-end" | "safe self-end" => AlignItems::SafeEnd,
-            // `safe start`/`unsafe <x>`: `start` never overflows its OWN
-            // start edge (the direction alignment falls back to), so "safe
-            // start" collapses to plain `start`, and "unsafe <x>" collapses
-            // to plain `<x>` — css-align-3 §4.4 makes overflow-safety a
-            // no-op for `start` and irrelevant for the "unsafe" keyword,
-            // which only spells out the default we already apply to the
-            // unprefixed `center`/`end`.
-            "safe start" | "safe flex-start" | "safe self-start" | "unsafe start" | "unsafe flex-start"
-            | "unsafe self-start" => AlignItems::FlexStart,
-            "unsafe end" | "unsafe flex-end" | "unsafe self-end" => AlignItems::FlexEnd,
-            "unsafe center" => AlignItems::Center,
+            "safe start" | "safe flex-start" | "safe self-start" | "unsafe start"
+            | "unsafe flex-start" => AlignItems::FlexStart,
+            "unsafe end" | "unsafe flex-end" => AlignItems::FlexEnd,
             "baseline" | "first baseline" => AlignItems::Baseline,
             "last baseline" => AlignItems::LastBaseline,
             _ => return None,
@@ -407,8 +453,14 @@ mod flow_start_flow_end_tests {
     /// matching the reference.
     #[test]
     fn justify_content_flow_start_end_alias_flex_start_end() {
-        assert_eq!(JustifyContent::parse("flow-start"), Some(JustifyContent::FlexStart));
-        assert_eq!(JustifyContent::parse("flow-end"), Some(JustifyContent::FlexEnd));
+        assert_eq!(
+            JustifyContent::parse("flow-start"),
+            Some(JustifyContent::FlexStart)
+        );
+        assert_eq!(
+            JustifyContent::parse("flow-end"),
+            Some(JustifyContent::FlexEnd)
+        );
     }
 
     /// Same alias, for `align-items`/`align-self`/`align-content` — all three
@@ -431,13 +483,31 @@ mod flow_start_flow_end_tests {
     /// `unsafe` is the default we already give `center`/`end`).
     #[test]
     fn align_items_parses_the_rest_of_safe_and_unsafe() {
-        assert_eq!(AlignItems::parse("safe flex-end"), Some(AlignItems::SafeEnd));
-        assert_eq!(AlignItems::parse("safe self-end"), Some(AlignItems::SafeEnd));
+        assert_eq!(
+            AlignItems::parse("safe flex-end"),
+            Some(AlignItems::SafeEnd)
+        );
+        assert_eq!(
+            AlignItems::parse("safe self-end"),
+            Some(AlignItems::SafeEnd)
+        );
         assert_eq!(AlignItems::parse("safe start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("safe flex-start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("unsafe start"), Some(AlignItems::FlexStart));
-        assert_eq!(AlignItems::parse("unsafe flex-end"), Some(AlignItems::FlexEnd));
-        assert_eq!(AlignItems::parse("unsafe self-end"), Some(AlignItems::FlexEnd));
+        assert_eq!(
+            AlignItems::parse("safe flex-start"),
+            Some(AlignItems::FlexStart)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe start"),
+            Some(AlignItems::FlexStart)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe flex-end"),
+            Some(AlignItems::FlexEnd)
+        );
+        assert_eq!(
+            AlignItems::parse("unsafe self-end"),
+            Some(AlignItems::SelfEnd)
+        );
         assert_eq!(AlignItems::parse("unsafe center"), Some(AlignItems::Center));
     }
 }

@@ -14,7 +14,8 @@ struct Kerning;
 
 impl Kerning {
     fn width(text: &str) -> f32 {
-        text.chars().count() as f32 * 8.0 - 2.0 * (text.matches("AV").count() + text.matches(" T").count()) as f32
+        text.chars().count() as f32 * 8.0
+            - 2.0 * (text.matches("AV").count() + text.matches(" T").count()) as f32
     }
 }
 
@@ -22,7 +23,15 @@ impl TextMeasurer for Kerning {
     fn text_width(&self, text: &str, _: f32, _: bool, _: bool, _: bool) -> f32 {
         Kerning::width(text)
     }
-    fn text_width_family(&self, text: &str, size: f32, _: Option<&str>, mono: bool, bold: bool, italic: bool) -> f32 {
+    fn text_width_family(
+        &self,
+        text: &str,
+        size: f32,
+        _: Option<&str>,
+        mono: bool,
+        bold: bool,
+        italic: bool,
+    ) -> f32 {
         self.text_width(text, size, mono, bold, italic)
     }
     fn line_height(&self, size: f32) -> f32 {
@@ -33,7 +42,11 @@ impl TextMeasurer for Kerning {
 fn text_items(html: &str) -> Vec<(String, f32)> {
     let dom = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{html}"));
     let m = Kerning;
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &m };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &m,
+    };
     let list = layout_document(&dom, &ctx);
     list.materialized()
         .iter()
@@ -46,9 +59,14 @@ fn text_items(html: &str) -> Vec<(String, f32)> {
 
 #[test]
 fn an_inline_block_kerned_across_a_space_is_one_line_tall() {
-    let items = text_items(r#"<div><span style="display:inline-block;font-size:16px">AVATAR Toy To.</span></div>"#);
+    let items = text_items(
+        r#"<div><span style="display:inline-block;font-size:16px">AVATAR Toy To.</span></div>"#,
+    );
     let ys: Vec<f32> = items.iter().map(|(_, y)| *y).collect();
-    assert!(ys.windows(2).all(|w| w[0] == w[1]), "the text wrapped: {items:?}");
+    assert!(
+        ys.windows(2).all(|w| w[0] == w[1]),
+        "the text wrapped: {items:?}"
+    );
     let text: String = items.iter().map(|(t, _)| t.as_str()).collect();
     assert_eq!(text.trim(), "AVATAR Toy To.", "items: {items:?}");
 }
@@ -58,7 +76,14 @@ fn an_inline_block_kerned_across_a_space_is_one_line_tall() {
 #[test]
 fn a_box_narrower_than_the_kerned_line_still_wraps() {
     let whole = Kerning::width("AVATAR Toy To.");
-    let items = text_items(&format!(r#"<div style="width:{}px;font-size:16px">AVATAR Toy To.</div>"#, whole - 1.0));
-    let lines = items.iter().map(|(_, y)| y.to_bits()).collect::<std::collections::BTreeSet<_>>().len();
+    let items = text_items(&format!(
+        r#"<div style="width:{}px;font-size:16px">AVATAR Toy To.</div>"#,
+        whole - 1.0
+    ));
+    let lines = items
+        .iter()
+        .map(|(_, y)| y.to_bits())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
     assert_eq!(lines, 2, "items: {items:?}");
 }

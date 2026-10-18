@@ -16,21 +16,40 @@
 /// chegar aqui. Tratados como `FlexStart`/`FlexEnd` (mesma posição física
 /// que já tinham); `wrap-reverse` não os espelha aqui — nenhum valor é
 /// espelhado no `align-content` hoje, o que fica fora deste lote.
-pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: f32, n: usize) -> (f32, f32) {
+pub(in crate::layout) fn justify_offsets(
+    j: crate::style::JustifyContent,
+    free: f32,
+    n: usize,
+) -> (f32, f32) {
     use crate::style::JustifyContent as J;
     if free <= 0.0 {
         return match j {
             J::Center => (free / 2.0, 0.0), // leading negativo = transbordo centrado
             J::FlexEnd | J::End => (free, 0.0), // todo o overflow no start
             // flex-start E os space-* → flush no start (fiel ao Chrome em overflow).
-            J::FlexStart | J::SpaceBetween | J::SpaceAround | J::SpaceEvenly | J::Left | J::Start => (0.0, 0.0),
+            J::FlexStart
+            | J::SpaceBetween
+            | J::SpaceAround
+            | J::SpaceEvenly
+            | J::Left
+            | J::Start
+            | J::Stretch
+            | J::Baseline
+            // `safe center`/`safe end`: é exatamente no overflow que o `safe`
+            // age — cai no start em vez de transbordar o lado de início
+            // (Box Alignment §4.4), o mesmo grampo que `align_offset` faz.
+            | J::SafeCenter
+            | J::SafeEnd => (0.0, 0.0),
+            J::LastBaseline => (free, 0.0),
             J::Right => (free, 0.0),
         };
     }
     match j {
-        J::FlexStart | J::Left | J::Start => (0.0, 0.0),
-        J::FlexEnd | J::Right | J::End => (free, 0.0),
-        J::Center => (free / 2.0, 0.0),
+        J::FlexStart | J::Left | J::Start | J::Stretch | J::Baseline => (0.0, 0.0),
+        J::FlexEnd | J::Right | J::End | J::LastBaseline => (free, 0.0),
+        // Com espaço livre, `safe` não muda nada: centra / encosta ao fim.
+        J::Center | J::SafeCenter => (free / 2.0, 0.0),
+        J::SafeEnd => (free, 0.0),
         J::SpaceBetween => {
             if n > 1 {
                 (0.0, free / (n - 1) as f32)
@@ -61,13 +80,42 @@ pub(in crate::layout) fn justify_offsets(j: crate::style::JustifyContent, free: 
 /// prevê (Flexbox §8.5) quando o eixo cruzado não tem baseline partilhável.
 /// `LastBaseline` cai em `FlexEnd` pelo mesmo motivo (ver o doc da variante).
 /// `safe` (css-align §4.4): um item que transborda cai no início, nunca negativo.
-pub(in crate::layout) fn align_offset(a: crate::style::AlignItems, line_h: f32, item_h: f32) -> f32 {
+pub(in crate::layout) fn align_offset(
+    a: crate::style::AlignItems,
+    line_h: f32,
+    item_h: f32,
+) -> f32 {
     use crate::style::AlignItems as A;
     let free = line_h - item_h;
     match a {
-        A::Stretch | A::FlexStart | A::Baseline => 0.0,
-        A::FlexEnd | A::LastBaseline => free,
+        A::Normal | A::Stretch | A::FlexStart | A::Baseline | A::Left | A::SelfStart => 0.0,
+        A::FlexEnd | A::LastBaseline | A::Right | A::SelfEnd => free,
         A::SafeEnd | A::SafeCenter => (if a == A::SafeEnd { free } else { free / 2.0 }).max(0.0),
         A::Center => free / 2.0,
+    }
+}
+
+#[cfg(test)]
+mod safe_overflow_tests {
+    use super::justify_offsets;
+    use crate::style::JustifyContent as J;
+
+    // `safe center`/`safe end` só diferem de `center`/`flex-end` no OVERFLOW:
+    // o conteúdo cai no início do eixo em vez de transbordar o lado de início
+    // (Box Alignment §4.4), que é a razão de a fixture WPT
+    // `flexbox-safe-overflow-position-001` existir.
+    #[test]
+    fn safe_cai_no_inicio_quando_transborda() {
+        assert_eq!(justify_offsets(J::SafeCenter, -40.0, 1), (0.0, 0.0));
+        assert_eq!(justify_offsets(J::SafeEnd, -40.0, 1), (0.0, 0.0));
+        // `center`/`flex-end` sem `safe` continuam a transbordar como antes.
+        assert_eq!(justify_offsets(J::Center, -40.0, 1), (-20.0, 0.0));
+        assert_eq!(justify_offsets(J::FlexEnd, -40.0, 1), (-40.0, 0.0));
+    }
+
+    #[test]
+    fn com_espaco_livre_safe_e_igual_ao_sem_safe() {
+        assert_eq!(justify_offsets(J::SafeCenter, 40.0, 1), justify_offsets(J::Center, 40.0, 1));
+        assert_eq!(justify_offsets(J::SafeEnd, 40.0, 1), justify_offsets(J::FlexEnd, 40.0, 1));
     }
 }

@@ -100,7 +100,13 @@ impl BlockFormattingContext {
         content_x: f32,
         content_w: f32,
     ) -> (f32, f32) {
-        crate::layout::float::float::free_band(&self.floats.borrow(), y, height, content_x, content_w)
+        crate::layout::float::float::free_band(
+            &self.floats.borrow(),
+            y,
+            height,
+            content_x,
+            content_w,
+        )
     }
 
     /// Os fundos dos floats abertos, um por float, sem ordenar — para o laço

@@ -29,6 +29,7 @@ fn main() {
     export_napi_symbols();
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=RTS_RUNTIME_ZSTD_LEVEL");
 }
 /// Embeds the AOT runtime archive (`rts-runtime`, over `rts-core` +
 /// `rts-std` + `rts-node`) into the binary, compressed.
@@ -61,9 +62,18 @@ fn embed_runtime_archive(out: &Path, profile_dir: &Path) {
             strip_bitcode_from_archive(&output);
             let raw =
                 std::fs::read(&output).unwrap_or_else(|e| panic!("read {}: {e}", output.display()));
-            std::fs::write(&sha_file, format!("{:x}", Sha256::digest(&raw)))
-                .unwrap_or_else(|e| panic!("write {}: {e}", sha_file.display()));
-            zstd_to(&raw, &output_zst);
+            let archive_sha = format!("{:x}", Sha256::digest(&raw));
+            let compressed_is_current = std::fs::read_to_string(&sha_file)
+                .is_ok_and(|saved| saved.trim() == archive_sha)
+                && std::fs::read(&output_zst)
+                    .ok()
+                    .and_then(|compressed| zstd::decode_all(compressed.as_slice()).ok())
+                    .is_some_and(|decoded| format!("{:x}", Sha256::digest(decoded)) == archive_sha);
+            if !compressed_is_current {
+                zstd_to(&raw, &output_zst);
+                std::fs::write(&sha_file, archive_sha)
+                    .unwrap_or_else(|e| panic!("write {}: {e}", sha_file.display()));
+            }
             println!("cargo:rerun-if-changed={}", lib.display());
         }
         None => {
@@ -102,10 +112,14 @@ fn profile_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
 }
 
 fn zstd_to(raw: &[u8], dest: &Path) {
-    // Level 19: near-max ratio, still reasonable build-time cost. Decompression
-    // speed is level-independent and only runs once (first AOT extraction).
+    // New archives default to level 19. Local iteration can choose a faster level
+    // without changing the embedded archive's contents or its SHA-256 identity.
+    let level = std::env::var("RTS_RUNTIME_ZSTD_LEVEL")
+        .map(|value| value.parse::<i32>().expect("RTS_RUNTIME_ZSTD_LEVEL must be an integer from 1 to 19"))
+        .unwrap_or(19);
+    assert!((1..=19).contains(&level), "RTS_RUNTIME_ZSTD_LEVEL must be from 1 to 19");
     let zst =
-        zstd::encode_all(raw, 19).unwrap_or_else(|e| panic!("zstd-compress runtime archive: {e}"));
+        zstd::encode_all(raw, level).unwrap_or_else(|e| panic!("zstd-compress runtime archive: {e}"));
     std::fs::write(dest, zst).unwrap_or_else(|e| panic!("write {}: {e}", dest.display()));
 }
 

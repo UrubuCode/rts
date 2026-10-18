@@ -178,7 +178,10 @@ fn main() {
         for (i, p) in list.pieces.iter().enumerate().take(2000) {
             match p {
                 paint::Piece::Item(DisplayItem::BeginClip { rect, node, .. }) => {
-                    println!("  pieces[{i}] Begin no={node:?} {:.0}x{:.0}", rect.w, rect.h)
+                    println!(
+                        "  pieces[{i}] Begin no={node:?} {:.0}x{:.0}",
+                        rect.w, rect.h
+                    )
                 }
                 paint::Piece::Item(DisplayItem::EndClip) => println!("  pieces[{i}] End"),
                 _ => {}

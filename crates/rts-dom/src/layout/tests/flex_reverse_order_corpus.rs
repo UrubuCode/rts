@@ -35,7 +35,10 @@ fn direction_rtl_sozinho_inverte_a_ordem_das_colunas_como_wrap_reverse() {
 <div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
 </body></html>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // `align-content:normal` estica as duas colunas para os 1280px do body
     // (640 cada) — mesma conta da fixture irmã. RTL sozinho (sem
     // `wrap-reverse`) põe a coluna B (a 2ª calculada) em PRIMEIRO no eixo
@@ -44,9 +47,17 @@ fn direction_rtl_sozinho_inverte_a_ordem_das_colunas_como_wrap_reverse() {
     // espelhar-se para a borda DIREITA da coluna via `coluna_rtl::cross_x`
     // (mecanismo já existente antes deste lote, independente do XOR): 640
     // menos os 100 do item = 540 dentro da coluna.
-    assert_eq!(r("#i3"), (540.0, 0.0, 100.0, 80.0), "coluna B (2a calculada) e a 1a fisicamente, RTL sozinho");
+    assert_eq!(
+        r("#i3"),
+        (540.0, 0.0, 100.0, 80.0),
+        "coluna B (2a calculada) e a 1a fisicamente, RTL sozinho"
+    );
     assert_eq!(r("#i4"), (540.0, 80.0, 100.0, 80.0));
-    assert_eq!(r("#i1"), (1180.0, 0.0, 100.0, 80.0), "coluna A (1a calculada) e a 2a fisicamente, RTL sozinho");
+    assert_eq!(
+        r("#i1"),
+        (1180.0, 0.0, 100.0, 80.0),
+        "coluna A (1a calculada) e a 2a fisicamente, RTL sozinho"
+    );
     assert_eq!(r("#i2"), (1180.0, 80.0, 100.0, 80.0));
 }
 
@@ -66,7 +77,10 @@ fn direction_rtl_com_wrap_reverse_juntos_cancelam_e_nao_invertem_a_ordem() {
 <div class="c"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>
 </body></html>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // A ORDEM FÍSICA das colunas é a mesma da fixture SEM `direction:rtl`
     // (`coluna_reversa_e_wrap_reverso_juntos_derivado_da_spec_nao_medido`,
     // `flex_column_wrap_corpus.rs`): o XOR devolve `false` quando as duas
@@ -76,10 +90,26 @@ fn direction_rtl_com_wrap_reverse_juntos_cancelam_e_nao_invertem_a_ordem() {
     // MUDA é o espelho de CADA item dentro da sua coluna (`coluna_rtl::
     // cross_x`, sempre activo com RTL, independente do XOR): 640-100=540
     // dentro da coluna A (x=0..640) e 1180 dentro da B (x=640..1280).
-    assert_eq!(r("#i4"), (1180.0, 0.0, 100.0, 80.0), "coluna B, invertida por column-reverse: i4 no topo");
-    assert_eq!(r("#i3"), (1180.0, 80.0, 100.0, 80.0), "coluna B, invertida: i3 no fundo");
-    assert_eq!(r("#i2"), (540.0, 0.0, 100.0, 80.0), "coluna A, invertida: i2 no topo");
-    assert_eq!(r("#i1"), (540.0, 80.0, 100.0, 80.0), "coluna A, invertida: i1 no fundo");
+    assert_eq!(
+        r("#i4"),
+        (1180.0, 0.0, 100.0, 80.0),
+        "coluna B, invertida por column-reverse: i4 no topo"
+    );
+    assert_eq!(
+        r("#i3"),
+        (1180.0, 80.0, 100.0, 80.0),
+        "coluna B, invertida: i3 no fundo"
+    );
+    assert_eq!(
+        r("#i2"),
+        (540.0, 0.0, 100.0, 80.0),
+        "coluna A, invertida: i2 no topo"
+    );
+    assert_eq!(
+        r("#i1"),
+        (540.0, 80.0, 100.0, 80.0),
+        "coluna A, invertida: i1 no fundo"
+    );
 }
 
 /// `align-items:stretch` (o omisso) tem de ENCOLHER um item cuja altura
@@ -103,7 +133,11 @@ fn stretch_encolhe_um_item_cuja_altura_pela_razao_de_aspecto_excede_a_linha() {
         d.set_pixel_data(id, vec![0, 0, 200, 255].repeat(16 * 16), 16, 16);
     });
     let r = rect(&dom, &list, "#alvo", 0);
-    assert_eq!((r.w, r.h), (48.0, 20.0), "estica aos 20px da linha, não fica em 48 (a razão de aspecto 1:1 da largura declarada)");
+    assert_eq!(
+        (r.w, r.h),
+        (48.0, 20.0),
+        "estica aos 20px da linha, não fica em 48 (a razão de aspecto 1:1 da largura declarada)"
+    );
 }
 
 /// `margin-inline-end`/`padding-inline-end`/`border-inline-end-width` sob
@@ -118,11 +152,20 @@ fn logicas_inline_end_resolvem_para_a_direita_em_ltr() {
     let (dom, _list) = geometria(HTML, 1280.0);
     let id = dom.query("#alvo").unwrap();
     let css = dom.computed_style(id).unwrap();
-    assert_eq!(css.margin.right, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(
+        css.margin.right,
+        crate::style::Side::Len(crate::style::Dimension::Px(10.0))
+    );
     assert_eq!(css.margin.left, crate::style::Side::Unset);
-    assert_eq!(css.padding.right, crate::style::Side::Len(crate::style::Dimension::Px(6.0)));
+    assert_eq!(
+        css.padding.right,
+        crate::style::Side::Len(crate::style::Dimension::Px(6.0))
+    );
     assert_eq!(css.padding.left, crate::style::Side::Unset);
-    assert_eq!(css.border_widths.right, crate::style::Side::Len(crate::style::Dimension::Px(2.0)));
+    assert_eq!(
+        css.border_widths.right,
+        crate::style::Side::Len(crate::style::Dimension::Px(2.0))
+    );
     assert_eq!(css.border_widths.left, crate::style::Side::Unset);
 }
 
@@ -142,12 +185,25 @@ fn logicas_inline_end_resolvem_para_a_esquerda_em_rtl_herdado() {
     let (dom, _list) = geometria(HTML, 1280.0);
     let id = dom.query("#alvo").unwrap();
     let css = dom.computed_style(id).unwrap();
-    assert_eq!(css.direction, Some(crate::style::Direction::Rtl), "herdado do body");
-    assert_eq!(css.margin.left, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(
+        css.direction,
+        Some(crate::style::Direction::Rtl),
+        "herdado do body"
+    );
+    assert_eq!(
+        css.margin.left,
+        crate::style::Side::Len(crate::style::Dimension::Px(10.0))
+    );
     assert_eq!(css.margin.right, crate::style::Side::Unset);
-    assert_eq!(css.padding.left, crate::style::Side::Len(crate::style::Dimension::Px(6.0)));
+    assert_eq!(
+        css.padding.left,
+        crate::style::Side::Len(crate::style::Dimension::Px(6.0))
+    );
     assert_eq!(css.padding.right, crate::style::Side::Unset);
-    assert_eq!(css.border_widths.left, crate::style::Side::Len(crate::style::Dimension::Px(2.0)));
+    assert_eq!(
+        css.border_widths.left,
+        crate::style::Side::Len(crate::style::Dimension::Px(2.0))
+    );
     assert_eq!(css.border_widths.right, crate::style::Side::Unset);
 }
 
@@ -171,8 +227,16 @@ fn logicas_inline_end_numa_linha_de_flex_rtl_fica_ltr_por_agora() {
     let (dom, _list) = geometria(HTML, 1280.0);
     let id = dom.query("#alvo").unwrap();
     let css = dom.computed_style(id).unwrap();
-    assert_eq!(css.direction, Some(crate::style::Direction::Rtl), "herdado do body mesmo aqui");
-    assert_eq!(css.margin.right, crate::style::Side::Len(crate::style::Dimension::Px(10.0)), "corte: linha de flex ainda finge ltr");
+    assert_eq!(
+        css.direction,
+        Some(crate::style::Direction::Rtl),
+        "herdado do body mesmo aqui"
+    );
+    assert_eq!(
+        css.margin.right,
+        crate::style::Side::Len(crate::style::Dimension::Px(10.0)),
+        "corte: linha de flex ainda finge ltr"
+    );
     assert_eq!(css.margin.left, crate::style::Side::Unset);
 }
 
@@ -191,6 +255,9 @@ fn logicas_inline_end_numa_coluna_de_flex_rtl_resolve_normal() {
     let (dom, _list) = geometria(HTML, 1280.0);
     let id = dom.query("#alvo").unwrap();
     let css = dom.computed_style(id).unwrap();
-    assert_eq!(css.margin.left, crate::style::Side::Len(crate::style::Dimension::Px(10.0)));
+    assert_eq!(
+        css.margin.left,
+        crate::style::Side::Len(crate::style::Dimension::Px(10.0))
+    );
     assert_eq!(css.margin.right, crate::style::Side::Unset);
 }

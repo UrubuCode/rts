@@ -26,7 +26,15 @@ const HTML: &str = r#"<style>
 fn a_largura_intrinseca_colapsa_o_whitespace_do_html() {
     let (dom, list) = geometria(HTML, 1280.0);
     let w = |s: &str| rect(&dom, &list, s, 0).w;
-    assert_eq!(w("#flex"), 40.0, "a indentação entre os filhos não é conteúdo");
-    assert!((w("#ib") - 26.39).abs() <= 1.0, "\"  a   b  \" mede \"a b\": {}", w("#ib"));
+    assert_eq!(
+        w("#flex"),
+        40.0,
+        "a indentação entre os filhos não é conteúdo"
+    );
+    assert!(
+        (w("#ib") - 26.39).abs() <= 1.0,
+        "\"  a   b  \" mede \"a b\": {}",
+        w("#ib")
+    );
     assert_eq!(w("#vazio"), 0.0, "só whitespace mede 0");
 }

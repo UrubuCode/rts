@@ -153,7 +153,10 @@ fn inner_of(display: DisplayKind) -> InnerDisplay {
 /// is the cascade order CSS gives. An element with no computed style answers
 /// block-level flow; `build_mirror` gives it no box at all, so the value is
 /// only ever seen by a caller holding a hand-built tree.
-pub(crate) fn element_formatting_context(dom: &Dom, node: crate::dom::NodeIdx) -> FormattingContext {
+pub(crate) fn element_formatting_context(
+    dom: &Dom,
+    node: crate::dom::NodeIdx,
+) -> FormattingContext {
     let declared = dom
         .computed_style_idx(node)
         .and_then(|css| css.effective_display());
@@ -205,7 +208,8 @@ fn generated_formatting_context(
         _ => OuterDisplay::Inline,
     };
     let independent = css.is_some_and(|c| {
-        crate::layout::block::bfc_style::by_style(c, pai) || crate::layout::block::bfc_style::overflow_establishes(c)
+        crate::layout::block::bfc_style::by_style(c, pai)
+            || crate::layout::block::bfc_style::overflow_establishes(c)
     });
     FormattingContext {
         outer,
@@ -251,7 +255,10 @@ impl BoxTree {
                 inner: InnerDisplay::Flow,
                 independent: false,
             },
-            BoxKind::Anonymous { role: super::AnonymousRole::Block, .. } => FormattingContext {
+            BoxKind::Anonymous {
+                role: super::AnonymousRole::Block,
+                ..
+            } => FormattingContext {
                 outer: OuterDisplay::Block,
                 inner: InnerDisplay::Flow,
                 independent: false,
@@ -259,15 +266,19 @@ impl BoxTree {
             // An anonymous TABLE is `display: table`: block-level (its parent is
             // a flow container — `build.rs` never wraps inside an inline) and a
             // table inside, which contains its own floats and margins.
-            BoxKind::Anonymous { role: super::AnonymousRole::Table, .. } => FormattingContext {
+            BoxKind::Anonymous {
+                role: super::AnonymousRole::Table,
+                ..
+            } => FormattingContext {
                 outer: OuterDisplay::Block,
                 inner: InnerDisplay::Table,
                 independent: true,
             },
             BoxKind::Element(node) => element_formatting_context(dom, node),
-            BoxKind::Generated { originating, .. } => {
-                generated_formatting_context(self.style(dom, id).as_deref(), dom.computed_style_idx(originating).as_deref())
-            }
+            BoxKind::Generated { originating, .. } => generated_formatting_context(
+                self.style(dom, id).as_deref(),
+                dom.computed_style_idx(originating).as_deref(),
+            ),
         }
     }
 

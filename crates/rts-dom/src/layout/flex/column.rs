@@ -6,8 +6,8 @@
 //! 2026-09-04): com `flex-wrap` e altura definida, delega para
 //! `column_wrap.rs` — ver o comentário no parâmetro.
 
-use super::*;
 pub(in crate::layout) use super::offsets::{align_offset, justify_offsets};
+use super::*;
 
 /// `justify-content` (`physical_to_column` — físicos/lógicos resolvidos e
 /// invariantes a `column-reverse`, ver o comentário lá — e depois espelhado
@@ -78,10 +78,24 @@ pub(in crate::layout) fn layout_children_column(
             // `eixo_x_forward` já ignora `direction` (o eixo de bloco não o
             // lê), então forçar LTR aqui não perde nada nesse caso.
             let wrap_reverse = super::axes::effective_wrap_reverse(
-                css.writing_mode.unwrap_or_default(), crate::style::Direction::Ltr, true, css.flex_wrap,
+                css.writing_mode.unwrap_or_default(),
+                crate::style::Direction::Ltr,
+                true,
+                css.flex_wrap,
             );
             return super::column_wrap::layout_children_column_wrap(
-                dom, container, content_x, content_y, content_w, h, css, font_size, reverse, wrap_reverse, ctx, list,
+                dom,
+                container,
+                content_x,
+                content_y,
+                content_w,
+                h,
+                css,
+                font_size,
+                reverse,
+                wrap_reverse,
+                ctx,
+                list,
             );
         }
     }
@@ -182,9 +196,29 @@ pub(in crate::layout) fn layout_children_column(
         // (`claude-flex-item-contem-floats`). Só quem não estica mede encolhido.
         let stretched = ccss.align_self.unwrap_or(align) == crate::style::AlignItems::Stretch;
         let natural_h = if stretched {
-            measure_block(dom, child, box_id, content_w, container_content_h, None, None, false, ctx).1
+            measure_block(
+                dom,
+                child,
+                box_id,
+                content_w,
+                container_content_h,
+                None,
+                None,
+                false,
+                ctx,
+            )
+            .1
         } else {
-            child_outer_height(dom, child, box_id, content_w, container_content_h, css, font_size, ctx)
+            child_outer_height(
+                dom,
+                child,
+                box_id,
+                content_w,
+                container_content_h,
+                css,
+                font_size,
+                ctx,
+            )
         };
         let child_font = font_px(&ccss, font_size);
         let child_resolve = ResolveCtx {
@@ -194,7 +228,16 @@ pub(in crate::layout) fn layout_children_column(
             viewport_w: ctx.viewport_w,
             viewport_h: ctx.viewport_h,
         };
-        let min_main = super::column_shrink::min_main(dom, child, box_id, &ccss, natural_h, container_content_h, &child_resolve, ctx);
+        let min_main = super::column_shrink::min_main(
+            dom,
+            child,
+            box_id,
+            &ccss,
+            natural_h,
+            container_content_h,
+            &child_resolve,
+            ctx,
+        );
         // Uma percentagem de flex-basis num container de altura indefinida
         // vira `content`, não usa o `height` declarado do próprio item.
         // `measure_block` acima preserva esse height para a geometria normal;
@@ -209,20 +252,19 @@ pub(in crate::layout) fn layout_children_column(
         // MESMA linha (22px, nao 40) e tres floats lado a lado idem (16px, nao
         // 40). Aplicar a soma a todos custava esses dois reftests para ganhar
         // um — o oposto do que o lote queria.
-        let declared_height = !matches!(
-            ccss.height,
-            None | Some(crate::style::Dimension::Auto)
-        );
+        let declared_height = !matches!(ccss.height, None | Some(crate::style::Dimension::Auto));
         let basis_from_content = (ccss.flex_basis == Some(crate::style::Dimension::MaxContent)
             && declared_height)
             || (matches!(ccss.flex_basis, Some(crate::style::Dimension::Percent(_)))
                 && container_content_h.is_none());
-        let base_natural_h = if basis_from_content
-        {
+        let base_natural_h = if basis_from_content {
             let [bt, _, bb, _] = crate::style::borders::used_widths(&ccss);
             super::column_shrink::content_height_without_height(
                 dom, box_id, &ccss, content_w, child_font, ctx,
-            ) + bt + bb + ccss.padding.resolve_v(&child_resolve) + ccss.margin.resolve_v(&child_resolve)
+            ) + bt
+                + bb
+                + ccss.padding.resolve_v(&child_resolve)
+                + ccss.margin.resolve_v(&child_resolve)
         } else {
             natural_h
         };
@@ -266,11 +308,14 @@ pub(in crate::layout) fn layout_children_column(
     let n = items.len();
     let sum_h: f32 = items.iter().map(|it| it.h).sum();
     let total_gap = (n.saturating_sub(1)) as f32 * main_gap;
-    // `wrap_definite_h`, não `container_content_h`: o mesmo limiar do
-    // DESPACHO do wrap (nunca `min-height` — um PISO não é um TECTO, e
-    // tratá-lo como tal encolhia itens que já o excediam em vez de deixar
-    // o contentor crescer acima dele — `flexbox-flex-wrap-vert-002`, WPT).
+    // `wrap_definite_h` exclui `min-height` (um PISO não é TECTO: não encolhe
+    // itens que já o excedem — `flexbox-flex-wrap-vert-002`, WPT). MAS quando o
+    // conteúdo CABE no main que o `min-height` define (`container_content_h` já
+    // o inclui), esse é o main e os itens CRESCEM para o preencher: um `flex:1`
+    // numa coluna `min-height:100` sem altura enche os 100 (WPT
+    // `percentage-heights-010`). Só com `>= sum_h` (cresce, nunca encolhe).
     let free = wrap_definite_h
+        .or_else(|| container_content_h.filter(|ch| *ch >= sum_h + total_gap))
         .map(|ch| ch - sum_h - total_gap)
         .unwrap_or(0.0);
     // FLEX-GROW no eixo principal (css-flexbox §9.7): quando há espaço livre
@@ -411,7 +456,14 @@ pub(in crate::layout) fn layout_children_column(
                 // `iw == content_w` e o espelho devolvia `content_x` (sem
                 // transbordo nenhum) onde o Chrome transborda pela esquerda
                 // (`claude-rtl-filho-transborda`).
-                super::column_rtl::cross_x(css.direction, css.writing_mode, content_x, content_w, x_ltr, w)
+                super::column_rtl::cross_x(
+                    css.direction,
+                    css.writing_mode,
+                    content_x,
+                    content_w,
+                    x_ltr,
+                    w,
+                )
             };
             // O `main` do PASSO 2 (grow, shrink, ou inalterado) é IMPOSTO ao
             // item como altura outer — DURA (`hard`): vence `height`/
@@ -422,7 +474,43 @@ pub(in crate::layout) fn layout_children_column(
             // horizontal). A mesma altura vira o containing block (`avail`)
             // dos NETOS com `height:100%` — é o item resolvido, cresceu ou
             // encolheu, que eles têm de ver.
-            let avail = Some(it.h);
+            // `avail` (o CB da `height:%` dos netos) é DEFINIDO exceto quando o
+            // `it.h` é puramente CONTENT-based: sem altura absoluta própria, sem
+            // razão de aspeto (que deriva uma altura), e num container de main
+            // INDEFINIDO. Só nesse caso o `height:50%` de um neto é `auto`
+            // (Flexbox §4.1, WPT `percentage-heights-008`); um `height:100px`
+            // (WPT `intrinsic-percent-replaced-027`) ou um `aspect-ratio` (WPT
+            // `flex-aspect-ratio-032/033`) ainda dão um CB definido. `forced_h`
+            // (tamanho imposto) mantém-se SEMPRE `it.h`.
+            let own_definite = {
+                let r = ResolveCtx {
+                    parent_content_w: content_w,
+                    node_font_size: font_px(&ccss, font_size),
+                    root_font_size: crate::style::root_font_size(),
+                    viewport_w: ctx.viewport_w,
+                    viewport_h: ctx.viewport_h,
+                };
+                // A `height` do item só determina a FLEX BASE (e portanto o main)
+                // quando `flex-basis` é `auto`/omitido — qualquer base explícita
+                // (`0`, `0%`, `content`, `100px`) IGNORA a `height` (WPT
+                // `percentage-heights-016/017/018`: `flex:1 1 content|0|0%;
+                // height:100` → o neto `height:100%` é `auto`, não 100).
+                let fb_is_auto = matches!(ccss.flex_basis, None | Some(crate::style::Dimension::Auto));
+                let fb_definite = ccss.flex_basis.and_then(|b| crate::style::dimensao_absoluta(b, &r)).is_some();
+                // `min-height` só fixa o main quando é um comprimento > 0 (um
+                // `min-height:0` não constrange nada).
+                let min_h_definite = ccss.min_height
+                    .and_then(|m| crate::style::dimensao_absoluta(m, &r))
+                    .is_some_and(|v| v > 0.0);
+                (fb_is_auto && ccss.height.and_then(|h| crate::style::dimensao_absoluta(h, &r)).is_some())
+                    || ccss.aspect_ratio.is_some()
+                    // `flex-basis` ABSOLUTO dá um main definido (WPT
+                    // `percentage-heights-007`: `flex: 0 0 100px`).
+                    || fb_definite
+                    // `min-height` ABSOLUTO > 0 idem (WPT `percentage-heights-019`).
+                    || min_h_definite
+            };
+            let avail = (own_definite || container_content_h.is_some()).then_some(it.h);
             let forced_h = Some(it.h);
             // `layout_block_reusing`: mesmo raciocínio do flex-row em
             // `row.rs` — o container refaz a distribuição toda vez, o item
@@ -464,20 +552,33 @@ pub(in crate::layout) fn layout_children_column(
 /// o eixo de bloco existe (`start`=topo, `end`=fundo, como numa LINHA). Os
 /// quatro ficam invariantes a `column-reverse` — só a ORDEM dos itens
 /// inverte, nunca o lado do empacotamento.
-fn physical_to_column(j: crate::style::JustifyContent, reverse: bool) -> crate::style::JustifyContent {
+fn physical_to_column(
+    j: crate::style::JustifyContent,
+    reverse: bool,
+) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
         J::Left | J::Right | J::Start => {
-            if reverse { J::FlexEnd } else { J::FlexStart }
+            if reverse {
+                J::FlexEnd
+            } else {
+                J::FlexStart
+            }
         }
         J::End => {
-            if reverse { J::FlexStart } else { J::FlexEnd }
+            if reverse {
+                J::FlexStart
+            } else {
+                J::FlexEnd
+            }
         }
         j => j,
     }
 }
 
-pub(in crate::layout) fn mirror_justify(j: crate::style::JustifyContent) -> crate::style::JustifyContent {
+pub(in crate::layout) fn mirror_justify(
+    j: crate::style::JustifyContent,
+) -> crate::style::JustifyContent {
     use crate::style::JustifyContent as J;
     match j {
         J::FlexStart => J::FlexEnd,

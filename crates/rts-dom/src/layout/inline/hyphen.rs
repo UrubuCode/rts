@@ -108,14 +108,25 @@ pub(in crate::layout) fn emit_with_hyphen(
         return false;
     }
     let Some((prefix, w, rest)) = longest_fitting_prefix(
-        text, disp - sep_w, font_size, mono, run.bold, run.italic, ahem, m,
+        text,
+        disp - sep_w,
+        font_size,
+        mono,
+        run.bold,
+        run.italic,
+        ahem,
+        m,
     ) else {
         return false;
     };
     // O espaço viaja no texto e `push_segment` decide se vira vão, exactamente
     // como no caminho sem hífen.
     let (emitted_text, emitted_w, lead) = match sep_w > 0.0 {
-        true => (format!(" {prefix}"), w + sep_w, if gap_outside { sep_w } else { 0.0 }),
+        true => (
+            format!(" {prefix}"),
+            w + sep_w,
+            if gap_outside { sep_w } else { 0.0 },
+        ),
         false => (prefix, w, 0.0),
     };
     push_segment(cur, run, &emitted_text, emitted_w, lead);

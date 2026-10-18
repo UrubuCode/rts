@@ -78,7 +78,11 @@ pub(in crate::layout) fn used_margin_left(
     // (an inset, or the static position mirrored for rtl in
     // `static_position.rs`); shifting it again here moved it by the free space.
     let out_of_flow = crate::layout::positioned::positioned::is_out_of_flow(dom, id);
-    if out_of_flow || is_flex_or_grid || !horizontal || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl)) {
+    if out_of_flow
+        || is_flex_or_grid
+        || !horizontal
+        || !matches!(parent_css.direction, Some(crate::style::Direction::Rtl))
+    {
         return margin_left_ltr;
     }
     signed_free - margin_right

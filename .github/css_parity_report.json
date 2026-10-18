@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-08",
+  "date": "2026-10-18",
   "fixtures": {
     "passing": 168,
     "total": 170,
@@ -12,20 +12,20 @@
   },
   "wpt": {
     "suite": "css/css-flexbox",
-    "passing": 597,
+    "passing": 632,
     "total": 870,
-    "pct": 68.6,
+    "pct": 72.6,
     "by_subfolder": {
       "balance": {
-        "passing": 14,
+        "passing": 22,
         "total": 39
       },
       "intrinsic-size": {
-        "passing": 11,
+        "passing": 16,
         "total": 24
       },
       "abspos": {
-        "passing": 12,
+        "passing": 15,
         "total": 19
       },
       "flex-lines": {
@@ -43,15 +43,15 @@
     },
     "by_subject": {
       "outros": {
-        "passing": 133,
+        "passing": 132,
         "total": 160
       },
       "item": {
-        "passing": 51,
+        "passing": 58,
         "total": 77
       },
       "align": {
-        "passing": 48,
+        "passing": 53,
         "total": 58
       },
       "aspect-ratio": {
@@ -59,15 +59,15 @@
         "total": 53
       },
       "gap": {
-        "passing": 39,
+        "passing": 40,
         "total": 46
       },
       "percentage": {
-        "passing": 20,
+        "passing": 21,
         "total": 39
       },
       "baseline": {
-        "passing": 22,
+        "passing": 23,
         "total": 37
       },
       "shrink": {
@@ -75,15 +75,15 @@
         "total": 37
       },
       "min-": {
-        "passing": 22,
+        "passing": 24,
         "total": 34
       },
       "overflow": {
-        "passing": 24,
+        "passing": 25,
         "total": 32
       },
       "basis": {
-        "passing": 24,
+        "passing": 23,
         "total": 30
       },
       "table": {
@@ -95,7 +95,7 @@
         "total": 28
       },
       "writing-mode": {
-        "passing": 12,
+        "passing": 15,
         "total": 24
       },
       "justify": {
@@ -103,11 +103,11 @@
         "total": 21
       },
       "order": {
-        "passing": 11,
+        "passing": 12,
         "total": 15
       },
       "column": {
-        "passing": 8,
+        "passing": 7,
         "total": 11
       },
       "anonymous": {
@@ -255,7 +255,9 @@
       "AOT-1 — a página compilada carrega os seus recursos de DENTRO do binário",
       "WM-1 — vertical writing modes: o rotated frame para block flow, Ahem e conteúdo substituído",
       "WM-2 — fluxos ortogonais (Writing Modes 4 §7.3): composição aninhada",
-      "WM-3 — posicionados, floats e static position no rotated frame"
+      "WM-3 — posicionados, floats e static position no rotated frame",
+      "WM-4 — flex e grid containers em modos verticais (F3)",
+      "WM-5 — egui pinta texto sideways através de rotação no item"
     ],
     "parciais": [
       "select-caixa-natural — `<select>` vazio: altura natural e stretch cruzado no flex",

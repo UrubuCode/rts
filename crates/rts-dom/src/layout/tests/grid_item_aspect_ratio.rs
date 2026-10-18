@@ -41,8 +41,10 @@ fn the_transferred_width_sizes_the_column_for_the_other_rows_too() {
     let (dom, list) = geometria(html, 800.0);
     let a = rect(&dom, &list, "#a", 0);
     let b = rect(&dom, &list, "#b", 0);
+    let g = rect(&dom, &list, "#g", 0);
     assert_eq!((a.w, a.h), (100.0, 50.0));
     assert_eq!((b.w, b.h), (100.0, 50.0));
+    assert_eq!((g.w, g.h), (100.0, 100.0));
 }
 
 /// Grid §6.6.1: only `normal` yields to the ratio; a DECLARED

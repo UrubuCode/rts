@@ -16,8 +16,15 @@ fn a_coluna_flutuante_mede_o_maior_filho_e_nao_a_soma() {
 </style>
 <div id="coluna"><div id="a"></div><div id="b"></div><div id="c"></div></div>"#;
     let (dom, list) = geometria(html, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#coluna"), (0.0, 0.0, 80.0, 72.0), "largura = maior filho, altura = soma");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#coluna"),
+        (0.0, 0.0, 80.0, 72.0),
+        "largura = maior filho, altura = soma"
+    );
     assert_eq!(r("#c"), (0.0, 40.0, 80.0, 32.0));
 }
 
@@ -31,5 +38,9 @@ fn um_input_item_de_flex_estica_na_altura() {
 <div id="f"><input id="campo" type="range"></div>"#;
     let (dom, list) = geometria(html, 1280.0);
     let r = rect(&dom, &list, "#campo", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 300.0, 80.0), "flex-grow na largura, stretch na altura");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 300.0, 80.0),
+        "flex-grow na largura, stretch na altura"
+    );
 }

@@ -19,9 +19,10 @@ pub enum TrackBound {
     /// `min-content` — a palavra mais larga do conteúdo da trilha (o piso que
     /// `table::min_content` já calcula para o `flex-shrink`, reusado aqui).
     MinContent,
-    /// `max-content`, ou `auto` do lado do MÁXIMO — a largura sem quebra
-    /// nenhuma (`layout::medida::intrinsic_outer_width`).
+    /// `max-content` do lado do MÁXIMO
     MaxContent,
+    /// `auto` do lado do MÍNIMO ou MÁXIMO
+    Auto,
     /// `fit-content(<len>)` do lado do MÁXIMO: `min(<len>, max-content)` —
     /// cresce com o conteúdo até `<len>`, e não além disso mesmo que o
     /// conteúdo pedisse mais.
@@ -68,6 +69,8 @@ pub enum GridTrack {
     /// máximo declarado), a base vence (spec §11.1: "if the growth limit is
     /// less than the base size, increase the growth limit to match").
     Intrinsic { min: TrackBound, max: TrackBound },
+    /// `minmax(<bound>, <flex>)` — trilha flexível com piso explícito (CSS Grid 1 §7.2).
+    Flex { min: TrackBound, flex: f32 },
     /// `repeat(auto-fill|auto-fit, <tracks>)` — quantas vezes repetir é uma
     /// pergunta de LAYOUT (depende do espaço disponível), ao contrário de
     /// `repeat(N, …)`, que `parse_list` já expande aqui mesmo. Fica por
@@ -94,28 +97,76 @@ pub enum GridTrack {
         fit: bool,
         count_unit: f32,
     },
+    /// A pattern of tracks, e.g. for multi-value `grid-auto-columns: 0px 100%`.
+    List(Vec<GridTrack>),
 }
 
 impl GridTrack {
+    /// Contribuição de uma trilha em um índice implícito (cicla o padrão se for `List`).
+    pub fn track_at(&self, idx: usize) -> &GridTrack {
+        match self {
+            GridTrack::List(list) if !list.is_empty() => &list[idx % list.len()],
+            other => other,
+        }
+    }
+
+    /// Fator flexível da trilha, se houver (`1fr` -> `Some(1.0)`).
+    pub fn flex_factor(&self) -> Option<f32> {
+        match self {
+            GridTrack::Fr(f) => Some(*f),
+            GridTrack::Flex { flex, .. } => Some(*flex),
+            _ => None,
+        }
+    }
+
+    /// Piso mínimo da trilha flexível (CSS Grid 1 §7.2: `1fr` implica `auto`).
+    pub fn flex_min(&self) -> Option<TrackBound> {
+        match self {
+            GridTrack::Fr(_) => Some(TrackBound::Auto),
+            GridTrack::Flex { min, .. } => Some(*min),
+            _ => None,
+        }
+    }
+
+    /// Parseia `grid-auto-columns` / `grid-auto-rows`: um único tamanho ou sequência repetida.
+    pub fn parse_auto(v: &str) -> Option<GridTrack> {
+        if let Some(one) = Self::parse_one(v) {
+            return Some(one);
+        }
+        let list = Self::parse_list(v)?;
+        if list.is_empty() {
+            None
+        } else if list.len() == 1 {
+            Some(list.into_iter().next().unwrap())
+        } else {
+            Some(GridTrack::List(list))
+        }
+    }
     /// Parseia UMA trilha: `100px`/`50%`/`1fr`/`auto`/`minmax(a,b)`/
     /// `fit-content(x)`. `None` se não reconhece.
     pub fn parse_one(v: &str) -> Option<GridTrack> {
         let v = v.trim();
         let low = v.to_ascii_lowercase();
-        if low == "auto" || low == "min-content" || low == "max-content" {
+        if low == "auto" {
             return Some(GridTrack::Auto);
+        }
+        if low == "min-content" {
+            return Some(GridTrack::Intrinsic {
+                min: TrackBound::MinContent,
+                max: TrackBound::MinContent,
+            });
+        }
+        if low == "max-content" {
+            return Some(GridTrack::Intrinsic {
+                min: TrackBound::MaxContent,
+                max: TrackBound::MaxContent,
+            });
         }
         if let Some(n) = low.strip_suffix("fr") {
             return n.trim().parse::<f32>().ok().map(GridTrack::Fr);
         }
-        // `minmax(min, max)`. Quando o MÁXIMO é `fr`, a trilha É essa — um
-        // `minmax(0,1fr)` é uma trilha `1fr` cujo mínimo é zero, e o mínimo
-        // zero é o que ela já faria (o `resolve_tracks` dá tudo o livre ao
-        // `fr` quando existe algum na lista — a base do `minmax` nunca chega
-        // a ser consultada). Fora disso: os dois lados fixos → `Bounded`
-        // (o caso mais comum, caminho antigo intacto); qualquer lado
-        // intrínseco (`min-content`/`max-content`/`auto`/`fit-content()`) →
-        // `Intrinsic`, resolvida contra o conteúdo em `layout::grid_tracks`.
+        // `minmax(min, max)`: se o máximo for `<flex>`, preserva o piso (`Flex`).
+        // Fora disso: os dois lados fixos -> `Bounded`; qualquer lado intrínseco -> `Intrinsic`.
         if let Some(inner) = low
             .strip_prefix("minmax(")
             .and_then(|s| s.strip_suffix(')'))
@@ -124,13 +175,13 @@ impl GridTrack {
             if parts.len() == 2 {
                 let min_s = parts[0].trim();
                 let max_s = parts[1].trim();
+                let min_b = parse_track_bound(min_s)?;
                 if let Some(n) = max_s
                     .strip_suffix("fr")
                     .and_then(|n| n.trim().parse::<f32>().ok())
                 {
-                    return Some(GridTrack::Fr(n));
+                    return Some(GridTrack::Flex { min: min_b, flex: n });
                 }
-                let min_b = parse_track_bound(min_s)?;
                 let max_b = parse_track_bound(max_s)?;
                 return Some(match (min_b, max_b) {
                     (TrackBound::Fixed(mn), TrackBound::Fixed(mx)) => {
@@ -150,7 +201,7 @@ impl GridTrack {
         {
             let d = super::lengths::parse_dimension_pub(inner.trim())?;
             return Some(GridTrack::Intrinsic {
-                min: TrackBound::MinContent,
+                min: TrackBound::Auto,
                 max: TrackBound::FitContent(d),
             });
         }
@@ -161,7 +212,11 @@ impl GridTrack {
     pub fn count_unit(&self) -> f32 {
         match self {
             GridTrack::Fixed(Dimension::Px(p)) => *p,
-            GridTrack::Bounded { min: Dimension::Px(p), .. } => *p,
+            GridTrack::Bounded {
+                min: Dimension::Px(p),
+                ..
+            } => *p,
+            GridTrack::List(list) => list.first().map_or(0.0, |t| t.count_unit()),
             _ => 0.0,
         }
     }
@@ -186,7 +241,8 @@ fn parse_track_bound(s: &str) -> Option<TrackBound> {
     let low = s.to_ascii_lowercase();
     match low.as_str() {
         "min-content" => Some(TrackBound::MinContent),
-        "max-content" | "auto" => Some(TrackBound::MaxContent),
+        "max-content" => Some(TrackBound::MaxContent),
+        "auto" => Some(TrackBound::Auto),
         _ => {
             if let Some(inner) = low
                 .strip_prefix("fit-content(")

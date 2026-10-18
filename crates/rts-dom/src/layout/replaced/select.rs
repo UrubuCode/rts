@@ -74,15 +74,28 @@ pub(in crate::layout) fn layout_select(
     let border_box = css.border_box.unwrap_or(false);
     let content_w = forced_outer_w
         .map(|w| (w - f.margin_left - f.margin_right - f.horizontal - 2.0 * f.border).max(0.0))
-        .or_else(|| css.width.and_then(|d| d.resolve(&resolve)).map(|w| {
-            if border_box { (w - f.horizontal - 2.0 * f.border).max(0.0) } else { w }
-        }))
+        .or_else(|| {
+            css.width.and_then(|d| d.resolve(&resolve)).map(|w| {
+                if border_box {
+                    (w - f.horizontal - 2.0 * f.border).max(0.0)
+                } else {
+                    w
+                }
+            })
+        })
         .unwrap_or(natural_w);
     let content_h = forced_outer_h
         .map(|h| (h - f.margin_top - f.margin_bottom - f.vertical - 2.0 * f.border).max(0.0))
-        .or_else(|| crate::layout::positioned::positioned::resolve_height(css.height, avail_h, &resolve).map(|h| {
-            if border_box { (h - f.vertical - 2.0 * f.border).max(0.0) } else { h }
-        }))
+        .or_else(|| {
+            crate::layout::positioned::positioned::resolve_height(css.height, avail_h, &resolve)
+                .map(|h| {
+                    if border_box {
+                        (h - f.vertical - 2.0 * f.border).max(0.0)
+                    } else {
+                        h
+                    }
+                })
+        })
         .unwrap_or(natural_h);
     let rect = Rect::new(
         x + f.margin_left,

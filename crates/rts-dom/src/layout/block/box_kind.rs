@@ -54,13 +54,17 @@ pub(in crate::layout) fn ignores_inline_dimensions(css: &ComputedStyle) -> bool 
 /// lado conservador (marca caixa em vez de 0×0), nunca o contrário, e
 /// perguntar isso aqui duplicaria `is_display_none`.
 pub(in crate::layout) fn has_content_for_fragment(dom: &Dom, id: NodeIdx) -> bool {
-    dom.node(id).children.iter().any(|&c| match &dom.node(c).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
-        NodeKind::Element { .. } => true,
-        _ => false,
-    }) || dom
-        .pseudo_box(id, crate::style::PseudoElement::Before)
-        .is_some()
+    dom.node(id)
+        .children
+        .iter()
+        .any(|&c| match &dom.node(c).kind {
+            NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
+            NodeKind::Element { .. } => true,
+            _ => false,
+        })
+        || dom
+            .pseudo_box(id, crate::style::PseudoElement::Before)
+            .is_some()
         || dom
             .pseudo_box(id, crate::style::PseudoElement::After)
             .is_some()
@@ -143,7 +147,9 @@ pub(crate) fn is_block_level(dom: &Dom, id: NodeIdx) -> bool {
                     .as_deref()
                     .is_some_and(crate::inline_box::cria_caixa_apesar_de_inline)
                     && has_content_for_fragment(dom, id)
-                    && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
+                    && !css
+                        .as_deref()
+                        .is_some_and(crate::inline_box::inline_por_fragmentos);
             }
             css.as_ref().and_then(|c| c.effective_display()).is_some()
                 || crate::block::lookup(tag).is_some()
@@ -203,7 +209,9 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // `inline-grid` and `inline-table` are the same atomic inline-level
             // box (CSS Display §2.2); the hand list here omitted both.
             let display = css.as_ref().and_then(|c| c.effective_display());
-            if display.is_some_and(|d| d != crate::style::DisplayKind::Inline && d.is_inline_level()) {
+            if display
+                .is_some_and(|d| d != crate::style::DisplayKind::Inline && d.is_inline_level())
+            {
                 return true;
             }
             let explicit_block = css
@@ -226,9 +234,12 @@ pub(in crate::layout) fn is_inline_block(dom: &Dom, id: NodeIdx) -> bool {
             // quando tem CONTEÚDO (`has_content_for_fragment`): um inline
             // vazio com fundo/padding não tem fragmento nenhum a que essa
             // caixa se prenda — fica `Marker` (0×0), não `inline-block`.
-            css.as_deref().is_some_and(crate::inline_box::cria_caixa_de_bloco)
+            css.as_deref()
+                .is_some_and(crate::inline_box::cria_caixa_de_bloco)
                 && has_content_for_fragment(dom, id)
-                && !css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos)
+                && !css
+                    .as_deref()
+                    .is_some_and(crate::inline_box::inline_por_fragmentos)
         }
         _ => false,
     }
@@ -289,7 +300,8 @@ pub(crate) fn used_display(dom: &Dom, id: NodeIdx) -> Option<crate::style::Displ
     // `crate::block::ua_display(tag)`, um `match` chamado AQUI, depois da
     // cascade, que uma regra de autor (`td { display: block }`) nunca
     // conseguia vencer — porque a cascade nunca a via.
-    dom.computed_style_idx(id).and_then(|css| css.effective_display())
+    dom.computed_style_idx(id)
+        .and_then(|css| css.effective_display())
 }
 
 /// O `font-size` COMPUTADO em pontos: a CASCADE já resolveu a forma para `Px`
@@ -315,11 +327,13 @@ pub(in crate::layout) fn in_inline_context(dom: &Dom, parent: NodeIdx, child: No
         return false;
     };
     let is_inline = |idx: NodeIdx| match &dom.node(idx).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
                 && !is_out_of_flow(dom, idx)
-                && !is_block_level(dom, idx)
+                && (!is_block_level(dom, idx)
+                    || crate::layout::float::float::float_of(dom, idx)
+                        != crate::style::FloatSide::None)
                 && !is_inline_block(dom, idx)
         }
         _ => false,
@@ -341,7 +355,7 @@ pub(in crate::layout) fn whitespace_is_inline_separator(
         return false;
     };
     let is_inline_candidate = |idx: NodeIdx| match &dom.node(idx).kind {
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         NodeKind::Element { tag } => {
             !is_non_rendered_tag(tag)
                 && !is_block_level(dom, idx)
@@ -354,11 +368,11 @@ pub(in crate::layout) fn whitespace_is_inline_separator(
         .iter()
         .rev()
         .copied()
-        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if crate::inline_box::so_espaco_css(t)));
     let next = children[pos + 1..]
         .iter()
         .copied()
-        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if t.trim().is_empty()));
+        .find(|&idx| !matches!(&dom.node(idx).kind, NodeKind::Text(t) if crate::inline_box::so_espaco_css(t)));
     previous.is_some_and(is_inline_candidate) || next.is_some_and(is_inline_candidate)
 }
 

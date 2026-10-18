@@ -32,7 +32,11 @@ fn min_width_auto_e_o_menor_entre_max_width_e_o_conteudo() {
     <div class="f"><div id="item"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 54.0, 40.0), "max-width vence o conteúdo: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 54.0, 40.0),
+        "max-width vence o conteúdo: {r:?}"
+    );
 }
 
 /// `overflow-x` NÃO visível desliga `min-width:auto` inteiro — o item
@@ -49,7 +53,11 @@ fn overflow_x_nao_visivel_desliga_o_automatico() {
     <div class="f"><div id="item"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 30.0, 40.0), "encolhe ao contentor: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 30.0, 40.0),
+        "encolhe ao contentor: {r:?}"
+    );
 }
 
 /// `overflow-y` não visível força `overflow-x` a computar como não-visível
@@ -66,7 +74,11 @@ fn overflow_y_nao_visivel_desliga_o_automatico_de_min_width() {
     <div class="f"><div id="item"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 30.0, 40.0), "overflow-y arrasta overflow-x: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 30.0, 40.0),
+        "overflow-y arrasta overflow-x: {r:?}"
+    );
 }
 
 /// `min-height:auto` (eixo de coluna), sem razão de aspeto: o automático é
@@ -85,7 +97,11 @@ fn min_height_auto_e_o_menor_entre_height_e_o_conteudo() {
     <div class="f"><div id="item" style="height: 50px;"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 40.0, 54.0), "height (54) é o menor: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 40.0, 54.0),
+        "height (54) é o menor: {r:?}"
+    );
 }
 
 /// O espelho do teste acima: com `height` MAIOR do que o conteúdo dos
@@ -102,7 +118,11 @@ fn min_height_auto_fica_no_conteudo_quando_height_e_maior() {
     <div class="f"><div id="item" style="height: 100px;"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 40.0, 84.0), "o conteúdo (84) é o menor: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 40.0, 84.0),
+        "o conteúdo (84) é o menor: {r:?}"
+    );
 }
 
 /// `min-width: max-content` num item flex — a mesma palavra-chave que
@@ -121,5 +141,9 @@ fn min_width_max_content_no_proprio_item_flex() {
     <div class="f"><div id="item"><div></div></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
     let r = rect(&dom, &list, "#item", 0);
-    assert_eq!((r.x, r.y, r.w, r.h), (0.0, 0.0, 94.0, 40.0), "min-width:max-content vence o encolhimento: {r:?}");
+    assert_eq!(
+        (r.x, r.y, r.w, r.h),
+        (0.0, 0.0, 94.0, 40.0),
+        "min-width:max-content vence o encolhimento: {r:?}"
+    );
 }

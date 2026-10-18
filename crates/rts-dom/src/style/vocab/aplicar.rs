@@ -84,17 +84,25 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
                 set_if(&mut css.align_items, Some(a));
             }
-            if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
+            if let Some(j) = t.last().and_then(|s| AlignItems::parse_justify(s)) {
                 set_if(&mut css.grid_justify_items, Some(j));
             }
         }
         "place-self" => {
             let t = split_top_ws(val);
-            if let Some(a) = t.first().and_then(|s| AlignItems::parse(s)) {
-                set_if(&mut css.align_self, Some(a));
+            if let Some(a) = t.first() {
+                if a.eq_ignore_ascii_case("auto") {
+                    css.align_self = None;
+                } else if let Some(a_val) = AlignItems::parse(a) {
+                    css.align_self = Some(a_val);
+                }
             }
-            if let Some(j) = t.last().and_then(|s| AlignItems::parse(s)) {
-                set_if(&mut css.justify_self, Some(j));
+            if let Some(j) = t.last() {
+                if j.eq_ignore_ascii_case("auto") {
+                    css.justify_self = None;
+                } else if let Some(j_val) = AlignItems::parse_justify(j) {
+                    css.justify_self = Some(j_val);
+                }
             }
         }
 
@@ -106,7 +114,13 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         "align-content" => set_if(&mut css.align_content, JustifyContent::parse(val)),
         // `justify-self` reusa `AlignItems` pelo mesmo motivo que
         // `grid_justify_items` já reusa: é o mesmo conjunto de posições.
-        "justify-self" => set_if(&mut css.justify_self, AlignItems::parse(val)),
+        "justify-self" => {
+            if val.trim().eq_ignore_ascii_case("auto") {
+                css.justify_self = None;
+            } else if let Some(j) = AlignItems::parse_justify(val) {
+                css.justify_self = Some(j);
+            }
+        }
         "text-overflow" => set_if(&mut css.text_overflow, TextOverflow::parse(val)),
         // `clip` — ver [`Clip`] para porque é guardada sem recortar. Só chega
         // aqui pelo nome nu; não tem forma prefixada em folha nenhuma do corpus.
@@ -151,7 +165,10 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
         // `-webkit-transform`: so chega aqui prefixado — o nome nu tem braco
         // proprio no `parse`, que corre antes deste modulo.
         "transform" => set_if(&mut css.transform, super::effects::Transform::parse(val)),
-        "text-decoration-color" => set_if(&mut css.text_decoration_color, super::color::parse_color(val)),
+        "text-decoration-color" => set_if(
+            &mut css.text_decoration_color,
+            super::color::parse_color(val),
+        ),
         // `-webkit-text-decoration` / `-moz-text-decoration`: só o prefixo muda,
         // o valor é o mesmo shorthand (é a forma que o WebKit antigo exigia, e
         // 6 das 13 folhas do corpus ainda a escrevem ao lado da nua). O nome nu

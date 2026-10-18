@@ -270,6 +270,9 @@ pub fn parse_background(val: &str) -> BackgroundShorthand {
         }
         if low == "none" {
             out.image = Some("none".into());
+            if out.color.is_none() {
+                out.color = Some(0);
+            }
             continue;
         }
         if let Some(c) = parse_color(&t) {

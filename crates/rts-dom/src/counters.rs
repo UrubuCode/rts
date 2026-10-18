@@ -421,7 +421,6 @@ mod tests {
         assert!(t.contains(&"2y".to_string()), "{t:?}");
     }
 
-
     #[test]
     fn a_lista_de_reset_leva_o_numero_do_nome_que_o_precede() {
         // A forma que a folha da Wikipédia escreve: três nomes sem número.
@@ -434,9 +433,15 @@ mod tests {
             ]
         );
         // E a que leva número — incluindo negativo, que a mesma folha usa.
-        assert_eq!(parse_lista("mw-ref-linkback -1", 0), vec![("mw-ref-linkback".into(), -1)]);
+        assert_eq!(
+            parse_lista("mw-ref-linkback -1", 0),
+            vec![("mw-ref-linkback".into(), -1)]
+        );
         assert_eq!(parse_lista("x", 1), vec![("x".into(), 1)]);
-        assert_eq!(parse_lista("x 2 y", 1), vec![("x".into(), 2), ("y".into(), 1)]);
+        assert_eq!(
+            parse_lista("x 2 y", 1),
+            vec![("x".into(), 2), ("y".into(), 1)]
+        );
     }
 
     #[test]

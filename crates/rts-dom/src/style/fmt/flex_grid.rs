@@ -45,7 +45,10 @@ impl ComputedStyle {
                 .filter(|t| !t.is_identity())
                 .map(|t| {
                     let m = t.ops.resolve(0.0, 0.0);
-                    format!("matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.e, m.f)
+                    format!(
+                        "matrix({}, {}, {}, {}, {}, {})",
+                        m.a, m.b, m.c, m.d, m.e, m.f
+                    )
                 })
                 .unwrap_or_else(|| "none".to_string()),
             "flex-grow" => self.flex_grow.map(|v| format!("{v}")).unwrap_or_default(),

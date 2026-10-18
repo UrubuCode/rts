@@ -29,14 +29,22 @@ fn afirma_yh(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, y: f
     );
 }
 
-fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma_rect(
+    dom: &crate::Dom,
+    list: &crate::paint::DisplayList,
+    sel: &str,
+    esperado: (f32, f32, f32, f32),
+) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let bate = (got.0 - esperado.0).abs() <= TOL
         && (got.1 - esperado.1).abs() <= TOL
         && (got.2 - esperado.2).abs() <= TOL
         && (got.3 - esperado.3).abs() <= TOL;
-    assert!(bate, "{sel}: esperado {esperado:?} (Blink/Chrome), obtido {got:?}");
+    assert!(
+        bate,
+        "{sel}: esperado {esperado:?} (Blink/Chrome), obtido {got:?}"
+    );
 }
 
 const HTML: &str = r#"<!DOCTYPE html>

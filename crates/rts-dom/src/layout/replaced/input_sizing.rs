@@ -39,18 +39,27 @@ mod tests {
 
     #[test]
     fn style_none_zeroes_the_declared_width_and_the_default() {
-        assert_eq!(used_border_width(Some(5.0), 2.0, Some(BorderStyle::None)), 0.0);
+        assert_eq!(
+            used_border_width(Some(5.0), 2.0, Some(BorderStyle::None)),
+            0.0
+        );
         assert_eq!(used_border_width(None, 2.0, Some(BorderStyle::None)), 0.0);
     }
 
     #[test]
     fn style_hidden_also_zeroes_it() {
-        assert_eq!(used_border_width(Some(5.0), 2.0, Some(BorderStyle::Hidden)), 0.0);
+        assert_eq!(
+            used_border_width(Some(5.0), 2.0, Some(BorderStyle::Hidden)),
+            0.0
+        );
     }
 
     #[test]
     fn style_visible_uses_the_declared_value_or_the_default() {
-        assert_eq!(used_border_width(Some(5.0), 2.0, Some(BorderStyle::Solid)), 5.0);
+        assert_eq!(
+            used_border_width(Some(5.0), 2.0, Some(BorderStyle::Solid)),
+            5.0
+        );
         assert_eq!(used_border_width(None, 2.0, Some(BorderStyle::Solid)), 2.0);
     }
 

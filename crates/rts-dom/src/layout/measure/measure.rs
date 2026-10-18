@@ -14,9 +14,9 @@
 //! deixar de ser saltada, e um fragmento deixar de se misturar com os
 //! outros do mesmo nó) não cabia sem o passar.
 
-use super::*;
 pub use super::text_measurer::{ApproxMeasurer, TextMeasurer};
 use super::tree::{intrinsic_content_width_no_cache, intrinsic_outer_width_of};
+use super::*;
 
 /// Largura NATURAL do conteúdo de um nó (sem `width` explícito): a maior largura
 /// de uma linha de texto entre os descendentes. É o "preferred width" do
@@ -75,7 +75,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // `intrinsic_outer_width_of` (um fragmento entre vários de `id`), e
     // cachear por `id` misturaria a resposta de um fragmento com a do outro.
     let tree = dom.box_tree();
-    let width = intrinsic_content_width_no_cache(dom, &tree, id, None, font, ctx);
+    let width = intrinsic_content_width_no_cache(dom, &tree, id, None, font, ctx, None);
     dom.intrinsic_width_put(key, width);
     width
 }
@@ -88,7 +88,7 @@ pub(crate) fn intrinsic_outer_width(
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    intrinsic_outer_width_of(dom, &dom.box_tree(), id, None, parent_font, ctx)
+    intrinsic_outer_width_of(dom, &dom.box_tree(), id, None, parent_font, ctx, None)
 }
 
 /// Altura OUTER que um filho QUER, para o align-items/cross-axis. Para nós-bloco,
@@ -116,8 +116,17 @@ pub(in crate::layout) fn child_outer_height(
         // caixa real, porque um inline blockificado (item de flex) tem uma.
         NodeKind::Element { tag } if !is_non_rendered_tag(tag) => {
             // layout de teste numa lista descartável: o (_, outer_h) é a altura real.
-            let (_, outer_h) =
-                measure_block(dom, id, box_id, container_w, container_h, None, None, true, ctx);
+            let (_, outer_h) = measure_block(
+                dom,
+                id,
+                box_id,
+                container_w,
+                container_h,
+                None,
+                None,
+                true,
+                ctx,
+            );
             outer_h
         }
         // A MESMA altura que o fluxo dará a esta linha — medir com o default do
@@ -159,7 +168,10 @@ pub(in crate::layout) fn child_outer_width(
             // frame horizontal = margin_h + 2*border + padding_h (cada já é o eixo;
             // unidades relativas resolvidas contra o container).
             let frame = css.margin.resolve_h(&resolve)
-                + { let [_, r, _, l] = crate::style::borders::used_widths(&css); l + r }
+                + {
+                    let [_, r, _, l] = crate::style::borders::used_widths(&css);
+                    l + r
+                }
                 + css.padding.resolve_h(&resolve);
             // Em border-box, o `width` declarado JÁ é a caixa (outer sem margin) —
             // não soma pad/border de novo; só a margin. Em content-box, soma o frame.
@@ -180,7 +192,17 @@ pub(in crate::layout) fn child_outer_width(
                 None => {
                     if super::block::rotated::opens_frame(dom, id, &css) {
                         if let Some(&caixa) = dom.box_tree().boxes_of(id).first() {
-                            let (w, _) = measure_block(dom, id, caixa, container_w, None, None, None, true, ctx);
+                            let (w, _) = measure_block(
+                                dom,
+                                id,
+                                caixa,
+                                container_w,
+                                None,
+                                None,
+                                None,
+                                true,
+                                ctx,
+                            );
                             return w;
                         }
                     }

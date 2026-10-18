@@ -12,6 +12,7 @@ pub(super) mod line_baseline;
 pub(super) mod line_break;
 pub(super) mod line_break_partition;
 pub(super) mod line_inline_block;
+pub(super) mod line_stack;
 pub(super) mod preserved_spaces;
 pub(super) mod pseudo_inline;
 pub(super) mod run_font;
@@ -20,3 +21,5 @@ pub(super) mod segment;
 pub(super) mod static_anchor;
 pub(super) mod tab_size;
 pub(super) mod vertical_align;
+#[cfg(test)]
+mod vertical_align_tests;

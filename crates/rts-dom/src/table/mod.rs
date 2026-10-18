@@ -23,6 +23,7 @@
 
 mod anonymous;
 mod grid;
+mod heights;
 mod relative;
 pub(in crate::table) mod widths;
 
@@ -61,6 +62,16 @@ pub(crate) fn min_content(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) ->
         .map(crate::style::is_mono_family)
         .unwrap_or(false);
     widths::min_content(dom, id, font, ctx, mono, false)
+}
+
+pub(crate) fn min_content_with_floor(dom: &Dom, id: NodeIdx, font: f32, ctx: &LayoutCtx) -> f32 {
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    let mono = css
+        .font_family
+        .as_deref()
+        .map(crate::style::is_mono_family)
+        .unwrap_or(false);
+    widths::min_content(dom, id, font, ctx, mono, true)
 }
 
 /// Uma célula colocada na grade. `col` é a coluna onde começa, já resolvida
@@ -120,7 +131,13 @@ impl TableStyle {
     /// always `auto`. What it does take from `css` — the style of the element
     /// it inherits from — is `border-spacing` and `border-collapse`, which ARE
     /// inherited properties.
-    fn of(dom: &Dom, id: Option<NodeIdx>, css: &ComputedStyle, font: f32, ctx: &LayoutCtx) -> TableStyle {
+    fn of(
+        dom: &Dom,
+        id: Option<NodeIdx>,
+        css: &ComputedStyle,
+        font: f32,
+        ctx: &LayoutCtx,
+    ) -> TableStyle {
         let resolve = crate::style::ResolveCtx {
             parent_content_w: ctx.viewport_w,
             node_font_size: font,
@@ -149,7 +166,13 @@ impl TableStyle {
             // `div { display: table }`, cujo valor inicial é 0 (Blink mede 20px
             // e não 24 em `claude-table-texto-solto-sem-celula`).
             None => {
-                let Some(id) = id else { return TableStyle { spacing_h: 0.0, spacing_v: 0.0, fixed: false } };
+                let Some(id) = id else {
+                    return TableStyle {
+                        spacing_h: 0.0,
+                        spacing_v: 0.0,
+                        fixed: false,
+                    };
+                };
                 let e_table = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "table");
                 let a = dom
                     .node(id)
@@ -181,7 +204,10 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     let caixa = match tree.boxes_of(table) {
         [caixa] => *caixa,
         [] => return 0.0,
-        caixas => panic!("uma tabela gerou {} caixas; a medicao intrinseca precisa receber a caixa exata", caixas.len()),
+        caixas => panic!(
+            "uma tabela gerou {} caixas; a medicao intrinseca precisa receber a caixa exata",
+            caixas.len()
+        ),
     };
     let g = collect(dom, &tree, caixa);
     if g.cols == 0 {
@@ -199,7 +225,11 @@ pub(crate) fn max_content_width(dom: &Dom, table: NodeIdx, font: f32, ctx: &Layo
     // apenas à soma dos máximos, encolhendo para 300px em vez de ocupar a célula.
     let minimo_percentual = cols
         .iter()
-        .filter_map(|c| c.percentagem.filter(|p| *p > 0.0).map(|p| c.min * 100.0 / p))
+        .filter_map(|c| {
+            c.percentagem
+                .filter(|p| *p > 0.0)
+                .map(|p| c.min * 100.0 / p)
+        })
         .fold(0.0f32, f32::max)
         + vaos;
     soma_maximos.max(minimo_percentual)
@@ -255,7 +285,9 @@ pub(crate) fn layout_table(
     let tree = std::rc::Rc::clone(&list.tree);
     let g = collect(dom, &tree, caixa);
     let ts = TableStyle::of(dom, Some(id), css, font_size, ctx);
-    lay_out_grid(dom, &tree, &g, &ts, content_x, content_y, content_w, definite_h, font_size, ctx, list)
+    lay_out_grid(
+        dom, &tree, &g, &ts, content_x, content_y, content_w, definite_h, font_size, ctx, list,
+    )
 }
 
 /// Lays out a grid already COLLECTED, inside a content box already sized, and
@@ -350,34 +382,9 @@ fn lay_out_grid(
     // célula só se sabe depois de lhe dar a largura da coluna. Daí a passada de
     // medição: posicionar e depois esticar exigiria refazer o layout de cada
     // célula duas vezes na display list, o que duplicaria a tinta.
-    let mut alturas = vec![0.0f32; g.rows.len()];
-    let mut pendentes: Vec<(usize, usize, f32)> = Vec::new(); // (linha final, nº linhas, altura)
-    for (ri, row) in g.rows.iter().enumerate() {
-        for c in &row.cells {
-            if c.col >= g.cols {
-                continue;
-            }
-            let w = largura_de(c.col, c.colspan);
-            let (_, h) =
-                crate::layout::measure_block(dom, c.node, c.caixa, w, None, Some(w), None, false, ctx);
-            if c.rowspan <= 1 {
-                alturas[ri] = alturas[ri].max(h);
-            } else {
-                let ultima = (ri + c.rowspan - 1).min(g.rows.len() - 1);
-                pendentes.push((ultima, ultima - ri + 1, h));
-            }
-        }
-    }
-    // As que atravessam linhas só cobram o que FALTA depois de somadas as linhas
-    // que já têm altura própria — uma célula alta sobre duas linhas cheias não
-    // deve esticar nada.
-    for (ultima, n, h) in pendentes {
-        let inicio = ultima + 1 - n;
-        let ja: f32 = alturas[inicio..=ultima].iter().sum::<f32>() + (n - 1) as f32 * ts.spacing_v;
-        if h > ja {
-            alturas[ultima] += h - ja;
-        }
-    }
+    let alturas = heights::medir_e_distribuir_alturas(
+        dom, g, ts, definite_h, largura_de, ctx,
+    );
 
     // ── Posicionamento ──────────────────────────────────────────────────────────
     let mut row_y = Vec::with_capacity(g.rows.len());
@@ -462,7 +469,15 @@ fn lay_out_grid(
         // Group relative offset, from its first row — same `definite_h` as
         // the row case above.
         relative::apply_table_part_relative_offset(
-            dom, node, caixa, content_w, definite_h, font_size, row_piece_start[inicio], ctx, list,
+            dom,
+            node,
+            caixa,
+            content_w,
+            definite_h,
+            font_size,
+            row_piece_start[inicio],
+            ctx,
+            list,
         );
     }
     y - content_y

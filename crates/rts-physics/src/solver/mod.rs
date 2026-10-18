@@ -24,7 +24,13 @@
 //! under dozens of neighbours summing corrections in one step. Those constants
 //! are ported, not chosen here.
 //!
-//! # The one place this deliberately differs from the kernel, and it is a choice
+//! # Backend differences
+//!
+//! Sleep is decided over deterministic dynamic contact islands (`islands`),
+//! including slow wake-up and loss of support. GPU/Scene parity for this sleep
+//! policy is still pending. A full grid falls back to complete pair traversal;
+//! its overflow counter remains visible. Identical fully sleeping worlds reuse
+//! an exact input cache and perform no contact traversal.
 //!
 //! **Neighbours are read from a snapshot taken at the top of the sub-step.**
 //!
@@ -65,13 +71,14 @@ pub mod contact;
 pub mod grid;
 
 mod adapter;
+mod islands;
 pub(crate) mod material;
 mod step;
 pub use adapter::GatherBackend;
 
-use contact::{V3, add, contact as narrow, dot, length, scale, sub};
+use contact::{add, contact_oriented as narrow, dot, length, scale, sub, V3};
 use grid::Grid;
-use material::{Body, Materials, bounce, friction_loss};
+use material::{bounce, friction_loss, Body, Materials};
 use rayon::prelude::*;
 
 /// The terminal speed that stops a body tunnelling through a floor in one step.
@@ -87,11 +94,10 @@ const PAIR_RELAXATION: f32 = 0.30;
 /// How far one sub-step may move a body by position correction alone.
 const CORRECTION_CAP: f32 = 0.25;
 
-/// Sleep: this many steps below this speed, and a neighbour above this speed
-/// wakes it. Squared, because the comparison is against `dot(v, v)`.
+/// Sleep: every body in an island must stay below this speed for this many
+/// steps. A waking member or moving kinematic contact wakes the whole island.
 const SLEEP_STEPS: f32 = 10.0;
 const SLEEP_SPEED_SQUARED: f32 = 0.2025;
-const WAKE_SPEED_SQUARED: f32 = 0.64;
 
 /// Below this height a body has left the world and is parked.
 const FLOOR: f32 = -18.0;
@@ -134,6 +140,10 @@ pub struct Solver {
     /// The neighbour state every body reads. See the module doc.
     positions: Vec<f32>,
     velocities: Vec<f32>,
+    /// Contact-block degree for the opt-in Mass Splitting Jacobi path.
+    degrees: Vec<f32>,
+    islands: islands::Islands,
+    sleep_cache: islands::SleepCache,
 }
 
 impl Solver {
@@ -144,6 +154,9 @@ impl Solver {
             broad_phase: BroadPhase::Grid,
             positions: Vec::new(),
             velocities: Vec::new(),
+            degrees: Vec::new(),
+            islands: islands::Islands::default(),
+            sleep_cache: islands::SleepCache::default(),
         }
     }
 
@@ -180,9 +193,14 @@ impl Solver {
             return;
         }
         let dt = world[material::WORLD_PARAM_DT];
-        let statics = (world[material::WORLD_PARAM_NUM_STATICS].max(0.0) as usize)
-            .min((world.len().saturating_sub(material::WORLD_HEADER_FLOATS)) / material::STATIC_RECORD_FLOATS);
+        let statics = (world[material::WORLD_PARAM_NUM_STATICS].max(0.0) as usize).min(
+            (world.len().saturating_sub(material::WORLD_HEADER_FLOATS))
+                / material::STATIC_RECORD_FLOATS,
+        );
         let size = cell_size(world);
+        if self.sleep_cache.matches(pos, vel, ext, world) {
+            return;
+        }
 
         for _ in 0..substeps {
             self.positions.clear();
@@ -191,12 +209,81 @@ impl Solver {
             self.velocities.extend_from_slice(&vel[..count * 4]);
             self.grid.build(&self.positions, count, size);
 
+            let materials = Materials::of(world, count);
+            let any_mask = materials.any_mask();
+            let mass_splitting = world[material::WORLD_PARAM_MASS_SPLITTING] > 0.5;
+            let packed_softness = world[material::WORLD_PARAM_CONTACT_SOFTNESS].max(0.0) as u32;
+            let softness_enabled = packed_softness >= material::CONTACT_SOFTNESS_CODE_BASE;
+            let mut softness_gamma = 0.0;
+            let mut softness_bias_rate = 0.0;
+            if softness_enabled {
+                let packed = packed_softness - material::CONTACT_SOFTNESS_CODE_BASE;
+                let frequency = (packed / 1000) as f32 * 0.01;
+                let damping_ratio = (packed % 1000) as f32 * 0.01;
+                let omega = 6.28318530718 * frequency;
+                let stiffness = omega * omega;
+                let damping = 2.0 * damping_ratio * omega;
+                let denominator = damping + dt * stiffness;
+                if denominator > 0.000001 {
+                    softness_gamma = 1.0 / (dt * denominator);
+                    softness_bias_rate = stiffness / denominator;
+                }
+            }
+            self.degrees.clear();
+            if mass_splitting {
+                self.degrees.resize(count, 1.0);
+                for body in 0..count {
+                    if self.velocities[body * 4 + 3] <= 0.5 || ext[body * 4 + 3] <= 0.0 {
+                        continue;
+                    }
+                    let p = triple(&self.positions, body);
+                    let h = triple(ext, body);
+                    let my_shape = self.velocities[body * 4 + 3];
+                    let (my_layer, my_mask) = materials.layer_mask(body);
+                    let mut degree = 0usize;
+                    visit_near(&self.grid, self.broad_phase, count, size, p, |other| {
+                        if other == body
+                            || self.velocities[other * 4 + 3] <= 0.5
+                            || ext[other * 4 + 3] <= 0.0
+                        {
+                            return;
+                        }
+                        let (other_layer, other_mask) = materials.layer_mask(other);
+                        if any_mask
+                            && ((my_mask & other_layer) == 0 || (other_mask & my_layer) == 0)
+                        {
+                            return;
+                        }
+                        if narrow(
+                            p,
+                            h,
+                            my_shape,
+                            materials.body_orientation(body),
+                            triple(&self.positions, other),
+                            triple(ext, other),
+                            self.velocities[other * 4 + 3],
+                            materials.body_orientation(other),
+                        )
+                        .is_some()
+                        {
+                            degree += 1;
+                        }
+                    });
+                    self.degrees[body] = degree.max(1) as f32;
+                }
+            }
+
             let scene = Scene {
                 positions: &self.positions,
                 velocities: &self.velocities,
                 extents: ext,
                 world,
-                materials: Materials::of(world, count),
+                materials,
+                degrees: &self.degrees,
+                mass_splitting,
+                softness_enabled,
+                softness_gamma,
+                softness_bias_rate,
                 grid: &self.grid,
                 broad_phase: self.broad_phase,
                 count,
@@ -204,20 +291,28 @@ impl Solver {
                 size,
                 dt,
             };
+            self.islands.prepare(&scene);
             // O filtro de máscara é escolhido aqui, uma vez por sub-passo, e não
             // testado por candidato: cada instância de `solve` já nasce com ou
-            // sem ele. Ver `Scene::disturbed`.
+            // sem ele.
             let bodies = pos[..count * 4]
                 .par_chunks_mut(4)
                 .zip(vel[..count * 4].par_chunks_mut(4))
                 .enumerate();
-            match scene.materials.any_mask() {
+            match any_mask {
                 true => bodies.for_each(|(body, (out_pos, out_vel))| {
-                    scene.solve::<true>(body, out_pos, out_vel)
+                    scene.solve::<true>(body, self.islands.counters[body], out_pos, out_vel)
                 }),
                 false => bodies.for_each(|(body, (out_pos, out_vel))| {
-                    scene.solve::<false>(body, out_pos, out_vel)
+                    scene.solve::<false>(body, self.islands.counters[body], out_pos, out_vel)
                 }),
+            }
+            self.islands.finish(pos, vel);
+            if self
+                .sleep_cache
+                .capture_if_asleep(pos, vel, ext, world, materials, count)
+            {
+                break;
             }
         }
     }
@@ -232,9 +327,27 @@ impl Solver {
 /// wastes candidates. The caller knows the largest extent without scanning
 /// anything, which is why it is passed rather than derived here.
 fn cell_size(world: &[f32]) -> f32 {
-    match world[material::WORLD_PARAM_CELL_SIZE].is_finite() {
+    let size = match world[material::WORLD_PARAM_CELL_SIZE].is_finite() {
         true => world[material::WORLD_PARAM_CELL_SIZE].max(0.001),
         false => 1.0,
+    };
+    size + 2.0 * islands::CONTACT_MARGIN
+}
+
+/// Overflow must not disconnect an island or silently discard a solver pair.
+/// Keep its counter visible, but visit all bodies for correctness on that step.
+fn visit_near(
+    grid: &Grid,
+    broad_phase: BroadPhase,
+    count: usize,
+    size: f32,
+    p: V3,
+    visit: impl FnMut(usize),
+) {
+    if broad_phase == BroadPhase::Everything || grid.overflows() != 0 {
+        (0..count).for_each(visit);
+    } else {
+        grid.near(p, size, visit);
     }
 }
 
@@ -247,6 +360,11 @@ struct Scene<'a> {
     extents: &'a [f32],
     world: &'a [f32],
     materials: Materials<'a>,
+    degrees: &'a [f32],
+    mass_splitting: bool,
+    softness_enabled: bool,
+    softness_gamma: f32,
+    softness_bias_rate: f32,
     grid: &'a Grid,
     broad_phase: BroadPhase,
     count: usize,
@@ -264,10 +382,7 @@ impl Scene<'_> {
     /// a broad-phase change to be made in only one of.
     #[inline]
     fn near(&self, p: V3, visit: impl FnMut(usize)) {
-        match self.broad_phase {
-            BroadPhase::Grid => self.grid.near(p, self.size, visit),
-            BroadPhase::Everything => (0..self.count).for_each(visit),
-        }
+        visit_near(self.grid, self.broad_phase, self.count, self.size, p, visit);
     }
     #[inline]
     fn position(&self, body: usize) -> V3 {
@@ -291,11 +406,16 @@ impl Scene<'_> {
 
     /// One body's whole sub-step: wake or skip, integrate, statics, pairs,
     /// clamp, park, sleep. Writes only its own four-float slots.
-    /// `FILTRO` é o `any_mask` do passo; ver `disturbed`.
-    fn solve<const FILTRO: bool>(&self, body: usize, out_pos: &mut [f32], out_vel: &mut [f32]) {
+    /// `FILTRO` é o `any_mask` escolhido uma vez por sub-passo.
+    fn solve<const FILTRO: bool>(
+        &self,
+        body: usize,
+        mut sleep: f32,
+        out_pos: &mut [f32],
+        out_vel: &mut [f32],
+    ) {
         let mut p = self.position(body);
         let mut v = self.velocity(body);
-        let mut sleep = self.positions[body * 4 + 3];
         let shape = self.shape(body);
         let h = self.extent(body);
         let inverse_mass = self.extents[body * 4 + 3];
@@ -317,15 +437,11 @@ impl Scene<'_> {
         }
 
         if sleep >= SLEEP_STEPS {
-            if !self.disturbed::<FILTRO>(body, p, h, shape) {
-                // Unchanged, and written out rather than left alone: the caller's
-                // buffer is the destination, and the snapshot it was read from is
-                // a different allocation.
-                write(out_pos, p, sleep);
-                write(out_vel, v, shape);
-                return;
-            }
-            sleep = 0.0;
+            // The island decision already includes every touching dynamic and
+            // moving anchor. Sleeping bodies perform no solver work.
+            write(out_pos, p, sleep);
+            write(out_vel, v, shape);
+            return;
         }
 
         v[1] -= mine.gravity * self.dt;
@@ -339,10 +455,27 @@ impl Scene<'_> {
         // Whether anything touched this body this step, which is what decides
         // if it may fall asleep. See the counter below.
         let mut supported = mine.rest_on_floor(&mut p[1], &mut v[1]);
-        supported |= self.against_statics::<FILTRO>(&mut p, &mut v, h, shape, mine);
+        supported |= self.against_statics::<FILTRO>(
+            &mut p,
+            &mut v,
+            h,
+            shape,
+            self.materials.body_orientation(body),
+            inverse_mass,
+            mine,
+        );
 
         let before = p;
-        supported |= self.against_bodies::<FILTRO>(body, &mut p, &mut v, &mut sleep, h, shape, inverse_mass, mine);
+        supported |= self.against_bodies::<FILTRO>(
+            body,
+            &mut p,
+            &mut v,
+            &mut sleep,
+            h,
+            shape,
+            inverse_mass,
+            mine,
+        );
         // The per-step ceiling on positional correction, which is what keeps a
         // deep pile from exploding: a buried body sums the corrections of dozens
         // of neighbours in one Jacobi pass.
@@ -380,7 +513,9 @@ impl Scene<'_> {
         // y = 1.135 for as long as anyone watched. Touching something is the
         // condition that was always meant: a body at rest is resting ON
         // something.
-        sleep = match supported && dot(v, v) < SLEEP_SPEED_SQUARED {
+        sleep = match (supported || mine.gravity.abs() <= 0.000001 || p[1] <= FLOOR)
+            && dot(v, v) < SLEEP_SPEED_SQUARED
+        {
             true => sleep + 1.0,
             false => 0.0,
         };
@@ -389,7 +524,6 @@ impl Scene<'_> {
         write(out_vel, v, shape);
     }
 }
-
 
 /// The xyz of a four-float record.
 #[inline]

@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     /// `element.innerHTML` (GET) — serializa os FILHOS do nó como string HTML
     /// válida (o inverso do parser: `<tag attrs>filhos</tag>`, texto com entidades
     /// re-encodadas, `<!-- -->` para comentário, void tags sem fechar). `None` se o
@@ -82,7 +81,6 @@ impl Dom {
             }
         }
     }
-
 
     /// Serializa a árvore indentada (estilo devtools) — a forma legível de
     /// inspecionar/verificar o que foi gerado. Elemento vira `<tag>`; texto vira

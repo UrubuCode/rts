@@ -158,10 +158,17 @@ pub(in crate::layout) fn shaped_join_fits<'t>(
     fonts: &super::run_font::Fonts,
     m: &dyn TextMeasurer,
 ) -> Option<f32> {
-    let last = cur.last().filter(|s| s.atomic.is_none() && !s.text.is_empty())?;
+    let last = cur
+        .last()
+        .filter(|s| s.atomic.is_none() && !s.text.is_empty())?;
     let merges = |i: usize| {
         runs.get(i).is_some_and(|r| {
-            r.atomic.is_none() && r.color == last.color && r.bold == last.bold && r.italic == last.italic && r.deco == last.deco && r.owners == last.owners
+            r.atomic.is_none()
+                && r.color == last.color
+                && r.bold == last.bold
+                && r.italic == last.italic
+                && r.deco == last.deco
+                && r.owners == last.owners
         })
     };
     if word_spacing != 0.0 || sep_run.is_some_and(|i| !merges(i)) {

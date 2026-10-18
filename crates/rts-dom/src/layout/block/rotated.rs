@@ -67,19 +67,11 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use super::rotated_ortho::{layout_orthogonal, pop_ortho_stack, push_ortho_stack, rotate_out};
 use super::*;
 use crate::paint::transform::Mat2d;
 use crate::style::values::AxisMap;
 use crate::style::{Dimension, WritingMode};
-
-struct OrthoChild {
-    box_id: crate::boxes::BoxId,
-    frame_x: f32,
-    frame_y: f32,
-    frame_w: f32,
-    frame_h: f32,
-    list: DisplayList,
-}
 
 thread_local! {
     /// The mode of the frame being laid out: `None` outside one.
@@ -91,12 +83,26 @@ thread_local! {
     /// be reused by another style while the entry lives.
     static ROTATED: RefCell<crate::fasthash::FastMap<(usize, u8), (Rc<ComputedStyle>, Rc<ComputedStyle>)>> =
         RefCell::new(Default::default());
-    /// Stack of orthogonal children lists per active rotated frame.
-    static ORTHO_STACK: RefCell<Vec<Vec<OrthoChild>>> = RefCell::new(Vec::new());
     /// Stack of orthogonal root NodeIdxs per active rotated frame.
     static ORTHO_ROOTS: RefCell<Vec<Vec<NodeIdx>>> = RefCell::new(Vec::new());
     /// Definite block size (physical width) of the active rotated frame.
     static FRAME_BLOCK_SIZE: Cell<Option<f32>> = const { Cell::new(None) };
+}
+
+pub(super) fn push_in_frame(new_mode: Option<WritingMode>) -> Option<WritingMode> {
+    IN_FRAME.with(|f| f.replace(new_mode))
+}
+
+pub(super) fn set_in_frame(mode: Option<WritingMode>) {
+    IN_FRAME.with(|f| f.set(mode));
+}
+
+pub(super) fn push_frame_root(new_root: Option<NodeIdx>) -> Option<NodeIdx> {
+    FRAME_ROOT.with(|r| r.replace(new_root))
+}
+
+pub(super) fn set_frame_root(root: Option<NodeIdx>) {
+    FRAME_ROOT.with(|r| r.set(root));
 }
 
 /// `true` while a rotated frame is being laid out.
@@ -114,7 +120,8 @@ pub(crate) fn is_frame_root(id: NodeIdx) -> bool {
 }
 
 pub(crate) fn is_ortho_in_frame(id: NodeIdx) -> bool {
-    in_rotated_frame() && ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)))
+    in_rotated_frame()
+        && ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)))
 }
 
 pub(crate) fn ortho_measure_in_frame(
@@ -143,6 +150,7 @@ pub(crate) fn rotated_frame_mode() -> Option<WritingMode> {
     IN_FRAME.with(Cell::get)
 }
 
+
 fn is_vertical(wm: WritingMode) -> bool {
     !wm.is_horizontal()
 }
@@ -150,7 +158,10 @@ fn is_vertical(wm: WritingMode) -> bool {
 /// Tags that are replaced or form controls: a vertical mode does not change
 /// their box in this lot, and none of them has a flow to rotate.
 fn opens_no_frame(tag: &str) -> bool {
-    matches!(tag, "img" | "canvas" | "svg" | "input" | "textarea" | "select" | "button" | "video" | "iframe")
+    matches!(
+        tag,
+        "img" | "canvas" | "svg" | "input" | "textarea" | "select" | "button" | "video" | "iframe"
+    )
 }
 
 /// The writing mode of the frame `id` opens, or `None` when it opens none.
@@ -167,34 +178,45 @@ fn frame_mode(dom: &Dom, id: NodeIdx, css: &ComputedStyle, tag: &str) -> Option<
     if matches!(
         css.effective_display(),
         Some(D::Flex | D::FlexWrap | D::InlineFlex | D::InlineFlexWrap)
-            | Some(D::Table | D::InlineTable | D::TableRowGroup | D::TableHeaderGroup | D::TableFooterGroup)
+            | Some(
+                D::Table
+                    | D::InlineTable
+                    | D::TableRowGroup
+                    | D::TableHeaderGroup
+                    | D::TableFooterGroup
+            )
             | Some(D::TableRow | D::TableCell | D::TableCaption | D::Inline)
     ) {
         return None;
     }
     if is_root {
         // The root's used writing mode is its `<body>`'s when it has one.
-        let body = dom.node(id).children.iter().copied().find(|&c| {
-            matches!(&dom.node(c).kind, NodeKind::Element { tag } if tag == "body")
-        });
-        let wm = body.and_then(|b| dom.computed_style_idx(b)).map_or(own, |b| b.writing_mode.unwrap_or_default());
+        let body = dom
+            .node(id)
+            .children
+            .iter()
+            .copied()
+            .find(|&c| matches!(&dom.node(c).kind, NodeKind::Element { tag } if tag == "body"));
+        let wm = body
+            .and_then(|b| dom.computed_style_idx(b))
+            .map_or(own, |b| b.writing_mode.unwrap_or_default());
         return is_vertical(wm).then_some(wm);
     }
     if is_out_of_flow(dom, id) {
         return Some(own);
     }
-    let parent = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
-    if parent.is_some_and(|p| is_vertical(p.writing_mode.unwrap_or_default())) {
-        return None;
-    }
+    let _parent = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
     Some(own)
 }
 
 /// `true` when laying `id` out opens a frame. Asked by the intrinsic width
 /// measure, which otherwise measures the box's text along the page's width.
 pub(in crate::layout) fn opens_frame(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
-    let NodeKind::Element { tag } = &dom.node(id).kind else { return false };
-    (css.writing_mode.is_some_and(|wm| !wm.is_horizontal()) || dom.node(id).parent == Some(dom.root))
+    let NodeKind::Element { tag } = &dom.node(id).kind else {
+        return false;
+    };
+    (css.writing_mode.is_some_and(|wm| !wm.is_horizontal())
+        || dom.node(id).parent == Some(dom.root))
         && frame_mode(dom, id, css, tag).is_some()
 }
 
@@ -211,6 +233,7 @@ fn install(
     id: NodeIdx,
     frame: AxisMap,
     pct_basis: f32,
+    avail_h: Option<f32>,
 ) -> (Vec<(NodeIdx, Option<Rc<ComputedStyle>>)>, Vec<NodeIdx>) {
     let mode = frame.writing_mode();
     let mut saved = Vec::new();
@@ -224,6 +247,18 @@ fn install(
                     // Orthogonal descendant: do NOT rotate its style into the frame,
                     // and do NOT descend into its children (WM-2).
                     ortho_roots.push(n);
+                    let (sub_c, sub_r) = crate::layout::grid::subgrid::is_subgrid_node(dom, n, mode);
+                    if sub_c || sub_r {
+                        let mut sub_stack = dom.node(n).children.clone();
+                        while let Some(c) = sub_stack.pop() {
+                            if let Some(c_css) = dom.computed_style_idx(c) {
+                                if c_css.writing_mode.unwrap_or_default().is_horizontal() != mode.is_horizontal() {
+                                    ortho_roots.push(c);
+                                }
+                            }
+                            sub_stack.extend(dom.node(c).children.iter().copied());
+                        }
+                    }
                     continue;
                 }
             }
@@ -241,7 +276,11 @@ fn install(
                 });
                 Rc::clone(&entry.1)
             });
-            let rotated = if n == id { resolve_own_percentages(&rotated, pct_basis) } else { rotated };
+            let rotated = if n == id {
+                resolve_own_percentages(&rotated, pct_basis, avail_h)
+            } else {
+                rotated
+            };
             saved.push((n, dom.swap_computed_memo(n, Some(rotated))));
         }
         stack.extend(dom.node(n).children.iter().copied());
@@ -249,19 +288,42 @@ fn install(
     (saved, ortho_roots)
 }
 
-fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32) -> Rc<ComputedStyle> {
+fn resolve_own_percentages(css: &Rc<ComputedStyle>, basis: f32, avail_h: Option<f32>) -> Rc<ComputedStyle> {
     use crate::style::values::{Edges, Side};
     let px = |s: Side| match s {
         Side::Len(Dimension::Percent(p)) => Side::Len(Dimension::Px(basis * p / 100.0)),
         other => other,
     };
     let (margin, padding) = (
-        Edges { top: px(css.margin.top), right: px(css.margin.right), bottom: px(css.margin.bottom), left: px(css.margin.left) },
-        Edges { top: px(css.padding.top), right: px(css.padding.right), bottom: px(css.padding.bottom), left: px(css.padding.left) },
+        Edges {
+            top: px(css.margin.top),
+            right: px(css.margin.right),
+            bottom: px(css.margin.bottom),
+            left: px(css.margin.left),
+        },
+        Edges {
+            top: px(css.padding.top),
+            right: px(css.padding.right),
+            bottom: px(css.padding.bottom),
+            left: px(css.padding.left),
+        },
     );
-    if margin == css.margin && padding == css.padding { return Rc::clone(css); }
+    let res_h = |d: Option<Dimension>| match d {
+        Some(Dimension::Percent(p)) => avail_h.map(|h| Dimension::Px(h * p / 100.0)),
+        Some(Dimension::Calc(c)) if c.pct != 0.0 => avail_h.map(|h| {
+            let mut c2 = c;
+            c2.px += h * c.pct / 100.0;
+            c2.pct = 0.0;
+            Dimension::Calc(c2)
+        }),
+        other => other,
+    };
+    let (w, mnw, mxw) = (res_h(css.width), res_h(css.min_width), res_h(css.max_width));
+    if margin == css.margin && padding == css.padding && w == css.width && mnw == css.min_width && mxw == css.max_width {
+        return Rc::clone(css);
+    }
     let mut out = (**css).clone();
-    (out.margin, out.padding) = (margin, padding);
+    (out.margin, out.padding, out.width, out.min_width, out.max_width) = (margin, padding, w, mnw, mxw);
     Rc::new(out)
 }
 
@@ -291,12 +353,22 @@ pub(in crate::layout) fn layout_if_boundary(
     list: &mut DisplayList,
 ) -> Option<(f32, f32)> {
     if in_rotated_frame() {
-        let is_ortho = ORTHO_ROOTS.with(|s| {
-            s.borrow().last().is_some_and(|roots| roots.contains(&id))
-        });
+        let is_ortho =
+            ORTHO_ROOTS.with(|s| s.borrow().last().is_some_and(|roots| roots.contains(&id)));
         if is_ortho && !opens_no_frame(tag) {
             return layout_orthogonal(
-                dom, id, box_id, css, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+                dom,
+                id,
+                box_id,
+                css,
+                x,
+                y,
+                avail_w,
+                avail_h,
+                forced_outer_w,
+                forced_outer_h,
+                ctx,
+                list,
             );
         }
         return None;
@@ -314,20 +386,32 @@ pub(in crate::layout) fn layout_if_boundary(
     let (frame_w, frame_h, forced_w, forced_h, shrink) = if is_root {
         (ctx.viewport_h, Some(avail_w), None, None, false)
     } else {
-        (avail_h.unwrap_or(ctx.viewport_h), Some(avail_w), forced_outer_h, forced_outer_w, true)
+        (
+            avail_h.unwrap_or(ctx.viewport_h),
+            if avail_w.is_finite() { Some(avail_w) } else { None },
+            forced_outer_h,
+            forced_outer_w,
+            true,
+        )
     };
     let r_ctx = ResolveCtx {
-        parent_content_w: avail_w,
+        parent_content_w: if avail_w.is_finite() { avail_w } else { 0.0 },
         node_font_size: crate::layout::font_px(css, 16.0),
         root_font_size: crate::style::root_font_size(),
         viewport_w: ctx.viewport_w,
         viewport_h: ctx.viewport_h,
     };
     let prev_bs = FRAME_BLOCK_SIZE.with(|b| b.replace(css.width.and_then(|w| w.resolve(&r_ctx))));
-    let (saved, ortho_roots) = install(dom, id, AxisMap::new(wm, css.direction.unwrap_or_default()), avail_w);
+    let (saved, ortho_roots) = install(
+        dom,
+        id,
+        AxisMap::new(wm, css.direction.unwrap_or_default()),
+        avail_w,
+        avail_h,
+    );
     IN_FRAME.with(|f| f.set(Some(wm)));
     FRAME_ROOT.with(|f| f.set(Some(id)));
-    ORTHO_STACK.with(|s| s.borrow_mut().push(Vec::new()));
+    push_ortho_stack();
     ORTHO_ROOTS.with(|s| s.borrow_mut().push(ortho_roots));
     let lines = crate::layout::inline::line_baseline::mark();
     let mut own = DisplayList::for_dom(dom);
@@ -341,7 +425,7 @@ pub(in crate::layout) fn layout_if_boundary(
         frame_h,
         forced_w,
         forced_h,
-        false,
+        forced_outer_w.is_some(),
         shrink,
         &BlockFormattingContext::new(),
         ctx,
@@ -352,7 +436,7 @@ pub(in crate::layout) fn layout_if_boundary(
     FRAME_ROOT.with(|f| f.set(None));
     ORTHO_ROOTS.with(|s| s.borrow_mut().pop());
     FRAME_BLOCK_SIZE.with(|b| b.set(prev_bs));
-    let ortho_children = ORTHO_STACK.with(|s| s.borrow_mut().pop().unwrap_or_default());
+    let ortho_children = pop_ortho_stack();
     restore(dom, saved);
 
     let (outer_w, outer_h) = (fh, fw);
@@ -360,139 +444,32 @@ pub(in crate::layout) fn layout_if_boundary(
     // box's own, where the horizontal parent put it.
     let right = x + if is_root { avail_w } else { outer_w };
     let frame = match wm {
-        WritingMode::VerticalLr => Mat2d { a: 0.0, b: 1.0, c: 1.0, d: 0.0, e: x, f: y },
+        WritingMode::VerticalLr => Mat2d {
+            a: 0.0,
+            b: 1.0,
+            c: 1.0,
+            d: 0.0,
+            e: x,
+            f: y,
+        },
         // Lines run UP the page from its bottom edge, blocks stack rightwards.
-        WritingMode::SidewaysLr => Mat2d { a: 0.0, b: -1.0, c: 1.0, d: 0.0, e: x, f: y + outer_h },
-        _ => Mat2d { a: 0.0, b: 1.0, c: -1.0, d: 0.0, e: right, f: y },
+        WritingMode::SidewaysLr => Mat2d {
+            a: 0.0,
+            b: -1.0,
+            c: 1.0,
+            d: 0.0,
+            e: x,
+            f: y + outer_h,
+        },
+        _ => Mat2d {
+            a: 0.0,
+            b: 1.0,
+            c: -1.0,
+            d: 0.0,
+            e: right,
+            f: y,
+        },
     };
     rotate_out(own, box_id, &frame, ortho_children, list);
     Some((outer_w, outer_h))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn layout_orthogonal(
-    dom: &Dom,
-    id: NodeIdx,
-    box_id: crate::boxes::BoxId,
-    _css: &ComputedStyle,
-    x: f32,
-    y: f32,
-    _avail_w: f32,
-    avail_h: Option<f32>,
-    forced_outer_w: Option<f32>,
-    forced_outer_h: Option<f32>,
-    ctx: &LayoutCtx,
-    list: &mut DisplayList,
-) -> Option<(f32, f32)> {
-    // In the parent vertical frame:
-    // - frame block axis is y (physical X). avail_h is containing block block-size.
-    // - frame inline axis is x (physical Y).
-    // An orthogonal horizontal child has its inline axis on physical X.
-    // CSS Writing Modes 4 §7.3.1:
-    // available inline size is containing block block size if definite, else ICB width.
-    let child_avail_w = forced_outer_h.or(avail_h).unwrap_or(ctx.viewport_w);
-    let (child_avail_h, child_forced_w, child_forced_h) = (forced_outer_w, forced_outer_h, forced_outer_w);
-
-    let prev_frame = IN_FRAME.with(|f| f.replace(None));
-    let prev_root = FRAME_ROOT.with(|r| r.replace(None));
-
-    let mut child_list = DisplayList::for_dom(dom);
-    let (child_phys_w, child_phys_h) = layout_block(
-        dom,
-        id,
-        box_id,
-        0.0,
-        0.0,
-        child_avail_w,
-        child_avail_h,
-        child_forced_w,
-        child_forced_h,
-        false,
-        true, // shrink-to-fit (Writing Modes 4 §7.3)
-        &BlockFormattingContext::new(), // independent BFC (§7.3)
-        ctx,
-        &mut child_list,
-    );
-
-    IN_FRAME.with(|f| f.set(prev_frame));
-    FRAME_ROOT.with(|r| r.set(prev_root));
-
-    let (frame_w, frame_h) = (child_phys_h, child_phys_w);
-
-    list.pieces.push(Piece::Rect(box_id));
-    ORTHO_STACK.with(|s| {
-        if let Some(stack) = s.borrow_mut().last_mut() {
-            stack.push(OrthoChild {
-                box_id,
-                frame_x: x,
-                frame_y: y,
-                frame_w,
-                frame_h,
-                list: child_list,
-            });
-        }
-    });
-
-    Some((frame_w, frame_h))
-}
-
-/// Maps everything `own` recorded through `frame` and appends it to `list`.
-fn rotate_out(
-    mut own: DisplayList,
-    box_id: crate::boxes::BoxId,
-    frame: &Mat2d,
-    mut ortho_children: Vec<OrthoChild>,
-    list: &mut DisplayList,
-) {
-    // No subtree is reused inside a frame, so this is a no-op but for a
-    // producer this lot does not know of; flattening keeps its items right.
-    own.materialize();
-    let tree = Rc::clone(&own.tree);
-    crate::layout::fragment::transform_rects::transform_box_rects(&tree, box_id, frame, &mut own);
-    for piece in own.pieces.iter_mut() {
-        if let Piece::Item(item) = piece {
-            crate::paint::item::rotate_item(item, frame);
-        }
-    }
-    for anchor in own.static_anchors.iter_mut() {
-        (anchor.1, anchor.2) = frame.apply(anchor.1, anchor.2);
-    }
-    for region in own.scroll_regions.iter_mut() {
-        region.visible = frame.transform_rect_bbox(region.visible);
-        (region.content_w, region.content_h) = (region.content_h, region.content_w);
-        (region.overflow_x, region.overflow_y) = (region.overflow_y, region.overflow_x);
-    }
-
-    for child in ortho_children.iter_mut() {
-        let phys_rect = frame.transform_rect_bbox(Rect::new(child.frame_x, child.frame_y, child.frame_w, child.frame_h));
-        child.list.materialize();
-        child.list.translate(phys_rect.x, phys_rect.y);
-    }
-
-    let merge = |child: OrthoChild, own: &mut DisplayList| {
-        own.box_rects.extend(child.list.box_rects);
-        own.static_anchors.extend(child.list.static_anchors);
-        own.scroll_regions.extend(child.list.scroll_regions);
-        own.grid_column_tracks.extend(child.list.grid_column_tracks);
-        child.list.pieces
-    };
-    let orig_pieces = std::mem::take(&mut own.pieces);
-    let mut final_pieces = Vec::with_capacity(orig_pieces.len() + 16);
-    for piece in orig_pieces {
-        if let Piece::Rect(bid) = piece {
-            if let Some(pos) = ortho_children.iter().position(|c| c.box_id == bid) {
-                final_pieces.extend(merge(ortho_children.remove(pos), &mut own));
-                continue;
-            }
-        }
-        final_pieces.push(piece);
-    }
-    for c in ortho_children { final_pieces.extend(merge(c, &mut own)); }
-    own.pieces = final_pieces;
-
-    list.pieces.extend(own.pieces);
-    list.box_rects.extend(own.box_rects);
-    list.static_anchors.extend(own.static_anchors);
-    list.grid_column_tracks.extend(own.grid_column_tracks);
-    list.scroll_regions.extend(own.scroll_regions);
 }

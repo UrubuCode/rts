@@ -9,7 +9,11 @@ use super::*;
 
 fn rects(html: &str, ids: &[&str]) -> Vec<Rect> {
     let dom = parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     ids.iter()
         .map(|id| {
             let n = dom.query(&format!("#{id}")).unwrap();
@@ -31,9 +35,21 @@ fn vertical_rl_stacks_blocks_leftwards_from_the_right_edge() {
     );
     let r = rects(&html, &["body", "a", "b"]);
     let (body, a, b) = (r[0], r[1], r[2]);
-    assert_eq!((body.x, body.y, body.w, body.h), (700.0, 0.0, 100.0, 300.0), "body {body:?}");
-    assert_eq!((a.x, a.y, a.w, a.h), (body.x + body.w - 50.0, 0.0, 50.0, 300.0), "a {a:?}");
-    assert_eq!((b.x, b.y, b.w, b.h), (a.x - 50.0, 0.0, 50.0, 300.0), "b {b:?}");
+    assert_eq!(
+        (body.x, body.y, body.w, body.h),
+        (700.0, 0.0, 100.0, 300.0),
+        "body {body:?}"
+    );
+    assert_eq!(
+        (a.x, a.y, a.w, a.h),
+        (body.x + body.w - 50.0, 0.0, 50.0, 300.0),
+        "a {a:?}"
+    );
+    assert_eq!(
+        (b.x, b.y, b.w, b.h),
+        (a.x - 50.0, 0.0, 50.0, 300.0),
+        "b {b:?}"
+    );
 }
 
 /// `vertical-lr` is the same stacking from the LEFT edge.
@@ -44,7 +60,11 @@ fn vertical_lr_stacks_blocks_rightwards_from_the_left_edge() {
     );
     let r = rects(&html, &["body", "a", "b"]);
     let (body, a, b) = (r[0], r[1], r[2]);
-    assert_eq!((body.x, body.w, body.h), (0.0, 100.0, 300.0), "body {body:?}");
+    assert_eq!(
+        (body.x, body.w, body.h),
+        (0.0, 100.0, 300.0),
+        "body {body:?}"
+    );
     assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 50.0, 300.0), "a {a:?}");
     assert_eq!((b.x, b.y, b.w, b.h), (50.0, 0.0, 50.0, 300.0), "b {b:?}");
 }
@@ -60,16 +80,34 @@ fn ahem_text_in_vertical_rl_is_a_column_one_em_wide() {
     assert_eq!((r.x, r.y, r.w, r.h), (780.0, 0.0, 20.0, 40.0), "{r:?}");
 
     let dom = parse_html_to_dom(html);
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     let texts: Vec<_> = layout_document(&dom, &ctx)
         .materialized()
         .into_iter()
         .filter_map(|it| match it {
-            DisplayItem::Text { x, y, text, orientation, .. } => Some((x, y, text.to_string(), orientation)),
+            DisplayItem::Text {
+                x,
+                y,
+                text,
+                orientation,
+                ..
+            } => Some((x, y, text.to_string(), orientation)),
             _ => None,
         })
         .collect();
-    assert_eq!(texts, vec![(800.0, 0.0, "XX".to_string(), crate::paint::Orientation::SidewaysRl)]);
+    assert_eq!(
+        texts,
+        vec![(
+            800.0,
+            0.0,
+            "XX".to_string(),
+            crate::paint::Orientation::SidewaysRl
+        )]
+    );
 }
 
 /// The author's physical sides land where a vertical mode puts them:
@@ -81,7 +119,11 @@ fn physical_margins_become_inline_start_and_block_start() {
     let html = "<style>body{margin:0;writing-mode:vertical-rl}</style>\
                 <div id=a style='display:block;width:50px;margin-top:10px;margin-right:7px'></div>";
     let a = rects(html, &["a"])[0];
-    assert_eq!((a.x, a.y, a.w, a.h), (800.0 - 7.0 - 50.0, 10.0, 50.0, 590.0), "{a:?}");
+    assert_eq!(
+        (a.x, a.y, a.w, a.h),
+        (800.0 - 7.0 - 50.0, 10.0, 50.0, 590.0),
+        "{a:?}"
+    );
 }
 
 /// A horizontal page never enters a frame: its display list is the one the
@@ -90,10 +132,19 @@ fn physical_margins_become_inline_start_and_block_start() {
 /// initial value does.
 #[test]
 fn a_horizontal_page_is_laid_out_as_before() {
-    let ctx = LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &ApproxMeasurer };
+    let ctx = LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &ApproxMeasurer,
+    };
     let plain = parse_html_to_dom(&format!("<style>body{{margin:0}}</style>{TWO_BLOCKS}"));
-    let stated = parse_html_to_dom(&format!("<style>body{{margin:0;writing-mode:horizontal-tb}}</style>{TWO_BLOCKS}"));
-    assert_eq!(layout_document(&plain, &ctx).materialized(), layout_document(&stated, &ctx).materialized());
+    let stated = parse_html_to_dom(&format!(
+        "<style>body{{margin:0;writing-mode:horizontal-tb}}</style>{TWO_BLOCKS}"
+    ));
+    assert_eq!(
+        layout_document(&plain, &ctx).materialized(),
+        layout_document(&stated, &ctx).materialized()
+    );
 }
 
 /// Lot WM-2: an orthogonal flow (horizontal-tb inside vertical-rl).
@@ -111,7 +162,11 @@ fn orthogonal_horizontal_inside_vertical_fixed() {
     let (outer, inner) = (r[0], r[1]);
     assert_eq!((outer.w, outer.h), (166.0, 102.0), "outer {outer:?}");
     assert_eq!((inner.w, inner.h), (160.0, 96.0), "inner {inner:?}");
-    assert_eq!((inner.x, inner.y), (outer.x + 3.0, outer.y + 3.0), "inner offset");
+    assert_eq!(
+        (inner.x, inner.y),
+        (outer.x + 3.0, outer.y + 3.0),
+        "inner offset"
+    );
 }
 
 /// Lot WM-3: static position of absolute box inside vertical-rl line.
@@ -130,7 +185,11 @@ fn vertical_rl_static_position_anchor_rotated() {
     // Content box starts at right edge: 800 - 5 = 795.
     // Text XX has 2 glyphs of 16px along the line (inline axis, physical Y: 5 + 32 = 37).
     // In vertical-rl, line right edge is 795, so a.x = 795 - 20 = 775.
-    assert_eq!((c.x, c.y, c.w, c.h), (800.0 - 110.0, 0.0, 110.0, 410.0), "container {c:?}");
+    assert_eq!(
+        (c.x, c.y, c.w, c.h),
+        (800.0 - 110.0, 0.0, 110.0, 410.0),
+        "container {c:?}"
+    );
     assert_eq!((a.x, a.y, a.w, a.h), (775.0, 37.0, 20.0, 20.0), "abs {a:?}");
 }
 
@@ -152,9 +211,21 @@ fn flex_item_orthogonal_writing_mode_stretches() {
     let r = rects(html, &["c", "i1", "i2", "i3"]);
     let (c, i1, i2, i3) = (r[0], r[1], r[2], r[3]);
     assert_eq!((c.w, c.h), (250.0, 100.0), "container {c:?}");
-    assert_eq!((i1.x, i1.y, i1.w, i1.h), (0.0, 0.0, 50.0, 100.0), "i1 {i1:?}");
-    assert_eq!((i2.x, i2.y, i2.w, i2.h), (50.0, 0.0, 100.0, 100.0), "i2 {i2:?}");
-    assert_eq!((i3.x, i3.y, i3.w, i3.h), (150.0, 0.0, 100.0, 100.0), "i3 {i3:?}");
+    assert_eq!(
+        (i1.x, i1.y, i1.w, i1.h),
+        (0.0, 0.0, 50.0, 100.0),
+        "i1 {i1:?}"
+    );
+    assert_eq!(
+        (i2.x, i2.y, i2.w, i2.h),
+        (50.0, 0.0, 100.0, 100.0),
+        "i2 {i2:?}"
+    );
+    assert_eq!(
+        (i3.x, i3.y, i3.w, i3.h),
+        (150.0, 0.0, 100.0, 100.0),
+        "i3 {i3:?}"
+    );
 }
 
 /// Lot WM-4: grid container in vertical-rl writing mode.

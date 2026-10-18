@@ -66,11 +66,11 @@ pub mod syntax;
 /// As propriedades de TABELA e a posição do marcador de lista — ver o módulo.
 pub mod tables;
 pub mod text;
-mod unidades_absolutas;
 pub mod text_metrics;
 /// As longhands de `transition-*`/`animation-*` — ver o módulo.
 pub mod timing;
 pub mod ua;
+mod unidades_absolutas;
 pub mod values;
 pub(crate) mod vars;
 /// O vocabulário do 2º lote de propriedades (keywords novos) — ver o módulo.
@@ -79,37 +79,47 @@ pub mod vocab;
 mod aplica;
 
 #[cfg(test)]
-mod ast_tests;
-#[cfg(test)]
 mod afirmacoes_tests;
+#[cfg(test)]
+mod ast_tests;
 #[cfg(test)]
 mod auditoria_lote_a;
 #[cfg(test)]
 mod auditoria_lote_b;
 #[cfg(test)]
-mod disp_two_value_tests;
-#[cfg(test)]
 mod computed_tests;
 #[cfg(test)]
-mod sonda_efetivos;
+mod disp_two_value_tests;
+#[cfg(test)]
+mod lengths_tests;
 #[cfg(test)]
 mod newprops_tests;
 #[cfg(test)]
 mod selector_tests;
 #[cfg(test)]
-mod tests;
+mod sonda_efetivos;
 #[cfg(test)]
 mod subgrid_tests;
+#[cfg(test)]
+mod subgrid_wpt_tests;
+#[cfg(test)]
+mod subgrid_wpt_tests_2;
+#[cfg(test)]
+mod grid_items_wpt_tests;
+#[cfg(test)]
+mod grid_layout_wpt_tests;
+#[cfg(test)]
+mod tests;
 
 // A API pública é a MESMA da antiga `style.rs` monolítica — os consumidores
 // (`dom.rs`, `layout.rs`, `abi.rs`, `scrollbar.rs`, `anim.rs`, rts-egui) seguem
 // usando `crate::style::X` sem mudança.
+pub use ahem::{AHEM_ADVANCE, AHEM_ASCENT_RATIO, AHEM_DESCENT_RATIO, is_ahem_family};
 pub use background::{BgPosition, BgRepeat, BgSize};
 pub use borders::{SideBorder, SideName};
 pub use color::parse_color;
 pub use grid_areas::{GridArea, GridAreas};
 pub use lerp::{lerp_color, lerp_dimension, lerp_f32};
-pub use ahem::{AHEM_ADVANCE, AHEM_ASCENT_RATIO, AHEM_DESCENT_RATIO, is_ahem_family};
 pub use parse::{is_mono_family, parse_inline, parse_inline_block, parse_inline_specified};
 pub use props::{
     ComputedStyle, SLOT_BG, SLOT_BORDER_COLOR, SLOT_BORDER_WIDTH, SLOT_COLOR, SLOT_CORNER_RADIUS,
@@ -131,15 +141,17 @@ pub use syntax::{
     SpecifiedStyle, StylesheetAst, Token, TokenKind, tokenize,
 };
 pub use tables::{BorderCollapse, BorderSpacing, ListStylePosition, TableLayout};
-pub use text::{Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak, WritingMode};
+pub use text::{
+    Clear, Direction, ListStyleType, OverflowWrap, VerticalAlign, WordBreak, WritingMode,
+};
 pub use text_metrics::{
-    MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, X_HEIGHT_RATIO,
-    spacing_width,
+    MONO_ADVANCE, PROP_ADVANCE, SUB_OFFSET_RATIO, SUPER_OFFSET_RATIO, X_HEIGHT_RATIO, spacing_width,
 };
 pub use values::{
-    AlignItems, Axis, AxisMap, BorderStyle, CalcLen, ContainingBlock, DIM_BASE_EM, DIM_BASE_PERCENT,
-    DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension, DisplayKind, Edges,
-    FlexDirection, FlexWrap, FloatSide, GridTrack, GridTemplate, JustifyContent, LineHeight,
-    LineNames, PercentBasis, PhysicalAxis, Position, ResolveCtx, Rgba, Side, SubgridLine,
-    TextAlign, TrackBound, TrackList, TextTransform, WhiteSpace, clamp_size, dimensao_absoluta,
+    AlignItems, Axis, AxisMap, BorderStyle, CalcLen, ContainingBlock, DIM_BASE_EM,
+    DIM_BASE_PERCENT, DIM_BASE_PX, DIM_BASE_REM, DIM_BASE_VH, DIM_BASE_VW, DIM_RANGE, Dimension,
+    DisplayKind, Edges, FlexDirection, FlexWrap, FloatSide, GridTemplate, GridTrack,
+    JustifyContent, LineHeight, LineNames, PercentBasis, PhysicalAxis, Position, ResolveCtx, Rgba,
+    Side, SubgridLine, TextAlign, TextTransform, TrackBound, TrackList, WhiteSpace, clamp_size,
+    dimensao_absoluta,
 };

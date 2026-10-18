@@ -97,6 +97,8 @@ pub(crate) fn clear_inherit_for_field(dst: &mut ComputedStyle, field: &str) {
         "list_style_type" => &["list-style-type", "list-style"],
         "list_style_position" => &["list-style-position", "list-style"],
         "pointer_events" => &["pointer-events"],
+        "align_self" => &["align-self"],
+        "justify_self" => &["justify-self"],
         _ => &[],
     };
     for name in names {
@@ -135,6 +137,8 @@ pub(crate) fn clear_initial_for_field(dst: &mut ComputedStyle, field: &str) {
         "list_style_type" => &["list-style-type", "list-style"],
         "list_style_position" => &["list-style-position", "list-style"],
         "pointer_events" => &["pointer-events"],
+        "align_self" => &["align-self"],
+        "justify_self" => &["justify-self"],
         _ => &[],
     };
     for name in names {
@@ -227,6 +231,42 @@ pub fn copy_property(dst: &mut ComputedStyle, src: &ComputedStyle, name: &str) {
         "z-index" => dst.z_index = src.z_index,
         "width" => dst.width = src.width,
         "height" => dst.height = src.height,
+        "align-self" => dst.align_self = src.align_self,
+        "justify-self" => dst.justify_self = src.justify_self,
+        "align-items" => dst.align_items = src.align_items,
+        "justify-items" => dst.grid_justify_items = src.grid_justify_items,
+        "place-items" => {
+            dst.align_items = src.align_items;
+            dst.grid_justify_items = src.grid_justify_items;
+        }
+        "align-content" => dst.align_content = src.align_content,
+        "justify-content" => dst.justify = src.justify,
+        "place-content" => {
+            dst.align_content = src.align_content;
+            dst.justify = src.justify;
+        }
+        "grid-template-areas" => dst.grid_template_areas = src.grid_template_areas.clone(),
+        "grid-template-columns" => dst.grid_template_columns = src.grid_template_columns.clone(),
+        "grid-template-rows" => dst.grid_template_rows = src.grid_template_rows.clone(),
+        "grid-template" => {
+            dst.grid_template_rows = src.grid_template_rows.clone();
+            dst.grid_template_columns = src.grid_template_columns.clone();
+            dst.grid_template_areas = src.grid_template_areas.clone();
+        }
+        "grid" => {
+            dst.grid_template_rows = src.grid_template_rows.clone();
+            dst.grid_template_columns = src.grid_template_columns.clone();
+            dst.grid_template_areas = src.grid_template_areas.clone();
+            dst.grid_auto_rows = src.grid_auto_rows.clone();
+            dst.grid_auto_columns = src.grid_auto_columns.clone();
+            dst.grid_auto_flow = src.grid_auto_flow;
+        }
+        "grid-auto-columns" => dst.grid_auto_columns = src.grid_auto_columns.clone(),
+        "grid-auto-rows" => dst.grid_auto_rows = src.grid_auto_rows.clone(),
+        "grid-auto-flow" => dst.grid_auto_flow = src.grid_auto_flow,
+        "grid-gap" | "gap" => dst.gap = src.gap,
+        "grid-row-gap" | "row-gap" => dst.row_gap = src.row_gap,
+        "grid-column-gap" | "column-gap" => dst.gap = src.gap,
         // Uma propriedade fora desta lista não é um erro: `inherit` nela fica sem
         // efeito, exatamente como antes de este módulo existir. Acrescentar uma
         // linha aqui é o que a faz passar a funcionar.
@@ -282,7 +322,10 @@ mod tests {
              font-style:italic;line-height:2",
         );
         let mut filho = parse_inline("font:inherit");
-        assert!(filho.font_size.is_none(), "o parse não escreve valor nenhum");
+        assert!(
+            filho.font_size.is_none(),
+            "o parse não escreve valor nenhum"
+        );
         copy_property(&mut filho, &pai, "font");
         assert_eq!(filho.font_size, pai.font_size, "font-size");
         assert_eq!(filho.font_family, pai.font_family, "font-family");

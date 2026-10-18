@@ -27,21 +27,34 @@ fn rotacao_emite_push_transform_em_vez_de_mutar_o_rect() {
         .find(|it| matches!(it, DisplayItem::SolidRect { .. }))
         .expect("o fundo continua um SolidRect");
 
-    assert!(push.is_some(), "rotate(90deg) devia abrir um PushTransform: {itens:?}");
     assert!(
-        itens.iter().any(|it| matches!(it, DisplayItem::PopTransform)),
+        push.is_some(),
+        "rotate(90deg) devia abrir um PushTransform: {itens:?}"
+    );
+    assert!(
+        itens
+            .iter()
+            .any(|it| matches!(it, DisplayItem::PopTransform)),
         "todo PushTransform tem o PopTransform correspondente: {itens:?}"
     );
-    let DisplayItem::SolidRect { rect, .. } = solid else { unreachable!() };
+    let DisplayItem::SolidRect { rect, .. } = solid else {
+        unreachable!()
+    };
     // O RECT em si guarda o tamanho ORIGINAL (100×50) — é a matriz, não o
     // rect, que carrega a rotação. Mutar `w`/`h` pela norma das colunas (a
     // aproximação antiga) trocava isto por um quadrado ~75×75.
-    assert!((rect.w - 100.0).abs() < 0.5 && (rect.h - 50.0).abs() < 0.5, "{rect:?}");
+    assert!(
+        (rect.w - 100.0).abs() < 0.5 && (rect.h - 50.0).abs() < 0.5,
+        "{rect:?}"
+    );
 
     // A matriz gira 90°: aplicada ao canto (1,0) relativo à origem, dá ~(0,1).
     let m = push.unwrap();
     let (dx, dy) = (m.a * 1.0 + m.c * 0.0, m.b * 1.0 + m.d * 0.0);
-    assert!(dx.abs() < 0.01 && (dy - 1.0).abs() < 0.01, "matriz não é uma rotação de 90°: {m:?}");
+    assert!(
+        dx.abs() < 0.01 && (dy - 1.0).abs() < 0.01,
+        "matriz não é uma rotação de 90°: {m:?}"
+    );
 }
 
 /// `overflow:hidden` com um filho maior que a caixa: o `BeginClip` PRECISA

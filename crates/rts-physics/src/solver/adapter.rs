@@ -116,7 +116,9 @@ impl Backend for GatherBackend {
             return StepOutcome::Refused { why: "no bodies" };
         }
         if scene.world.len() < 4 {
-            return StepOutcome::Refused { why: "world buffer shorter than its header" };
+            return StepOutcome::Refused {
+                why: "world buffer shorter than its header",
+            };
         }
         // `world[3]` is the sub-step count and the layout's own unused slot. A
         // zero here is a caller asking for nothing, which is not an error: it is
@@ -129,7 +131,9 @@ impl Backend for GatherBackend {
             solver.step(scene.pos, scene.vel, scene.ext, scene.world, substeps);
         });
 
-        StepOutcome::Advanced { sub_steps: substeps as u32 }
+        StepOutcome::Advanced {
+            sub_steps: substeps as u32,
+        }
     }
 }
 
@@ -155,8 +159,16 @@ mod tests {
         let (mut pos, mut vel, mut ext, mut world) = scene_of(2);
         pos[1] = 5.0;
         let before = pos.clone();
-        let mut scene = Scene { pos: &mut pos, vel: &mut vel, ext: &mut ext, world: &mut world };
-        let needs = Needs { hull_against_hull: true, ..Needs::default() };
+        let mut scene = Scene {
+            pos: &mut pos,
+            vel: &mut vel,
+            ext: &mut ext,
+            world: &mut world,
+        };
+        let needs = Needs {
+            hull_against_hull: true,
+            ..Needs::default()
+        };
         let outcome = GatherBackend::new().step(&mut scene, &needs);
         assert!(matches!(outcome, StepOutcome::Unsupported { .. }));
         assert_eq!(pos, before, "a refusal must not have advanced anything");
@@ -169,7 +181,12 @@ mod tests {
         // concluding they disagree — which is exactly the defect that made a GPU
         // bench publish ms/frame for a backend advancing in 25 frames of 60.
         let (mut pos, mut vel, mut ext, mut world) = scene_of(2);
-        let mut scene = Scene { pos: &mut pos, vel: &mut vel, ext: &mut ext, world: &mut world };
+        let mut scene = Scene {
+            pos: &mut pos,
+            vel: &mut vel,
+            ext: &mut ext,
+            world: &mut world,
+        };
         let outcome = GatherBackend::new().step(&mut scene, &Needs::default());
         match outcome {
             StepOutcome::Advanced { sub_steps } => assert_eq!(sub_steps, 1),
@@ -191,17 +208,38 @@ mod tests {
     #[test]
     fn raycast_and_unsupported_queries_are_refused() {
         let b = GatherBackend::new();
-        assert!(!b.supports(&Needs { raycast: true, ..Needs::default() }));
-        assert!(!b.supports(&Needs { overlap: true, ..Needs::default() }));
-        assert!(!b.supports(&Needs { contact_events: true, ..Needs::default() }));
-        assert!(!b.supports(&Needs { level: crate::backend::Level::Orientada, ..Needs::default() }));
-        assert!(!b.supports(&Needs { level: crate::backend::Level::Completa, ..Needs::default() }));
-        assert!(b.supports(&Needs { level: crate::backend::Level::Simples, ..Needs::default() }));
+        assert!(!b.supports(&Needs {
+            raycast: true,
+            ..Needs::default()
+        }));
+        assert!(!b.supports(&Needs {
+            overlap: true,
+            ..Needs::default()
+        }));
+        assert!(!b.supports(&Needs {
+            contact_events: true,
+            ..Needs::default()
+        }));
+        assert!(!b.supports(&Needs {
+            level: crate::backend::Level::Orientada,
+            ..Needs::default()
+        }));
+        assert!(!b.supports(&Needs {
+            level: crate::backend::Level::Completa,
+            ..Needs::default()
+        }));
+        assert!(b.supports(&Needs {
+            level: crate::backend::Level::Simples,
+            ..Needs::default()
+        }));
     }
 
     #[test]
     fn deterministic_is_supported() {
         let b = GatherBackend::new();
-        assert!(b.supports(&Needs { deterministic: true, ..Needs::default() }));
+        assert!(b.supports(&Needs {
+            deterministic: true,
+            ..Needs::default()
+        }));
     }
 }

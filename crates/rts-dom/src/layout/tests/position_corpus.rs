@@ -142,3 +142,47 @@ fn absoluto_estica_e_o_relativo_ancestral_colapsa_com_o_primeiro_filho() {
     afirma_rect(&dom, &list, "irmao-normal", (50.0, 270.0, 90.0, 25.0));
     afirma_rect(&dom, &list, "raiz-abs", (0.0, 400.0, 200.0, 100.0));
 }
+
+/// An out-of-flow box centred by a flex container's `justify-content:center`
+/// must not bleed outside its containing block. A 100px-wide absolute box
+/// inside a 40px inner flex (`justify-content:center`) would centre to a
+/// negative x (`+(40-100)/2` off the inner flex's start); css-align-3
+/// §abspos-sizing keeps a centred abspos box within the CB, so the start edge
+/// is clamped to the CB start. WPT `css-position/position-absolute-center-001`.
+const ABSPOS_FLEX_CENTER: &str = r#"<!DOCTYPE html>
+<div id="cb" style="position:relative;width:100px;height:100px;display:flex;flex-direction:row">
+  <div id="inner" style="display:flex;justify-content:center;margin:10px;height:100px;flex-grow:1">
+    <div id="abs" style="position:absolute;top:0;width:100px;height:100px"></div>
+  </div>
+  <div style="height:100px;flex-grow:1"></div>
+</div>"#;
+
+#[test]
+fn abspos_centrado_em_flex_nao_sai_do_containing_block() {
+    let (dom, list) = geometria_800(ABSPOS_FLEX_CENTER);
+    // O bloco-container está em x=8 (margem do body); o abs de 100px, centrado
+    // no inner flex de 40px, cairia em x=-12 — fica preso à borda do CB (x=8).
+    afirma_rect(&dom, &list, "abs", (8.0, 8.0, 100.0, 100.0));
+}
+
+/// A plain block flex item sized by its content takes the width of its widest
+/// LINE, not its widest child: three inline `<canvas>`es side by side make the
+/// item 150 wide, not 50 (one). Before, an imposed flex main height was fed
+/// back through the children's ratios and the item reported one child's width
+/// (WPT `css-flexbox/flexbox-flex-basis-content-004a`); the non-row transfer
+/// now sums an inline run instead of taking its max.
+const FLEX_COL_INLINE_CANVASES: &str = r#"<!DOCTYPE html>
+<div style="display:flex;flex-direction:column;align-items:flex-start;height:1px">
+  <div id="item"><canvas width="50" height="10"></canvas><canvas width="50" height="10"></canvas><canvas width="50" height="10"></canvas></div>
+</div>"#;
+
+#[test]
+fn item_de_flex_coluna_mede_a_linha_inteira_de_canvases_inline() {
+    let (dom, list) = geometria_800(FLEX_COL_INLINE_CANVASES);
+    let r = rect(&dom, &list, "#item", 0);
+    assert!(
+        perto(r.w, 150.0),
+        "#item: largura {:?}, esperado 150 (3 canvases de 50 lado a lado)",
+        r.w
+    );
+}

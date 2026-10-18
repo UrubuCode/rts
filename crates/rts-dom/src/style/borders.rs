@@ -28,8 +28,8 @@
 //! (não segue o `border-radius`, ao contrário do Chrome moderno) e `auto` vale
 //! `solid`, porque não temos o anel de foco próprio da plataforma.
 
-use super::props::ComputedStyle;
 use super::aplica::set_if;
+use super::props::ComputedStyle;
 use super::values::{BorderStyle, Dimension, Rgba, Side};
 
 /// Um dos quatro lados, na ordem do CSS (top/right/bottom/left).
@@ -155,11 +155,14 @@ pub fn parse_width_dim(tok: &str) -> Option<Dimension> {
         "thick" => return Some(Dimension::Px(5.0)),
         _ => {}
     }
-    let num = low.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%').trim();
+    let num = low
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%')
+        .trim();
     if num.parse::<f32>().map(|n| n == 0.0).unwrap_or(false) {
         return Some(Dimension::Px(0.0));
     }
-    super::lengths::parse_dimension_pub(&low).filter(|d| !matches!(d, Dimension::Auto | Dimension::Percent(_)))
+    super::lengths::parse_dimension_pub(&low)
+        .filter(|d| !matches!(d, Dimension::Auto | Dimension::Percent(_)))
 }
 
 /// Largura de borda de um token: `thin`/`medium`/`thick` (os valores do Chrome:
@@ -264,7 +267,10 @@ pub fn apply_outline_shorthand(css: &mut ComputedStyle, val: &str) {
             set_if(&mut css.outline_color, Some(c));
         }
     }
-    set_if(&mut css.outline_style, Some(style.unwrap_or(BorderStyle::None)));
+    set_if(
+        &mut css.outline_style,
+        Some(style.unwrap_or(BorderStyle::None)),
+    );
     if css.outline_width.is_none() {
         set_if(&mut css.outline_width, Some(3.0)); // `medium`, o inicial da spec
     }
@@ -323,7 +329,11 @@ pub fn resolved_sides(css: &ComputedStyle) -> [SideBorder; 4] {
         } else {
             w.px().or_else(|| w.resolve(&rc)).unwrap_or(uw).max(0.0)
         };
-        SideBorder { width, style, color: c.unwrap_or(uc) }
+        SideBorder {
+            width,
+            style,
+            color: c.unwrap_or(uc),
+        }
     };
     [
         one(

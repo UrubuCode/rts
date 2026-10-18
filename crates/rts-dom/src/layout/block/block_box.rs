@@ -55,16 +55,40 @@ pub(in crate::layout) fn layout_anonymous(
     y: f32,
     content_w: f32,
     avail_h: Option<f32>,
+    definite_h: Option<f32>,
     parent_style: &ComputedStyle,
     font_size: f32,
     bfc: &BlockFormattingContext,
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) -> f32 {
-    if matches!(tree.kind(anonymous), BoxKind::Anonymous { role: AnonymousRole::Table, .. }) {
-        return crate::table::layout_anonymous_table(dom, tree, anonymous, x, y, content_w, font_size, ctx, list).1;
+    if matches!(
+        tree.kind(anonymous),
+        BoxKind::Anonymous {
+            role: AnonymousRole::Table,
+            ..
+        }
+    ) {
+        return crate::table::layout_anonymous_table(
+            dom, tree, anonymous, x, y, content_w, font_size, ctx, list,
+        )
+        .1;
     }
-    let h = layout_anonymous_box(dom, tree, anonymous, x, y, content_w, avail_h, parent_style, font_size, bfc, ctx, list);
+    let h = layout_anonymous_box(
+        dom,
+        tree,
+        anonymous,
+        x,
+        y,
+        content_w,
+        avail_h,
+        definite_h,
+        parent_style,
+        font_size,
+        bfc,
+        ctx,
+        list,
+    );
     record_box_rect(list, anonymous, Rect::new(x, y, content_w, h));
     h
 }
@@ -92,6 +116,7 @@ fn layout_anonymous_box(
     y: f32,
     content_w: f32,
     avail_h: Option<f32>,
+    definite_h: Option<f32>,
     parent_style: &ComputedStyle,
     font_size: f32,
     bfc: &BlockFormattingContext,
@@ -131,6 +156,7 @@ fn layout_anonymous_box(
         y,
         content_w,
         avail_h,
+        definite_h,
         css,
         font_size,
         bfc,

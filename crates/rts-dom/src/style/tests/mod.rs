@@ -3,12 +3,12 @@
 
 use super::*;
 
-mod valores;
-mod cores_e_caixa;
-mod slots;
-mod cascade;
-mod tabela_e_display;
 mod at_rules_p;
+mod cascade;
 mod computed_corpus;
+mod cores_e_caixa;
 mod declaracao_espaco_antes_dois_pontos;
 mod grid_placement_shorthands;
+mod slots;
+mod tabela_e_display;
+mod valores;

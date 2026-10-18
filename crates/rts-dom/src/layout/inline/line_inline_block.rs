@@ -21,7 +21,13 @@ use crate::style::VerticalAlign;
 /// distância (do topo da BORDER-BOX à baseline) para o grupo
 /// `align-items:baseline` do flex — só soma a margem própria do item, que
 /// aqui não entra (`h` já é a altura da border-box, não a outer).
-pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: f32, ctx: &LayoutCtx) -> f32 {
+pub(in crate::layout) fn item_ascent(
+    dom: &Dom,
+    id: NodeIdx,
+    h: f32,
+    content_w: f32,
+    ctx: &LayoutCtx,
+) -> f32 {
     // Um flex/inline-flex é um CONTENTOR: a sua baseline vista de fora não é
     // a da sua PRÓPRIA fonte (a fórmula abaixo) — é a de `crate::layout::flex::baseline::
     // container_ascent` (Flexbox §8.5: o grupo baseline da 1ª linha, ou o
@@ -31,7 +37,8 @@ pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: 
     // sentido, que a doc de `box_kind.rs` descreve para "é de bloco?": um
     // contentor tem baseline PRÓPRIA por definição, um flex não.
     if matches!(
-        dom.computed_style_idx(id).and_then(|c| c.effective_display()),
+        dom.computed_style_idx(id)
+            .and_then(|c| c.effective_display()),
         Some(
             crate::style::DisplayKind::Flex
                 | crate::style::DisplayKind::FlexWrap
@@ -49,7 +56,9 @@ pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: 
         // answered the bottom edge for it, so it falls to the text formula
         // below, which is the anonymous item's baseline (WPT
         // `flexbox-baseline-single-item-001a`).
-        let Some(css) = dom.computed_style_idx(id) else { return h };
+        let Some(css) = dom.computed_style_idx(id) else {
+            return h;
+        };
         let r = ResolveCtx {
             parent_content_w: content_w,
             node_font_size: font_px(&css, DEFAULT_FONT_SIZE),
@@ -60,8 +69,20 @@ pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: 
         let [bt, ..] = crate::style::borders::used_widths(&css);
         let pt = css.padding.top.resolve(&r).unwrap_or(0.0);
         let inner = crate::layout::flex::baseline::container_ascent(dom, id, h, content_w, ctx);
-        return if inner >= h { h } else { (bt + pt + inner).min(h) };
+        return if inner >= h {
+            h
+        } else {
+            (bt + pt + inner).min(h)
+        };
     }
+    if matches!(
+        dom.computed_style_idx(id)
+            .and_then(|c| c.effective_display()),
+        Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+    ) {
+        return crate::layout::grid::baseline::container_ascent(dom, id, h, content_w, ctx);
+    }
+
     // Um controlo de formulário tem texto por dentro mesmo sem filhos (o
     // valor, o rótulo): a baseline dele é a desse texto, não o fundo — senão um
     // `<input>` de 21px puxava a linha e o `<button>` ao lado descia 3,5px
@@ -76,7 +97,9 @@ pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: 
     if !is_control && !crate::layout::block::box_kind::has_content_for_fragment(dom, id) {
         return h;
     }
-    let Some(css) = dom.computed_style_idx(id) else { return h };
+    let Some(css) = dom.computed_style_idx(id) else {
+        return h;
+    };
     let font = font_px(&css, DEFAULT_FONT_SIZE);
     let rc = ResolveCtx {
         parent_content_w: content_w,
@@ -88,8 +111,11 @@ pub(in crate::layout) fn item_ascent(dom: &Dom, id: NodeIdx, h: f32, content_w: 
     let [bt, ..] = crate::style::borders::used_widths(&css);
     let pt = css.padding.top.resolve(&rc).unwrap_or(0.0);
     let lh = crate::inline_box::altura_da_linha(&css, font, ctx.measurer);
-    let content = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
-    let ascent = ctx.measurer.font_ascent_family(font, css.font_family.as_deref());
+    let content =
+        crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
+    let ascent = ctx
+        .measurer
+        .font_ascent_family(font, css.font_family.as_deref());
     (bt + pt + crate::inline_box::meia_entrelinha(lh, content) + ascent).min(h)
 }
 
@@ -112,24 +138,34 @@ pub(in crate::layout) fn layout_inline_block_line(
     // 1) mede a largura+altura desejada (shrink) de cada item numa lista descartável,
     //    junto com o `vertical-align` dele — `None` (não declarado) continua a
     //    alinhar pelo TOPO, o corte que o doc do módulo de alinhamento explica.
-    let mut sizes: Vec<(NodeIdx, crate::boxes::BoxId, f32, f32, Option<VerticalAlign>, f32, f32)> = Vec::with_capacity(run.len());
+    let mut sizes: Vec<(
+        NodeIdx,
+        crate::boxes::BoxId,
+        f32,
+        f32,
+        Option<VerticalAlign>,
+        f32,
+        f32,
+    )> = Vec::with_capacity(run.len());
     for (pos, &(child, box_id)) in run.iter().enumerate() {
         let (measured_w, h) = measure_block(
-            dom,
-            child,
-            box_id,
-            content_w,
-            avail_h,
-            None,
-            None,
-            true,
-            ctx,
+            dom, child, box_id, content_w, avail_h, None, None, true, ctx,
         );
         let is_submit = matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "input")
-            && matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("submit" | "button" | "reset"));
+            && matches!(
+                dom.node(child)
+                    .attr("type")
+                    .map(|t| t.to_ascii_lowercase())
+                    .as_deref(),
+                Some("submit" | "button" | "reset")
+            );
         // `measure_block` devolve a margem externa dos widgets nativos. A
         // posição inline usa a border-box, que é o rect exposto ao DOM.
-        let w = if is_submit { (measured_w - 6.0).max(0.0) } else { measured_w };
+        let w = if is_submit {
+            (measured_w - 6.0).max(0.0)
+        } else {
+            measured_w
+        };
         let valign = dom.computed_style_idx(child).and_then(|c| c.vertical_align);
         // A corrida de inline-blocks não carrega os nós de texto entre irmãos.
         // Reconstituir aqui o separador preserva o espaço colapsado do HTML
@@ -139,14 +175,37 @@ pub(in crate::layout) fn layout_inline_block_line(
             0.0
         } else if let (Some(parent), Some(prev_pos)) = (
             dom.node(child).parent,
-            dom.node(child).parent.and_then(|p| dom.node(p).children.iter().position(|&n| n == run[pos - 1].0)),
+            dom.node(child).parent.and_then(|p| {
+                dom.node(p)
+                    .children
+                    .iter()
+                    .position(|&n| n == run[pos - 1].0)
+            }),
         ) {
-            let cur_pos = dom.node(parent).children.iter().position(|&n| n == child).unwrap_or(prev_pos + 1);
+            let cur_pos = dom
+                .node(parent)
+                .children
+                .iter()
+                .position(|&n| n == child)
+                .unwrap_or(prev_pos + 1);
             if dom.node(parent).children[prev_pos + 1..cur_pos].iter().any(|&n| matches!(&dom.node(n).kind, NodeKind::Text(t) if t.chars().all(crate::inline_box::e_espaco_css))) {
-                4.45
+                if font_size <= 0.001 {
+                    0.0
+                } else {
+                    let mono = parent_css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+                    (ctx.measurer.text_width_family(" ", font_size, parent_css.font_family.as_deref(), mono, false, false)
+                        + parent_css.word_spacing.unwrap_or(0.0)).max(0.0)
+                }
             } else { 0.0 }
-        } else { 0.0 };
-        let (ua_left, ua_right) = match dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref() {
+        } else {
+            0.0
+        };
+        let (ua_left, ua_right) = match dom
+            .node(child)
+            .attr("type")
+            .map(|t| t.to_ascii_lowercase())
+            .as_deref()
+        {
             Some("checkbox") | Some("radio") => (4.0, 4.0),
             _ => (0.0, 0.0),
         };
@@ -154,7 +213,15 @@ pub(in crate::layout) fn layout_inline_block_line(
     }
     // 2) agrupa em LINHAS (soma das larguras ≤ content_w). Cada linha guarda os
     //    itens + a largura total (p/ o alinhamento).
-    type Item = (NodeIdx, crate::boxes::BoxId, f32, f32, Option<VerticalAlign>, f32, f32);
+    type Item = (
+        NodeIdx,
+        crate::boxes::BoxId,
+        f32,
+        f32,
+        Option<VerticalAlign>,
+        f32,
+        f32,
+    );
     let mut lines: Vec<(Vec<Item>, f32)> = Vec::new();
     let mut cur: Vec<Item> = Vec::new();
     let mut cur_w = 0.0f32;
@@ -201,18 +268,53 @@ pub(in crate::layout) fn layout_inline_block_line(
         // que punha o caret `::after` do Bootstrap no topo da linha.
         let atoms: Vec<(f32, f32, VerticalAlign)> = items
             .iter()
-            .map(|&(n, _, _, h, va, _, _)| (h, item_ascent(dom, n, h, content_w, ctx), va.unwrap_or(VerticalAlign::Baseline)))
+            .map(|&(n, _, _, h, va, _, _)| {
+                (
+                    h,
+                    item_ascent(dom, n, h, content_w, ctx),
+                    va.unwrap_or(VerticalAlign::Baseline),
+                )
+            })
             .collect();
         let lh = crate::inline_box::altura_da_linha(parent_css, font_size, ctx.measurer);
         let family = parent_css.font_family.as_deref();
-        let env = super::vertical_align::envelope_with_baseline(&atoms, font_size, lh, family, ctx.measurer);
-        for (&(child, box_id, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atoms) {
+        let env = super::vertical_align::envelope_with_baseline(
+            &atoms,
+            font_size,
+            lh,
+            family,
+            ctx.measurer,
+        );
+        let mut max_item_bottom = 0.0f32;
+        for (&(child, box_id, w, h, va, gap, trailing), &(_, ascent, _)) in items.iter().zip(&atoms)
+        {
             let valign = va.unwrap_or(VerticalAlign::Baseline);
-            let base_y = super::vertical_align::item_top_with_baseline(valign, h, ascent, cy, &env, font_size, family, ctx.measurer);
+            let base_y = super::vertical_align::item_top_with_baseline(
+                valign,
+                h,
+                ascent,
+                cy,
+                &env,
+                font_size,
+                family,
+                ctx.measurer,
+            );
             let line_has_textarea = items.iter().any(|(n, _, _, _, _, _, _)| matches!(&dom.node(*n).kind, NodeKind::Element { tag } if tag == "textarea"));
-            let is_mark = matches!(dom.node(child).attr("type").map(|t| t.to_ascii_lowercase()).as_deref(), Some("checkbox" | "radio"));
-            let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select")) && !is_mark;
-            let item_y = if line_has_textarea && form_text { base_y + 2.5 } else { base_y };
+            let is_mark = matches!(
+                dom.node(child)
+                    .attr("type")
+                    .map(|t| t.to_ascii_lowercase())
+                    .as_deref(),
+                Some("checkbox" | "radio")
+            );
+            let form_text = matches!(&dom.node(child).kind, NodeKind::Element { tag } if matches!(tag.as_str(), "input" | "button" | "select"))
+                && !is_mark;
+            let item_y = if line_has_textarea && form_text {
+                base_y + 2.5
+            } else {
+                base_y
+            };
+            max_item_bottom = max_item_bottom.max(item_y - cy + h);
             x += gap;
             layout_block(
                 dom,
@@ -235,7 +337,8 @@ pub(in crate::layout) fn layout_inline_block_line(
             x += w + trailing;
         }
         last_baseline = Some(cy + env.above);
-        cy += env.height();
+        let line_h = env.height().min(max_item_bottom).max(lh);
+        cy += line_h;
     }
     if let Some(b) = last_baseline {
         super::line_baseline::register_last_line(owner, b);

@@ -5,15 +5,15 @@
 //! dispatch nome→campo é um match explícito, não gerado (1 nome ≠ 1 campo).
 //! Ignora propriedade/valor desconhecido sem panicar (robustez de parser real).
 
-mod fundo_grelha;
 mod caixa;
 mod fluxo;
+mod fundo_grelha;
 
-pub(in crate::style::parse) use super::color::parse_color;
 pub(in crate::style::parse) use super::aplica::{set_edges, set_if, set_ou_limpa, set_side};
+pub(in crate::style::parse) use super::color::parse_color;
 pub(in crate::style::parse) use super::lengths::{
-    Caixa, parse_dimension, parse_dimension_min_max, parse_dimension_signed, parse_edges, parse_gap_pair,
-    parse_inset, parse_len, parse_px, parse_side, parse_signed_px, split_top_ws,
+    Caixa, parse_dimension, parse_dimension_min_max, parse_dimension_signed, parse_edges,
+    parse_gap_pair, parse_inset, parse_len, parse_px, parse_side, parse_signed_px, split_top_ws,
 };
 pub(in crate::style::parse) use super::props::ComputedStyle;
 pub(in crate::style::parse) use super::stylesheet::DeclBlock;
@@ -41,7 +41,11 @@ pub fn parse_inline(style: &str) -> ComputedStyle {
     }
     let vars = std::collections::HashMap::new();
     for (prop, raw, important) in std::mem::take(&mut block.pending) {
-        let target = if important { &mut block.important } else { &mut block.normal };
+        let target = if important {
+            &mut block.important
+        } else {
+            &mut block.normal
+        };
         super::stylesheet::apply_resolved_decl(target, &prop, &raw, &vars, None, None);
     }
     block.normal
@@ -232,11 +236,7 @@ fn is_css_wide_keyword(value: &str) -> bool {
 /// `style::stylesheet::revert::resolve_reverts` — chamada por
 /// `declarations_from` depois de ter a lista ordenada de regras na mão
 /// (lote J; antes disto o par era descartado em silêncio aqui mesmo).
-pub(crate) fn apply_css_wide_keyword(
-    css: &mut ComputedStyle,
-    prop: &str,
-    value: &str,
-) -> bool {
+pub(crate) fn apply_css_wide_keyword(css: &mut ComputedStyle, prop: &str, value: &str) -> bool {
     let keyword = value.trim().to_ascii_lowercase();
     match keyword.as_str() {
         "inherit" => {
@@ -248,9 +248,7 @@ pub(crate) fn apply_css_wide_keyword(
             css.inherit_props = Some(std::sync::Arc::new(nomes));
             true
         }
-        "unset" if is_inherited_property(prop) => {
-            apply_css_wide_keyword(css, prop, "inherit")
-        }
+        "unset" if is_inherited_property(prop) => apply_css_wide_keyword(css, prop, "inherit"),
         "unset" | "initial" => {
             let applied = apply_initial_value(css, prop);
             if applied {
@@ -426,7 +424,12 @@ pub(crate) fn apply_specified_declaration(
 /// `direction` decidido) que voltasse a `apply_specified_declaration`
 /// bateria nos MESMOS dois motivos de adiar e desapareceria em silêncio —
 /// ver o comentário lá.
-pub(crate) fn apply_declaration_final(block: &mut DeclBlock, prop: &str, val: &str, important: bool) {
+pub(crate) fn apply_declaration_final(
+    block: &mut DeclBlock,
+    prop: &str,
+    val: &str,
+    important: bool,
+) {
     let css = if important {
         &mut block.important
     } else {
@@ -471,7 +474,10 @@ pub(crate) fn apply_declaration_final(block: &mut DeclBlock, prop: &str, val: &s
 /// da linha, em vez de deixá-las no valor anterior/inicial. `-line` não aceita
 /// nenhum dos dois, por isso ficam atrás do mesmo `com_cor`.
 pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor: bool) {
-    set_if(&mut css.text_decoration, crate::style::values::TextDecoration::parse(val));
+    set_if(
+        &mut css.text_decoration,
+        crate::style::values::TextDecoration::parse(val),
+    );
     if com_cor {
         if let Some(c) = val.split_whitespace().find_map(parse_color) {
             set_if(&mut css.text_decoration_color, Some(c));
@@ -504,8 +510,17 @@ pub(super) fn apply_text_decoration(css: &mut ComputedStyle, val: &str, com_cor:
 /// coisa a dessincronizar da primeira.
 pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
-        "transform" => set_ou_limpa(&mut css.transform, val, crate::style::effects::Transform::parse(val)),
-        "aspect-ratio" => set_if(&mut css.aspect_ratio, parse_aspect_ratio(val)),
+        "transform" => set_ou_limpa(
+            &mut css.transform,
+            val,
+            crate::style::effects::Transform::parse(val),
+        ),
+        "aspect-ratio" => {
+            if let Some((r, auto)) = parse_aspect_ratio(val) {
+                css.aspect_ratio = Some(r);
+                css.aspect_ratio_auto = Some(auto);
+            }
+        }
         "opacity" => {
             // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
             css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
@@ -547,8 +562,14 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
             css.overflow_x = o;
             css.overflow_y = o;
         }
-        "overflow-x" => set_if(&mut css.overflow_x, crate::scrollbar::Overflow::parse_str(val)),
-        "overflow-y" => set_if(&mut css.overflow_y, crate::scrollbar::Overflow::parse_str(val)),
+        "overflow-x" => set_if(
+            &mut css.overflow_x,
+            crate::scrollbar::Overflow::parse_str(val),
+        ),
+        "overflow-y" => set_if(
+            &mut css.overflow_y,
+            crate::scrollbar::Overflow::parse_str(val),
+        ),
         // ── Box model: shorthand 1/2/3/4 valores + longhands por lado. ─────────
         "transition" => set_if(&mut css.transition, crate::anim::TransitionSpec::parse(val)),
         "animation" => set_if(&mut css.animation, crate::anim::AnimationSpec::parse(val)),
@@ -601,27 +622,60 @@ fn split_important(val: &str) -> (&str, bool) {
 fn parse_grid_columns(v: &str) -> Option<i32> {
     let v = v.trim();
     let low = v.to_ascii_lowercase();
+    if low.starts_with("subgrid")
+        || low == "none"
+        || low == "initial"
+        || low == "unset"
+        || low == "inherit"
+        || low == "auto"
+    {
+        return None;
+    }
     if let Some(i) = low.find("repeat(") {
         let inner = &v[i + "repeat(".len()..];
         // o 1º argumento (antes da 1ª vírgula de topo) é a contagem.
         let count = inner.split(',').next()?.trim();
         return count.parse::<i32>().ok().filter(|n| *n >= 1);
     }
-    // lista de trilhas separadas por espaço de TOPO (respeita parênteses de minmax()).
-    let n = split_top_ws(v).len() as i32;
-    (n >= 1).then_some(n)
+    match crate::style::GridTemplate::parse(v) {
+        Some(crate::style::GridTemplate::Tracks(tl)) => {
+            let n = tl.tracks_vec().len() as i32;
+            (n >= 1).then_some(n)
+        }
+        _ => None,
+    }
 }
 
-/// Parseia `aspect-ratio`: `<w> / <h>` (ex. `16 / 9`) ou um número único (`1.5`).
-/// `auto`/inválido → `None`. Devolve a razão largura/altura.
-fn parse_aspect_ratio(v: &str) -> Option<f32> {
+/// Parseia `aspect-ratio`: `<w> / <h>` (ex. `16 / 9`), um número único (`1.5`),
+/// ou a forma `auto <ratio>` / `<ratio> auto` (CSS Sizing 4 §5), em qualquer
+/// ordem. Devolve `(razão largura/altura, veio_com_auto)`. `auto` sozinho ou
+/// inválido → `None` (sem razão declarada; o `auto` puro é o default).
+fn parse_aspect_ratio(v: &str) -> Option<(f32, bool)> {
     let v = v.trim();
-    if let Some((w, h)) = v.split_once('/') {
+    // Separa um token `auto` solto (em qualquer das pontas) do resto.
+    let mut auto = false;
+    let mut resto: Vec<&str> = Vec::new();
+    for tok in v.split_whitespace() {
+        if tok.eq_ignore_ascii_case("auto") {
+            auto = true;
+        } else {
+            resto.push(tok);
+        }
+    }
+    let ratio_str = resto.join(" ");
+    let ratio_str = ratio_str.trim();
+    // `auto` sozinho: sem razão declarada.
+    if ratio_str.is_empty() {
+        return None;
+    }
+    let r = if let Some((w, h)) = ratio_str.split_once('/') {
         let w = w.trim().parse::<f32>().ok()?;
         let h = h.trim().parse::<f32>().ok()?;
-        return (h != 0.0 && w > 0.0).then_some(w / h);
-    }
-    v.parse::<f32>().ok().filter(|r| *r > 0.0)
+        (h != 0.0 && w > 0.0).then_some(w / h)?
+    } else {
+        ratio_str.parse::<f32>().ok().filter(|r| *r > 0.0)?
+    };
+    Some((r, auto))
 }
 
 /// Parseia `display`. Cobre os keywords de uma palavra (a forma legada, que a
@@ -773,10 +827,21 @@ fn apply_border_shorthand(css: &mut ComputedStyle, val: &str) {
             // 6px a 20px, não 4,8). O escalar fica com uma estimativa a 16px para
             // os consumidores antigos (`input.rs`, larguras de tabela). CORTE
             // dito: pelos lados, a pintura perde o `border-radius`.
-            for lado in [crate::style::SideName::Top, crate::style::SideName::Right, crate::style::SideName::Bottom, crate::style::SideName::Left] {
+            for lado in [
+                crate::style::SideName::Top,
+                crate::style::SideName::Right,
+                crate::style::SideName::Bottom,
+                crate::style::SideName::Left,
+            ] {
                 crate::style::borders::set_side_width_dim(css, lado, Some(d));
             }
-            let rc = crate::style::ResolveCtx { parent_content_w: 0.0, node_font_size: 16.0, root_font_size: crate::style::root_font_size(), viewport_w: 0.0, viewport_h: 0.0 };
+            let rc = crate::style::ResolveCtx {
+                parent_content_w: 0.0,
+                node_font_size: 16.0,
+                root_font_size: crate::style::root_font_size(),
+                viewport_w: 0.0,
+                viewport_h: 0.0,
+            };
             set_if(&mut css.border_width, d.resolve(&rc));
         } else if let Some(c) = parse_color(tok) {
             set_if(&mut css.border_color, Some(c));
@@ -823,9 +888,14 @@ fn parse_font_family(v: &str) -> Option<String> {
         .split(',')
         .map(|f| f.trim().trim_matches(|c| c == '"' || c == '\'').trim())
         .filter(|f| !f.is_empty())
-        .map(|f| match f.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
-            true => f.to_string(),
-            false => format!("\"{f}\""),
+        .map(|f| {
+            match f
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            {
+                true => f.to_string(),
+                false => format!("\"{f}\""),
+            }
         })
         .collect();
     (!familias.is_empty()).then(|| familias.join(", "))
@@ -841,19 +911,44 @@ fn parse_font_family(v: &str) -> Option<String> {
 /// `Inexistente, monospace` medir como proporcional.
 pub fn is_mono_family(name: &str) -> bool {
     for f in name.split(',') {
-        let n = f.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase();
+        let n = f
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_ascii_lowercase();
         if n.contains("mono") || n.contains("courier") || n.contains("consol") || n == "menlo" {
             return true;
         }
         let proporcional_conhecida = matches!(
             n.as_str(),
-            "serif" | "sans-serif" | "cursive" | "fantasy" | "system-ui" | "ui-sans-serif"
-                | "ui-serif" | "-apple-system" | "blinkmacsystemfont"
-        ) || ["arial", "helvetica", "segoe", "roboto", "verdana", "georgia", "times",
-            "inter", "tahoma", "trebuchet", "open sans", "lato", "noto", "ubuntu", "cambria",
-            "calibri"]
-            .iter()
-            .any(|k| n.contains(k));
+            "serif"
+                | "sans-serif"
+                | "cursive"
+                | "fantasy"
+                | "system-ui"
+                | "ui-sans-serif"
+                | "ui-serif"
+                | "-apple-system"
+                | "blinkmacsystemfont"
+        ) || [
+            "arial",
+            "helvetica",
+            "segoe",
+            "roboto",
+            "verdana",
+            "georgia",
+            "times",
+            "inter",
+            "tahoma",
+            "trebuchet",
+            "open sans",
+            "lato",
+            "noto",
+            "ubuntu",
+            "cambria",
+            "calibri",
+        ]
+        .iter()
+        .any(|k| n.contains(k));
         if proporcional_conhecida {
             return false;
         }
@@ -906,6 +1001,9 @@ fn apply_font_shorthand(css: &mut ComputedStyle, val: &str) {
     }
     // depois do size: a família.
     if si + 1 < tokens.len() {
-        set_if(&mut css.font_family, parse_font_family(&tokens[si + 1..].join(" ")));
+        set_if(
+            &mut css.font_family,
+            parse_font_family(&tokens[si + 1..].join(" ")),
+        );
     }
 }

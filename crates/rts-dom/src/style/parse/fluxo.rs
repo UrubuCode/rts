@@ -8,10 +8,13 @@ use super::*;
 
 pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
     match prop {
-        "width" => set_if(&mut css.width, parse_dimension(val)),
+        "width" => set_if(&mut css.width, parse_dimension_min_max(val)),
         // `box-sizing: border-box | content-box` — border-box faz o `width`
         // incluir padding+border (3 cards de 32% cabem). Default content-box.
-        "box-sizing" => set_if(&mut css.border_box, Some(val.eq_ignore_ascii_case("border-box"))),
+        "box-sizing" => set_if(
+            &mut css.border_box,
+            Some(val.eq_ignore_ascii_case("border-box")),
+        ),
         // `display` — o eixo/fluxo dos filhos, do CSS (não mais só do defineBlock).
         "display" => {
             set_if(&mut css.display, parse_display(val));
@@ -94,24 +97,42 @@ pub(in crate::style::parse) fn try_apply(css: &mut ComputedStyle, prop: &str, va
         "bottom" => set_if(&mut css.inset_bottom, parse_inset(val)),
         "left" => set_if(&mut css.inset_left, parse_inset(val)),
         // ── Texto / listas / fluxo (ver `style::text` p/ o que cada uma faz) ──
-        "vertical-align" => set_if(&mut css.vertical_align, crate::style::VerticalAlign::parse(val)),
+        "vertical-align" => set_if(
+            &mut css.vertical_align,
+            crate::style::VerticalAlign::parse(val),
+        ),
         "clear" => set_if(&mut css.clear, crate::style::Clear::parse(val)),
         "word-break" => set_if(&mut css.word_break, crate::style::WordBreak::parse(val)),
         // `word-wrap` é o nome legado de `overflow-wrap` (MDN: alias).
-        "overflow-wrap" | "word-wrap" => set_if(&mut css.overflow_wrap, crate::style::OverflowWrap::parse(val)),
-        "line-break" => set_if(&mut css.line_break, crate::style::painting::LineBreak::parse(val)),
+        "overflow-wrap" | "word-wrap" => set_if(
+            &mut css.overflow_wrap,
+            crate::style::OverflowWrap::parse(val),
+        ),
+        "line-break" => set_if(
+            &mut css.line_break,
+            crate::style::painting::LineBreak::parse(val),
+        ),
         "direction" => set_if(&mut css.direction, crate::style::Direction::parse(val)),
         "writing-mode" => set_if(&mut css.writing_mode, crate::style::WritingMode::parse(val)),
         // `text-indent` aceita negativo (o truque de esconder texto atrás da
         // margem, comum em logos com fundo).
         "text-indent" => set_if(&mut css.text_indent, parse_dimension_signed(val)),
-        "list-style-type" => set_if(&mut css.list_style_type, crate::style::ListStyleType::parse(val)),
+        "list-style-type" => set_if(
+            &mut css.list_style_type,
+            crate::style::ListStyleType::parse(val),
+        ),
         "list-style-position" => {
             css.list_style_position = crate::style::ListStylePosition::parse(val)
         }
         // ── Tabela ────────────────────────────────────────────────────────
-        "border-collapse" => set_if(&mut css.border_collapse, crate::style::BorderCollapse::parse(val)),
-        "border-spacing" => set_if(&mut css.border_spacing, crate::style::BorderSpacing::parse(val)),
+        "border-collapse" => set_if(
+            &mut css.border_collapse,
+            crate::style::BorderCollapse::parse(val),
+        ),
+        "border-spacing" => set_if(
+            &mut css.border_spacing,
+            crate::style::BorderSpacing::parse(val),
+        ),
         "table-layout" => set_if(&mut css.table_layout, crate::style::TableLayout::parse(val)),
         "list-style-image" => set_if(&mut css.list_style_image, Some(val.trim().to_string())),
         // `list-style: <type> || <position> || <image>` — os três em qualquer
@@ -216,9 +237,15 @@ fn apply_flex_shorthand(css: &mut ComputedStyle, val: &str) {
         (0, None) => {} // inválido: ignora (robustez)
         (n, b) => {
             set_if(&mut css.flex_grow, Some(nums[0]));
-            set_if(&mut css.flex_shrink, Some(if n >= 2 { nums[1] } else { 1.0 }));
+            set_if(
+                &mut css.flex_shrink,
+                Some(if n >= 2 { nums[1] } else { 1.0 }),
+            );
             // UM número sem basis → basis 0% (spec); com basis explícita, usa-a.
-            set_if(&mut css.flex_basis, Some(b.unwrap_or(Dimension::Percent(0.0))));
+            set_if(
+                &mut css.flex_basis,
+                Some(b.unwrap_or(Dimension::Percent(0.0))),
+            );
         }
     }
 }

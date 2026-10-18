@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use super::props::ComputedStyle;
 use super::aplica::set_if;
+use super::props::ComputedStyle;
 
 /// One placement edge. `Line(-1)` is the last line of the axis, which is how
 /// `grid-column: 1 / -1` says "every column". `Named(name, None)` is a BARE
@@ -37,13 +37,19 @@ fn is_ident(t: &str) -> bool {
     let mut chars = t.chars();
     let starts_ok = match chars.next() {
         Some(c) if c.is_alphabetic() || c == '_' => true,
-        Some('-') => chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '-'),
+        Some('-') => chars
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '-'),
         _ => false,
     };
     let low = t.to_ascii_lowercase();
     starts_ok
-        && t.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-        && !matches!(low.as_str(), "span" | "auto" | "inherit" | "initial" | "unset" | "default" | "revert")
+        && t.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        && !matches!(
+            low.as_str(),
+            "span" | "auto" | "inherit" | "initial" | "unset" | "default" | "revert"
+        )
 }
 
 impl GridLine {
@@ -121,14 +127,21 @@ pub fn expand_shorthand(val: &str, max: usize) -> Option<Vec<GridLine>> {
     if parts.len() > max {
         return None;
     }
-    let mut out: Vec<GridLine> = parts.iter().map(|p| GridLine::parse(p)).collect::<Option<_>>()?;
+    let mut out: Vec<GridLine> = parts
+        .iter()
+        .map(|p| GridLine::parse(p))
+        .collect::<Option<_>>()?;
     while out.len() < max {
         // The edge a missing one pairs with: two places back in the 4-value
         // form (row-end ← row-start, column-end ← column-start), row-start for
         // column-start itself, and the start in the 2-value form.
         let i = out.len();
         let pair = if max == 4 && i == 1 { 0 } else { i - max / 2 };
-        let copied = if out[pair].is_bare_ident() { out[pair].clone() } else { GridLine::Auto };
+        let copied = if out[pair].is_bare_ident() {
+            out[pair].clone()
+        } else {
+            GridLine::Auto
+        };
         out.push(copied);
     }
     Some(out)
@@ -153,7 +166,10 @@ impl GridAutoFlow {
     /// spec não a fixa, e as folhas escrevem `row dense` e `column dense`.
     pub fn parse(v: &str) -> Option<GridAutoFlow> {
         let low = v.trim().to_ascii_lowercase();
-        let mut f = GridAutoFlow { column: false, dense: false };
+        let mut f = GridAutoFlow {
+            column: false,
+            dense: false,
+        };
         let mut viu_eixo = false;
         for t in low.split_whitespace() {
             match t {
@@ -174,7 +190,11 @@ impl GridAutoFlow {
     /// O Chrome imprime `row` mesmo quando o autor o omitiu (`dense` → `row dense`).
     pub fn css(self) -> String {
         let eixo = if self.column { "column" } else { "row" };
-        if self.dense { format!("{eixo} dense") } else { eixo.to_string() }
+        if self.dense {
+            format!("{eixo} dense")
+        } else {
+            eixo.to_string()
+        }
     }
 }
 
@@ -209,10 +229,8 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
             }
         }
         "grid-auto-flow" => set_if(&mut css.grid_auto_flow, GridAutoFlow::parse(val)),
-        // `grid-auto-columns` — o tamanho das colunas IMPLÍCITAS. `grid-auto-rows`
-        // não está aqui porque já tem braço próprio no `parse` e é CONSUMIDA
-        // pelo layout; esta é a metade que faltava, com o mesmo tipo.
-        "grid-auto-columns" => set_if(&mut css.grid_auto_columns, super::GridTrack::parse_one(val)),
+        "grid-auto-columns" => set_if(&mut css.grid_auto_columns, super::GridTrack::parse_auto(val)),
+        "grid-auto-rows" => set_if(&mut css.grid_auto_rows, super::GridTrack::parse_auto(val)),
         // `grid-gap` é o nome ANTIGO de `gap` — alias puro, e a folha que o
         // escreve escreve-o sozinho. Reentrega ao `parse`, que já sabe expandir
         // o par; uma segunda expansão aqui divergia da primeira.
@@ -229,10 +247,26 @@ pub fn try_apply(css: &mut ComputedStyle, prop: &str, val: &str) -> bool {
 /// cabeçalho de `style::initial`.
 pub fn get_property(css: &ComputedStyle, name: &str) -> Option<String> {
     let s = match name {
-        "grid-column-start" => css.grid_column_start.as_ref().map(|v| v.css()).unwrap_or_default(),
-        "grid-column-end" => css.grid_column_end.as_ref().map(|v| v.css()).unwrap_or_default(),
-        "grid-row-start" => css.grid_row_start.as_ref().map(|v| v.css()).unwrap_or_default(),
-        "grid-row-end" => css.grid_row_end.as_ref().map(|v| v.css()).unwrap_or_default(),
+        "grid-column-start" => css
+            .grid_column_start
+            .as_ref()
+            .map(|v| v.css())
+            .unwrap_or_default(),
+        "grid-column-end" => css
+            .grid_column_end
+            .as_ref()
+            .map(|v| v.css())
+            .unwrap_or_default(),
+        "grid-row-start" => css
+            .grid_row_start
+            .as_ref()
+            .map(|v| v.css())
+            .unwrap_or_default(),
+        "grid-row-end" => css
+            .grid_row_end
+            .as_ref()
+            .map(|v| v.css())
+            .unwrap_or_default(),
         // O shorthand só responde se ALGUMA das pontas foi declarada — senão
         // `el.style.gridColumn` responderia `auto / auto` em todo o elemento do
         // documento, que é o erro que o cabeçalho de `style::initial` descreve.

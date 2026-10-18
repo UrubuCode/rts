@@ -141,7 +141,10 @@ pub trait TextMeasurer {
     /// before; `RealMeasurer` answers UAX #29 extended clusters, so `e` +
     /// U+0301 and an emoji ZWJ sequence stay whole.
     fn grapheme_boundaries(&self, text: &str) -> Vec<usize> {
-        text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect()
+        text.char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(text.len()))
+            .collect()
     }
 }
 

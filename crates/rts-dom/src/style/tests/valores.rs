@@ -49,7 +49,12 @@ fn parses_transform() {
     assert_eq!(
         ops,
         vec![
-            TransformOp::Translate { tx: 10.0, ty: -20.0, tx_pct: 0.0, ty_pct: 0.0 },
+            TransformOp::Translate {
+                tx: 10.0,
+                ty: -20.0,
+                tx_pct: 0.0,
+                ty_pct: 0.0
+            },
             TransformOp::Scale { sx: 1.5, sy: 1.5 },
             TransformOp::Rotate { deg: 45.0 },
         ]
@@ -60,7 +65,12 @@ fn parses_transform() {
         .unwrap();
     assert_eq!(
         c.ops.iter().next(),
-        Some(TransformOp::Translate { tx: 0.0, ty: 0.0, tx_pct: -0.5, ty_pct: -0.5 })
+        Some(TransformOp::Translate {
+            tx: 0.0,
+            ty: 0.0,
+            tx_pct: -0.5,
+            ty_pct: -0.5
+        })
     );
     // translateX/Y e scaleX/Y isolados.
     let x = parse_inline("transform: translateX(8px)")
@@ -68,10 +78,18 @@ fn parses_transform() {
         .unwrap();
     assert_eq!(
         x.ops.iter().next(),
-        Some(TransformOp::Translate { tx: 8.0, ty: 0.0, tx_pct: 0.0, ty_pct: 0.0 })
+        Some(TransformOp::Translate {
+            tx: 8.0,
+            ty: 0.0,
+            tx_pct: 0.0,
+            ty_pct: 0.0
+        })
     );
     let s = parse_inline("transform: scaleY(2)").transform.unwrap();
-    assert_eq!(s.ops.iter().next(), Some(TransformOp::Scale { sx: 1.0, sy: 2.0 }));
+    assert_eq!(
+        s.ops.iter().next(),
+        Some(TransformOp::Scale { sx: 1.0, sy: 2.0 })
+    );
     // none / desconhecido.
     assert!(parse_inline("transform: none").transform.is_none());
 }

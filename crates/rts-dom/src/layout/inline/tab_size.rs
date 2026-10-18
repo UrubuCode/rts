@@ -30,8 +30,7 @@ pub(in crate::layout) fn apply_line_clamp(
     // usa — envolvê-la numa lista de uma linha só reaproveita
     // `apply_ellipsis` sem uma segunda função "corta e junta reticências".
     let last_line = vec![lines.pop().expect("n > 0 e lines.len() > n")];
-    let clipped =
-        super::segment::apply_forced_ellipsis(last_line, content_w, font_of, m, true);
+    let clipped = super::segment::apply_forced_ellipsis(last_line, content_w, font_of, m, true);
     lines.extend(clipped);
     lines
 }

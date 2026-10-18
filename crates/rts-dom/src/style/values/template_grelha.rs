@@ -130,7 +130,8 @@ fn is_valid_custom_ident(s: &str) -> bool {
             return false;
         }
     }
-    s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c as u32 > 0x7F)
+    s.chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c as u32 > 0x7F)
 }
 
 fn parse_line_names_token(tok: &str) -> Option<LineNames> {
@@ -325,7 +326,9 @@ fn parse_track_list(tokens: &[String]) -> Option<TrackList> {
             let inner_tokens = tokenize_template(tracks_str)?;
             let inner_tl = parse_track_list(&inner_tokens)?;
 
-            if count_str.eq_ignore_ascii_case("auto-fill") || count_str.eq_ignore_ascii_case("auto-fit") {
+            if count_str.eq_ignore_ascii_case("auto-fill")
+                || count_str.eq_ignore_ascii_case("auto-fit")
+            {
                 if has_auto_repeat {
                     return None;
                 }
@@ -390,4 +393,3 @@ fn track_count_unit(tok: &str) -> f32 {
     }
     px_de(&low)
 }
-

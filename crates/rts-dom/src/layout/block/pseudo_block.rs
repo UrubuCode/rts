@@ -30,8 +30,8 @@
 //! pseudo é tratado como um bloco simples — não faz o layout flex/grid dos
 //! SEUS conteúdos (que hoje é só texto, então não há filhos a dispor).
 
-use super::*;
 use super::pseudo_box::{build, resolve_edges};
+use super::*;
 
 /// A caixa de bloco de um pseudo-elemento, já medida: outer w/h com margens,
 /// as margens por eixo (para o colapso), as arestas (borda+padding) por lado
@@ -92,7 +92,14 @@ fn measure_pseudo(
         .height
         .and_then(|d| d.resolve(&r))
         .unwrap_or_else(|| super::pseudo_box::lines_height(css, &lines, font, ctx));
-    Some(build((generated, box_id), edges, inner_w, inner_h, lines, font))
+    Some(build(
+        (generated, box_id),
+        edges,
+        inner_w,
+        inner_h,
+        lines,
+        font,
+    ))
 }
 
 /// Mede, posiciona e pinta o pseudo `pseudo_el` de `id` como o próximo (`::before`)
@@ -120,9 +127,10 @@ pub(in crate::layout) fn apply(
     ctx: &LayoutCtx,
     list: &mut DisplayList,
 ) {
-    use super::vertical_flow::{collapses_through, join_strut, collapsed_strut};
+    use super::vertical_flow::{collapsed_strut, collapses_through, join_strut};
     let from_tree = std::rc::Rc::clone(&list.tree);
-    let Some(box_id) = measure_pseudo(dom, &from_tree, owner, pseudo_el, content_w, font_size, ctx) else {
+    let Some(box_id) = measure_pseudo(dom, &from_tree, owner, pseudo_el, content_w, font_size, ctx)
+    else {
         return;
     };
     let (m, m_bottom) = (box_id.mt, box_id.mb);

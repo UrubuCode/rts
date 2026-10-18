@@ -16,7 +16,12 @@ fn flex_shrink_nao_encolhe_abaixo_do_min_content() {
     // pode transbordar quando o conteúdo não cabe nem no mínimo).
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0;font-family:monospace;font-size:16px}</style>\
@@ -38,7 +43,11 @@ fn flex_shrink_nao_encolhe_abaixo_do_min_content() {
     // piso já não seria o caso aqui (200>152), então valida-se o piso com um
     // caso onde o encolhimento livre IRIA abaixo dele: com #curto:250px em
     // vez de 100 o espaço restante cairia a 50px, abaixo do min-content.
-    assert!(longo.w >= 150.0, "não encolheu abaixo do min-content: {}", longo.w);
+    assert!(
+        longo.w >= 150.0,
+        "não encolheu abaixo do min-content: {}",
+        longo.w
+    );
 }
 
 #[test]
@@ -48,7 +57,12 @@ fn flex_shrink_min_content_e_o_piso_quando_o_espaco_livre_e_menor() {
     // (152px no ApproxMeasurer). O piso deve vencer.
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0;font-family:monospace;font-size:16px}</style>\
@@ -79,7 +93,12 @@ fn flex_shrink_min_content_e_o_piso_quando_o_espaco_livre_e_menor() {
 fn flex_row_reverse_inverte_a_ordem_visual() {
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0}</style>\
@@ -101,14 +120,24 @@ fn flex_row_reverse_inverte_a_ordem_visual() {
     let (a, c) = (rect("#a"), rect("#c"));
     // em row-reverse, o PRIMEIRO do documento (#a) vai para o FIM visual: x
     // maior que o do #c (último do documento, que abre a linha).
-    assert!(a.x > c.x, "row-reverse: #a (1º no HTML) fica à direita: a.x={} c.x={}", a.x, c.x);
+    assert!(
+        a.x > c.x,
+        "row-reverse: #a (1º no HTML) fica à direita: a.x={} c.x={}",
+        a.x,
+        c.x
+    );
 }
 
 #[test]
 fn flex_column_reverse_inverte_a_ordem_visual() {
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let dom = parse_html_to_dom(
         "<style>body{margin:0}</style>\
@@ -128,7 +157,12 @@ fn flex_column_reverse_inverte_a_ordem_visual() {
         list.geometry_now().rects[&idx]
     };
     let (a, c) = (rect("#a"), rect("#c"));
-    assert!(a.y > c.y, "column-reverse: #a (1º no HTML) fica abaixo: a.y={} c.y={}", a.y, c.y);
+    assert!(
+        a.y > c.y,
+        "column-reverse: #a (1º no HTML) fica abaixo: a.y={} c.y={}",
+        a.y,
+        c.y
+    );
 }
 
 #[test]
@@ -139,7 +173,12 @@ fn flex_align_content_space_between_distribui_as_linhas() {
     // última encostada ao fundo.
     crate::block::define(
         "div",
-        crate::block::BlockDef { display: 0, indent: 0.0, prefix: 0, flags: 0 },
+        crate::block::BlockDef {
+            display: 0,
+            indent: 0.0,
+            prefix: 0,
+            flags: 0,
+        },
     );
     let mut html = String::from(
         "<style>body{margin:0}</style>\
@@ -165,7 +204,11 @@ fn flex_align_content_space_between_distribui_as_linhas() {
     };
     let primeira = rect("#i0");
     let ultima = rect("#i4"); // 3ª linha (índices 4,5)
-    assert!(primeira.y < 1.0, "1ª linha encostada ao topo: {}", primeira.y);
+    assert!(
+        primeira.y < 1.0,
+        "1ª linha encostada ao topo: {}",
+        primeira.y
+    );
     assert!(
         ultima.y > 200.0,
         "última linha empurrada para o fundo por space-between: {}",

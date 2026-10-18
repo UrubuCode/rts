@@ -74,7 +74,11 @@ fn parse_radius_length(value: &str) -> Option<f32> {
 
 /// Expande a lista CSS de 1 a 4 valores na ordem TL, TR, BR, BL.
 fn expand_values(values: &[String]) -> Option<[f32; 4]> {
-    let value = |index: usize| values.get(index).and_then(|token| parse_radius_length(token));
+    let value = |index: usize| {
+        values
+            .get(index)
+            .and_then(|token| parse_radius_length(token))
+    };
     match values.len() {
         1 => Some([value(0)?, value(0)?, value(0)?, value(0)?]),
         2 => Some([value(0)?, value(1)?, value(0)?, value(1)?]),

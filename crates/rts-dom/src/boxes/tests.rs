@@ -74,7 +74,10 @@ fn the_mirror_gives_a_box_to_each_element_and_each_text_node() {
             }
             NodeKind::Text(_) => {
                 texts += 1;
-                assert_eq!(boxes, 1, "text node {idx} has {boxes} boxes; it should have one");
+                assert_eq!(
+                    boxes, 1,
+                    "text node {idx} has {boxes} boxes; it should have one"
+                );
             }
             _ => assert_eq!(boxes, 0, "a comment generates no box"),
         }
@@ -160,7 +163,11 @@ fn a_block_child_of_an_inline_splits_it_into_fragments_under_anonymous_blocks() 
     // O inline tem DUAS caixas suas, uma por corrida, e cada uma esta DENTRO da
     // anonima do seu lado.
     let fragmentos = tree.boxes_of(span).to_vec();
-    assert_eq!(fragmentos.len(), 2, "um fragmento por corrida: {fragmentos:?}");
+    assert_eq!(
+        fragmentos.len(),
+        2,
+        "um fragmento por corrida: {fragmentos:?}"
+    );
     assert_eq!(tree.parent(fragmentos[0]), Some(filhas[0]));
     assert_eq!(tree.parent(fragmentos[1]), Some(filhas[2]));
 
@@ -180,9 +187,8 @@ fn a_block_child_of_an_inline_splits_it_into_fragments_under_anonymous_blocks() 
 /// stay nested inside the fragment that encloses them.
 #[test]
 fn a_nested_inline_splits_at_every_level_and_the_block_still_reaches_the_container() {
-    let dom = crate::parse_html_to_dom(
-        "<div id='w'><span><em>a<div id='b'>x</div>c</em></span></div>",
-    );
+    let dom =
+        crate::parse_html_to_dom("<div id='w'><span><em>a<div id='b'>x</div>c</em></span></div>");
     let tree = build_mirror(&dom);
     let w = no_com_id(&dom, "w");
     let bloco = no_com_id(&dom, "b");
@@ -191,14 +197,24 @@ fn a_nested_inline_splits_at_every_level_and_the_block_still_reaches_the_contain
 
     let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
     assert_eq!(filhas.len(), 3, "anonima, bloco, anonima: {filhas:?}");
-    assert_eq!(tree.node_of(filhas[1]), Some(bloco), "o bloco sobe DOIS niveis");
+    assert_eq!(
+        tree.node_of(filhas[1]),
+        Some(bloco),
+        "o bloco sobe DOIS niveis"
+    );
 
     assert_eq!(tree.boxes_of(span).len(), 2, "o de fora tambem se parte");
     assert_eq!(tree.boxes_of(em).len(), 2);
     // O aninhamento entre os dois inlines sobrevive: cada fragmento do `<em>`
     // continua dentro do fragmento do `<span>` do mesmo lado.
-    assert_eq!(tree.parent(tree.boxes_of(em)[0]), Some(tree.boxes_of(span)[0]));
-    assert_eq!(tree.parent(tree.boxes_of(em)[1]), Some(tree.boxes_of(span)[1]));
+    assert_eq!(
+        tree.parent(tree.boxes_of(em)[0]),
+        Some(tree.boxes_of(span)[0])
+    );
+    assert_eq!(
+        tree.parent(tree.boxes_of(em)[1]),
+        Some(tree.boxes_of(span)[1])
+    );
 }
 
 /// An inline-level SIBLING of the split inline joins the anonymous box beside
@@ -207,8 +223,7 @@ fn a_nested_inline_splits_at_every_level_and_the_block_still_reaches_the_contain
 /// are on the same line.
 #[test]
 fn an_inline_sibling_of_the_split_joins_the_same_anonymous_box() {
-    let dom =
-        crate::parse_html_to_dom("<div id='w'>x<span>a<div id='b'>bl</div>c</span>y</div>");
+    let dom = crate::parse_html_to_dom("<div id='w'>x<span>a<div id='b'>bl</div>c</span>y</div>");
     let tree = build_mirror(&dom);
     let w = no_com_id(&dom, "w");
     let span = no_da_tag(&dom, "span");
@@ -216,7 +231,11 @@ fn an_inline_sibling_of_the_split_joins_the_same_anonymous_box() {
     let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
     assert_eq!(filhas.len(), 3, "anonima, bloco, anonima: {filhas:?}");
     let frente = tree.children(filhas[0]).to_vec();
-    assert_eq!(frente.len(), 2, "o texto 'x' E o fragmento do span: {frente:?}");
+    assert_eq!(
+        frente.len(),
+        2,
+        "o texto 'x' E o fragmento do span: {frente:?}"
+    );
     assert!(matches!(tree.kind(frente[0]), BoxKind::Text { .. }));
     assert_eq!(tree.node_of(frente[1]), Some(span));
 }
@@ -261,8 +280,7 @@ fn a_block_as_the_last_child_gets_no_anonymous_box_after_it() {
 /// itself then generates NO box at all — it had no run of its own anywhere.
 #[test]
 fn two_consecutive_block_children_get_no_anonymous_box_between_them() {
-    let dom =
-        crate::parse_html_to_dom("<div id='w'><span><div>a</div><div>b</div></span></div>");
+    let dom = crate::parse_html_to_dom("<div id='w'><span><div>a</div><div>b</div></span></div>");
     let tree = build_mirror(&dom);
     let w = no_com_id(&dom, "w");
     let span = no_da_tag(&dom, "span");
@@ -296,9 +314,8 @@ fn an_inline_with_no_block_child_is_not_split() {
 /// does.
 #[test]
 fn an_inline_block_with_a_block_child_is_not_split() {
-    let dom = crate::parse_html_to_dom(
-        r#"<span style="display:inline-block"><div>block</div></span>"#,
-    );
+    let dom =
+        crate::parse_html_to_dom(r#"<span style="display:inline-block"><div>block</div></span>"#);
     let tree = build_mirror(&dom);
     let span_box = tree.boxes_of(no_da_tag(&dom, "span"))[0];
     let div_box = tree.boxes_of(no_da_tag(&dom, "div"))[0];
@@ -322,7 +339,11 @@ fn a_run_of_collapsible_whitespace_alone_gets_no_anonymous_box() {
     let bloco = no_com_id(&dom, "b");
 
     let filhas = tree.children(tree.boxes_of(w)[0]).to_vec();
-    assert_eq!(filhas.len(), 1, "so o bloco, sem anonimas de espaco: {filhas:?}");
+    assert_eq!(
+        filhas.len(),
+        1,
+        "so o bloco, sem anonimas de espaco: {filhas:?}"
+    );
     assert_eq!(tree.node_of(filhas[0]), Some(bloco));
 }
 
@@ -357,7 +378,8 @@ fn rect_of_node_unions_the_rectangles_of_a_nodes_several_boxes() {
 
     let mut list = DisplayList::default();
     list.tree = Rc::new(tree);
-    list.box_rects.insert(first, Rect::new(10.0, 10.0, 20.0, 5.0));
+    list.box_rects
+        .insert(first, Rect::new(10.0, 10.0, 20.0, 5.0));
     list.box_rects.insert(second, Rect::new(0.0, 0.0, 5.0, 5.0));
 
     let united = list.rect_of_node(3).expect("node 3 has boxes");
@@ -383,7 +405,8 @@ fn a_box_never_written_is_absent_from_the_union_not_pulled_to_the_origin() {
     // Only `second` was ever laid out; `first` has no entry at all, not a
     // zeroed placeholder.
     let _ = first;
-    list.box_rects.insert(second, Rect::new(100.0, 200.0, 10.0, 10.0));
+    list.box_rects
+        .insert(second, Rect::new(100.0, 200.0, 10.0, 10.0));
 
     let rect = list.rect_of_node(5).expect("node 5 has one written box");
     assert_eq!(
@@ -493,7 +516,11 @@ fn inline_flex_is_inline_outside_and_flex_inside() {
     let tree = build_mirror(&dom);
     let fc = tree.formatting_context(&dom, box_of_tag(&dom, &tree, "div"));
 
-    assert_eq!(fc.outer, OuterDisplay::Inline, "inline-level to its siblings");
+    assert_eq!(
+        fc.outer,
+        OuterDisplay::Inline,
+        "inline-level to its siblings"
+    );
     assert_eq!(fc.inner, InnerDisplay::Flex, "flex to its children");
     assert!(fc.is_atomic_inline(), "a line box never descends into it");
 }
@@ -509,7 +536,10 @@ fn overflow_hidden_is_independent_without_changing_the_display_pair() {
 
     assert_eq!(fc.outer, OuterDisplay::Block);
     assert_eq!(fc.inner, InnerDisplay::Flow);
-    assert!(fc.independent, "overflow other than visible establishes a BFC");
+    assert!(
+        fc.independent,
+        "overflow other than visible establishes a BFC"
+    );
 }
 
 /// A TEXT box is inline-level flow whatever encloses it — text has no
@@ -525,7 +555,10 @@ fn a_text_box_is_inline_level_inside_a_block() {
 
     assert!(tree.formatting_context(&dom, div_box).is_block_level());
     let fc = tree.formatting_context(&dom, text_box);
-    assert!(fc.is_inline_level(), "text flows in a line, never on its own");
+    assert!(
+        fc.is_inline_level(),
+        "text flows in a line, never on its own"
+    );
     assert_eq!(fc.inner, InnerDisplay::Flow);
     assert!(!fc.is_atomic_inline(), "text is breakable, not an atom");
 }
@@ -587,4 +620,3 @@ fn a_flex_container_never_runs_an_inline_formatting_context() {
 
     assert!(!tree.runs_inline_formatting_context(&dom, div_box));
 }
-

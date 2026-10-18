@@ -60,13 +60,13 @@ fn first_solid(list: &DisplayList) -> Option<(Rect, u32)> {
     })
 }
 
-mod lote_inicial;
-mod line_height;
-mod timing_e_logicas;
-mod vocabulario;
-mod raios_e_transform;
+mod aliases_e_fecho;
 mod bordas_e_clip;
 mod grid_lines;
+mod line_height;
+mod lote_inicial;
 mod pintura;
-mod aliases_e_fecho;
+mod raios_e_transform;
+mod timing_e_logicas;
 mod url_serializacao;
+mod vocabulario;

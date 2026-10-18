@@ -35,7 +35,11 @@ fn sem_inset_cai_onde_o_proximo_irmao_em_fluxo_esta() {
     let next = cor(&list, 0x00FF00FF);
     assert_eq!(next.y, 20.0, "controlo: #next fluiu para o lugar do #abs");
     let abs = cor(&list, 0x0000FFFF);
-    assert_eq!((abs.x, abs.y), (0.0, next.y), "{abs:?} devia coincidir com #next");
+    assert_eq!(
+        (abs.x, abs.y),
+        (0.0, next.y),
+        "{abs:?} devia coincidir com #next"
+    );
 }
 
 /// A MESMA prova, mas com o texto de espaço em branco entre as tags que
@@ -55,7 +59,11 @@ fn sem_inset_atravessa_um_no_de_texto_entre_os_irmaos() {
     let next = cor(&list, 0x00FF00FF);
     assert_eq!(next.y, 20.0, "controlo: #next fluiu para o lugar do #abs");
     let abs = cor(&list, 0x0000FFFF);
-    assert_eq!((abs.x, abs.y), (0.0, next.y), "{abs:?} devia coincidir com #next");
+    assert_eq!(
+        (abs.x, abs.y),
+        (0.0, next.y),
+        "{abs:?} devia coincidir com #next"
+    );
 }
 
 /// Sem NENHUM irmão em fluxo depois de `#abs` (é o último filho): cai onde o
@@ -88,3 +96,107 @@ fn sem_left_right_e_filho_unico_usa_o_content_do_pai_nao_a_padding_box() {
     let b = cor(&list, 0x0000FFFF);
     assert_eq!(b.x, 20.0, "{b:?}");
 }
+
+/// Num flex `row` (default), sem inset nenhum: `justify-content:center` +
+/// `align-items:flex-end` alinha o item hipotético (tamanho zero) ao
+/// meio do eixo principal e ao fim do eixo cruzado — Flexbox §4.1.
+#[test]
+fn contentor_flex_alinha_pelo_justify_e_align() {
+    let css = ComputedStyle::default();
+    let mut parent_css = ComputedStyle::default();
+    parent_css.justify = Some(crate::style::JustifyContent::Center);
+    parent_css.align_items = Some(crate::style::AlignItems::FlexEnd);
+    let content = Rect::new(10.0, 20.0, 200.0, 100.0);
+    let (x, y) = crate::layout::positioned::static_position::static_position_flex(
+        &css, &parent_css, content, 40.0, 20.0, content,
+    );
+    assert_eq!(x, 10.0 + 80.0);
+    assert_eq!(y, 20.0 + 80.0);
+}
+
+/// `flex-direction:column`: o eixo principal vira vertical (`justify`
+/// passa a mexer em `y`) e o cruzado horizontal (`align-items` em `x`).
+#[test]
+fn contentor_flex_column_troca_os_eixos() {
+    let css = ComputedStyle::default();
+    let mut parent_css = ComputedStyle::default();
+    parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
+    parent_css.justify = Some(crate::style::JustifyContent::FlexEnd);
+    parent_css.align_items = Some(crate::style::AlignItems::Center);
+    let content = Rect::new(0.0, 0.0, 200.0, 100.0);
+    let (x, y) = crate::layout::positioned::static_position::static_position_flex(
+        &css, &parent_css, content, 40.0, 20.0, content,
+    );
+    assert_eq!(x, 80.0, "align-items:center on the horizontal cross axis");
+    assert_eq!(
+        y, 80.0,
+        "justify-content:flex-end on the vertical main axis"
+    );
+}
+
+#[test]
+fn safe_end_uses_end_when_the_item_fits() {
+    let mut css = ComputedStyle::default();
+    css.align_self = Some(crate::style::AlignItems::SafeEnd);
+    let parent_css = ComputedStyle::default();
+    let content = Rect::new(0.0, 0.0, 100.0, 100.0);
+    let (x, y) = crate::layout::positioned::static_position::static_position_flex(
+        &css, &parent_css, content, 20.0, 30.0, content,
+    );
+    assert_eq!((x, y), (0.0, 70.0));
+}
+
+#[test]
+fn safe_center_falls_back_when_centred_position_overflows_the_outer_cb() {
+    let mut css = ComputedStyle::default();
+    css.align_self = Some(crate::style::AlignItems::SafeCenter);
+    let mut parent_css = ComputedStyle::default();
+    parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
+    let content = Rect::new(0.0, 0.0, 50.0, 50.0);
+    let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0);
+    let (x, _y) = crate::layout::positioned::static_position::static_position_flex(
+        &css, &parent_css, content, 100.0, 20.0, containing_block,
+    );
+    assert_eq!(
+        x, 0.0,
+        "falls back to the CB start, not a negative centred offset"
+    );
+}
+
+#[test]
+fn safe_center_centers_when_it_fits_the_outer_cb() {
+    let mut css = ComputedStyle::default();
+    css.align_self = Some(crate::style::AlignItems::SafeCenter);
+    let mut parent_css = ComputedStyle::default();
+    parent_css.flex_direction = Some(crate::style::FlexDirection::Column);
+    let content = Rect::new(0.0, 0.0, 50.0, 50.0);
+    let containing_block = Rect::new(0.0, 0.0, 200.0, 50.0);
+    let (x, _y) = crate::layout::positioned::static_position::static_position_flex(
+        &css, &parent_css, content, 40.0, 20.0, containing_block,
+    );
+    assert_eq!(x, 5.0, "0 + (50-40)/2, fits inside the CB");
+}
+
+#[test]
+fn one_abspos_item_uses_distribution_fallbacks() {
+    let css = ComputedStyle::default();
+    let content = Rect::new(0.0, 0.0, 100.0, 100.0);
+    let mut parent_css = ComputedStyle::default();
+    parent_css.justify = Some(crate::style::JustifyContent::SpaceAround);
+    assert_eq!(
+        crate::layout::positioned::static_position::static_position_flex(
+            &css, &parent_css, content, 20.0, 20.0, content,
+        )
+        .0,
+        40.0
+    );
+    parent_css.justify = Some(crate::style::JustifyContent::SpaceBetween);
+    assert_eq!(
+        crate::layout::positioned::static_position::static_position_flex(
+            &css, &parent_css, content, 20.0, 20.0, content,
+        )
+        .0,
+        0.0
+    );
+}
+

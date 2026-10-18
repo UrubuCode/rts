@@ -10,7 +10,7 @@ impl Dom {
     /// O `advance` consulta isto a cada frame; entre frames de animação (revisão
     /// estrutural estável) é um hit de cache — a cascade não re-roda. `None` p/
     /// não-elemento.
-    pub(in crate::dom) fn base_style_idx(
+    pub(crate) fn base_style_idx(
         &self,
         idx: NodeIdx,
     ) -> Option<std::rc::Rc<crate::style::ComputedStyle>> {
@@ -145,27 +145,30 @@ impl Dom {
                 match template {
                     crate::style::GridTemplate::Tracks(_) => {
                         let (viewport_w, viewport_h) = self.viewport.get();
-                        let tracks_str = crate::layout::measure::active_measurer::with_active(|measurer| {
-                            let context = crate::layout::LayoutCtx {
-                                viewport_w,
-                                viewport_h,
-                                measurer,
-                            };
-                            let list = crate::layout::layout_cached(self, &context);
-                            list.grid_column_tracks.get(&idx).map(|tracks| {
-                                tracks
-                                    .iter()
-                                    .map(|track| crate::style::fmt_values::fmt_px(*track))
-                                    .collect::<Vec<_>>()
-                                    .join(" ")
-                            })
-                        });
+                        let tracks_str =
+                            crate::layout::measure::active_measurer::with_active(|measurer| {
+                                let context = crate::layout::LayoutCtx {
+                                    viewport_w,
+                                    viewport_h,
+                                    measurer,
+                                };
+                                let list = crate::layout::layout_cached(self, &context);
+                                list.grid_column_tracks.get(&idx).map(|tracks| {
+                                    tracks
+                                        .iter()
+                                        .map(|track| crate::style::fmt_values::fmt_px(*track))
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
+                                })
+                            });
                         if let Some(tracks_str) = tracks_str {
                             return tracks_str;
                         }
                     }
                     crate::style::GridTemplate::Subgrid(_) => {
-                        let is_grid = style.effective_display().map_or(false, |d| d.is_grid_container());
+                        let is_grid = style
+                            .effective_display()
+                            .map_or(false, |d| d.is_grid_container());
                         if is_grid {
                             let parent_is_grid = self.nodes[idx]
                                 .parent
@@ -188,7 +191,9 @@ impl Dom {
             if let Some(template) = style.grid_template_rows.as_deref() {
                 match template {
                     crate::style::GridTemplate::Subgrid(_) => {
-                        let is_grid = style.effective_display().map_or(false, |d| d.is_grid_container());
+                        let is_grid = style
+                            .effective_display()
+                            .map_or(false, |d| d.is_grid_container());
                         if is_grid {
                             let parent_is_grid = self.nodes[idx]
                                 .parent
@@ -236,7 +241,9 @@ impl Dom {
     /// relativa à fonte ou à viewport; `None` para tudo o resto (px, %,
     /// keywords, listas), que fica como veio.
     fn comprimento_absoluto(&self, style: &crate::style::ComputedStyle, v: &str) -> Option<String> {
-        let unidade = ["rem", "em", "ex", "ch", "vw", "vh"].into_iter().find(|u| v.ends_with(u))?;
+        let unidade = ["rem", "em", "ex", "ch", "vw", "vh"]
+            .into_iter()
+            .find(|u| v.ends_with(u))?;
         let n: f32 = v[..v.len() - unidade.len()].parse().ok()?;
         let (vw, vh) = self.viewport.get();
         let rc = crate::style::ResolveCtx {
@@ -254,16 +261,26 @@ impl Dom {
             "vw" => crate::style::Dimension::Vw(n),
             _ => crate::style::Dimension::Vh(n),
         };
-        dim.resolve_signed(&rc).map(crate::style::fmt_values::fmt_px)
+        dim.resolve_signed(&rc)
+            .map(crate::style::fmt_values::fmt_px)
     }
 
     /// O valor usado de `width` (ou `height`) de um elemento com caixa, como o
     /// `getComputedStyle` o serializa. `None` se o layout não lhe deu caixa.
-    fn used_size(&self, id: NodeId, style: &crate::style::ComputedStyle, largura: bool) -> Option<f32> {
+    fn used_size(
+        &self,
+        id: NodeId,
+        style: &crate::style::ComputedStyle,
+        largura: bool,
+    ) -> Option<f32> {
         let idx = self.resolve(id)?;
         let (vw, vh) = self.viewport.get();
         let (w, h) = crate::layout::measure::active_measurer::with_active(|measurer| {
-            let context = crate::layout::LayoutCtx { viewport_w: vw, viewport_h: vh, measurer };
+            let context = crate::layout::LayoutCtx {
+                viewport_w: vw,
+                viewport_h: vh,
+                measurer,
+            };
             crate::layout::bounding_rect(self, idx, &context).map(|r| (r.w, r.h))
         })?;
         if style.border_box.unwrap_or(false) {

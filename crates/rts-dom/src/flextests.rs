@@ -108,7 +108,10 @@ fn wrap_nao_quebra_quando_os_itens_cabem() {
     let (dom, list) = geometria(html, 800.0);
     let esq = rect(&dom, &list, "#esq", 0);
     let dir = rect(&dom, &list, "#dir", 0);
-    assert!((esq.w - 100.0).abs() < 0.5, "esquerda mede o visível: {esq:?}");
+    assert!(
+        (esq.w - 100.0).abs() < 0.5,
+        "esquerda mede o visível: {esq:?}"
+    );
     assert!(
         dir.x > esq.x + esq.w - 0.5,
         "lado a lado, não empilhados: esq={esq:?} dir={dir:?}"

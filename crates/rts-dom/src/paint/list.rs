@@ -5,8 +5,8 @@
 
 use crate::boxes::{BoxId, BoxTree};
 use crate::dom::NodeIdx;
-use crate::paint::item::translate_item;
 use crate::paint::item::DisplayItem;
+use crate::paint::item::translate_item;
 use crate::paint::pieces::Piece;
 
 /// Um retângulo em coordenadas de conteúdo (a origem é o canto da área de render;
@@ -111,6 +111,7 @@ pub struct DisplayList {
     /// Tracks de coluna de grids explícitos, já resolvidas em px pelo layout. O
     /// `computedProperty` usa esta fonte de used values sem duplicar `resolve_tracks`.
     pub grid_column_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,
+    pub grid_row_tracks: crate::fasthash::FastMap<NodeIdx, Vec<f32>>,
     /// Containers roláveis internos (divs com `overflow`) — o backend gerencia o
     /// offset de cada região e recorta. Vazio quando a página não tem scroll interno.
     pub scroll_regions: Vec<ScrollRegion>,
@@ -130,6 +131,7 @@ impl PartialEq for DisplayList {
             && self.content_height == other.content_height
             && self.box_rects == other.box_rects
             && self.grid_column_tracks == other.grid_column_tracks
+            && self.grid_row_tracks == other.grid_row_tracks
             && self.scroll_regions == other.scroll_regions
     }
 }

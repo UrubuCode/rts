@@ -50,7 +50,8 @@ pub(in crate::layout) fn measure(
     font_size: f32,
     ctx: &LayoutCtx,
 ) -> Option<PseudoItem> {
-    let (generated, generated_box) = crate::layout::block::pseudo_box::from_tree(dom, tree, owner, pe)?;
+    let (generated, generated_box) =
+        crate::layout::block::pseudo_box::from_tree(dom, tree, owner, pe)?;
     if generated_box.css.effective_display() == Some(crate::style::DisplayKind::None) {
         return None;
     }
@@ -59,28 +60,46 @@ pub(in crate::layout) fn measure(
     let r = rc(css, base_w, font, ctx);
     let edges = resolve_edges(css, &r);
     let text = crate::layout::inline::segment::collapse_ws(&generated_box.text, false).into_owned();
-    let mono = css.font_family.as_deref().is_some_and(crate::style::is_mono_family);
+    let mono = css
+        .font_family
+        .as_deref()
+        .is_some_and(crate::style::is_mono_family);
     let bold = css.bold.unwrap_or(false);
     let tw = if text.is_empty() {
         0.0
     } else {
-        ctx.measurer.text_width_family(&text, font, css.font_family.as_deref(), mono, bold, false)
+        ctx.measurer
+            .text_width_family(&text, font, css.font_family.as_deref(), mono, bold, false)
     };
     // ITEM FLEX: largura AUTO encolhe ao conteúdo (shrink-to-fit) — o oposto
     // do bloco em `pseudo_block.rs::measure_pseudo`, que enche o pai. É a única conta
     // que os dois papéis não partilham (ver `pseudo_box.rs`).
     let content_w = css.width.and_then(|d| d.resolve(&r)).unwrap_or(tw);
-    let content_h = css.height.and_then(|d| d.resolve(&r)).unwrap_or(if text.is_empty() {
-        0.0
-    } else {
-        crate::inline_box::altura_da_linha(css, font, ctx.measurer)
-    });
+    let content_h = css
+        .height
+        .and_then(|d| d.resolve(&r))
+        .unwrap_or(if text.is_empty() {
+            0.0
+        } else {
+            crate::inline_box::altura_da_linha(css, font, ctx.measurer)
+        });
     // One line, not `text_lines`: this item's width IS the text's
     // max-content width, and breaking at it could split on a rounding
     // difference between the two measurers (`text_width_family` here,
     // `text_width` in `wrap_runs`) — a line the height above did not count.
-    let lines = if text.is_empty() { Vec::new() } else { vec![text] };
-    Some(build((generated, generated_box), edges, content_w, content_h, lines, font))
+    let lines = if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![text]
+    };
+    Some(build(
+        (generated, generated_box),
+        edges,
+        content_w,
+        content_h,
+        lines,
+        font,
+    ))
 }
 
 /// A largura OUTER que o pseudo `pe` acrescenta à largura intrínseca de um
@@ -99,7 +118,13 @@ pub(in crate::layout) fn width(
 /// Pinta o item gerado com o canto superior esquerdo da sua margin box em
 /// (`x`, `y`) — repassa a `crate::layout::block::pseudo_box::paint`, mantida aqui como um nome
 /// próprio porque `row.rs` chama-a por este caminho.
-pub(in crate::layout) fn paint(list: &mut DisplayList, item: &PseudoItem, x: f32, y: f32, ctx: &LayoutCtx) {
+pub(in crate::layout) fn paint(
+    list: &mut DisplayList,
+    item: &PseudoItem,
+    x: f32,
+    y: f32,
+    ctx: &LayoutCtx,
+) {
     crate::layout::block::pseudo_box::paint(list, item, x, y, ctx);
 }
 
@@ -109,7 +134,16 @@ pub(in crate::layout) fn paint(list: &mut DisplayList, item: &PseudoItem, x: f32
 /// `layout_block` — a generated item is painted by `paint` from `pseudo` —
 /// but it is the box the item is, and the one its geometry is recorded under.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::layout) fn flex_item(dom: &Dom, tree: &crate::boxes::BoxTree, owner: crate::boxes::BoxId, id: NodeIdx, pe: crate::style::PseudoElement, content_w: f32, font_size: f32, ctx: &LayoutCtx) -> Option<super::row::FlexItem> {
+pub(in crate::layout) fn flex_item(
+    dom: &Dom,
+    tree: &crate::boxes::BoxTree,
+    owner: crate::boxes::BoxId,
+    id: NodeIdx,
+    pe: crate::style::PseudoElement,
+    content_w: f32,
+    font_size: f32,
+    ctx: &LayoutCtx,
+) -> Option<super::row::FlexItem> {
     let p = measure(dom, tree, owner, pe, content_w, font_size, ctx)?;
     let css = &p.pseudo_box.css;
     Some(super::row::FlexItem {

@@ -32,7 +32,10 @@ enum CalcVal {
 }
 
 /// Parseia o MIOLO de um `calc(...)` (sem o `calc(` e `)`), ou `None` se inválido.
-fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
+/// `pub(crate)` para `fit-content(<length-percentage>)`, cujo argumento é a MESMA
+/// gramática de comprimento linear e precisa do [`CalcLen`] cru (não embrulhado
+/// em `Dimension::Calc`) para o seu próprio keyword.
+pub(crate) fn parse_calc(inner: &str) -> Option<crate::style::CalcLen> {
     let toks: Vec<char> = inner.chars().collect();
     let mut pos = 0usize;
     let v = calc_expr(&toks, &mut pos)?;
@@ -160,8 +163,14 @@ fn calc_atom(t: &[char], p: &mut usize) -> Option<CalcVal> {
         // outside `calc()` (`Dimension::Ch`/`Ex`), so they fold into the `em`
         // term. Refused, `calc(15.1ch / 4)` made the whole declaration invalid
         // and the box fell to `auto` (WPT `text-wrap-balance-line-clamp-002`).
-        "ch" => CalcVal::Len(CalcLen { em: num * crate::style::MONO_ADVANCE, ..Default::default() }),
-        "ex" => CalcVal::Len(CalcLen { em: num * crate::style::X_HEIGHT_RATIO, ..Default::default() }),
+        "ch" => CalcVal::Len(CalcLen {
+            em: num * crate::style::MONO_ADVANCE,
+            ..Default::default()
+        }),
+        "ex" => CalcVal::Len(CalcLen {
+            em: num * crate::style::X_HEIGHT_RATIO,
+            ..Default::default()
+        }),
         _ => return None, // unidade desconhecida (vmin/…): calc inválido
     })
 }

@@ -20,7 +20,10 @@ fn ellipsis_nao_altera_a_largura_da_caixa() {
     </style><div id="caixa">um texto comprido demais para a caixa toda</div>"#;
     let (dom, list) = geometria(html, 600.0);
     let r = rect(&dom, &list, "#caixa", 0);
-    assert_eq!(r.w, 120.0, "a caixa não encolhe nem cresce por causa do corte");
+    assert_eq!(
+        r.w, 120.0,
+        "a caixa não encolhe nem cresce por causa do corte"
+    );
 }
 
 /// `word-spacing` positivo alarga a linha: o MESMO texto, no mesmo container
@@ -44,8 +47,14 @@ fn word_spacing_alarga_e_aperta_a_linha() {
     let w0 = rect(&dom0, &list0, "#a", 0).w;
     let w10 = rect(&dom10, &list10, "#a", 0).w;
     let wneg = rect(&domneg, &listneg, "#a", 0).w;
-    assert!(w10 > w0, "word-spacing:10px devia alargar a linha ({w10} <= {w0})");
-    assert!(wneg < w0, "word-spacing:-2px devia apertar a linha ({wneg} >= {w0})");
+    assert!(
+        w10 > w0,
+        "word-spacing:10px devia alargar a linha ({w10} <= {w0})"
+    );
+    assert!(
+        wneg < w0,
+        "word-spacing:-2px devia apertar a linha ({wneg} >= {w0})"
+    );
     // dois espaços entre três palavras: a diferença é ~2x o word-spacing.
     assert!(
         (w10 - w0 - 20.0).abs() < 2.0,
@@ -100,8 +109,14 @@ fn line_clamp_limita_a_altura_a_n_linhas() {
     let h_com = rect(&dom1, &list1, "div", 0).h;
     // line-height:20px, duas linhas => 40px; sem clamp o texto (>2 linhas
     // largas de 100px) mede mais alto.
-    assert_eq!(h_com, 40.0, "line-clamp:2 a 20px/linha devia dar 40px, deu {h_com}");
-    assert!(h_sem > h_com, "sem clamp devia ser mais alto ({h_sem} <= {h_com})");
+    assert_eq!(
+        h_com, 40.0,
+        "line-clamp:2 a 20px/linha devia dar 40px, deu {h_com}"
+    );
+    assert!(
+        h_sem > h_com,
+        "sem clamp devia ser mais alto ({h_sem} <= {h_com})"
+    );
 }
 
 /// A caixa de um `inline-block` na linha é a BORDER box (o que
@@ -124,8 +139,16 @@ fn inline_block_com_margem_rect_e_border_box_pitch_e_margin_box() {
     // Within 0.001 and not exact: since the line of an inline-block is placed
     // by the §10.8.1 envelope (`linha_baseline.rs`), the pitch is a sum of an
     // above and a below extent, and `f32` gives 25.000002 for it.
-    assert!((b.y - 25.0).abs() < 1e-3, "o pitch (20 conteúdo + 5 margem) inclui a margem UMA vez: {}", b.y);
-    assert!((b.h - 20.0).abs() < 1e-3, "o segundo elemento não herda a margem do primeiro: {}", b.h);
+    assert!(
+        (b.y - 25.0).abs() < 1e-3,
+        "o pitch (20 conteúdo + 5 margem) inclui a margem UMA vez: {}",
+        b.y
+    );
+    assert!(
+        (b.h - 20.0).abs() < 1e-3,
+        "o segundo elemento não herda a margem do primeiro: {}",
+        b.h
+    );
 }
 
 /// Um rect SEM ÁREA — `w=0` ou `h=0` — que é o que o motor devolve para um
@@ -136,7 +159,11 @@ fn sem_area(r: Option<crate::paint::Rect>) -> bool {
     r.is_none_or(|r| r.w <= 0.0 || r.h <= 0.0)
 }
 
-fn rect_opt(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str) -> Option<crate::paint::Rect> {
+fn rect_opt(
+    dom: &crate::Dom,
+    list: &crate::paint::DisplayList,
+    sel: &str,
+) -> Option<crate::paint::Rect> {
     let id = *dom.query_all(sel).first()?;
     let idx = dom.resolve(id)?;
     list.geometry_now().rects.get(&idx).copied()
@@ -151,7 +178,10 @@ fn span_inline_vazio_nao_tem_area() {
     <p>a<span id="vazio"></span>b</p>"#;
     let (dom, list) = geometria(html, 600.0);
     let r = rect_opt(&dom, &list, "#vazio");
-    assert!(sem_area(r), "#vazio mediu {r:?}, esperava 0×0 (sem fragmento)");
+    assert!(
+        sem_area(r),
+        "#vazio mediu {r:?}, esperava 0×0 (sem fragmento)"
+    );
 }
 
 /// A mesma regra quando o único conteúdo é um espaço COLAPSÁVEL — ele vira
@@ -162,7 +192,10 @@ fn span_so_com_espaco_colapsavel_nao_tem_area() {
     <p>c<span id="espaco"> </span>d</p>"#;
     let (dom, list) = geometria(html, 600.0);
     let r = rect_opt(&dom, &list, "#espaco");
-    assert!(sem_area(r), "#espaco mediu {r:?}, esperava 0×0 (sem fragmento)");
+    assert!(
+        sem_area(r),
+        "#espaco mediu {r:?}, esperava 0×0 (sem fragmento)"
+    );
 }
 
 /// O CORTE ao lado da regra acima: um `inline-block` VAZIO continua a ter

@@ -58,11 +58,23 @@ pub(in crate::layout) fn owner_fragment(
     cb: (f32, Option<f32>),
 ) -> Rect {
     let css = dom.computed_style_idx(owner);
-    let with_edges = css.as_deref().is_some_and(crate::inline_box::inline_por_fragmentos);
+    let with_edges = css
+        .as_deref()
+        .is_some_and(crate::inline_box::inline_por_fragmentos);
     // A relative inline — or one inside a relative inline — is shifted HERE, the
     // one place its fragment is made: client rects and painted surface move together.
-    let (dx, dy) = crate::layout::positioned::relative::inline_offset(dom, Some(owner), cb.0, cb.1, ctx);
-    styled_fragment(css.as_deref(), with_edges, x + dx, y + dy, w, line_content, ctx, align_to_baseline)
+    let (dx, dy) =
+        crate::layout::positioned::relative::inline_offset(dom, Some(owner), cb.0, cb.1, ctx);
+    styled_fragment(
+        css.as_deref(),
+        with_edges,
+        x + dx,
+        y + dy,
+        w,
+        line_content,
+        ctx,
+        align_to_baseline,
+    )
 }
 
 /// [`owner_fragment`] for a style that is not a node's — a generated
@@ -86,9 +98,12 @@ fn styled_fragment(
     let Some(crate::style::Dimension::Px(font)) = css.font_size else {
         return Rect::new(x, y, w, line_content);
     };
-    let content = crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
+    let content =
+        crate::inline_box::altura_do_conteudo(font, css.font_family.as_deref(), ctx.measurer);
     let top = if align_to_baseline {
-        y - ctx.measurer.font_ascent_family(font, css.font_family.as_deref())
+        y - ctx
+            .measurer
+            .font_ascent_family(font, css.font_family.as_deref())
     } else {
         y + (line_content - content) / 2.0
     };
@@ -155,14 +170,25 @@ impl Surfaces {
                     s.x0 = s.x0.min(x0);
                     s.x1 = s.x1.max(x1);
                 }
-                None => self.surfaces.push(Surface { owner: Owner::Node(o), x0, x1, start: false, end: false, open: false }),
+                None => self.surfaces.push(Surface {
+                    owner: Owner::Node(o),
+                    x0,
+                    x1,
+                    start: false,
+                    end: false,
+                    open: false,
+                }),
             }
         }
     }
 
     /// A aresta inicial (`start == true`) ou final do inline `owner` está nesta linha.
     pub(in crate::layout) fn mark(&mut self, owner: NodeIdx, start: bool) {
-        if let Some(s) = self.surfaces.iter_mut().find(|s| s.owner == Owner::Node(owner)) {
+        if let Some(s) = self
+            .surfaces
+            .iter_mut()
+            .find(|s| s.owner == Owner::Node(owner))
+        {
             if start {
                 s.start = true;
             } else {
@@ -175,17 +201,44 @@ impl Surfaces {
     /// `x` of width `ww`: its surface opens after its left margin. `base_w`
     /// is the line's width, the base the edge was sized against.
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::layout) fn open_generated(&mut self, dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, x: f32, ww: f32, base_w: f32, ctx: &LayoutCtx) {
+    pub(in crate::layout) fn open_generated(
+        &mut self,
+        dom: &Dom,
+        id: NodeIdx,
+        pe: crate::style::PseudoElement,
+        x: f32,
+        ww: f32,
+        base_w: f32,
+        ctx: &LayoutCtx,
+    ) {
         let (ml, _) = generated_margins(dom, id, pe, base_w, ctx);
         let owner = Owner::Generated(id, pe);
-        self.surfaces.push(Surface { owner, x0: x + ml, x1: x + ww, start: true, end: false, open: true });
+        self.surfaces.push(Surface {
+            owner,
+            x0: x + ml,
+            x1: x + ww,
+            start: true,
+            end: false,
+            open: true,
+        });
     }
 
     /// Its end edge was just seen (and [`Self::cover`] already took it in): the
     /// surface closes before its right margin.
-    pub(in crate::layout) fn close_generated(&mut self, dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, base_w: f32, ctx: &LayoutCtx) {
+    pub(in crate::layout) fn close_generated(
+        &mut self,
+        dom: &Dom,
+        id: NodeIdx,
+        pe: crate::style::PseudoElement,
+        base_w: f32,
+        ctx: &LayoutCtx,
+    ) {
         let (_, mr) = generated_margins(dom, id, pe, base_w, ctx);
-        if let Some(s) = self.surfaces.iter_mut().find(|s| s.open && s.owner == Owner::Generated(id, pe)) {
+        if let Some(s) = self
+            .surfaces
+            .iter_mut()
+            .find(|s| s.open && s.owner == Owner::Generated(id, pe))
+        {
             s.x1 -= mr;
             s.end = true;
             s.open = false;
@@ -214,33 +267,71 @@ impl Surfaces {
     ) -> Surfaces {
         let mut at = at;
         let mut put = |list: &mut DisplayList, rect: Rect, color: u32| {
-            list.pieces.insert(at, Piece::Item(DisplayItem::SolidRect { rect, color, radius: Corners::ZERO }));
+            list.pieces.insert(
+                at,
+                Piece::Item(DisplayItem::SolidRect {
+                    rect,
+                    color,
+                    radius: Corners::ZERO,
+                }),
+            );
             at += 1;
         };
         let mut next_surfaces = Surfaces::default();
         for s in self.surfaces {
             if s.open {
                 let (x0, x1) = (f32::INFINITY, f32::NEG_INFINITY);
-                next_surfaces.surfaces.push(Surface { x0, x1, start: false, end: false, ..s });
+                next_surfaces.surfaces.push(Surface {
+                    x0,
+                    x1,
+                    start: false,
+                    end: false,
+                    ..s
+                });
             }
             if s.x1 < s.x0 {
                 continue;
             }
             let (css, r) = match s.owner {
                 Owner::Node(n) => {
-                    let Some(css) = dom.computed_style_idx(n) else { continue };
-                    let r = owner_fragment(dom, n, s.x0, y, s.x1 - s.x0, line_content, ctx, align_to_baseline, cb);
+                    let Some(css) = dom.computed_style_idx(n) else {
+                        continue;
+                    };
+                    let r = owner_fragment(
+                        dom,
+                        n,
+                        s.x0,
+                        y,
+                        s.x1 - s.x0,
+                        line_content,
+                        ctx,
+                        align_to_baseline,
+                        cb,
+                    );
                     (css, r)
                 }
                 Owner::Generated(n, pe) => {
-                    let Some(pseudo) = dom.pseudo_box(n, pe) else { continue };
-                    let r = styled_fragment(Some(&pseudo.css), true, s.x0, y, s.x1 - s.x0, line_content, ctx, align_to_baseline);
+                    let Some(pseudo) = dom.pseudo_box(n, pe) else {
+                        continue;
+                    };
+                    let r = styled_fragment(
+                        Some(&pseudo.css),
+                        true,
+                        s.x0,
+                        y,
+                        s.x1 - s.x0,
+                        line_content,
+                        ctx,
+                        align_to_baseline,
+                    );
                     // Each line's piece of the generated inline is a fragment
                     // of its box, as a real inline's are (`union_rect`). Found
                     // by node because a surface is named by `(node, pseudo)`;
                     // only the fragment that holds the box emits it (`runs.rs`).
                     if let Some(generated) = list.tree.generated_of(n, pe) {
-                        crate::layout::fragment::items::add_line_fragment(list, generated, r, line_scope);
+                        crate::layout::fragment::items::add_line_fragment(
+                            list, generated, r, line_scope,
+                        );
                     }
                     (std::rc::Rc::new(pseudo.css), r)
                 }
@@ -260,7 +351,11 @@ impl Surfaces {
                 put(list, Rect::new(r.x, r.y, l, r.h), sides[3].color);
             }
             if s.end && sides[1].paints() {
-                put(list, Rect::new(r.x + r.w - rt, r.y, rt, r.h), sides[1].color);
+                put(
+                    list,
+                    Rect::new(r.x + r.w - rt, r.y, rt, r.h),
+                    sides[1].color,
+                );
             }
         }
         next_surfaces
@@ -269,7 +364,13 @@ impl Surfaces {
 
 /// The horizontal margins of the generated box `pe` of `id`, resolved as
 /// `pseudo_inline.rs` resolved them when it sized the edges.
-fn generated_margins(dom: &Dom, id: NodeIdx, pe: crate::style::PseudoElement, base_w: f32, ctx: &LayoutCtx) -> (f32, f32) {
+fn generated_margins(
+    dom: &Dom,
+    id: NodeIdx,
+    pe: crate::style::PseudoElement,
+    base_w: f32,
+    ctx: &LayoutCtx,
+) -> (f32, f32) {
     dom.pseudo_box(id, pe).map_or((0.0, 0.0), |pseudo| {
         let font = font_px(&pseudo.css, DEFAULT_FONT_SIZE);
         super::pseudo_inline::horizontal_margins(&pseudo.css, font, base_w, ctx)
@@ -299,9 +400,14 @@ pub(in crate::layout) fn group_is_whole_owner(
     // the group with no box and counted on both sides — the same equality.
     let counts = |n: NodeIdx| match &dom.node(n).kind {
         NodeKind::Comment(_) => false,
-        NodeKind::Text(t) => !t.trim().is_empty(),
+        NodeKind::Text(t) => !crate::inline_box::so_espaco_css(t),
         _ => true,
     };
-    let children_with_content = dom.node(owner).children.iter().filter(|&&c| counts(c)).count();
+    let children_with_content = dom
+        .node(owner)
+        .children
+        .iter()
+        .filter(|&&c| counts(c))
+        .count();
     group.iter().filter(|&&(c, _)| counts(c)).count() == children_with_content
 }

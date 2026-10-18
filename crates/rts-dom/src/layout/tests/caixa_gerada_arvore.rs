@@ -14,8 +14,15 @@ fn no(dom: &crate::Dom, sel: &str) -> crate::dom::NodeIdx {
     dom.resolve(dom.query(sel).expect(sel)).expect("live node")
 }
 
-fn gerada(list: &crate::paint::DisplayList, dom: &crate::Dom, sel: &str, pe: PseudoElement) -> BoxId {
-    list.tree.generated_of(no(dom, sel), pe).unwrap_or_else(|| panic!("{sel} has a generated box"))
+fn gerada(
+    list: &crate::paint::DisplayList,
+    dom: &crate::Dom,
+    sel: &str,
+    pe: PseudoElement,
+) -> BoxId {
+    list.tree
+        .generated_of(no(dom, sel), pe)
+        .unwrap_or_else(|| panic!("{sel} has a generated box"))
 }
 
 fn perto(a: f32, b: f32) -> bool {
@@ -33,9 +40,17 @@ fn a_block_pseudo_answers_rect_of_box_with_its_border_box() {
         800.0,
     );
     let p = list.rect_of(no(&dom, "#p")).expect("p has geometry");
-    let r = list.rect_of_box(gerada(&list, &dom, "#p", PseudoElement::Before)).expect("::before has geometry");
-    assert!(perto(r.x, 5.0) && perto(r.y, p.y) && perto(r.h, 30.0), "{r:?}");
-    assert!(perto(r.w, p.w - 5.0), "fills its element after the margin: {r:?} in {p:?}");
+    let r = list
+        .rect_of_box(gerada(&list, &dom, "#p", PseudoElement::Before))
+        .expect("::before has geometry");
+    assert!(
+        perto(r.x, 5.0) && perto(r.y, p.y) && perto(r.h, 30.0),
+        "{r:?}"
+    );
+    assert!(
+        perto(r.w, p.w - 5.0),
+        "fills its element after the margin: {r:?} in {p:?}"
+    );
 }
 
 /// `position: relative` moves the element's subtree AFTER it was laid out,
@@ -51,9 +66,16 @@ fn a_generated_box_moves_with_its_relatively_positioned_element() {
     };
     let (dom, fixo) = geometria(&html(""), 800.0);
     let (dom_rel, movido) = geometria(&html("position:relative;left:10px;top:7px"), 800.0);
-    let a = fixo.rect_of_box(gerada(&fixo, &dom, "#p", PseudoElement::Before)).unwrap();
-    let b = movido.rect_of_box(gerada(&movido, &dom_rel, "#p", PseudoElement::Before)).unwrap();
-    assert!(perto(b.x - a.x, 10.0) && perto(b.y - a.y, 7.0), "{a:?} -> {b:?}");
+    let a = fixo
+        .rect_of_box(gerada(&fixo, &dom, "#p", PseudoElement::Before))
+        .unwrap();
+    let b = movido
+        .rect_of_box(gerada(&movido, &dom_rel, "#p", PseudoElement::Before))
+        .unwrap();
+    assert!(
+        perto(b.x - a.x, 10.0) && perto(b.y - a.y, 7.0),
+        "{a:?} -> {b:?}"
+    );
 }
 
 /// A FLEX-ITEM pseudo and an `inline-block` one answer too — the three roles
@@ -66,10 +88,17 @@ fn a_flex_item_pseudo_and_an_inline_block_pseudo_answer_rect_of_box() {
          <div id=c><span>a</span></div><p><span id=s>b</span></p>",
         800.0,
     );
-    let item = list.rect_of_box(gerada(&list, &dom, "#c", PseudoElement::Before)).expect("flex item");
+    let item = list
+        .rect_of_box(gerada(&list, &dom, "#c", PseudoElement::Before))
+        .expect("flex item");
     let c = list.rect_of(no(&dom, "#c")).unwrap();
-    assert!(perto(item.x, c.x) && perto(item.w, 20.0) && perto(item.h, 10.0), "{item:?}");
-    let atomo = list.rect_of_box(gerada(&list, &dom, "#s", PseudoElement::After)).expect("inline-block");
+    assert!(
+        perto(item.x, c.x) && perto(item.w, 20.0) && perto(item.h, 10.0),
+        "{item:?}"
+    );
+    let atomo = list
+        .rect_of_box(gerada(&list, &dom, "#s", PseudoElement::After))
+        .expect("inline-block");
     assert!(perto(atomo.w, 50.0) && perto(atomo.h, 15.0), "{atomo:?}");
 }
 
@@ -82,9 +111,14 @@ fn an_inline_pseudo_with_a_surface_answers_rect_of_box() {
         "<style>#s::before{content:'ab';padding:0 4px;background:#ff0000}</style><p><span id=s>c</span></p>",
         800.0,
     );
-    let r = list.rect_of_box(gerada(&list, &dom, "#s", PseudoElement::Before)).expect("inline surface");
+    let r = list
+        .rect_of_box(gerada(&list, &dom, "#s", PseudoElement::Before))
+        .expect("inline surface");
     let s = list.rect_of(no(&dom, "#s")).unwrap();
-    assert!(r.w > 8.0 && r.x >= s.x - 0.01 && r.x + r.w <= s.x + s.w + 0.01, "{r:?} in {s:?}");
+    assert!(
+        r.w > 8.0 && r.x >= s.x - 0.01 && r.x + r.w <= s.x + s.w + 0.01,
+        "{r:?} in {s:?}"
+    );
 }
 
 /// The block flow's sequence does NOT hold the generated box: `pseudo_bloco`
@@ -97,7 +131,11 @@ fn the_block_flow_does_not_step_through_a_generated_box() {
     );
     let p = no(&dom, "#p");
     let caixa = list.tree.boxes_of(p)[0];
-    assert_eq!(list.tree.children(caixa).len(), 3, "the tree has both pseudos");
+    assert_eq!(
+        list.tree.children(caixa).len(),
+        3,
+        "the tree has both pseudos"
+    );
     let seq = super::super::block::sequence::flow_sequence(&dom, &list.tree, p, caixa);
     assert_eq!(seq.len(), 1, "only the text is a step of the flow: {seq:?}");
 }
@@ -113,16 +151,27 @@ fn the_inline_atom_of_a_generated_box_carries_its_box() {
     let s = no(&dom, "#s");
     let caixa = list.tree.boxes_of(s)[0];
     let css = dom.computed_style_idx(s).unwrap();
-    let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
-    let runs = super::super::inline::runs::collect_runs(&dom, s, caixa, &list.tree, &css, 800.0, None, &ctx);
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
+    let runs = super::super::inline::runs::collect_runs(
+        &dom, s, caixa, &list.tree, &css, 800.0, None, &ctx,
+    );
     let atomo = runs
         .iter()
         .find_map(|r| match r.atomic {
-            Some((_, b, crate::inline_box::AtomicKind::Generated(PseudoElement::Before, _))) => Some(b),
+            Some((_, b, crate::inline_box::AtomicKind::Generated(PseudoElement::Before, _))) => {
+                Some(b)
+            }
             _ => None,
         })
         .expect("the pseudo is an atom on the line");
-    assert_eq!(Some(atomo), list.tree.generated_child(caixa, PseudoElement::Before));
+    assert_eq!(
+        Some(atomo),
+        list.tree.generated_child(caixa, PseudoElement::Before)
+    );
 }
 
 /// After a mutation elsewhere the tree is REBUILT — new generation — and the
@@ -136,7 +185,11 @@ fn an_incremental_relayout_with_generated_boxes_is_the_one_from_scratch() {
         .i::after{content:'';display:inline-block;width:5px;height:5px}</style>\
         <div id=a class=b>a</div><div id=f class=f><span>s</span></div>\
         <p><span id=i class=i>i</span></p><p id=t>texto</p>";
-    let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
     let mut dom = crate::parse_html_to_dom(HTML);
     let _ = crate::layout::layout_cached(&dom, &ctx);
     dom.set_text(dom.query("#t").unwrap(), "outro texto");
@@ -147,12 +200,24 @@ fn an_incremental_relayout_with_generated_boxes_is_the_one_from_scratch() {
     let zero = crate::layout::layout_document(&fresco, &ctx);
     let (a, b) = (incremental.materialized(), zero.materialized());
     assert_eq!(a.len(), b.len(), "paint item count");
-    assert!(a.iter().zip(&b).all(|(x, y)| super::itens_equivalentes(x, y)), "paint items");
-    for (sel, pe) in [("#a", PseudoElement::Before), ("#f", PseudoElement::After), ("#i", PseudoElement::After)] {
+    assert!(
+        a.iter()
+            .zip(&b)
+            .all(|(x, y)| super::itens_equivalentes(x, y)),
+        "paint items"
+    );
+    for (sel, pe) in [
+        ("#a", PseudoElement::Before),
+        ("#f", PseudoElement::After),
+        ("#i", PseudoElement::After),
+    ] {
         let ri = incremental.rect_of_box(gerada(&incremental, &dom, sel, pe));
         let rz = zero.rect_of_box(gerada(&zero, &fresco, sel, pe));
         match (ri, rz) {
-            (Some(ri), Some(rz)) => assert!(super::rects_equivalentes(&ri, &rz), "{sel}: {ri:?} != {rz:?}"),
+            (Some(ri), Some(rz)) => assert!(
+                super::rects_equivalentes(&ri, &rz),
+                "{sel}: {ri:?} != {rz:?}"
+            ),
             other => panic!("{sel}: the generated box must answer both ways: {other:?}"),
         }
     }
@@ -169,14 +234,23 @@ fn fragments_holding_generated_boxes_survive_a_rebuild() {
     const HTML: &str = "<style>.b::before{content:'x';display:block;height:10px} \
         .f{display:flex} .f::after{content:'';width:7px;height:7px}</style>\
         <div id=a class=b>a</div><div id=f class=f><span>s</span></div><p id=t>texto</p>";
-    let ctx = crate::layout::LayoutCtx { viewport_w: 800.0, viewport_h: 600.0, measurer: &crate::layout::ApproxMeasurer };
+    let ctx = crate::layout::LayoutCtx {
+        viewport_w: 800.0,
+        viewport_h: 600.0,
+        measurer: &crate::layout::ApproxMeasurer,
+    };
     let mut dom = crate::parse_html_to_dom(HTML);
     let _ = crate::layout::layout_cached(&dom, &ctx);
     dom.set_text(dom.query("#t").unwrap(), "outro texto");
     crate::metrics::counters::reset();
     let _ = crate::layout::layout_cached(&dom, &ctx);
     let m = crate::metrics::counters::snapshot();
-    assert_eq!((m.fragment_patches, m.fragment_misses), (1, 1), "hits={}", m.fragment_hits);
+    assert_eq!(
+        (m.fragment_patches, m.fragment_misses),
+        (1, 1),
+        "hits={}",
+        m.fragment_hits
+    );
 }
 
 /// The incremental seam refuses a container whose generated box APPEARED —
@@ -189,8 +263,12 @@ fn the_seam_sees_a_generated_box_appear() {
     let com = crate::parse_html_to_dom("<style>p::before{content:'x'}</style><p id=p>oi</p>");
     let (a, b) = (sem.box_tree(), com.box_tree());
     let (pa, pb) = (a.boxes_of(no(&sem, "#p"))[0], b.boxes_of(no(&com, "#p"))[0]);
-    assert!(!super::super::fragment::stitching::same_children_sequence(&a, pa, &b, pb));
+    assert!(!super::super::fragment::stitching::same_children_sequence(
+        &a, pa, &b, pb
+    ));
     let b2 = crate::boxes::build_mirror(&com);
     let pb2 = b2.boxes_of(no(&com, "#p"))[0];
-    assert!(super::super::fragment::stitching::same_children_sequence(&b, pb, &b2, pb2));
+    assert!(super::super::fragment::stitching::same_children_sequence(
+        &b, pb, &b2, pb2
+    ));
 }

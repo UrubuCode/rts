@@ -39,10 +39,22 @@ mod tests {
 
     #[test]
     fn as_duas_auto_centram_e_uma_so_empurra_para_o_seu_lado() {
-        assert_eq!(off_cross(false, false, 100.0, 30.0), None, "sem auto manda o align");
+        assert_eq!(
+            off_cross(false, false, 100.0, 30.0),
+            None,
+            "sem auto manda o align"
+        );
         assert_eq!(off_cross(true, true, 100.0, 30.0), Some(35.0));
-        assert_eq!(off_cross(true, false, 100.0, 30.0), Some(70.0), "margin-top: auto = fundo");
-        assert_eq!(off_cross(false, true, 100.0, 30.0), Some(0.0), "margin-bottom: auto = topo");
+        assert_eq!(
+            off_cross(true, false, 100.0, 30.0),
+            Some(70.0),
+            "margin-top: auto = fundo"
+        );
+        assert_eq!(
+            off_cross(false, true, 100.0, 30.0),
+            Some(0.0),
+            "margin-bottom: auto = topo"
+        );
     }
 
     #[test]

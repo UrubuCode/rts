@@ -76,15 +76,15 @@
 use super::{BoxId, BoxTree};
 
 mod anonymous_table;
-mod items;
 mod generated;
-use anonymous_table::is_table_part_child;
-use items::{
-    run_without_line_content, e_item_de_bloco, fecha_fragmento, out_of_flow,
-    is_block_level_child, is_inline_flow_box, FlowItem,
-};
+mod items;
 use crate::dom::{Dom, NodeIdx, NodeKind};
 use crate::style::DisplayKind;
+use anonymous_table::is_table_part_child;
+use items::{
+    FlowItem, e_item_de_bloco, fecha_fragmento, is_block_level_child, is_inline_flow_box,
+    out_of_flow, run_without_line_content,
+};
 
 /// Builds the tree: one box per element that has a computed style, with an
 /// inline box split around a block-level child (CSS 2.1 §9.2.1.1).
@@ -144,6 +144,12 @@ impl Construcao<'_> {
             let Some(p) = parent else { return };
             let source = self.tree.style_source(p);
             self.tree.push_text(node, source, p);
+            return;
+        }
+        if matches!(
+            &self.dom.node(node).kind,
+            NodeKind::Comment(_) | NodeKind::Document
+        ) {
             return;
         }
         // An element the cascade refuses generates no box. The style itself is
@@ -250,9 +256,8 @@ impl Construcao<'_> {
             .computed_style_idx(node)
             .and_then(|c| c.effective_display())
             == Some(DisplayKind::TableCell);
-        cell
-            || crate::boxes::context::element_formatting_context(self.dom, node).inner
-                == crate::boxes::InnerDisplay::Flow
+        cell || crate::boxes::context::element_formatting_context(self.dom, node).inner
+            == crate::boxes::InnerDisplay::Flow
     }
 
     /// Lays the flattened items of a container that SPLIT into boxes: each run
@@ -404,7 +409,8 @@ impl Construcao<'_> {
         let children: Vec<NodeIdx> = self.dom.node(node).children.clone();
         let mut r = false;
         for c in children {
-            if is_block_level_child(self.dom, c) || (is_inline_flow_box(self.dom, c) && self.bolha(c))
+            if is_block_level_child(self.dom, c)
+                || (is_inline_flow_box(self.dom, c) && self.bolha(c))
             {
                 r = true;
                 break;

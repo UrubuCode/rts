@@ -16,14 +16,22 @@ use crate::table::tests::{geometria, rect};
 /// Tolerância do corpus (`tests/css/README.md`): 1px.
 const TOL: f32 = 1.0;
 
-fn afirma_rect(dom: &crate::Dom, list: &crate::paint::DisplayList, sel: &str, esperado: (f32, f32, f32, f32)) {
+fn afirma_rect(
+    dom: &crate::Dom,
+    list: &crate::paint::DisplayList,
+    sel: &str,
+    esperado: (f32, f32, f32, f32),
+) {
     let r = rect(dom, list, sel, 0);
     let got = (r.x, r.y, r.w, r.h);
     let bate = (got.0 - esperado.0).abs() <= TOL
         && (got.1 - esperado.1).abs() <= TOL
         && (got.2 - esperado.2).abs() <= TOL
         && (got.3 - esperado.3).abs() <= TOL;
-    assert!(bate, "{sel}: esperado {esperado:?} (Chrome), obtido {got:?}");
+    assert!(
+        bate,
+        "{sel}: esperado {esperado:?} (Chrome), obtido {got:?}"
+    );
 }
 
 const TRANSFORM_ORIGIN_HTML: &str = r#"<!DOCTYPE html>

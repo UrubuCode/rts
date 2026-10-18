@@ -49,7 +49,10 @@ fn margem_auto_no_eixo_principal_vence_o_justify_content_da_sua_coluna() {
   <div id="i6" style="margin-left:auto;margin-bottom:auto"></div>
 </div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // Coluna 1 (i1-i3): SEM margem auto, `justify-content:space-around` vale
     // por inteiro — free=220-3*28-2*40=56, leading=56/6=9.33 (o `geometria`
     // zera a margem UA do `body`, por isso os valores absolutos aqui são os
@@ -61,9 +64,17 @@ fn margem_auto_no_eixo_principal_vence_o_justify_content_da_sua_coluna() {
     // Coluna 2 (i4-i6): a margem `auto` de i6 vence o justify-content —
     // encostados ao topo (sem leading nenhum), só o `row-gap` declarado
     // (40) entre eles.
-    assert_eq!(r("#i4"), (142.0, 1.0, 28.0, 28.0), "sem leading: a margem auto de i6 anula o space-around desta coluna");
+    assert_eq!(
+        r("#i4"),
+        (142.0, 1.0, 28.0, 28.0),
+        "sem leading: a margem auto de i6 anula o space-around desta coluna"
+    );
     assert_eq!(r("#i5"), (142.0, 69.0, 28.0, 28.0));
-    assert_eq!(r("#i6"), (142.0, 137.0, 28.0, 28.0), "sem deslocamento em x: a coluna e tao larga quanto o item (align-content:space-around nao estica)");
+    assert_eq!(
+        r("#i6"),
+        (142.0, 137.0, 28.0, 28.0),
+        "sem deslocamento em x: a coluna e tao larga quanto o item (align-content:space-around nao estica)"
+    );
 }
 
 /// `column-gap` SOZINHO (sem `row-gap` nem o shorthand `gap`) não é um
@@ -88,5 +99,9 @@ fn column_gap_sozinho_nao_e_row_gap_de_reserva_numa_coluna() {
     assert_eq!((a.x, a.y, a.w, a.h), (0.0, 0.0, 20.0, 20.0));
     // `#b` logo a seguir a `#a`, SEM os 10px de `column-gap` — só um `row-gap`
     // declarado abriria espaço aqui.
-    assert_eq!((b.x, b.y, b.w, b.h), (0.0, 20.0, 20.0, 20.0), "column-gap sozinho nao separa itens no eixo principal de uma coluna");
+    assert_eq!(
+        (b.x, b.y, b.w, b.h),
+        (0.0, 20.0, 20.0, 20.0),
+        "column-gap sozinho nao separa itens no eixo principal de uma coluna"
+    );
 }

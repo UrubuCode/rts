@@ -75,7 +75,11 @@ impl Dom {
         let (scroll_x, scroll_y) = self.page_scroll();
         let (vw, vh) = self.viewport.get();
         let idx = crate::layout::measure::active_measurer::with_active(|measurer| {
-            let ctx = crate::layout::LayoutCtx { viewport_w: vw, viewport_h: vh, measurer };
+            let ctx = crate::layout::LayoutCtx {
+                viewport_w: vw,
+                viewport_h: vh,
+                measurer,
+            };
             crate::layout::layout_cached(self, &ctx).hit_test(x + scroll_x, y + scroll_y)
         })?;
         Some(self.id_of_idx(idx))
@@ -87,10 +91,15 @@ impl Dom {
         let idx = self.resolve(id)?;
         let (vw, vh) = self.viewport.get();
         crate::layout::measure::active_measurer::with_active(|measurer| {
-            let ctx = crate::layout::LayoutCtx { viewport_w: vw, viewport_h: vh, measurer };
+            let ctx = crate::layout::LayoutCtx {
+                viewport_w: vw,
+                viewport_h: vh,
+                measurer,
+            };
             let list = crate::layout::layout_cached(self, &ctx);
             let geometry = self.geometry_cached(&ctx);
-            list.rect_of_in(&geometry, idx).map(|r| [r.x, r.y, r.w, r.h])
+            list.rect_of_in(&geometry, idx)
+                .map(|r| [r.x, r.y, r.w, r.h])
         })
     }
 }

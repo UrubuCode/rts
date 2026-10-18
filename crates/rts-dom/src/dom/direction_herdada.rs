@@ -38,7 +38,12 @@ pub(in crate::dom) fn para_logicas(pai: Option<&ComputedStyle>) -> Option<Direct
     let pai = pai?;
     let e_linha_de_flex = matches!(
         pai.effective_display(),
-        Some(DisplayKind::Flex | DisplayKind::FlexWrap | DisplayKind::InlineFlex | DisplayKind::InlineFlexWrap)
+        Some(
+            DisplayKind::Flex
+                | DisplayKind::FlexWrap
+                | DisplayKind::InlineFlex
+                | DisplayKind::InlineFlexWrap
+        )
     ) && !pai.flex_direction.map(|f| f.is_column()).unwrap_or(false);
     if e_linha_de_flex {
         return None;

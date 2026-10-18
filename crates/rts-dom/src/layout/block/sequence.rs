@@ -115,7 +115,10 @@ pub(in crate::layout) fn flow_sequence(
             "a caixa {b:?} nao e filha de {box_id:?}, e a descida chegou a ela na mesma"
         );
         match tree.node_of(b) {
-            Some(dom_node) => da_arvore.push(FlowStep::Node { dom_node, box_id: b }),
+            Some(dom_node) => da_arvore.push(FlowStep::Node {
+                dom_node,
+                box_id: b,
+            }),
             None => da_arvore.push(FlowStep::AnonymousBox(b)),
         }
     }
@@ -255,7 +258,9 @@ fn splice_boxless(
     let mut s = 0usize;
     for f in da_arvore {
         let index = match &f {
-            FlowStep::Node { dom_node, .. } | FlowStep::NoBox(dom_node) => dom_children.iter().position(|d| d == dom_node),
+            FlowStep::Node { dom_node, .. } | FlowStep::NoBox(dom_node) => {
+                dom_children.iter().position(|d| d == dom_node)
+            }
             FlowStep::AnonymousBox(b) => position_in_container(dom, tree, id, *b),
         };
         while s < boxless.len() && Some(boxless[s].0) < index {
@@ -305,7 +310,8 @@ mod tests {
     /// sequência do CONTENTOR que muda, porque é para ele que a partição sobe.
     #[test]
     fn a_particao_aparece_na_sequencia_do_contentor_e_nao_na_do_inline() {
-        let dom = crate::parse_html_to_dom("<section><span>texto<div>bloco</div>texto</span></section>");
+        let dom =
+            crate::parse_html_to_dom("<section><span>texto<div>bloco</div>texto</span></section>");
         let tree = dom.box_tree();
         let p = node_of_tag(&dom, "section");
         let div = node_of_tag(&dom, "div");
@@ -392,7 +398,10 @@ mod tests {
         let seq = flow_sequence(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 1);
-        assert!(box_of_step(&seq[0]).is_some(), "o texto tem caixa desde que a arvore a da");
+        assert!(
+            box_of_step(&seq[0]).is_some(),
+            "o texto tem caixa desde que a arvore a da"
+        );
         let dom_node = node_of_step(&seq[0]).expect("um no de texto tem no");
         assert!(matches!(&dom.node(dom_node).kind, NodeKind::Text(_)));
     }
@@ -406,7 +415,10 @@ mod tests {
         let seq = flow_sequence(&dom, &tree, div, tree.boxes_of(div)[0]);
 
         assert_eq!(seq.len(), 3, "dois <p> e o comentario entre eles");
-        assert!(box_of_step(&seq[1]).is_none(), "um comentario nao gera caixa");
+        assert!(
+            box_of_step(&seq[1]).is_none(),
+            "um comentario nao gera caixa"
+        );
         let dom_node = node_of_step(&seq[1]).expect("um comentario e um no, so nao tem caixa");
         assert!(matches!(&dom.node(dom_node).kind, NodeKind::Comment(_)));
     }
@@ -427,17 +439,26 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(anonymous_boxes.len(), 2, "uma corrida de cada lado do <p>: {seq:?}");
+        assert_eq!(
+            anonymous_boxes.len(),
+            2,
+            "uma corrida de cada lado do <p>: {seq:?}"
+        );
 
         let comments = |b: BoxId| {
             flow_sequence(&dom, &tree, div, b)
                 .iter()
                 .filter(|p| {
-                    node_of_step(p).is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
+                    node_of_step(p)
+                        .is_some_and(|n| matches!(&dom.node(n).kind, NodeKind::Comment(_)))
                 })
                 .count()
         };
-        assert_eq!(comments(anonymous_boxes[0]), 1, "o comentario esta nesta corrida");
+        assert_eq!(
+            comments(anonymous_boxes[0]),
+            1,
+            "o comentario esta nesta corrida"
+        );
         assert_eq!(comments(anonymous_boxes[1]), 0, "e nao na outra");
     }
 

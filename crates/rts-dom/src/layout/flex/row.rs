@@ -120,7 +120,16 @@ pub(in crate::layout) fn layout_children_horizontal(
 
     // ── PRÉ-PASS: coleta cada filho renderável com a BASE flex + fatores ─────────
     let mut items: Vec<FlexItem> = Vec::new();
-    items.extend(super::pseudo::flex_item(dom, &list.tree, container, id, crate::style::PseudoElement::Before, content_w, font_size, ctx));
+    items.extend(super::pseudo::flex_item(
+        dom,
+        &list.tree,
+        container,
+        id,
+        crate::style::PseudoElement::Before,
+        content_w,
+        font_size,
+        ctx,
+    ));
     // A ordem visual de base de um flex/wrap vem das caixas-filhas desta
     // construção. O DOM ainda responde às propriedades e ao texto, mas não
     // volta a escolher uma caixa para cada item.
@@ -191,9 +200,17 @@ pub(in crate::layout) fn layout_children_horizontal(
         // comentário em `item_basis_and_height` (lote `flex-basis-content-
         // wrap`, `flexbox-flex-basis-content-003a/003b`, WPT).
         let effective_align = ccss.align_self.unwrap_or(align);
-        let (base, h, transferred) = crate::layout::replaced::transferred_size::item_basis_and_height(
-            dom, child, box_id, content_w, container_content_h, effective_align, font_size, ctx,
-        );
+        let (base, h, transferred) =
+            crate::layout::replaced::transferred_size::item_basis_and_height(
+                dom,
+                child,
+                box_id,
+                content_w,
+                container_content_h,
+                effective_align,
+                font_size,
+                ctx,
+            );
         // Piso de `min-content` (spec §9.7): reusa `cell_min_max` do algoritmo
         // de largura de tabela — a mesma pergunta ("a palavra mais larga, com o
         // frame do elemento"), sem duplicar a travessia; medir aqui sempre é
@@ -206,11 +223,43 @@ pub(in crate::layout) fn layout_children_horizontal(
         // documenta o WPT que isto media errado).
         let (max_main, declared_min) =
             super::limits::item_limits(dom, child, &ccss, content_w, font_size, ctx);
-        let min_main = if transferred {
+        // Um item TRANSFERIDO (§9.2) toma a sua `base` como piso — mas isso só
+        // vale para um REPLACED, cujo conteúdo é a média e não tem min-content de
+        // caixa. Um não-replaced transferido pela razão (uma `<div
+        // aspect-ratio>` esticada) AINDA tem o min-content do seu conteúdo como
+        // piso automático (§4.5): um item `aspect-ratio:1/2` com filho `width:
+        // 100` fica 100, não os 50 da razão (WPT `flex-aspect-ratio-049`). Sem
+        // esta distinção, ou o não-replaced ignorava o conteúdo (049), ou o
+        // replaced apanhava um piso que o erguia acima do stretch
+        // (`intrinsic-percent-replaced-027`).
+        // Um item transferido pela razão a partir do CROSS esticado (sem height
+        // própria) ainda tem o min-content do conteúdo como piso automático
+        // (§4.5): `aspect-ratio:1/2` com filho `width:100` fica 100, não os 50 da
+        // razão (WPT `flex-aspect-ratio-049`). MAS só nesse caso — se o item TEM
+        // height própria (a razão veio dela, não do stretch), o piso NÃO se
+        // aplica, senão o min-content de um filho replaced grande ergue o item
+        // acima do que a razão/altura mandam (`intrinsic-percent-replaced-027`:
+        // `.test{height:100%;aspect-ratio:1/1}` com um `<canvas>` default de
+        // 300). Um item transferido REPLACED nunca apanha o piso (o seu conteúdo
+        // é a média, sem min-content de caixa).
+        let replaced = matches!(
+            &dom.node(child).kind,
+            crate::dom::NodeKind::Element { tag }
+                if matches!(tag.as_str(), "img" | "canvas" | "video" | "svg" | "object" | "embed" | "iframe")
+        );
+        let do_content_floor = transferred && !replaced && ccss.height.is_none();
+        let min_main = if transferred && !do_content_floor {
             base
         } else {
             let min_main = crate::table::min_content(dom, child, font_size, ctx);
-            super::limits::automatic_min(dom, child, min_main, &ccss, content_w, font_size, ctx, max_main)
+            let auto = super::limits::automatic_min(
+                dom, child, min_main, &ccss, content_w, font_size, ctx, max_main,
+            );
+            if transferred {
+                base.max(auto)
+            } else {
+                auto
+            }
         };
         let min_main = declared_min.unwrap_or(min_main); // declarado vence o automático inteiro
         // A BASE não é capada por min/max aqui (Flexbox §9.2 passo 3: o "flex
@@ -248,7 +297,16 @@ pub(in crate::layout) fn layout_children_horizontal(
         });
     }
     // `::after` é o último item; o `::before` entrou antes do laço.
-    items.extend(super::pseudo::flex_item(dom, &tree, container, id, crate::style::PseudoElement::After, content_w, font_size, ctx));
+    items.extend(super::pseudo::flex_item(
+        dom,
+        &tree,
+        container,
+        id,
+        crate::style::PseudoElement::After,
+        content_w,
+        font_size,
+        ctx,
+    ));
     // `order` reordena ANTES do wrap (sort estável: empate = ordem do documento).
     items.sort_by_key(|it| it.order);
 
@@ -279,7 +337,15 @@ pub(in crate::layout) fn layout_children_horizontal(
     // Sob `balance` a quebra pisa em zero (`hypothetical_for_wrap`); o main final não.
     let hypothetical: Vec<f32> = items
         .iter()
-        .map(|it| super::limits::hypothetical_for_wrap(it.base, it.min_main, it.max_main, grid_cols, balanced))
+        .map(|it| {
+            super::limits::hypothetical_for_wrap(
+                it.base,
+                it.min_main,
+                it.max_main,
+                grid_cols,
+                balanced,
+            )
+        })
         .collect();
     // Primeiro descobre o número mínimo de linhas que o wrap ordinário pede.
     // `flex-line-count` só pode aumentar esse mínimo; não pode fazer uma linha
@@ -359,7 +425,13 @@ pub(in crate::layout) fn layout_children_horizontal(
         lines.push(Vec::new());
         let mut line_w = 0.0f32;
         for it in items {
-            let hyp = super::limits::hypothetical_for_wrap(it.base, it.min_main, it.max_main, grid_cols, balanced);
+            let hyp = super::limits::hypothetical_for_wrap(
+                it.base,
+                it.min_main,
+                it.max_main,
+                grid_cols,
+                balanced,
+            );
             let cur = lines.last_mut().unwrap();
             let with_gap = if cur.is_empty() { 0.0 } else { gap };
             if wrap && !cur.is_empty() && line_w + with_gap + hyp > content_w {
@@ -449,7 +521,8 @@ pub(in crate::layout) fn layout_children_horizontal(
         // re-mede a ALTURA com o main final (mais largura → menos linhas de texto);
         // só quando o main mudou (senão a medição do pré-pass vale).
         for it in line.iter_mut() {
-            it.main = super::limits::with_final_limits(it.main, it.min_main, it.max_main, grid_cols);
+            it.main =
+                super::limits::with_final_limits(it.main, it.min_main, it.max_main, grid_cols);
             if !it.is_text && it.pseudo.is_none() && (it.main - it.base).abs() > 0.5 {
                 let (_, h) = measure_block(
                     dom,
@@ -487,9 +560,20 @@ pub(in crate::layout) fn layout_children_horizontal(
         // Margens `auto` no eixo principal repartem o espaço livre POSITIVO entre
         // si e anulam o `justify-content` (spec §8.1) — `mx-auto` centra,
         // `margin-left: auto` empurra para a direita.
-        let auto_sides = line.iter().map(|it| usize::from(it.auto_left) + usize::from(it.auto_right)).sum::<usize>();
-        let auto_each = if auto_sides > 0 && free > 0.0 { free / auto_sides as f32 } else { 0.0 };
-        let (leading, between) = if auto_each > 0.0 { (0.0, 0.0) } else { justify_offsets(justify, free, n) };
+        let auto_sides = line
+            .iter()
+            .map(|it| usize::from(it.auto_left) + usize::from(it.auto_right))
+            .sum::<usize>();
+        let auto_each = if auto_sides > 0 && free > 0.0 {
+            free / auto_sides as f32
+        } else {
+            0.0
+        };
+        let (leading, between) = if auto_each > 0.0 {
+            (0.0, 0.0)
+        } else {
+            justify_offsets(justify, free, n)
+        };
 
         let mut x = content_x + leading;
         for (j, it) in line.iter().enumerate() {
@@ -522,7 +606,8 @@ pub(in crate::layout) fn layout_children_horizontal(
             // definido). `!=` continua a evitar o `layout_block_reusing`
             // redundante quando já bate.
             let item_align = it.align_self.unwrap_or(align);
-            let auto_cross = super::auto_margins::off_cross(it.auto_top, it.auto_bottom, line_h, it.h);
+            let auto_cross =
+                super::auto_margins::off_cross(it.auto_top, it.auto_bottom, line_h, it.h);
             let stretches = item_align == crate::style::AlignItems::Stretch
                 && it.can_stretch
                 && !it.is_text
@@ -564,7 +649,11 @@ pub(in crate::layout) fn layout_children_horizontal(
                 // Item com margem `auto` no principal já foi colocado (`x`
                 // acima) — a largura disponível é o seu próprio `main`, senão
                 // o bloco reparte de novo e centra duas vezes (`claude-flex-item-max-width`).
-                let avail = if it.auto_left || it.auto_right { it.main } else { content_w };
+                let avail = if it.auto_left || it.auto_right {
+                    it.main
+                } else {
+                    content_w
+                };
                 layout_block_reusing(
                     dom,
                     it.node,

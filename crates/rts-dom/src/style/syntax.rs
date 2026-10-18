@@ -677,7 +677,10 @@ fn collect_diagnostics(items: &[AstItem]) -> Vec<Diagnostic> {
                 span: *span,
                 message: "estrutura CSS inválida ou incompleta".to_string(),
             }),
-            AstItem::QualifiedRule { block, .. } | AstItem::AtRule { block: Some(block), .. } => {
+            AstItem::QualifiedRule { block, .. }
+            | AstItem::AtRule {
+                block: Some(block), ..
+            } => {
                 if !block.closed {
                     diagnostics.push(Diagnostic {
                         severity: DiagnosticSeverity::Error,
@@ -693,14 +696,13 @@ fn collect_diagnostics(items: &[AstItem]) -> Vec<Diagnostic> {
     diagnostics
 }
 
-fn collect_component_diagnostics(
-    values: &[ComponentValue],
-    diagnostics: &mut Vec<Diagnostic>,
-) {
+fn collect_component_diagnostics(values: &[ComponentValue], diagnostics: &mut Vec<Diagnostic>) {
     for value in values {
         match value {
             ComponentValue::Function {
-                close_raw: None, span, ..
+                close_raw: None,
+                span,
+                ..
             } => diagnostics.push(Diagnostic {
                 severity: DiagnosticSeverity::Error,
                 span: *span,
@@ -915,17 +917,11 @@ impl<'a> Parser<'a> {
             end = value.span().end;
             values.push(value);
         }
-        let has_nested_rules = values.iter().any(|value| {
-            matches!(
-                value,
-                ComponentValue::SimpleBlock { open: '{', .. }
-            )
-        });
+        let has_nested_rules = values
+            .iter()
+            .any(|value| matches!(value, ComponentValue::SimpleBlock { open: '{', .. }));
         let nested = has_nested_rules.then(|| {
-            let source: String = values
-                .iter()
-                .map(ComponentValue::to_css)
-                .collect();
+            let source: String = values.iter().map(ComponentValue::to_css).collect();
             Box::new(StylesheetAst::parse(&source))
         });
         BlockAst {

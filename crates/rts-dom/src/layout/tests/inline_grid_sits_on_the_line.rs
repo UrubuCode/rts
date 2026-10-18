@@ -22,7 +22,11 @@ fn a_bare_inline_grid_shrinks_to_its_child() {
         "<div style='display:inline-grid;background:#00f'><div style='width:100px;height:20px'></div></div>",
         800.0,
     );
-    assert_eq!(colored(&list, 0x0000FFFF).w, 100.0, "shrink-to-fit, not the 800px line");
+    assert_eq!(
+        colored(&list, 0x0000FFFF).w,
+        100.0,
+        "shrink-to-fit, not the 800px line"
+    );
 }
 
 #[test]
@@ -34,6 +38,9 @@ fn an_inline_grid_sits_on_the_line_beside_text() {
     );
     let r = colored(&list, 0x0000FFFF);
     assert_eq!(r.w, 100.0);
-    assert!(r.x > 0.0, "after the word on the same line, not at the left edge: {r:?}");
+    assert!(
+        r.x > 0.0,
+        "after the word on the same line, not at the left edge: {r:?}"
+    );
     assert!(r.y < 20.0, "on the first line, not pushed below it: {r:?}");
 }

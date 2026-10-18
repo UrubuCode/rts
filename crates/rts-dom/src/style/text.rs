@@ -281,6 +281,10 @@ impl WritingMode {
     pub fn is_horizontal(self) -> bool {
         matches!(self, WritingMode::HorizontalTb)
     }
+
+    pub fn is_vertical(self) -> bool {
+        !self.is_horizontal()
+    }
 }
 
 /// O sentido físico do eixo X: LTR em `horizontal-tb` (`direction` decide);

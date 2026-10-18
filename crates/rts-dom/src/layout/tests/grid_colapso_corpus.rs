@@ -33,7 +33,8 @@ fn itens_relativos(html: &str) -> Vec<(f32, f32, f32, f32)> {
         .collect()
 }
 
-const ESTILO_BLOCO: &str = ".block { position: absolute; z-index: -1; background: green; width: 200px; height: 200px; }";
+const ESTILO_BLOCO: &str =
+    ".block { position: absolute; z-index: -1; background: green; width: 200px; height: 200px; }";
 
 /// 2×2 visíveis de uma repetição de 8: o espaço livre (150px) reparte-se por
 /// TRÊS vãos à volta de duas trilhas, e não por nove à volta de oito.

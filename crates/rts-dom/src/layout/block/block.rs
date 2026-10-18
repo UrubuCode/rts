@@ -28,17 +28,21 @@ pub(in crate::layout) use super::margin_collapse::{
 /// triggers there would be a second answer to a question this function already
 /// carries with the fixtures that pinned each one. The rule it encodes is a
 /// STYLE question and will move to `style/` with `is_block_level`.
-pub(crate) fn establishes_block_formatting_context(dom: &Dom, id: NodeIdx, css: &ComputedStyle) -> bool {
+pub(crate) fn establishes_block_formatting_context(
+    dom: &Dom,
+    id: NodeIdx,
+    css: &ComputedStyle,
+) -> bool {
     // The style half lives in `bfc_style.rs` since BT-5, so a box with no
     // node — a generated one — can ask it too. What stays is what only a node
     // answers: being the root, and `overflow` propagating to the viewport.
     let parent_css = dom.node(id).parent.and_then(|p| dom.computed_style_idx(p));
     super::bfc_style::by_style(css, parent_css.as_deref())
-        || (super::bfc_style::overflow_establishes(css) && !super::overflow_viewport::propagated_to_viewport(dom, id))
+        || (super::bfc_style::overflow_establishes(css)
+            && !super::overflow_viewport::propagated_to_viewport(dom, id))
         || dom.node(id).parent == Some(dom.root)
         || super::rotated::is_frame_root(id)
 }
-
 
 /// Faz o layout de UM nó-bloco a partir de `(x, y)`, com `avail_w` de largura
 /// disponível (a do container). Emite os itens (fundo/borda/texto/filhos) na
@@ -107,14 +111,34 @@ pub(crate) fn layout_block(
             // A vertical writing mode met at its boundary is laid out in a
             // rotated frame (`rotated.rs`); every other box answers `None`.
             if let Some(size) = super::rotated::layout_if_boundary(
-                dom, id, box_id, &css, tag, x, y, avail_w, avail_h, forced_outer_w, forced_outer_h, ctx, list,
+                dom,
+                id,
+                box_id,
+                &css,
+                tag,
+                x,
+                y,
+                avail_w,
+                avail_h,
+                forced_outer_w,
+                forced_outer_h,
+                ctx,
+                list,
             ) {
                 return size;
             }
             if tag == "select" {
                 return layout_select(
-                    box_id, &css, x, y, avail_w, avail_h, forced_outer_w,
-                    forced_outer_h, ctx, list,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    avail_h,
+                    forced_outer_w,
+                    forced_outer_h,
+                    ctx,
+                    list,
                 );
             }
             // `<input>`/`<textarea>` editável (mini-browser): void, sem filhos — o
@@ -159,20 +183,54 @@ pub(crate) fn layout_block(
             // existe e fica vazia, que é o que o browser também faz.
             // The replaced element's `height: %` basis: its parent's height, kept
             // only when the parent declares one (`definite_cb_height`).
-            let replaced_cb_h = dom
-                .node(id)
-                .parent
-                .and_then(|p| dom.computed_style_idx(p))
-                .and_then(|pcss| crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h));
+            let replaced_cb_h = dom.node(id).parent.and_then(|p| {
+                let pcss = dom.computed_style_idx(p)?;
+                let is_grid_item = dom
+                    .node(p)
+                    .parent
+                    .and_then(|gp| dom.computed_style_idx(gp))
+                    .is_some_and(|gp_css| {
+                        gp_css
+                            .effective_display()
+                            .is_some_and(crate::style::DisplayKind::is_grid_container)
+                    });
+                if is_grid_item {
+                    avail_h
+                } else {
+                    crate::inline_box::replaced_clamp::definite_cb_height(&pcss, avail_h)
+                }
+            });
             if tag == "canvas" {
-                if let Some(r) = layout_canvas(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, ctx, list) {
+                if let Some(r) = layout_canvas(
+                    dom,
+                    id,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    replaced_cb_h,
+                    ctx,
+                    list,
+                ) {
                     return r;
                 }
             }
             if tag == "img" {
-                if let Some(img) =
-                    layout_image(dom, id, box_id, &css, x, y, avail_w, replaced_cb_h, forced_outer_w, forced_outer_h, ctx, list)
-                {
+                if let Some(img) = layout_image(
+                    dom,
+                    id,
+                    box_id,
+                    &css,
+                    x,
+                    y,
+                    avail_w,
+                    replaced_cb_h,
+                    forced_outer_w,
+                    forced_outer_h,
+                    ctx,
+                    list,
+                ) {
                     return img;
                 }
                 // sem pixels ainda (não baixou/decodificou): ocupa 0 (não pinta nada).
@@ -183,15 +241,39 @@ pub(crate) fn layout_block(
             // página fica correta mesmo sem o SVG (logo/ícones do google ocupam o
             // espaço certo em vez de colapsar pra 0×0).
             if tag == "svg" {
-                if let Some(r) = layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list) {
+                if let Some(r) =
+                    layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list)
+                {
                     return r;
+                }
+            }
+            // Um `<object type="image/svg+xml" data="data:image/svg+xml,…">` é
+            // um SVG embutido: mesma caixa replaced que um `<svg>`, dimensionada
+            // pelo `width`/`aspect-ratio` do próprio objecto, pintada com a cor
+            // de dentro do SVG (WPT `replaced-element-006`). Um `<object>` que
+            // aponte para outra coisa (um PNG) não entra aqui e continua a não
+            // pintar — carregar esse recurso é outro trabalho.
+            if tag == "object" {
+                let is_svg = dom.node(id).attr("type").as_deref() == Some("image/svg+xml")
+                    || dom
+                        .node(id)
+                        .attr("data")
+                        .is_some_and(|d| d.starts_with("data:image/svg+xml,"));
+                if is_svg {
+                    if let Some(r) =
+                        layout_svg_placeholder(dom, id, box_id, &css, x, y, avail_w, ctx, list)
+                    {
+                        return r;
+                    }
                 }
             }
             css
         }
         // Texto solto ao nível de bloco: uma linha com a fonte do PAI
         // (`bare_text.rs`); whitespace estrutural não cria linha nenhuma.
-        NodeKind::Text(t) => return super::bare_text::layout_bare_text(dom, id, t, x, y, ctx, list),
+        NodeKind::Text(t) => {
+            return super::bare_text::layout_bare_text(dom, id, box_id, t, x, y, avail_w, ctx, list);
+        }
         _ => return (0.0, 0.0), // Comment / Document aninhado: não pinta.
     };
 
@@ -254,6 +336,7 @@ pub(crate) fn layout_block(
     // `frame` horizontal = o que cerca o content no eixo X (margin+border+padding
     // dos DOIS lados); cada termo já é a soma do seu eixo.
     let frame = margin_h + border_h + padding_h;
+    let frame_v = pad_top + pad_bottom + border_v;
     let font_for_content = font_px(&css, DEFAULT_FONT_SIZE);
     let border_box = css.border_box.unwrap_or(false);
     // O PAPEL da caixa (item de lista, parte de tabela) — decidido já aqui e não
@@ -264,7 +347,112 @@ pub(crate) fn layout_block(
     // ocupar o pai. É a diferença mais visível entre uma tabela e um `<div>`, e
     // sem ela cada tabela da página nasce com a largura da coluna inteira.
     let shrink_to_fit = shrink_to_fit || used.is_some_and(crate::style::DisplayKind::is_table_box);
-    let content_w = if let Some(fw) = forced_outer_w {
+    // `mxw` é computado ANTES de `mnw` porque o mínimo TRANSFERIDO pela razão
+    // (de `min-height`, abaixo) é limitado pelo `max-width` DEFINIDO — a regra
+    // "the definite max-width should win the transferred minimum" (CSS Sizing 4
+    // §5.1, WPT `block-aspect-ratio-045`). Um `min-width` EXPLÍCITO continua a
+    // vencer o max (CSS normal, via `clamp_size`); só o transferido é capado.
+    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
+    // em vários sítios da `aspect-ratio`: o máximo-por-razão aqui, a largura- e
+    // a altura-por-razão abaixo e o piso de conteúdo. Computado uma vez.
+    let parent_display = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .and_then(|pcss| pcss.effective_display());
+    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
+    let parent_is_flex_or_grid =
+        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
+    // O ajuste de `border-box` desconta a moldura de um `min`/`max-width`, que
+    // em `border-box` INCLUI padding+borda. MAS uma palavra-chave INTRÍNSECA
+    // (`max-content`/`min-content`/`fit-content`/`stretch`) já resolve para
+    // espaço de CONTEÚDO (é a largura que o conteúdo pede, sem moldura) — aí
+    // descontar a moldura conta-a-se em duplicado e a caixa sai estreita demais
+    // (WPT `border-box-and-max-content-001`: `max-width:max-content;
+    // box-sizing:border-box;padding:0 20px` sobre um conteúdo de 50 dava 10, não
+    // os 50 de conteúdo + 40 de padding = 90).
+    let is_keyword = |d: Option<crate::style::Dimension>| {
+        matches!(
+            d,
+            Some(
+                crate::style::Dimension::MaxContent
+                    | crate::style::Dimension::MinContent
+                    | crate::style::Dimension::FitContent
+                    | crate::style::Dimension::FitContentLength(_)
+                    | crate::style::Dimension::Stretch
+            )
+        )
+    };
+    let bb_adjust = |v: f32, d: Option<crate::style::Dimension>| {
+        if border_box && !is_keyword(d) {
+            (v - (padding_h + border_h)).max(0.0)
+        } else {
+            v
+        }
+    };
+    let mxw = crate::layout::measure::intrinsic_min_max::resolve(
+        css.max_width,
+        dom,
+        id,
+        font_for_content,
+        ctx,
+        &resolve,
+    )
+    .map(|v| bb_adjust(v, css.max_width));
+    // O MÁXIMO de largura TRANSFERIDO de um `max-height` definido pela razão
+    // (CSS Sizing 4 §5.1). NÃO é um `max-width` qualquer: ao contrário deste,
+    // NÃO corta abaixo do mínimo de conteúdo (WPT `block-aspect-ratio-043`) e
+    // NÃO vence uma `width` definida (WPT `-039`). Por isso vive à parte de
+    // `mxw` e é aplicado só no ramo de largura-auto, com piso de min-content.
+    let transferred_max_w = (!parent_is_flex_or_grid && css.width.is_none())
+        .then(|| {
+            let mxh = resolve_height(css.max_height, avail_h, &resolve)?;
+            crate::layout::measure::aspect_ratio::width_for_height(
+                &css,
+                mxh,
+                padding_h + border_h,
+                frame_v,
+            )
+        })
+        .flatten();
+    let mnw = crate::layout::measure::intrinsic_min_max::resolve(
+        css.min_width,
+        dom,
+        id,
+        font_for_content,
+        ctx,
+        &resolve,
+    )
+    .map(|v| bb_adjust(v, css.min_width))
+    .or_else(|| {
+        let mnh = resolve_height(css.min_height, avail_h, &resolve)?;
+        let transferido = crate::layout::measure::aspect_ratio::width_for_height(
+            &css,
+            mnh,
+            padding_h + border_h,
+            frame_v,
+        )?;
+        // O mínimo TRANSFERIDO não ultrapassa um tamanho DEFINIDO no mesmo eixo:
+        // nem o `max-width` definido (WPT `block-aspect-ratio-045`), nem uma
+        // `width` definida (WPT `block-aspect-ratio-048`, onde `width:100` com
+        // `min-height:100; ratio 2/1` fica 100 de largura, não os 200 que a
+        // razão pede de volta). CSS Sizing 4 §5.1.
+        let def_w = css.width.and_then(|w| {
+            crate::style::dimensao_absoluta(w, &resolve).map(|v| {
+                if border_box {
+                    (v - (padding_h + border_h)).max(0.0)
+                } else {
+                    v
+                }
+            })
+        });
+        let teto = match (mxw, def_w) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        Some(teto.map_or(transferido, |t| transferido.min(t)))
+    });
+    let mut content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
         // Vence width/min-max (o clamp no resolve flex é corte documentado).
@@ -291,10 +479,47 @@ pub(crate) fn layout_block(
         // manda a spec — e neste elemento o `max-width:200px` da mesma regra NÃO
         // morde: o conteúdo pede 166,6. Se um dia bater nos 200, é sinal de que
         // esta medição passou a calcular a mais.
-        let base = if css.width == Some(crate::style::Dimension::MaxContent) {
-            crate::layout::flex::column_wrap_width::max_content_width(dom, id, box_id, font_for_content, avail_h, &css, ctx)
+        let base = if css.width == Some(crate::style::Dimension::Stretch) {
+            // `width: stretch` (CSS Sizing 4): PREENCHE o disponível, mesmo num
+            // contexto shrink-to-fit (float/abspos/inline-block) onde `auto`
+            // encolheria. Num bloco em fluxo normal coincide com o `auto`.
+            (avail_w - frame).max(0.0)
+        } else if css.width == Some(crate::style::Dimension::MaxContent) {
+            crate::layout::flex::column_wrap_width::max_content_width(
+                dom,
+                id,
+                box_id,
+                font_for_content,
+                avail_h,
+                &css,
+                ctx,
+            )
+        } else if css.width == Some(crate::style::Dimension::MinContent) {
+            (crate::table::min_content(dom, id, font_for_content, ctx) - frame).max(0.0)
+        } else if let Some(crate::style::Dimension::FitContentLength(c)) = css.width {
+            // `width: fit-content(L)` (CSS Sizing 3 §4.1):
+            // `max(min-content, min(L, max-content))`, tudo em espaço de CONTEÚDO.
+            // `L` resolve contra o eixo (px/%/em/…); em `border-box` inclui o
+            // frame, logo desconta-se. Se `L` não resolve (p.ex. `%` sem base
+            // finita), cai no shrink-to-fit no disponível, como a keyword.
+            let maxc = crate::layout::flex::column_wrap_width::max_content_width(
+                dom, id, box_id, font_for_content, avail_h, &css, ctx,
+            );
+            let minc =
+                (crate::table::min_content(dom, id, font_for_content, ctx) - frame).max(0.0);
+            let limit = match crate::style::Dimension::Calc(c)
+                .resolve_family(&resolve, css.font_family.as_deref())
+            {
+                Some(l) if border_box => (l - frame).max(0.0),
+                Some(l) => l,
+                None => (avail_w - frame).max(0.0),
+            };
+            maxc.min(limit).max(minc)
         } else {
-            match css.width.and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref())) {
+            match css
+                .width
+                .and_then(|d| d.resolve_family(&resolve, css.font_family.as_deref()))
+            {
                 // `width` explícito. Em `border-box`, o `width` INCLUI padding+border —
                 // então o content é `width - (padding_h + 2*border)`. Em content-box
                 // (default), o `width` JÁ é o content.
@@ -312,35 +537,130 @@ pub(crate) fn layout_block(
                 // `None` em qualquer outro caso, e cai no shrink-to-fit de
                 // sempre.
                 None if shrink_to_fit => {
-                    let h = forced_outer_h
-                        .map(|h| (h - pad_top - pad_bottom - border_top - border_bottom).max(0.0));
-                    crate::layout::replaced::transferred_size::transferred_intrinsic_width(dom, id, font_for_content, h, ctx)
+                    let frame_v_local = pad_top + pad_bottom + border_top + border_bottom;
+                    let h = forced_outer_h.map(|h| (h - frame_v_local).max(0.0));
+                    let content_based =
+                        crate::layout::replaced::transferred_size::transferred_intrinsic_width(
+                            dom,
+                            id,
+                            font_for_content,
+                            h,
+                            ctx,
+                        )
                         .unwrap_or_else(|| {
                             crate::layout::flex::limits::shrink_to_fit_width(
-                                dom, id, (avail_w - frame).max(0.0), frame, font_for_content, ctx,
+                                dom,
+                                id,
+                                (avail_w - frame).max(0.0),
+                                frame,
+                                font_for_content,
+                                ctx,
+                            )
+                        });
+                    // `aspect-ratio` with a DEFINITE height derives the width in a
+                    // shrink-to-fit box (CSS Sizing 4 §5): `display:inline-block;
+                    // height:100px; aspect-ratio:0.7` is 70 wide, not shrunk to
+                    // its (empty) content's 0 (WPT `block-aspect-ratio-036`). But
+                    // the content's min-content is still a FLOOR (min-width:auto):
+                    // an abspos `height:100; aspect-ratio:1/2` with a `width:100`
+                    // child is 100 wide, not the ratio's 50 (WPT `abspos-013`) —
+                    // hence `max(ratio, content_based)`. Horizontal only: in a
+                    // vertical writing mode the ratio maps to the swapped axes,
+                    // which this physical path does not model (WPT
+                    // `block-aspect-ratio-017`, left to the content as before).
+                    let horizontal = css.writing_mode.is_none_or(|w| w.is_horizontal());
+                    let def_h = h.or_else(|| {
+                        resolve_height(css.height, avail_h, &resolve).map(|hv| {
+                            if border_box {
+                                (hv - frame_v_local).max(0.0)
+                            } else {
+                                hv
+                            }
+                        })
+                    });
+                    let ratio_w = if horizontal {
+                        def_h.and_then(|hc| {
+                            crate::layout::measure::aspect_ratio::width_for_height(
+                                &css,
+                                hc,
+                                padding_h + border_h,
+                                frame_v_local,
                             )
                         })
+                    } else {
+                        None
+                    };
+                    match ratio_w {
+                        Some(rw) => rw.max(content_based),
+                        None => content_based,
+                    }
                 }
-                None => (avail_w - frame).max(0.0),
+                // Um bloco de largura auto normalmente ESTICA (avail_w). Mas
+                // com `aspect-ratio` e uma ALTURA definida, a largura vem da
+                // razão aplicada a essa altura (CSS Sizing 4 §5.1):
+                // `height:100;aspect-ratio:1/1` é 100 de largura, não a do pai
+                // (WPT `block-aspect-ratio-002` e a família). Itens de flex/grid
+                // ficam de fora — a largura deles vem do contentor.
+                None => {
+                    let frame_v_l = pad_top + pad_bottom + border_top + border_bottom;
+                    let def_h = (!parent_is_flex_or_grid)
+                        .then(|| {
+                            resolve_height(css.height, avail_h, &resolve).map(|h| {
+                                if border_box {
+                                    (h - frame_v_l).max(0.0)
+                                } else {
+                                    h
+                                }
+                            })
+                        })
+                        .flatten();
+                    let from_ratio = def_h.and_then(|h| {
+                        crate::layout::measure::aspect_ratio::width_for_height(
+                            &css,
+                            h,
+                            padding_h + border_h,
+                            frame_v_l,
+                        )
+                    });
+                    // O min-content é o PISO (min-width:auto) tanto da largura
+                    // derivada da razão (WPT `block-aspect-ratio-015`: `height:
+                    // 100; ratio 1/2` com filho `width:100` é 100, não os 50 da
+                    // razão) quanto do MÁXIMO transferido de `max-height` (WPT
+                    // `-043`: o máximo transferido não corta o mínimo de
+                    // conteúdo). Só se calcula quando a razão entra em jogo.
+                    //
+                    // MAS só com overflow VISÍVEL: num contentor de scroll
+                    // (`overflow:hidden`/`auto`/`scroll`) o mínimo automático é
+                    // ZERO, não o conteúdo (CSS Sizing 3 §min-size-auto), e o
+                    // conteúdo que não cabe é cortado — `aspect-ratio:1/1;
+                    // overflow:hidden` com um filho de 500px fica na razão (100),
+                    // não alarga para 500 (WPT `block-aspect-ratio-018`).
+                    let vis = |o: Option<crate::scrollbar::Overflow>| {
+                        matches!(
+                            o.unwrap_or(crate::scrollbar::Overflow::Visible),
+                            crate::scrollbar::Overflow::Visible | crate::scrollbar::Overflow::Clip
+                        )
+                    };
+                    let piso_de_conteudo = vis(css.overflow_x) && vis(css.overflow_y);
+                    let content_min = || {
+                        if piso_de_conteudo {
+                            (crate::table::min_content(dom, id, font_for_content, ctx) - frame)
+                                .max(0.0)
+                        } else {
+                            0.0
+                        }
+                    };
+                    let auto_w = match from_ratio {
+                        Some(r) => r.max(content_min()),
+                        None => (avail_w - frame).max(0.0),
+                    };
+                    match transferred_max_w {
+                        Some(tmax) => auto_w.min(tmax).max(content_min()),
+                        None => auto_w,
+                    }
+                }
             }
         };
-        // CLAMP min/max-width (#1751): `used = clamp(min, width, max)`. min/max são
-        // sobre a CAIXA (border-box) na spec — descontamos o frame p/ aplicar ao
-        // content quando border-box; em content-box já são do content.
-        let mnw = crate::layout::measure::intrinsic_min_max::resolve(css.min_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
-            if border_box {
-                (v - (padding_h + border_h)).max(0.0)
-            } else {
-                v
-            }
-        });
-        let mxw = crate::layout::measure::intrinsic_min_max::resolve(css.max_width, dom, id, font_for_content, ctx, &resolve).map(|v| {
-            if border_box {
-                (v - (padding_h + border_h)).max(0.0)
-            } else {
-                v
-            }
-        });
         crate::style::clamp_size(base, mnw, mxw)
     };
 
@@ -358,8 +678,9 @@ pub(crate) fn layout_block(
     // container (WPT `floats-clear/float-non-replaced-width-001` e
     // `float-replaced-width-001`, ambos com `n` idêntico — a mesma causa).
     let is_float = crate::layout::float::float::float_of(dom, id) != crate::style::FloatSide::None;
+    let is_oof = crate::layout::positioned::positioned::is_out_of_flow(dom, id);
     let has_width = css.width.is_some() || css.max_width.is_some();
-    if is_float {
+    if is_float || is_oof {
         if m.left.is_auto() {
             margin_left = 0.0;
         }
@@ -392,7 +713,14 @@ pub(crate) fn layout_block(
     let content_x = x + margin_left + border_left + pad_left;
     // MARGIN-COLLAPSE PAI→PRIMEIRO-FILHO — porquê em `escaped_margin.rs`.
     let escaped_top_pre = crate::layout::block::escaped_margin::escaped_at_top(
-        dom, id, &css, content_w, font_for_content, pad_top, border_top, ctx,
+        dom,
+        id,
+        &css,
+        content_w,
+        font_for_content,
+        pad_top,
+        border_top,
+        ctx,
     );
     let content_y =
         y + (collapse_margin(margin_top, escaped_top_pre) - escaped_top_pre) + border_top + pad_top;
@@ -468,6 +796,17 @@ pub(crate) fn layout_block(
             let mv = margin_top + margin_bottom;
             (oh - mv - frame_v).max(0.0)
         })
+    } else if css.height == Some(crate::style::Dimension::Stretch) {
+        // `height: stretch` (CSS Sizing 4): PREENCHE a altura do containing
+        // block (quando definida) em vez de ser o conteúdo — o análogo vertical
+        // do `width:stretch`. `avail_h` já é o content-box do pai. MAS um
+        // `forced_outer_h` imposto vence: num abspos esticado entre UM inset e o
+        // static-position, `positioned.rs` já calculou a altura exata (CB menos
+        // os insets) e passa-a aqui — sem isto o stretch tomava o CB inteiro e a
+        // caixa saía deslocada (WPT `css-sizing/stretch/abspos-2`).
+        forced_outer_h
+            .map(|oh| ((oh - (margin_top + margin_bottom)) - frame_v).max(0.0))
+            .or_else(|| avail_h.map(|h| if border_box { (h - frame_v).max(0.0) } else { h }))
     } else {
         resolve_height(css.height, avail_h, &resolve)
             .map(|h| {
@@ -477,10 +816,33 @@ pub(crate) fn layout_block(
                     h
                 }
             })
-            // `aspect-ratio`: without a declared height, the width transfers
-            // through the ratio (`measure::aspect_ratio`, shared with the grid).
+            // `aspect-ratio`: without a declared height, the height transfers
+            // from the (already resolved) width through the ratio
+            // (`measure::aspect_ratio`). A shrink-to-fit box with auto width —
+            // a FLOAT, an inline-block, an abspos — resolved its width from the
+            // content first, so the ratio gives the height from that width: a
+            // `float; aspect-ratio:1/1` around a `width:100` child is 100 tall,
+            // not 0 (WPT `block-aspect-ratio-019` and the 0.977% family).
+            //
+            // Skipped only where the height is governed otherwise: a GRID item
+            // (the grid resolves the ratio against its track, not this width —
+            // WPT `grid-aspect-ratio-021`) and a flex item with an IMPOSED
+            // height (`forced_outer_h`, taken by the arm just below; an
+            // unstretched flex item has none and does want the ratio).
             .or_else(|| {
-                crate::layout::measure::aspect_ratio::height_for_width(&css, content_w, padding_h + border_h, frame_v)
+                if shrink_to_fit
+                    && css.width.is_none()
+                    && (parent_is_grid || forced_outer_h.is_some())
+                {
+                    None
+                } else {
+                    crate::layout::measure::aspect_ratio::height_for_width(
+                        &css,
+                        content_w,
+                        padding_h + border_h,
+                        frame_v,
+                    )
+                }
             })
             // ALTURA IMPOSTA pelo flex (grow/stretch): o `forced_outer_h` é a altura
             // OUTER do item — o content-box é ela menos margem-v/frame. Vira o
@@ -524,7 +886,25 @@ pub(crate) fn layout_block(
     // é, o mesmo corte que `mxh_pre` já fazia ao lado. Sem isto, `#item h=0`
     // e `#neto h=0` (`claude-flex-definite-min-height`) — o `avail_children`
     // nunca incluía `mnh_pre`, calculado três linhas acima e descartado.
-    let avail_children = explicit_content_h.or(mxh_pre).or(mnh_pre);
+    //
+    // MAS só num contentor FLEX/GRID: a §4.1 citada acima é regra de flex/grid,
+    // não de bloco. Num BLOCO comum, `min-height` é só um piso e NÃO torna a
+    // altura definida — um `height:%`/inset relativo do filho resolve contra
+    // ela como `auto` (CSS 2.1 §10.5). Aplicá-la a blocos fazia `top:-10000%`
+    // resolver contra os 100px do pai (WPT `position-relative-006`/`-007`) e
+    // `height:50%` sob um pai só-`min-height` dar 50 em vez de auto.
+    let min_height_is_definite = css
+        .effective_display()
+        .is_some_and(|d| d.is_flex_container() || d.is_grid_container());
+    // Um `forced_outer_h` imposto como main de flex (hard) com `avail_h`
+    // INDEFINIDO é content-based: dimensiona a caixa, mas NÃO é CB definido para
+    // o `height:%` dos filhos (Flexbox §4.1, WPT `percentage-heights-008`). O
+    // flex só passa `avail_h` definido quando o `it.h` o é (ver `column.rs`).
+    // Exclui-se só do `avail_children`; o tamanho usa o `explicit_content_h`.
+    let forced_is_indefinite = forced_outer_h_hard && avail_h.is_none();
+    let avail_children = (if forced_is_indefinite { None } else { explicit_content_h })
+        .or(mxh_pre)
+        .or(if min_height_is_definite { mnh_pre } else { None });
     // O limiar de QUEBRA do `flex-wrap` numa coluna é uma pergunta MAIS
     // ESTREITA do que `avail_children`: precisa de um main size que o
     // CONTEÚDO não vai alargar — `height`/`max-height` são isso (um deles
@@ -573,11 +953,13 @@ pub(crate) fn layout_block(
         .map(|f| {
             matches!(
                 f,
-                crate::style::FlexDirection::RowReverse | crate::style::FlexDirection::ColumnReverse
+                crate::style::FlexDirection::RowReverse
+                    | crate::style::FlexDirection::ColumnReverse
             )
         })
         .unwrap_or(false);
-    let is_reverse = crate::layout::flex::axes::effective_reverse(wm, dir, is_column, is_reverse_kw);
+    let is_reverse =
+        crate::layout::flex::axes::effective_reverse(wm, dir, is_column, is_reverse_kw);
     let is_flex =
         display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
     // `gap`/`row-gap` seguem a KEYWORD, nunca o eixo físico que `writing-mode`
@@ -647,28 +1029,33 @@ pub(crate) fn layout_block(
         // grid porque uma `<table>` que o autor não tocou tem eixo vertical e
         // cairia no empilhamento de blocos, descendo por `<tr>` como se fossem
         // `<div>` — que é exatamente o que a página real mostrava.
-        _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => crate::table::layout_table(
-            dom,
-            id,
-            box_id,
-            content_x,
-            content_y,
-            children_w,
-            // Same definiteness the table's OWN children (`avail_children`,
-            // three lines above) already resolve `height:%` against: only an
-            // explicitly specified height (or its `aspect-ratio`/flex
-            // equivalents), never the auto result of stacking the rows. A
-            // `<tr>`/`<tbody>`'s `top:100%` (CSS 2.1 §9.3.2) reuses this same
-            // value rather than the laid-out row height — see
-            // `table::relative`.
-            explicit_content_h,
-            &css,
-            font_size,
-            ctx,
-            list,
-        ),
-        _ if css.effective_display().is_some_and(crate::style::DisplayKind::is_grid_container) => {
-            layout_children_grid(
+        _ if used.is_some_and(crate::style::DisplayKind::is_table_box) => {
+            crate::table::layout_table(
+                dom,
+                id,
+                box_id,
+                content_x,
+                content_y,
+                children_w,
+                // Same definiteness the table's OWN children (`avail_children`,
+                // three lines above) already resolve `height:%` against: only an
+                // explicitly specified height (or its `aspect-ratio`/flex
+                // equivalents), never the auto result of stacking the rows. A
+                // `<tr>`/`<tbody>`'s `top:100%` (CSS 2.1 §9.3.2) reuses this same
+                // value rather than the laid-out row height — see
+                // `table::relative`.
+                explicit_content_h,
+                &css,
+                font_size,
+                ctx,
+                list,
+            )
+        }
+        _ if css
+            .effective_display()
+            .is_some_and(crate::style::DisplayKind::is_grid_container) =>
+        {
+            let (grid_w, grid_h) = layout_children_grid(
                 dom,
                 id,
                 box_id,
@@ -680,7 +1067,16 @@ pub(crate) fn layout_block(
                 font_size,
                 ctx,
                 list,
-            )
+            );
+            let is_intrinsic_w = matches!(css.width, Some(crate::style::Dimension::MinContent) | Some(crate::style::Dimension::MaxContent));
+            if (shrink_to_fit && css.width.is_none() || is_intrinsic_w) && forced_outer_w.is_none() {
+                content_w = crate::style::clamp_size(grid_w, mnw, mxw);
+            }
+            if css.height.is_none() && css.aspect_ratio.is_some() {
+                crate::layout::measure::aspect_ratio::height_for_width(&css, content_w, padding_h + border_h, frame_v).unwrap_or(grid_h)
+            } else {
+                grid_h
+            }
         }
         // wrap (inline-block flow): lado a lado E QUEBRA linha quando enche.
         d if d == crate::block::DISPLAY_WRAP => layout_children_horizontal(
@@ -711,6 +1107,7 @@ pub(crate) fn layout_block(
                 content_y,
                 children_w,
                 avail_children,
+                explicit_content_h,
                 &css,
                 font_size,
                 children_bfc,
@@ -757,8 +1154,16 @@ pub(crate) fn layout_block(
     // even when its `display` is only the tag's default — `effective_display`
     // cannot say so, having no tag — and a block's height is its LINES, not the
     // font's content area: a floated `<span>` is 18px tall, not 17.
-    let blockified = css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
-        || css.position.is_some_and(|p| p.out_of_flow());
+    let blockified = css
+        .float_side
+        .is_some_and(|f| f != crate::style::FloatSide::None)
+        || css.position.is_some_and(|p| p.out_of_flow())
+        || dom
+            .node(id)
+            .parent
+            .and_then(|p| dom.computed_style_idx(p))
+            .and_then(|pcss| pcss.effective_display())
+            .is_some_and(|d| d.is_grid_container() || d.is_flex_container());
     let inline_box_id = used.is_none()
         && css.effective_display().is_none()
         && css.height.is_none()
@@ -773,18 +1178,62 @@ pub(crate) fn layout_block(
     // pai (20px), usa a métrica interna do widget (~15px). O frame da UA já
     // está em `frame_v`; só substituímos o conteúdo natural, deixando o
     // `forced_outer_h` do flex atuar mais abaixo.
-    let is_button = matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
-    let content_h = if is_button && css.height.is_none() {
+    let is_button =
+        matches!(&dom.node(id).kind, crate::NodeKind::Element { tag } if tag == "button");
+    let content_h = if is_button
+        && css.height.is_none()
+        && !css
+            .effective_display()
+            .is_some_and(|d| d.is_grid_container() || d.is_flex_container())
+    {
         content_h.min(15.0)
     } else {
         content_h
     };
     // `height` explícito SOBRESCREVE a altura do conteúdo (a caixa tem essa altura,
     // mesmo que o conteúdo seja menor) — já resolvido antes dos filhos.
-    let content_h = explicit_content_h.unwrap_or(content_h);
+    //
+    // EXCEÇÃO com `aspect-ratio` e SEM `height`: aí `explicit_content_h` é a
+    // altura DA RAZÃO (não um `height` real), e a min-content do conteúdo é um
+    // PISO sobre ela (a "aspect-ratio minimum" do CSS Sizing 4 §5.1, que vale
+    // quando `min-height:auto`) — não é sobrescrita. `width:100;aspect-ratio:
+    // 2/1` com um filho de 100px é 100 de alto, não os 50 da razão, tanto num
+    // abspos (WPT `abspos-012`) como num BLOCO comum (WPT
+    // `block-aspect-ratio-009`): a razão dá o tamanho PREFERIDO, o conteúdo
+    // cresce-o. Excluídos os itens de FLEX/GRID — a altura deles vem do
+    // contentor, não desta transferência.
+    // `overflow` não-visível (hidden/auto/scroll) DESLIGA o piso automático: o
+    // conteúdo que não cabe é cortado/rolado, a razão vence (mesma regra que
+    // `flex::limits::automatic_min`; WPT `block-aspect-ratio-010`/`-011`/`-012`,
+    // `overflow:hidden|auto|scroll` com filho de 600px continua 100 de alto).
+    // `Clip` conta como visível aqui (não é scroll container), como lá.
+    use crate::scrollbar::Overflow::{Clip, Visible};
+    let eixo_visivel = |o: Option<crate::scrollbar::Overflow>| matches!(o.unwrap_or(Visible), Visible | Clip);
+    let overflow_visivel = eixo_visivel(css.overflow_x) && eixo_visivel(css.overflow_y);
+    let content_h = match explicit_content_h {
+        Some(e)
+            if css.height.is_none()
+                && css.aspect_ratio.is_some()
+                // só com `min-height: auto`: um `min-height` DECLARADO (mesmo
+                // `0`) é o mínimo e desliga o piso automático, deixando a razão
+                // vencer e o conteúdo transbordar (WPT `abspos-018`,
+                // `min-height:0` com filho de 200px continua 100 de alto).
+                && css.min_height.is_none()
+                && !parent_is_flex_or_grid
+                && overflow_visivel =>
+        {
+            e.max(content_h)
+        }
+        Some(e) => e,
+        None => content_h,
+    };
     // CLAMP min/max-height (#1751): used = clamp(min, height, max) — eixo vertical
     // (`%` contra a ALTURA do containing block, como o height).
-    let content_h = crate::style::clamp_size(content_h, mnh_pre, mxh_pre);
+    let content_h = if forced_outer_h_hard {
+        content_h
+    } else {
+        crate::style::clamp_size(content_h, mnh_pre, mxh_pre)
+    };
     // STRETCH do flex: altura OUTER imposta pelo container (align-items/self:
     // stretch) → content = outer - margens - frame_v; nunca ENCOLHE o conteúdo
     // (max com o natural — um item mais alto que a linha não é cortado).
@@ -929,7 +1378,7 @@ pub(crate) fn layout_block(
                 }),
             );
             at += 1;
-        } else if let Some(color) = css.bg.filter(|_| paints_background) {
+        } else if let Some(color) = css.bg.filter(|c| paints_background && (*c & 0xff) != 0) {
             let color = paint_color(color);
             list.pieces.insert(
                 at,
@@ -945,7 +1394,14 @@ pub(crate) fn layout_block(
         // (quando já carregados; ver `fundo_imagem`) tapam o que a cor pintou,
         // exatamente como o Blink compõe as camadas de `background`.
         for item in crate::paint::background_image::background_pixels_items(
-            dom, id, &css, box_rect, border_top, border_right, border_bottom, border_left,
+            dom,
+            id,
+            &css,
+            box_rect,
+            border_top,
+            border_right,
+            border_bottom,
+            border_left,
         ) {
             list.pieces.insert(at, Piece::Item(item));
             at += 1;
@@ -1038,14 +1494,57 @@ pub(crate) fn layout_block(
         // INTEIRO, fundo e borda incluídos.
         list.pieces.insert(
             box_start,
-            Piece::Item(DisplayItem::BeginClip { rect, node: id, offset_x: 0.0, offset_y: 0.0 }),
+            Piece::Item(DisplayItem::BeginClip {
+                rect,
+                node: id,
+                offset_x: 0.0,
+                offset_y: 0.0,
+            }),
         );
         list.pieces.push(Piece::Item(DisplayItem::EndClip));
     }
 
     // POSITION:RELATIVE — porquê e o que desloca em `relative.rs`. ANTES do
     // `transform`: a caixa de referência dele é a posição já deslocada.
-    apply_relative_offset(box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list);
+    apply_relative_offset(
+        box_id, &css, avail_w, avail_h, font_size, box_start, ctx, list,
+    );
+    // An IN-FLOW block-level child that breaks a relative INLINE ancestor also
+    // moves by that ancestor's offset — `apply_relative_offset` only moved the
+    // block's OWN. Inline content around the block already gets this through
+    // `inline_offset` (`relative.rs`), but a block leaves the line, so a
+    // relative `<span>` wrapping a block left the block unmoved (WPT
+    // `position-relative-001`). `inline_offset` walks the DOM parents while
+    // they are inline and stops at the first block/inline-block — so it is
+    // `(0, 0)` in the common case (a block whose parent is a block) and costs
+    // only that check. Same range as the own-offset shift: the block's whole
+    // emitted subtree.
+    //
+    // OUT-OF-FLOW boxes (`absolute`/`fixed`) are excluded: their containing
+    // block is not the inline's, so `avail_w`/`avail_h` here are the viewport
+    // or the positioned ancestor — resolving the inline ancestors' percentages
+    // against that is wrong, and they already take their position from the
+    // inline's static position (`relative.rs`, `positioned/`). Without this
+    // guard a `position:fixed` box under two relative spans moved by `top:100%`
+    // of the VIEWPORT (the nested-inline-percentage test).
+    let out_of_flow = matches!(
+        css.position,
+        Some(crate::style::Position::Absolute | crate::style::Position::Fixed)
+    );
+    if !out_of_flow {
+        let (inl_dx, inl_dy) = crate::layout::positioned::relative::inline_offset(
+            dom,
+            dom.node(id).parent,
+            avail_w,
+            avail_h,
+            ctx,
+        );
+        if inl_dx != 0.0 || inl_dy != 0.0 {
+            crate::layout::positioned::relative::shift_from(
+                list, box_start, Some(box_id), inl_dx, inl_dy,
+            );
+        }
+    }
 
     // ── TRANSFORM (matriz 2D completa: matrix/translate/scale/rotate/skew,
     // compostas por `TransformList::resolve`): pós-processa os itens DESTE
@@ -1069,7 +1568,9 @@ pub(crate) fn layout_block(
             // atalho abaixo e para os dois ramos: a bbox de um rect só
             // transladado é só transladada, a mesma chamada serve os dois.
             let from_tree = std::rc::Rc::clone(&list.tree);
-            crate::layout::fragment::transform_rects::transform_box_rects(&from_tree, box_id, &mat, list);
+            crate::layout::fragment::transform_rects::transform_box_rects(
+                &from_tree, box_id, &mat, list,
+            );
 
             // Um transform MUTA itens, e um item de subárvore reusada é
             // COMPARTILHADO — mutá-lo no lugar mudaria o desenho de todo mundo
@@ -1100,7 +1601,8 @@ pub(crate) fn layout_block(
                 // as this did, also flattened the preceding siblings, and the
                 // `PushTransform` then landed inside them (`pieces::flatten_from`).
                 crate::paint::pieces::flatten_from(&mut list.pieces, box_start);
-                list.pieces.insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
+                list.pieces
+                    .insert(box_start, Piece::Item(DisplayItem::PushTransform { mat }));
                 list.pieces.push(Piece::Item(DisplayItem::PopTransform));
             }
         }

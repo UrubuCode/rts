@@ -39,7 +39,9 @@ impl ComputedStyle {
             "background-repeat" => crate::style::decoracao::fmt_bg_repeat(
                 self.bg_image_layers.as_deref(),
                 self.bg_repeat_layers.as_deref(),
-                self.bg_repeat.map(|r| r.css().to_string()).unwrap_or_default(),
+                self.bg_repeat
+                    .map(|r| r.css().to_string())
+                    .unwrap_or_default(),
             ),
             "background-position" => crate::style::decoracao::fmt_bg_position(
                 self.bg_image_layers.as_deref(),

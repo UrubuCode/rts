@@ -45,11 +45,26 @@ fn align_items_baseline_encosta_os_tres_itens_na_mesma_baseline() {
     // (h=80/72) em vez da natural (h=20), e `#i3` (com height explícita)
     // escapava ao stretch mas ficava com y=0.
     let (dom, list) = geometria(ALIGN_BASELINE_HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#linha1"), (0.0, 0.0, 400.0, 80.0));
-    assert_eq!(r("#i1"), (0.0, 8.0, 64.0, 20.0), "sem margem: desce até à margin-top de i2 (8)");
-    assert_eq!(r("#i2"), (64.0, 8.0, 64.0, 20.0), "margin-top:8 próprio: fica no início da linha");
-    assert_eq!(r("#i3"), (128.0, 8.0, 64.0, 40.0), "height explícita, mas a baseline ainda encosta em y=8");
+    assert_eq!(
+        r("#i1"),
+        (0.0, 8.0, 64.0, 20.0),
+        "sem margem: desce até à margin-top de i2 (8)"
+    );
+    assert_eq!(
+        r("#i2"),
+        (64.0, 8.0, 64.0, 20.0),
+        "margin-top:8 próprio: fica no início da linha"
+    );
+    assert_eq!(
+        r("#i3"),
+        (128.0, 8.0, 64.0, 40.0),
+        "height explícita, mas a baseline ainda encosta em y=8"
+    );
 }
 
 #[test]
@@ -59,11 +74,26 @@ fn align_self_baseline_com_um_so_participante_fica_no_topo_da_linha() {
     // `align-items:center` do container (que continua a centrar `#j1`/`#j2`,
     // servindo de controlo).
     let (dom, list) = geometria(ALIGN_BASELINE_HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#linha2"), (0.0, 88.0, 400.0, 80.0));
-    assert_eq!(r("#j1"), (0.0, 118.0, 64.0, 20.0), "center: inalterado, controlo");
-    assert_eq!(r("#j2"), (64.0, 118.0, 64.0, 20.0), "center: inalterado, controlo");
-    assert_eq!(r("#j3"), (128.0, 88.0, 64.0, 20.0), "baseline sozinho: offset 0, topo da linha");
+    assert_eq!(
+        r("#j1"),
+        (0.0, 118.0, 64.0, 20.0),
+        "center: inalterado, controlo"
+    );
+    assert_eq!(
+        r("#j2"),
+        (64.0, 118.0, 64.0, 20.0),
+        "center: inalterado, controlo"
+    );
+    assert_eq!(
+        r("#j3"),
+        (128.0, 88.0, 64.0, 20.0),
+        "baseline sozinho: offset 0, topo da linha"
+    );
 }
 
 #[test]
@@ -78,7 +108,10 @@ fn flex_wrap_reverse_quebra_como_wrap_mas_pinta_a_ultima_linha_no_topo() {
 </style>
 <div class="w"><div id="i1"></div><div id="i2"></div><div id="i3"></div><div id="i4"></div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     // linha de origem 1 (i1,i2) desenha-se DEPOIS (embaixo); linha de
     // origem 2 (i3,i4) desenha-se PRIMEIRO (em cima) — CSS Flexbox §8.3.
     assert_eq!(r("#i1"), (0.0, 40.0, 128.0, 40.0));
@@ -98,10 +131,21 @@ fn flex_wrap_reverse_com_uma_linha_incompleta_no_fim_do_documento() {
 </style>
 <div id="linha"><div id="a">a</div><div id="b">b</div><div id="c">c</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
     assert_eq!(r("#linha"), (0.0, 0.0, 400.0, 80.0));
-    assert_eq!(r("#c"), (0.0, 0.0, 160.0, 40.0), "linha de origem 2, sozinha: pinta-se no topo");
-    assert_eq!(r("#a"), (0.0, 40.0, 160.0, 40.0), "linha de origem 1: pinta-se embaixo");
+    assert_eq!(
+        r("#c"),
+        (0.0, 0.0, 160.0, 40.0),
+        "linha de origem 2, sozinha: pinta-se no topo"
+    );
+    assert_eq!(
+        r("#a"),
+        (0.0, 40.0, 160.0, 40.0),
+        "linha de origem 1: pinta-se embaixo"
+    );
     assert_eq!(r("#b"), (160.0, 40.0, 160.0, 40.0));
 }
 
@@ -122,10 +166,25 @@ fn cross_size_de_uma_linha_baseline_e_o_envelope_nao_o_maior_item() {
 </style>
 <div class="w"><div id="a">a</div><div id="b">b</div><div id="c">c</div><div id="d">d</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#a"), (0.0, 10.0, 100.0, 18.0), "ascent maior (margin-top:10): offset 0, desce só a margem");
-    assert_eq!(r("#b"), (100.0, 10.0, 100.0, 40.0), "descent maior (height:40): offset 10, mesma baseline de #a");
-    assert_eq!(r("#c"), (0.0, 50.0, 100.0, 18.0), "2ª linha começa no ENVELOPE de cima (50), não no max cru (40)");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#a"),
+        (0.0, 10.0, 100.0, 18.0),
+        "ascent maior (margin-top:10): offset 0, desce só a margem"
+    );
+    assert_eq!(
+        r("#b"),
+        (100.0, 10.0, 100.0, 40.0),
+        "descent maior (height:40): offset 10, mesma baseline de #a"
+    );
+    assert_eq!(
+        r("#c"),
+        (0.0, 50.0, 100.0, 18.0),
+        "2ª linha começa no ENVELOPE de cima (50), não no max cru (40)"
+    );
     assert_eq!(r("#d"), (100.0, 50.0, 100.0, 18.0));
 }
 
@@ -143,7 +202,18 @@ fn align_items_last_baseline_cai_no_fallback_pela_margem_inferior() {
 </style>
 <div class="outer"><div id="tall"></div><div id="short">s</div></div>"#;
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#tall"), (0.0, 40.0, 100.0, 60.0), "encosta a margem inferior (100-60)");
-    assert_eq!(r("#short"), (100.0, 82.0, 100.0, 18.0), "encosta a margem inferior (100-18), não estica");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#tall"),
+        (0.0, 40.0, 100.0, 60.0),
+        "encosta a margem inferior (100-60)"
+    );
+    assert_eq!(
+        r("#short"),
+        (100.0, 82.0, 100.0, 18.0),
+        "encosta a margem inferior (100-18), não estica"
+    );
 }

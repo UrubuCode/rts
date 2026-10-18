@@ -195,7 +195,6 @@ fn implicitly_closes(new_tag: &str, open_tag: &str) -> bool {
 // lista de campos herdáveis/animáveis vive SÓ lá (as versões locais campo-a-campo
 // que moravam aqui dessincronizavam da interpolação do anim.rs).
 
-
 /// Parseia a parte crua de atributos de uma tag (`class='card' id="x" checked`)
 /// em pares `Attr`. Tolerante: aceita aspas simples/duplas ou sem aspas, e
 /// atributo sem valor (`checked` → value vazio). Nomes em minúsculas; valores
@@ -265,7 +264,6 @@ fn parse_attrs(raw: &str) -> Vec<Attr> {
     attrs
 }
 
-
 /// Parseia HTML para uma árvore retida. Reusa o tokenizador de `html.rs`; a
 /// diferença é a etapa sintática: aqui mantém-se uma PILHA de "elemento aberto"
 /// e cada nó nasce filho do topo da pilha.
@@ -333,7 +331,9 @@ fn parse_com_estrutura(html: &str, estrutura: bool) -> Dom {
                                 crate::bump!(tags_orphan_close);
                                 let parent = open.last().unwrap().0;
                                 dom.push(
-                                    NodeKind::Element { tag: "p".to_owned() },
+                                    NodeKind::Element {
+                                        tag: "p".to_owned(),
+                                    },
                                     Vec::new(),
                                     parent,
                                 );

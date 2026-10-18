@@ -88,16 +88,15 @@ fn decode_entities_ctx(s: &str, in_attribute: bool) -> String {
                 continue;
             }
             let candidate = &rest[..len];
-            if let Some(sub) = crate::dom::entities::decode_named_legacy_no_semicolon(candidate)
-            {
+            if let Some(sub) = crate::dom::entities::decode_named_legacy_no_semicolon(candidate) {
                 matched = Some((len, sub));
                 break;
             }
         }
         if let Some((len, sub)) = matched {
             let next = rest[len..].chars().next();
-            let suppressed = in_attribute
-                && matches!(next, Some(c) if c == '=' || c.is_ascii_alphanumeric());
+            let suppressed =
+                in_attribute && matches!(next, Some(c) if c == '=' || c.is_ascii_alphanumeric());
             if !suppressed {
                 crate::bump!(entities_decoded);
                 out.push_str(sub);

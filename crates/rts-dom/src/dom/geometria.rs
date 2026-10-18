@@ -5,7 +5,6 @@
 use super::*;
 
 impl Dom {
-
     /// `getBoundingClientRect(el)[componente]` — 0=x, 1=y, 2=largura, 3=altura.
     ///
     /// Mede com o medidor ACTIVO da thread (`layout::medidor_ativo`): quando
@@ -114,7 +113,10 @@ impl Dom {
                 // A agregacao por caixa acontece na mesma, uma camada abaixo:
                 // e `collect_geometry` que une as caixas de um no ao montar a
                 // `Geometry`.
-                match self.resolve(id).and_then(|idx| list.rect_of_in(&geometry, idx)) {
+                match self
+                    .resolve(id)
+                    .and_then(|idx| list.rect_of_in(&geometry, idx))
+                {
                     Some(r) => out.extend_from_slice(&[r.x, r.y, r.w, r.h]),
                     None => out.extend_from_slice(&[0.0, 0.0, 0.0, 0.0]),
                 }

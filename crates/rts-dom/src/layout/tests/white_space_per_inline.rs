@@ -57,7 +57,10 @@ fn a_nowrap_span_glues_only_its_own_spaces() {
     let (dom, list) = geometria(html, 800.0);
     let bb = rect(&dom, &list, "#bb", 0);
     let dd = rect(&dom, &list, "#dd", 0);
-    assert_eq!(bb.y, dd.y, "the nowrap span's own text never breaks between its spaces");
+    assert_eq!(
+        bb.y, dd.y,
+        "the nowrap span's own text never breaks between its spaces"
+    );
 }
 
 /// The container-wide `nowrap` shortcut in `linha.rs` used to force an
@@ -74,7 +77,10 @@ fn a_normal_span_inside_pre_still_wraps() {
 <pre>aaaa <span style="white-space:normal">bb <span id=cc>cc</span></span></pre>"#;
     let (dom, list) = geometria(html, 800.0);
     let cc = rect(&dom, &list, "#cc", 0);
-    assert_eq!(cc.y, 10.0, "'cc' wraps to the second line inside the normal span");
+    assert_eq!(
+        cc.y, 10.0,
+        "'cc' wraps to the second line inside the normal span"
+    );
 }
 
 /// CSS Text 3 §4.1.3 phase II: a collapsible space at the START of a line is
@@ -94,7 +100,11 @@ fn a_collapsible_space_at_line_start_still_collapses_under_nowrap() {
     <div id=apertado>um dois tres</div>"#;
     let (dom, list) = geometria(html, 2000.0);
     let apertado = rect(&dom, &list, "#apertado", 0);
-    assert_eq!(apertado.x, 0.0, "the newline after <br> collapses at the line start under nowrap, got x={}", apertado.x);
+    assert_eq!(
+        apertado.x, 0.0,
+        "the newline after <br> collapses at the line start under nowrap, got x={}",
+        apertado.x
+    );
 }
 
 /// The other end of the same rule, without the `<br>`: leading whitespace
@@ -106,7 +116,11 @@ fn leading_collapsible_space_collapses_under_nowrap_single_run() {
 <div>  <span id=a>a</span> b</div>"#;
     let (dom, list) = geometria(html, 800.0);
     let a = rect(&dom, &list, "#a", 0);
-    assert_eq!(a.x, 0.0, "leading collapsible space under nowrap must collapse, got x={}", a.x);
+    assert_eq!(
+        a.x, 0.0,
+        "leading collapsible space under nowrap must collapse, got x={}",
+        a.x
+    );
 }
 
 /// WPT `CSS2/floats/float-nowrap-4.html`: a `float` anchored mid-line inside a
@@ -138,5 +152,9 @@ fn float_anchored_after_a_nowrap_spans_own_leading_space_stays_on_line_zero() {
 </span></div>"#;
     let (dom, list) = geometria(html, 800.0);
     let f = rect(&dom, &list, "#f", 0);
-    assert_eq!(f.y, 0.0, "the float must stay on the FIRST line (beside 'Some'), got y={}", f.y);
+    assert_eq!(
+        f.y, 0.0,
+        "the float must stay on the FIRST line (beside 'Some'), got y={}",
+        f.y
+    );
 }

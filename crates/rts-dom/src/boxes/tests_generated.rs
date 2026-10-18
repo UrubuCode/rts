@@ -5,12 +5,19 @@ use super::*;
 use crate::style::PseudoElement;
 
 fn no(dom: &crate::dom::Dom, sel: &str) -> crate::dom::NodeIdx {
-    dom.resolve(dom.query(sel).unwrap_or_else(|| panic!("the fixture has {sel}")))
-        .expect("live node")
+    dom.resolve(
+        dom.query(sel)
+            .unwrap_or_else(|| panic!("the fixture has {sel}")),
+    )
+    .expect("live node")
 }
 
 fn e_gerada(tree: &BoxTree, b: BoxId, dono: crate::dom::NodeIdx, pe: PseudoElement) -> bool {
-    tree.kind(b) == BoxKind::Generated { originating: dono, pseudo: pe }
+    tree.kind(b)
+        == BoxKind::Generated {
+            originating: dono,
+            pseudo: pe,
+        }
 }
 
 /// `::before` is the FIRST child of its element's box and `::after` the LAST,
@@ -39,9 +46,15 @@ fn a_generated_box_has_no_node_and_is_not_one_of_its_elements_boxes() {
     let dom = crate::parse_html_to_dom("<style>p::before{content:'x'}</style><p id=p>oi</p>");
     let tree = build_mirror(&dom);
     let p = no(&dom, "#p");
-    let gerada = tree.generated_of(p, PseudoElement::Before).expect("p::before is a box");
+    let gerada = tree
+        .generated_of(p, PseudoElement::Before)
+        .expect("p::before is a box");
     assert_eq!(tree.node_of(gerada), None);
-    assert_eq!(tree.boxes_of(p).len(), 1, "one element box, and not the pseudo");
+    assert_eq!(
+        tree.boxes_of(p).len(),
+        1,
+        "one element box, and not the pseudo"
+    );
     assert!(!tree.boxes_of(p).contains(&gerada));
     assert_eq!(tree.parent(gerada), Some(tree.boxes_of(p)[0]));
 }
@@ -59,7 +72,11 @@ fn no_generated_box_where_the_cascade_generates_none() {
         let tree = build_mirror(&dom);
         let p = no(&dom, "#p");
         assert_eq!(tree.generated_of(p, PseudoElement::Before), None, "{css}");
-        assert_eq!(tree.children(tree.boxes_of(p)[0]).len(), 1, "{css}: only the text");
+        assert_eq!(
+            tree.children(tree.boxes_of(p)[0]).len(),
+            1,
+            "{css}: only the text"
+        );
     }
 }
 
@@ -78,10 +95,19 @@ fn a_split_inline_has_before_in_its_first_fragment_and_after_in_its_last() {
     };
     let (a, b) = (tree.children(*primeiro), tree.children(*ultimo));
     assert!(e_gerada(&tree, a[0], s, PseudoElement::Before));
-    assert!(!a.iter().any(|&c| e_gerada(&tree, c, s, PseudoElement::After)));
+    assert!(
+        !a.iter()
+            .any(|&c| e_gerada(&tree, c, s, PseudoElement::After))
+    );
     assert!(e_gerada(&tree, *b.last().unwrap(), s, PseudoElement::After));
-    assert!(!b.iter().any(|&c| e_gerada(&tree, c, s, PseudoElement::Before)));
-    assert_eq!(tree.generated_of(s, PseudoElement::After), b.last().copied());
+    assert!(
+        !b.iter()
+            .any(|&c| e_gerada(&tree, c, s, PseudoElement::Before))
+    );
+    assert_eq!(
+        tree.generated_of(s, PseudoElement::After),
+        b.last().copied()
+    );
 }
 
 /// Around an anonymous TABLE the pseudo stays a direct child of its element:
@@ -97,7 +123,13 @@ fn a_pseudo_is_a_sibling_of_the_anonymous_table_not_inside_it() {
     let d = no(&dom, "#d");
     let filhos = tree.children(tree.boxes_of(d)[0]);
     assert!(e_gerada(&tree, filhos[0], d, PseudoElement::Before));
-    assert!(matches!(tree.kind(filhos[1]), BoxKind::Anonymous { role: AnonymousRole::Table, .. }));
+    assert!(matches!(
+        tree.kind(filhos[1]),
+        BoxKind::Anonymous {
+            role: AnonymousRole::Table,
+            ..
+        }
+    ));
 }
 
 /// The layout walkers see the children WITHOUT the generated boxes — that is
@@ -110,7 +142,10 @@ fn the_walkers_view_leaves_out_exactly_the_generated_boxes() {
     );
     let tree = build_mirror(&dom);
     let caixa = tree.boxes_of(no(&dom, "#p"))[0];
-    assert_eq!(tree.children_without_generated(caixa), &tree.children(caixa)[1..2]);
+    assert_eq!(
+        tree.children_without_generated(caixa),
+        &tree.children(caixa)[1..2]
+    );
     // and a box with ONLY a `::before` is not trimmed at the other end too.
     let dom = crate::parse_html_to_dom("<style>p::before{content:'['}</style><p id=p></p>");
     let tree = build_mirror(&dom);
@@ -131,7 +166,10 @@ fn a_generated_box_answers_the_pseudos_own_style_not_its_elements() {
     let gerada = tree.generated_of(p, PseudoElement::Before).unwrap();
     assert_eq!(tree.style_source(gerada), p, "it inherits from its element");
     assert_eq!(tree.style(&dom, gerada).unwrap().color, Some(0xFF0000FF));
-    assert_eq!(tree.style(&dom, tree.boxes_of(p)[0]).unwrap().color, Some(0x00FF00FF));
+    assert_eq!(
+        tree.style(&dom, tree.boxes_of(p)[0]).unwrap().color,
+        Some(0x00FF00FF)
+    );
     assert_eq!(tree.pseudo_box(&dom, gerada).unwrap().text, "x");
 }
 
@@ -147,12 +185,17 @@ fn a_generated_box_is_what_its_own_display_says() {
     );
     let tree = build_mirror(&dom);
     let fc = |sel: &str| {
-        let g = tree.generated_of(no(&dom, sel), PseudoElement::Before).unwrap();
+        let g = tree
+            .generated_of(no(&dom, sel), PseudoElement::Before)
+            .unwrap();
         tree.formatting_context(&dom, g)
     };
     assert!(fc("#a").is_inline_level() && !fc("#a").independent);
     assert!(fc("#b").is_block_level() && !fc("#b").independent);
-    assert!(fc("#c").independent, "a flex item establishes its own context");
+    assert!(
+        fc("#c").independent,
+        "a flex item establishes its own context"
+    );
     // and a block-level `::before` makes its container a stack (§9.2.1).
     let b = tree.boxes_of(no(&dom, "#b"))[0];
     assert!(!tree.runs_inline_formatting_context(&dom, b));
@@ -168,8 +211,15 @@ fn a_generated_box_is_found_again_in_a_rebuilt_tree_and_only_if_it_exists() {
     let nova = build_mirror(&dom);
     let p = no(&dom, "#p");
     let g_antiga = antiga.generated_of(p, PseudoElement::Before).unwrap();
-    assert_eq!(nova.translate_from(&antiga, g_antiga), nova.generated_of(p, PseudoElement::Before));
-    assert_ne!(nova.translate_from(&antiga, g_antiga), Some(g_antiga), "another generation");
+    assert_eq!(
+        nova.translate_from(&antiga, g_antiga),
+        nova.generated_of(p, PseudoElement::Before)
+    );
+    assert_ne!(
+        nova.translate_from(&antiga, g_antiga),
+        Some(g_antiga),
+        "another generation"
+    );
 
     let sem = crate::parse_html_to_dom("<p id=p>oi</p>");
     let vazia = build_mirror(&sem);
@@ -193,5 +243,9 @@ fn the_memoised_tree_follows_a_viewport_change() {
     dom.set_viewport(400.0, 600.0);
     let estreita = dom.box_tree();
     assert!(estreita.generated_of(p, PseudoElement::Before).is_some());
-    assert_eq!(estreita.boxes_of(s).len(), 2, "a block <i> splits the span at this width");
+    assert_eq!(
+        estreita.boxes_of(s).len(),
+        2,
+        "a block <i> splits the span at this width"
+    );
 }

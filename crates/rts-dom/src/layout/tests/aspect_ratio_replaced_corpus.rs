@@ -33,7 +33,11 @@ fn img_com_src_sem_ratio_cai_no_default_300x150_e_a_largura_estica_na_coluna() {
                  </div>";
     let (dom, list) = geometria_com(html, 1280.0, |_d| {});
     let r = rect(&dom, &list, "img", 0);
-    assert_eq!((r.w, r.h), (150.0, 150.0), "largura esticada pela coluna; altura = default 300×150, sem razão a preservar");
+    assert_eq!(
+        (r.w, r.h),
+        (150.0, 150.0),
+        "largura esticada pela coluna; altura = default 300×150, sem razão a preservar"
+    );
 }
 
 /// `flex-aspect-ratio-intrinsic-padding-001` (WPT): um `<img>` com
@@ -50,5 +54,201 @@ fn img_com_padding_deriva_a_razao_do_content_box_nao_do_border_box() {
                  </div>";
     let (dom, list) = geometria_com(html, 1280.0, |_d| {});
     let r = rect(&dom, &list, "img", 0);
-    assert_eq!((r.w, r.h), (240.0, 140.0), "200×100 de conteúdo (razão 2:1 sobre a largura de conteúdo 200) + 20px de padding por lado");
+    assert_eq!(
+        (r.w, r.h),
+        (240.0, 140.0),
+        "200×100 de conteúdo (razão 2:1 sobre a largura de conteúdo 200) + 20px de padding por lado"
+    );
+}
+
+/// `aspect-ratio` with a DEFINITE height derives the width in a shrink-to-fit
+/// box (inline-block/float/abspos): CSS Sizing 4 §5 transfers the known height
+/// through the ratio. Before the fix the shrink-to-fit width came from the
+/// (empty) content and collapsed to 0 (WPT `css-sizing/block-aspect-ratio-036`:
+/// `display:inline-block; height:100px; aspect-ratio:0.7` → 70 wide).
+#[test]
+fn aspect_ratio_derives_width_from_definite_height_in_shrink_to_fit() {
+    use crate::table::tests::geometria;
+    let ib = r#"<body style="margin:0"><div id="t" style="display:inline-block;height:100px;aspect-ratio:0.7"></div></body>"#;
+    let (dom, list) = geometria(ib, 800.0);
+    let r = rect(&dom, &list, "#t", 0);
+    assert_eq!((r.w, r.h), (70.0, 100.0), "inline-block height×ratio");
+    let flt = r#"<body style="margin:0"><div id="t" style="float:left;height:100px;aspect-ratio:1/2"></div></body>"#;
+    let (dom, list) = geometria(flt, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 50.0, "float height×ratio");
+    // A plain block with a definite height + aspect-ratio ALSO derives its
+    // auto width from the ratio (CSS Sizing 4 §5.1; WPT `block-aspect-ratio-002`
+    // expects 100×100, not the parent's width) — it does NOT stretch here.
+    let blk = r#"<body style="margin:0"><div id="t" style="height:100px;aspect-ratio:0.7"></div></body>"#;
+    let (dom, list) = geometria(blk, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 70.0, "bloco: largura vem da razão (height×0.7)");
+}
+
+/// An out-of-flow box with BOTH insets of one axis set and that size `auto` is
+/// stretched between the insets even when an `aspect-ratio` is present — the
+/// ratio then sizes the OTHER (auto) axis from it (CSS 2.1 §10.6.4 + Sizing 4
+/// §5.1). `top:0;bottom:0;left:0;aspect-ratio:2/1` in a 300×50 block is 50 tall
+/// (the inset height) and 100 wide (height×ratio); before, a ratio guard on the
+/// height's stretch left it 0 tall / 0 wide (WPT `css-sizing/aspect-ratio/
+/// abspos-004`).
+#[test]
+fn abspos_stretches_a_both_inset_axis_then_the_ratio_sizes_the_other() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="width:300px;height:50px;position:relative">
+      <div id="t" style="aspect-ratio:2/1;position:absolute;left:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!(
+        { let r = rect(&dom, &list, "#t", 0); (r.w, r.h) },
+        (100.0, 50.0),
+        "altura dos insets, largura pela razão"
+    );
+    // With a DEFINITE width, the ratio derives the height from it (CSS Sizing 4
+    // §5.1) and wins over the inset stretch — `width:80;aspect-ratio:2/1` is 40
+    // tall, not the 50 between `top:0`/`bottom:0` (the same rule as WPT
+    // `abspos-005`, which this keeps green).
+    let w = r#"<body style="margin:0"><div style="width:300px;height:50px;position:relative">
+      <div id="t" style="width:80px;aspect-ratio:2/1;position:absolute;left:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(w, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (80.0, 40.0));
+}
+
+/// An out-of-flow box with `aspect-ratio`, auto height and a height NOT
+/// stretched between insets takes the height from its (shrink-to-fit) width
+/// through the ratio (CSS Sizing 4 §5.1): abspos `aspect-ratio:1/1` around a
+/// `width:100` child is 100 wide AND 100 tall, where the general shrink-to-fit
+/// path leaves it 0 tall (WPT `css-sizing/aspect-ratio/abspos-007`).
+#[test]
+fn abspos_aspect_ratio_transfers_width_to_height() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="position:relative;width:200px;height:200px">
+      <div id="t" style="position:absolute;aspect-ratio:1/1"><div style="width:100px"></div></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// An out-of-flow box with a DEFINITE width and `aspect-ratio` gets its height
+/// from the ratio, but the content's min-content height FLOORS it (the abspos
+/// aspect-ratio minimum, CSS Sizing 4 §5.1): `width:100;aspect-ratio:2/1` with
+/// a 100px-tall child is 100 tall, not the ratio's 50 (WPT
+/// `css-sizing/aspect-ratio/abspos-012`). With no tall content the ratio wins.
+#[test]
+fn abspos_aspect_ratio_height_is_floored_by_content() {
+    use crate::table::tests::geometria;
+    let floored = r#"<body style="margin:0"><div style="position:relative">
+      <div id="t" style="width:100px;aspect-ratio:2/1;position:absolute"><div style="height:100px"></div></div></div></body>"#;
+    let (dom, list) = geometria(floored, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+    let empty = r#"<body style="margin:0"><div style="position:relative">
+      <div id="t" style="width:100px;aspect-ratio:2/1;position:absolute"></div></div></body>"#;
+    let (dom, list) = geometria(empty, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 50.0));
+}
+
+/// Mirror of the both-insets height case: with an EXPLICIT height and
+/// `aspect-ratio`, the ratio derives the WIDTH from the height and wins over
+/// the `left`/`right` inset stretch (WPT `css-sizing/aspect-ratio/abspos-006`:
+/// `height:100;aspect-ratio:1/1;left:0;right:0;top:0;bottom:0` in a 500×100
+/// block is 100 wide, not 500). A box stretched on both axes with NO explicit
+/// size still stretches the width and takes the height from the ratio (003).
+#[test]
+fn abspos_explicit_height_plus_ratio_sizes_width_over_inset_stretch() {
+    use crate::table::tests::geometria;
+    let six = r#"<body style="margin:0"><div style="width:500px;height:100px;position:relative">
+      <div id="t" style="aspect-ratio:1/1;height:100px;position:absolute;left:0;right:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(six, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+    // Both axes stretchable, no explicit size: width stretches, height from ratio.
+    let three = r#"<body style="margin:0"><div style="width:100px;height:500px;position:relative">
+      <div id="t" style="aspect-ratio:1/1;position:absolute;left:0;right:0;top:0;bottom:0"></div></div></body>"#;
+    let (dom, list) = geometria(three, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// A `max-height` transfers through the aspect-ratio to the WIDTH of an
+/// out-of-flow box (CSS Sizing 4 §5.1): `inset:0; max-height:100px;
+/// aspect-ratio:1/1` in a 200-wide block clamps the height to 100 and the
+/// width follows to 100, not the 200 the inset stretch gave (WPT
+/// `css-sizing/aspect-ratio/abspos-021`/`-008`).
+#[test]
+fn abspos_max_height_transfers_through_ratio_to_width() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div style="position:relative;width:200px;height:300px">
+      <div id="t" style="position:absolute;left:0;right:0;top:0;bottom:0;max-height:100px;aspect-ratio:1/1"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// The CSS `aspect-ratio` property on a REPLACED element (content-box)
+/// overrides the natural/attribute ratio and derives the missing axis (CSS
+/// Sizing 4 §5): `<img height:100; aspect-ratio:1/2>` is 50 wide (WPT
+/// `css-sizing/aspect-ratio/flex-aspect-ratio-017` and the replaced family).
+/// Before, the property was ignored and only the pixel/attribute ratio fed the
+/// transfer.
+#[test]
+fn css_aspect_ratio_on_replaced_overrides_and_transfers() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><img id="t" src="x.png" style="height:100px;aspect-ratio:1/2"></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (50.0, 100.0));
+}
+
+/// A NON-replaced block with `aspect-ratio` and auto height: the ratio gives
+/// the preferred height, but the content's min-content height is a floor (the
+/// aspect-ratio minimum, CSS Sizing 4 §5.1) when `min-height:auto` and overflow
+/// is visible — `width:100;aspect-ratio:2/1` with a 100px child is 100 tall,
+/// not the ratio's 50 (WPT `block-aspect-ratio-009`). `overflow:hidden` (or
+/// auto/scroll) disables the floor: the content is clipped and the ratio wins
+/// (WPT `block-aspect-ratio-010`/`-011`/`-012`).
+#[test]
+fn block_aspect_ratio_floored_by_content_unless_overflow_clips() {
+    use crate::table::tests::geometria;
+    let floors = r#"<body style="margin:0"><div id="t" style="width:100px;aspect-ratio:2/1">
+      <div style="height:100px"></div></div></body>"#;
+    let (dom, list) = geometria(floors, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "conteúdo pisa a razão");
+    let clips = r#"<body style="margin:0"><div id="t" style="width:100px;aspect-ratio:1/1;overflow:hidden">
+      <div style="height:500px"></div></div></body>"#;
+    let (dom, list) = geometria(clips, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "overflow:hidden => razão vence, conteúdo cortado");
+}
+
+/// A shrink-to-fit box (float/inline-block) with `aspect-ratio` and auto height
+/// takes its height from the content-resolved width through the ratio: a
+/// `float; aspect-ratio:1/1` around a `width:100` child is 100 tall, not 0
+/// (WPT `css-sizing/aspect-ratio/block-aspect-ratio-019`). The old guard
+/// skipped the transfer for every auto width, catching floats too.
+#[test]
+fn float_aspect_ratio_transfers_width_to_height() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div id="t" style="float:left;aspect-ratio:1/1">
+      <div style="width:100px"></div></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// A plain BLOCK with a definite height, `aspect-ratio` and auto width derives
+/// its width from the ratio instead of stretching to the parent (CSS Sizing 4
+/// §5.1; WPT `css-sizing/aspect-ratio/block-aspect-ratio-002`: `height:100;
+/// aspect-ratio:1/1` is 100×100 in an 800px body). Flex/grid items (width from
+/// the container) are excluded.
+#[test]
+fn block_auto_width_comes_from_the_ratio_when_height_is_definite() {
+    use crate::table::tests::geometria;
+    let html = r#"<body style="margin:0"><div id="t" style="height:100px;aspect-ratio:1/1"></div></body>"#;
+    let (dom, list) = geometria(html, 800.0);
+    assert_eq!({ let r = rect(&dom, &list, "#t", 0); (r.w, r.h) }, (100.0, 100.0));
+}
+
+/// `width: stretch` fills the containing block even in a shrink-to-fit context
+/// (a float, where `auto` would shrink to content), and `height: stretch` fills
+/// the container's definite height (CSS Sizing 4; WPT `css-sizing/stretch/*`).
+#[test]
+fn stretch_keyword_fills_available_size() {
+    use crate::table::tests::geometria;
+    let w = r#"<body style="margin:0"><div style="width:200px"><div id="t" style="float:left;width:stretch;height:10px"></div></div></body>"#;
+    let (dom, list) = geometria(w, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).w, 200.0, "float width:stretch preenche, não encolhe");
+    let h = r#"<body style="margin:0"><div style="height:100px"><div id="t" style="height:stretch;width:10px"></div></div></body>"#;
+    let (dom, list) = geometria(h, 800.0);
+    assert_eq!(rect(&dom, &list, "#t", 0).h, 100.0, "height:stretch preenche a altura do pai");
 }

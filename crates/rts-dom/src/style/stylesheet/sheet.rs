@@ -5,13 +5,21 @@
 use super::*;
 
 impl Default for Stylesheet {
-    fn default() -> Stylesheet { Stylesheet::new() }
+    fn default() -> Stylesheet {
+        Stylesheet::new()
+    }
 }
 
 /// A chave `!important`: layer e `origin` invertidas (a UA vence o autor —
 /// CSS Cascade 5 §6.1), partilhada por `custom_important_from`/`declarations_from`.
-pub(super) fn important_key((origin, layer, spec, order, _): (u32, u32, u32, u32, usize)) -> (u32, u32, u32, u32) {
-    let layer = if layer == u32::MAX { 0 } else { u32::MAX - layer };
+pub(super) fn important_key(
+    (origin, layer, spec, order, _): (u32, u32, u32, u32, usize),
+) -> (u32, u32, u32, u32) {
+    let layer = if layer == u32::MAX {
+        0
+    } else {
+        u32::MAX - layer
+    };
     (1 - origin, layer, spec, order)
 }
 
@@ -34,7 +42,7 @@ impl Stylesheet {
 
     /// Garante o índice de regras sincronizado com `self.rules`. A construção é lazy
     /// porque o parser anexa as regras depois de criar o stylesheet.
-    fn ensure_rule_index(&self) {
+    pub(super) fn ensure_rule_index(&self) {
         let idx = self.index.borrow();
         if !idx.is_current(self.rules.len()) {
             drop(idx);
@@ -58,7 +66,7 @@ impl Stylesheet {
         scratch
     }
 
-    fn has_custom_rules(&self) -> bool {
+    pub(super) fn has_custom_rules(&self) -> bool {
         self.ensure_rule_index();
         self.index.borrow().has_custom_rules()
     }
@@ -334,10 +342,8 @@ impl Stylesheet {
                     let keyframe_name = keyframe_name.trim();
                     if !keyframe_name.is_empty() {
                         crate::bump!(css_keyframes);
-                        self.keyframes.insert(
-                            keyframe_name.to_string(),
-                            super::parse_keyframe_ast(block),
-                        );
+                        self.keyframes
+                            .insert(keyframe_name.to_string(), super::parse_keyframe_ast(block));
                     }
                 }
                 // `@property --nome { … }` — estrutural como `@keyframes`
@@ -356,10 +362,8 @@ impl Stylesheet {
         // (var()/custom properties agora resolvem POR ELEMENTO na cascade — #1779;
         // o antigo passe textual GLOBAL daqui foi removido.)
         let base = self.rules.len() as u32;
-        let parsed_rules = super::rules::parse_rules_ast_with_layers(
-            &ast,
-            &mut self.layer_names.borrow_mut(),
-        );
+        let parsed_rules =
+            super::rules::parse_rules_ast_with_layers(&ast, &mut self.layer_names.borrow_mut());
         for (i, rule) in parsed_rules.into_iter().enumerate() {
             crate::bump!(css_rules);
             self.rules.push(Rule {
@@ -409,7 +413,10 @@ impl Stylesheet {
                 // `<p>` de vermelho — e o `::before` foi durante muito tempo
                 // recusado no parse justamente para evitar isso.
                 (r.selector.pseudo_element.is_none()
-                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
+                    && r.media
+                        .as_ref()
+                        .map(|m| m.matches(media_ctx))
+                        .unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -457,7 +464,10 @@ impl Stylesheet {
             .filter_map(|&i| {
                 let r = &self.rules[i];
                 (r.selector.pseudo_element == Some(pe)
-                    && r.media.as_ref().map(|m| m.matches(media_ctx)).unwrap_or(true)
+                    && r.media
+                        .as_ref()
+                        .map(|m| m.matches(media_ctx))
+                        .unwrap_or(true)
                     && matches(&r.selector))
                 .then(|| {
                     (
@@ -476,149 +486,5 @@ impl Stylesheet {
             .rev()
             .find_map(|(_, _, _, _, i)| self.rules[*i].content.clone());
         (MatchedRules { rules }, content)
-    }
-
-    /// As operações de contador VENCEDORAS entre as regras que casaram.
-    ///
-    /// Vence a última na ordem da cascata que declara alguma — como qualquer
-    /// declaração, e ao contrário do que a intuição de "contador" sugere: dois
-    /// `counter-increment` que casem o mesmo elemento não somam, o mais
-    /// específico substitui o outro.
-    ///
-    /// Serve tanto o elemento (via [`matched_for_node`](Self::matched_for_node))
-    /// como o pseudo (via [`matched_for_pseudo`](Self::matched_for_pseudo)) — é
-    /// a mesma pergunta sobre o mesmo conjunto, e ter duas funções para ela era
-    /// o segundo mecanismo que este trabalho existe para não criar.
-    pub fn counters_from(
-        &self,
-        matched: &MatchedRules,
-    ) -> Option<std::rc::Rc<crate::counters::Ops>> {
-        matched
-            .rules
-            .iter()
-            .rev()
-            .find_map(|(_, _, _, _, i)| self.rules[*i].counters.clone())
-    }
-
-    /// `true` se alguma regra desta folha declara contadores.
-    ///
-    /// A guarda que faz a passagem documental custar ZERO numa página sem
-    /// contadores — que é o caso de três das quatro folhas do corpus.
-    pub fn has_counters(&self) -> bool {
-        self.rules.iter().any(|r| r.counters.is_some())
-    }
-
-    /// `true` se alguma regra desta folha gera conteúdo. É a guarda que impede
-    /// o layout de perguntar por caixas geradas numa página que não tem
-    /// nenhuma: a pergunta é por elemento e a resposta seria sempre "não".
-    pub fn has_generated_content(&self) -> bool {
-        self.ensure_rule_index();
-        self.index.borrow().has_pseudo_elements()
-    }
-
-    /// PASS A do `var()` por elemento (#1779): as declarações de CUSTOM
-    /// PROPERTIES (`--x: v`) das regras que casaram, na ordem da cascade (a
-    /// última vence por nome, no consumidor).
-    pub fn custom_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
-        if !self.has_custom_rules() {
-            return Vec::new();
-        }
-        matched
-            .rules
-            .iter()
-            .flat_map(|(_, _, _, _, i)| self.rules[*i].decls.custom.iter().cloned())
-            .collect()
-    }
-
-    /// Custom properties `!important` em ordem de aplicação. A prioridade de
-    /// layers é invertida para importantes, tal como nas declarações normais.
-    pub fn custom_important_from(&self, matched: &MatchedRules) -> Vec<(String, String)> {
-        let mut rules = matched.rules.clone();
-        rules.sort_by_key(|k| important_key(*k));
-        rules
-            .iter()
-            .flat_map(|(_, _, _, _, i)| self.rules[*i].decls.custom_important.iter().cloned())
-            .collect()
-    }
-
-    /// PASS B: as declarações normais e `!important` das regras que casaram, com
-    /// as pendentes resolvidas na POSIÇÃO da regra — `prop: …var(--x)…` contra
-    /// as custom props do elemento, uma `-inline-` lógica
-    /// (`style::logical::e_direction_dependente`) contra `direction`.
-    ///
-    /// `direction`: o já conhecido para ESTE elemento neste ponto da cascade
-    /// (normalmente o herdado — `dom::cascade` calcula-o cedo, antes da
-    /// herança "oficial" correr, pela mesma razão que já calcula cedo o
-    /// `parent_font` do `font-size`). `None` nos chamadores sem árvore
-    /// (testes, `computed_for`, pseudo-elementos que ainda não passam um) —
-    /// cai no inicial (`ltr`), o mesmo que antes deste lote.
-    ///
-    /// As pendentes que PRECISAM de `var()` e não têm `vars` continuam sem
-    /// resolver, como já acontecia (`pseudo_box`/`marker_color`/testes
-    /// chamam com `vars: None`); as que só precisam de `direction` resolvem
-    /// sempre — não têm `var()` para faltar.
-    pub fn declarations_from(
-        &self,
-        matched: &MatchedRules,
-        vars: Option<&std::collections::HashMap<String, String>>,
-        direction: Option<crate::style::Direction>,
-        writing_mode: Option<crate::style::WritingMode>,
-    ) -> DeclBlock {
-        let empty_vars = std::collections::HashMap::new();
-        let vars_map = vars.unwrap_or(&empty_vars);
-        let mut out = DeclBlock::default();
-        for (_, _, _, _, i) in &matched.rules {
-            let r = &self.rules[*i];
-            out.all_initial_normal |= r.decls.all_initial_normal;
-            out.all_initial_important |= r.decls.all_initial_important;
-            r.decls.apply_normal(&mut out.normal);
-            for (prop, raw, important) in &r.decls.pending {
-                if *important || (raw.contains("var(") && vars.is_none()) {
-                    continue;
-                }
-                let dir = out.normal.direction.or(direction);
-                let wm = out.normal.writing_mode.or(writing_mode);
-                apply_resolved_decl(&mut out.normal, prop, raw, vars_map, dir, wm);
-            }
-        }
-        // Ordem invertida p/ `!important` — ver `important_key`.
-        let mut important_rules = matched.rules.clone();
-        important_rules.sort_by_key(|k| important_key(*k));
-        for (_, _, _, _, i) in &important_rules {
-            let r = &self.rules[*i];
-            r.decls.apply_important(&mut out.important);
-            for (prop, raw, important) in &r.decls.pending {
-                if !*important || (raw.contains("var(") && vars.is_none()) {
-                    continue;
-                }
-                let dir = out.important.direction.or(out.normal.direction).or(direction);
-                let wm = out.important.writing_mode.or(out.normal.writing_mode).or(writing_mode);
-                apply_resolved_decl(&mut out.important, prop, raw, vars_map, dir, wm);
-            }
-        }
-        super::revert::resolve_reverts(self, matched, &mut out); // lote J — ver revert.rs
-        out
-    }
-
-    /// Conveniência: computa o estilo para um elemento dado SÓ tag/id/classes (sem
-    /// árvore). Casa apenas seletores de UM compound (sem combinadores nem pseudo/
-    /// atributo dependentes de posição — esses retornam false aqui). Usado em testes
-    /// e onde o contexto de árvore não importa.
-    pub fn computed_for(&self, tag: &str, id: Option<&str>, classes: &[&str]) -> DeclBlock {
-        let no_attr = |_: &str| None;
-        let no_pseudo = |_: &PseudoClass| false;
-        // viewport de referência 1280 (helper sem árvore/viewport — testes);
-        // sem vars (pendentes com var() não resolvem aqui).
-        let ctx = super::media::MediaContext {
-            width: 1280.0,
-            height: 800.0,
-            ..Default::default()
-        };
-        let matched = self.matched_for_node(&ctx, tag, id, classes, |sel| {
-            // só seletores de 1 compound casam sem a árvore.
-            sel.compounds.len() == 1
-                && compound_matches(&sel.compounds[0], tag, id, classes, &no_attr, &no_pseudo)
-        });
-        self.declarations_from(&matched, None, None, None)
     }
 }

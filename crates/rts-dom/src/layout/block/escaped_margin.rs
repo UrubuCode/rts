@@ -18,8 +18,8 @@
 //! que repete só a pergunta do lado de cima, custa dez linhas e zero risco
 //! sobre o resto da função.
 
-use super::*;
 use super::block::{edge_margin_from_children, establishes_block_formatting_context};
+use super::*;
 
 /// A margem-top do primeiro filho de bloco de `id`, SE ela escapa através de
 /// `id` (sem borda/padding no topo, sem contexto de formatação de bloco

@@ -6,7 +6,11 @@
 use super::*;
 
 fn ctx(w: f32, h: f32) -> crate::style::MediaContext {
-    crate::style::MediaContext { width: w, height: h, ..Default::default() }
+    crate::style::MediaContext {
+        width: w,
+        height: h,
+        ..Default::default()
+    }
 }
 
 // ── `@media`: cada feature, `not`, listas ───────────────────────────────────
@@ -39,7 +43,14 @@ fn media_intervalo_400_a_800_e_equivalente_ao_and_de_min_max() {
 fn media_orientation_landscape_e_portrait() {
     let mut sheet = Stylesheet::new();
     sheet.append_css("@media (orientation: landscape) { #a { color: red; } }");
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     assert!(media.matches(&ctx(1280.0, 800.0))); // landscape (w >= h)
     assert!(!media.matches(&ctx(400.0, 800.0))); // portrait
 }
@@ -48,7 +59,14 @@ fn media_orientation_landscape_e_portrait() {
 fn media_not_screen_nega_a_query_inteira() {
     let mut sheet = Stylesheet::new();
     sheet.append_css("@media not screen and (max-width: 100px) { #a { color: red; } }");
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     // a 1280px, `max-width:100px` é falso → `not` inverte para verdadeiro.
     assert!(media.matches(&ctx(1280.0, 0.0)));
     // a 50px, `max-width:100px` é verdadeiro → `not` inverte para falso.
@@ -59,7 +77,14 @@ fn media_not_screen_nega_a_query_inteira() {
 fn media_lista_por_virgula_e_or() {
     let mut sheet = Stylesheet::new();
     sheet.append_css("@media (min-width: 9999px), (max-width: 2000px) { #a { color: red; } }");
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     // a segunda query da lista casa; a OR inteira casa.
     assert!(media.matches(&ctx(1280.0, 0.0)));
     // nenhuma das duas casa.
@@ -70,7 +95,14 @@ fn media_lista_por_virgula_e_or() {
 fn media_prefers_color_scheme_le_o_host() {
     let mut sheet = Stylesheet::new();
     sheet.append_css("@media (prefers-color-scheme: dark) { #a { color: red; } }");
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     let mut c = ctx(1280.0, 800.0);
     assert!(!media.matches(&c)); // default do host é Light
     c.prefers_color_scheme = crate::style::PrefersColorScheme::Dark;
@@ -81,7 +113,14 @@ fn media_prefers_color_scheme_le_o_host() {
 fn media_prefers_reduced_motion_le_o_host() {
     let mut sheet = Stylesheet::new();
     sheet.append_css("@media (prefers-reduced-motion: reduce) { #a { color: red; } }");
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     let mut c = ctx(1280.0, 800.0);
     assert!(!media.matches(&c));
     c.prefers_reduced_motion = true;
@@ -94,7 +133,14 @@ fn media_aninhado_combina_por_and() {
     sheet.append_css(
         "@media (min-width: 400px) { @media (max-width: 800px) { #a { color: red; } } }",
     );
-    let media = sheet.rules.iter().find(|r| !r.is_ua).unwrap().media.clone().unwrap();
+    let media = sheet
+        .rules
+        .iter()
+        .find(|r| !r.is_ua)
+        .unwrap()
+        .media
+        .clone()
+        .unwrap();
     assert!(media.matches(&ctx(600.0, 0.0)));
     assert!(!media.matches(&ctx(200.0, 0.0)));
     assert!(!media.matches(&ctx(900.0, 0.0)));
@@ -186,7 +232,10 @@ fn regra_da_pagina_vence_a_importada_por_ordem_apos_a_expansao_textual() {
         Some(0x0000ffff)
     );
     assert_eq!(
-        sheet.computed_for("div", Some("so-importado"), &[]).normal.bg,
+        sheet
+            .computed_for("div", Some("so-importado"), &[])
+            .normal
+            .bg,
         Some(0x008000ff)
     );
 }

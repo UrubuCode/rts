@@ -19,7 +19,6 @@ pub(in crate::dom) type UltimosFragmentos = crate::fasthash::FastMap<
 >;
 
 impl Dom {
-
     /// Quantos nós têm estilo memoizado (as duas camadas somadas). É a contagem
     /// que o `HashMap` dava de graça e um vetor esparso não dá — usada só por
     /// métricas e pelo atalho da construção pura, ambos fora do caminho quente
@@ -55,7 +54,6 @@ impl Dom {
         }
         self.doc_order.borrow()
     }
-
 
     pub(crate) fn last_fragment_of(
         &self,
@@ -108,7 +106,10 @@ impl Dom {
             let mut mapa = self.last_fragment.borrow_mut();
             let caixas = mapa.entry(key.target.node).or_default();
             let novo = (key.target.ordinal, key, std::rc::Rc::clone(&fragment));
-            match caixas.iter_mut().find(|(ordinal, _, _)| *ordinal == key.target.ordinal) {
+            match caixas
+                .iter_mut()
+                .find(|(ordinal, _, _)| *ordinal == key.target.ordinal)
+            {
                 Some(slot) => *slot = novo,
                 None => caixas.push(novo),
             }
@@ -175,7 +176,6 @@ impl Dom {
         }
     }
 
-
     /// Os dois índices de consulta, para a AUDITORIA (`metrics::audit`) poder
     /// confrontá-los com a árvore. Só de leitura, e `pub(crate)`: um índice que
     /// saísse do crate viraria uma segunda fonte de verdade sobre quem tem qual
@@ -217,7 +217,10 @@ impl Dom {
         push("anim_override", &mut self.anim_override.keys().copied());
         push("prev_computed", &mut self.prev_computed.keys().copied());
         push("focused_input", &mut self.focused_input.into_iter());
-        push("scroll_regioes", &mut self.scroll_regioes.borrow().keys().copied());
+        push(
+            "scroll_regioes",
+            &mut self.scroll_regioes.borrow().keys().copied(),
+        );
         out
     }
 

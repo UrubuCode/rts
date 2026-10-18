@@ -91,7 +91,6 @@ impl Dom {
         }
     }
 
-
     /// A geração desta árvore (para o render/ABI compor `NodeId` versionados).
     pub fn generation(&self) -> u32 {
         self.generation
@@ -192,7 +191,12 @@ impl Dom {
     }
 
     /// Aloca um nó (com seus atributos) como filho de `parent`; devolve o índice.
-    pub(in crate::dom) fn push(&mut self, kind: NodeKind, attrs: Vec<Attr>, parent: NodeIdx) -> NodeIdx {
+    pub(in crate::dom) fn push(
+        &mut self,
+        kind: NodeKind,
+        attrs: Vec<Attr>,
+        parent: NodeIdx,
+    ) -> NodeIdx {
         if let Some(style) = attrs.iter().find(|a| a.name == "style") {
             self.note_inline_position(&style.value);
         }
@@ -230,7 +234,6 @@ impl Dom {
     pub fn is_valid(&self, id: NodeId) -> bool {
         self.resolve(id).is_some()
     }
-
 
     /// Aloca um nó sem pai (usado por create_element / set_text). Índice cru.
     pub(in crate::dom) fn push_detached(&mut self, kind: NodeKind) -> NodeIdx {

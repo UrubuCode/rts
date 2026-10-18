@@ -46,7 +46,10 @@ const DECOR_HTML: &str = r#"<html><head><style>
 fn text_decoration_longhands_isoladas() {
     let d = doc(DECOR_HTML);
     assert_eq!(prop(&d, "longas", "text-decoration-style"), "dotted");
-    assert_eq!(prop(&d, "longas", "text-decoration-color"), "rgb(255, 0, 0)");
+    assert_eq!(
+        prop(&d, "longas", "text-decoration-color"),
+        "rgb(255, 0, 0)"
+    );
     assert_eq!(prop(&d, "longas", "text-decoration-thickness"), "3px");
     assert_eq!(prop(&d, "longas", "text-underline-offset"), "4px");
 }
@@ -59,7 +62,10 @@ fn text_decoration_longhands_isoladas() {
 fn text_decoration_shorthand_preenche_estilo_e_espessura() {
     let d = doc(DECOR_HTML);
     assert_eq!(prop(&d, "shorthand", "text-decoration-style"), "dotted");
-    assert_eq!(prop(&d, "shorthand", "text-decoration-color"), "rgb(255, 0, 0)");
+    assert_eq!(
+        prop(&d, "shorthand", "text-decoration-color"),
+        "rgb(255, 0, 0)"
+    );
     assert_eq!(prop(&d, "shorthand", "text-decoration-thickness"), "2px");
     assert_eq!(prop(&d, "shorthand", "text-underline-offset"), "auto");
 }
@@ -81,7 +87,10 @@ const SHADOW_HTML: &str = r#"<html><head><style>
 #[test]
 fn text_shadow_simples_reordena_a_cor() {
     let d = doc(SHADOW_HTML);
-    assert_eq!(prop(&d, "simples", "text-shadow"), "rgb(255, 0, 0) 1px 2px 3px");
+    assert_eq!(
+        prop(&d, "simples", "text-shadow"),
+        "rgb(255, 0, 0) 1px 2px 3px"
+    );
 }
 
 /// DUAS sombras separadas por vírgula — a vírgula de topo não é o fim da
@@ -203,8 +212,14 @@ fn background_image_duas_camadas() {
         prop(&d, "duas-camadas", "background-image"),
         format!("linear-gradient(rgb(255, 0, 0), rgb(0, 0, 255)), {PNG_URL}")
     );
-    assert_eq!(prop(&d, "duas-camadas", "background-repeat"), "repeat, repeat");
-    assert_eq!(prop(&d, "duas-camadas", "background-position"), "0% 0%, 0% 0%");
+    assert_eq!(
+        prop(&d, "duas-camadas", "background-repeat"),
+        "repeat, repeat"
+    );
+    assert_eq!(
+        prop(&d, "duas-camadas", "background-position"),
+        "0% 0%, 0% 0%"
+    );
     assert_eq!(prop(&d, "duas-camadas", "background-size"), "auto, auto");
 }
 

@@ -16,6 +16,7 @@
 //! linhas e não crescem: só chamam esta função.
 
 use super::*;
+use crate::layout::measure::aspect_ratio;
 
 /// `(largura outer, altura outer)` de um `<img>` cujo eixo cruzado (a
 /// altura, num flex-ROW) já é `cross_h` — ou `None` quando a regra não se
@@ -38,11 +39,101 @@ pub(in crate::layout) fn transferred(
     let NodeKind::Element { tag } = &dom.node(id).kind else {
         return None;
     };
+    let css = dom.computed_style_idx(id).unwrap_or_default();
+    if css.width.is_some() {
+        return None;
+    }
+    let is_rep = matches!(tag.as_str(), "img" | "canvas" | "video" | "svg");
+    if is_rep && (tag == "canvas" || css.height.is_some()) {
+        let (w, h) = crate::inline_box::replaced_inline_size(
+            dom,
+            id,
+            &css,
+            content_w,
+            Some(cross_h),
+            (None, None),
+            ctx,
+        )?;
+        let font = font_px(&css, font_size);
+        let resolve = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let margin_h = css.margin.resolve_h(&resolve);
+        return Some((w + margin_h, h));
+    }
+    if let Some(_) = aspect_ratio::declared_ratio(&css) {
+        let font = font_px(&css, font_size);
+        let resolve = ResolveCtx {
+            parent_content_w: content_w,
+            node_font_size: font,
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        // Sem `height` PRÓPRIA, um item esticado assume o cross definido do
+        // contentor (`cross_h`) como altura usada — e daí a razão dá o main
+        // (WPT `flex-aspect-ratio-009`). MAS uma margem AUTO no eixo CRUZADO
+        // (vertical numa row) desativa o stretch (CSS Flexbox §8.1), logo não há
+        // cross a assumir (WPT `flex-aspect-ratio-010`, `margin: auto 0`). O PISO
+        // de min-content do conteúdo NÃO se aplica aqui — é o `row.rs` que o
+        // junta para o item não-replaced (senão um replaced sem conteúdo também
+        // o apanharia, WPT `intrinsic-percent-replaced-027`).
+        let auto_cross_margin = css.margin.top.is_auto() || css.margin.bottom.is_auto();
+        let [bt, br, bb, bl] = crate::style::borders::used_widths(&css);
+        let frame_h = css.padding.resolve_h(&resolve) + bl + br;
+        let frame_v = css.padding.resolve_v(&resolve) + bt + bb;
+        let margin_v = css.margin.resolve_v(&resolve);
+        // `(altura de CONTEÚDO, veio-do-stretch)`. Do stretch, `cross_h` é a
+        // extensão da MARGIN-box (o item preenche o cross do container), logo o
+        // conteúdo é `cross_h - margem_v - frame_v` (WPT
+        // `aspect-ratio-intrinsic-size-008`). De uma `height` própria, é o valor
+        // da propriedade, menos o frame só em border-box.
+        let content_h = match resolve_height(css.height, Some(cross_h), &resolve) {
+            Some(h) => {
+                Some(if css.border_box.unwrap_or(false) { (h - frame_v).max(0.0) } else { h })
+            }
+            None if !auto_cross_margin => Some((cross_h - margin_v - frame_v).max(0.0)),
+            None => None,
+        };
+        if let Some(content_h) = content_h.filter(|h| *h > 0.0) {
+            if let Some(w) = aspect_ratio::width_for_height(&css, content_h, frame_h, frame_v) {
+                let margin_h = css.margin.resolve_h(&resolve);
+                return Some((w + frame_h + margin_h, content_h + frame_v));
+            }
+        }
+    }
+    if css.effective_display() == Some(crate::style::DisplayKind::Inline) {
+        let mut max_w = 0.0f32;
+        let mut any = false;
+        for &c in &dom.node(id).children {
+            if let Some((w, _)) = transferred(dom, c, content_w, cross_h, font_size, ctx) {
+                any = true;
+                if w > max_w {
+                    max_w = w;
+                }
+            }
+        }
+        if any {
+            let font = font_px(&css, font_size);
+            let resolve = ResolveCtx {
+                parent_content_w: content_w,
+                node_font_size: font,
+                root_font_size: crate::style::root_font_size(),
+                viewport_w: ctx.viewport_w,
+                viewport_h: ctx.viewport_h,
+            };
+            let margin_h = css.margin.resolve_h(&resolve);
+            return Some((max_w + margin_h, cross_h));
+        }
+    }
     if tag != "img" {
         return None;
     }
-    let css = dom.computed_style_idx(id).unwrap_or_default();
-    if css.width.is_some() || css.height.is_some() {
+    if css.height.is_some() {
         return None;
     }
     let node = dom.node(id);
@@ -63,7 +154,12 @@ pub(in crate::layout) fn transferred(
     let mb = css.margin.bottom.resolve(&resolve).unwrap_or(0.0);
     let borders = crate::style::borders::resolved_sides(&css);
     let px = |b: crate::style::borders::SideBorder| if b.paints() { b.width } else { 0.0 };
-    let (bt, br, bb, bl) = (px(borders[0]), px(borders[1]), px(borders[2]), px(borders[3]));
+    let (bt, br, bb, bl) = (
+        px(borders[0]),
+        px(borders[1]),
+        px(borders[2]),
+        px(borders[3]),
+    );
     let h_content = (cross_h - mt - mb - bt - bb).max(0.0);
     let w_content = h_content * nw as f32 / nh as f32;
     Some((w_content + margin_h + bl + br, cross_h))
@@ -112,7 +208,8 @@ pub(in crate::layout) fn item_basis_and_height(
     match t {
         Some((w, h)) => (w, h, true),
         None => {
-            let base = crate::layout::flex::limits::flex_base_outer(dom, child, content_w, font_size, ctx);
+            let base =
+                crate::layout::flex::limits::flex_base_outer(dom, child, content_w, font_size, ctx);
             let (_, h) = measure_block(
                 dom,
                 child,
@@ -164,8 +261,17 @@ pub(in crate::layout) fn transferred_intrinsic_width(
     if is_column {
         return None;
     }
+    if let Some(css) = dom.computed_style_idx(id) {
+        if matches!(
+            css.effective_display(),
+            Some(crate::style::DisplayKind::Grid | crate::style::DisplayKind::InlineGrid)
+        ) {
+            return None;
+        }
+    }
     let display = css_display(dom, id);
-    if display != crate::block::DISPLAY_HORIZONTAL && display != crate::block::DISPLAY_WRAP {
+    let is_row = display == crate::block::DISPLAY_HORIZONTAL || display == crate::block::DISPLAY_WRAP;
+    if !is_row && own_cross_h.is_none() {
         return None;
     }
     let h = own_cross_h.or_else(|| {
@@ -198,6 +304,15 @@ pub(in crate::layout) fn transferred_intrinsic_width(
     let mut sum = 0.0f32;
     let mut count: usize = 0;
     let mut some_transferred = false;
+    // For the NON-row (block) case the width is the widest LINE, not the widest
+    // single child: inline-level children (default `<canvas>`, `<img>`) share
+    // one line and SUM, a block-level child takes a line of its own. Measured
+    // as a running widest-line so a plain block with three inline canvases
+    // reports 51 (three side by side), not 17 (one) — WPT
+    // `flexbox-flex-basis-content-004a`. A single child gives line == child,
+    // so the common one-replaced-child case is unchanged.
+    let mut line = 0.0f32;
+    let mut widest = 0.0f32;
     for &child in &dom.node(id).children {
         if is_out_of_flow(dom, child) {
             continue;
@@ -218,11 +333,22 @@ pub(in crate::layout) fn transferred_intrinsic_width(
             count += 1;
         }
         sum += w;
+        if crate::layout::float::float::close_run(dom, child) {
+            widest = widest.max(line).max(w);
+            line = 0.0;
+        } else {
+            line += w;
+        }
     }
+    widest = widest.max(line);
     if !some_transferred {
         // nenhum filho precisava da regra — o caminho cached decide igual,
         // e ele é o que os outros milhares de contentores já usam.
         return None;
     }
-    Some(sum + (count.saturating_sub(1)) as f32 * gap)
+    if is_row {
+        Some(sum + (count.saturating_sub(1)) as f32 * gap)
+    } else {
+        Some(widest)
+    }
 }

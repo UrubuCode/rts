@@ -87,7 +87,9 @@ pub(in crate::table) fn collect(
                     let Some(r) = tree.node_of(caixa_linha) else {
                         continue;
                     };
-                    if !matches!(dom.node(r).kind, crate::NodeKind::Element { .. }) { continue; }
+                    if !matches!(dom.node(r).kind, crate::NodeKind::Element { .. }) {
+                        continue;
+                    }
                     match display_of(dom, r) {
                         Some(DisplayKind::TableCell) => soltas_g.push((r, caixa_linha)),
                         Some(DisplayKind::TableRow) => {
@@ -95,7 +97,13 @@ pub(in crate::table) fn collect(
                                 add_row(dom, None, &soltas_g, &mut g, &mut ocupado);
                                 soltas_g.clear();
                             }
-                            add_row(dom, Some((r, caixa_linha)), &celulas_de(dom, tree, caixa_linha), &mut g, &mut ocupado);
+                            add_row(
+                                dom,
+                                Some((r, caixa_linha)),
+                                &celulas_de(dom, tree, caixa_linha),
+                                &mut g,
+                                &mut ocupado,
+                            );
                         }
                         _ => {}
                     }
@@ -150,7 +158,10 @@ fn display_order(
     };
     let cabecalho = primeiro(DisplayKind::TableHeaderGroup);
     let rodape = primeiro(DisplayKind::TableFooterGroup);
-    let meio = filhos.iter().copied().filter(|&c| Some(c) != cabecalho && Some(c) != rodape);
+    let meio = filhos
+        .iter()
+        .copied()
+        .filter(|&c| Some(c) != cabecalho && Some(c) != rodape);
     cabecalho.into_iter().chain(meio).chain(rodape).collect()
 }
 
@@ -240,4 +251,3 @@ fn atributo_span(dom: &Dom, id: NodeIdx, nome: &str) -> usize {
         .unwrap_or(1)
         .clamp(1, 1000)
 }
-

@@ -5,11 +5,11 @@
 //! O matching que precisa da ÁRVORE (combinadores/pseudo por posição) vive no
 //! `Dom` (`matches_complex`); aqui fica o parse + o match puro de um compound.
 
-mod tipos;
-mod sintaxe;
 mod casamento;
 mod serialize;
+mod sintaxe;
+mod tipos;
 
-pub use tipos::*;
-use sintaxe::*;
 pub use casamento::*;
+use sintaxe::*;
+pub use tipos::*;

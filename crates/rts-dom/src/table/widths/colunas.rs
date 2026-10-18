@@ -80,3 +80,35 @@ fn distribui_excedente(cols: &mut [Coluna], extra: f32, campo: impl Fn(&mut Colu
         *campo(&mut cols[i]) += quota;
     }
 }
+
+pub(crate) fn em_linha(dom: &crate::Dom, id: crate::NodeIdx) -> bool {
+    match &dom.node(id).kind {
+        crate::NodeKind::Text(_) => true,
+        crate::NodeKind::Element { .. } => match dom
+            .computed_style_idx(id)
+            .and_then(|c| c.effective_display())
+        {
+            Some(d) => d.is_inline_level(),
+            None => true,
+        },
+        _ => false,
+    }
+}
+
+pub(crate) fn cell_min_max(
+    dom: &crate::Dom,
+    id: crate::NodeIdx,
+    parent_font: f32,
+    ctx: &crate::layout::LayoutCtx,
+) -> Coluna {
+    let tree = dom.box_tree();
+    let caixa = match tree.boxes_of(id) {
+        [caixa] => *caixa,
+        [] => return Coluna::default(),
+        caixas => panic!(
+            "a celula {id:?} gerou {} caixas; a medicao precisa receber a caixa exata",
+            caixas.len()
+        ),
+    };
+    super::cell_min_max_na_arvore(dom, &tree, id, caixa, parent_font, ctx)
+}

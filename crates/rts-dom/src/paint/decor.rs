@@ -214,7 +214,6 @@ pub(crate) fn deve_suprimir_fundo(css: &ComputedStyle) -> bool {
     css.mask_image.is_some()
 }
 
-
 /// Os itens de BORDA de uma caixa: a moldura uniforme, as barras por lado, e o
 /// `outline`. Uma função só porque a lista é emitida num sítio e CONTADA noutro
 /// (o índice onde o clip de scroll começa) — duas regras para a mesma lista foi o
@@ -247,11 +246,20 @@ fn trapezios_dos_lados(
     r: Rect,
     sides: &[crate::style::borders::SideBorder; 4],
 ) -> [([(f32, f32); 4], crate::style::borders::SideBorder); 4] {
-    let (t, rt, b, l) = (sides[0].width, sides[1].width, sides[2].width, sides[3].width);
+    let (t, rt, b, l) = (
+        sides[0].width,
+        sides[1].width,
+        sides[2].width,
+        sides[3].width,
+    );
     let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.w, r.y + r.h);
     let (o_tl, o_tr, o_br, o_bl) = ((x0, y0), (x1, y0), (x1, y1), (x0, y1));
-    let (i_tl, i_tr, i_br, i_bl) =
-        ((x0 + l, y0 + t), (x1 - rt, y0 + t), (x1 - rt, y1 - b), (x0 + l, y1 - b));
+    let (i_tl, i_tr, i_br, i_bl) = (
+        (x0 + l, y0 + t),
+        (x1 - rt, y0 + t),
+        (x1 - rt, y1 - b),
+        (x0 + l, y1 - b),
+    );
     [
         ([o_tl, o_tr, i_tr, i_tl], sides[0]),
         ([o_tr, o_br, i_br, i_tr], sides[1]),
@@ -300,18 +308,22 @@ pub(crate) fn border_items(
         // a aresta INTEIRA; os cantos ficam sobrepostos em vez de mitrados, que é
         // invisível enquanto as cores dos lados adjacentes coincidem e é o que um
         // separador (um lado só) precisa.
-        let bars = if adjacentes_diferem { vec![] } else { vec![
-            (Rect::new(x, y, w, sides[0].width), sides[0]),
-            (
-                Rect::new(x + w - sides[1].width, y, sides[1].width, h),
-                sides[1],
-            ),
-            (
-                Rect::new(x, y + h - sides[2].width, w, sides[2].width),
-                sides[2],
-            ),
-            (Rect::new(x, y, sides[3].width, h), sides[3]),
-        ] };
+        let bars = if adjacentes_diferem {
+            vec![]
+        } else {
+            vec![
+                (Rect::new(x, y, w, sides[0].width), sides[0]),
+                (
+                    Rect::new(x + w - sides[1].width, y, sides[1].width, h),
+                    sides[1],
+                ),
+                (
+                    Rect::new(x, y + h - sides[2].width, w, sides[2].width),
+                    sides[2],
+                ),
+                (Rect::new(x, y, sides[3].width, h), sides[3]),
+            ]
+        };
         for (rect, side) in bars {
             if side.paints() {
                 out.push(DisplayItem::SolidRect {

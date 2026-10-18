@@ -377,7 +377,11 @@ pub(crate) mod tests {
         let t = textos(
             "<style>p{margin:0} p::before{content:\"→\";display:block;height:30px}</style><p>oi</p>",
         );
-        assert_eq!(t, vec!["→".to_string(), "oi".to_string()], "o texto pinta-se na mesma ordem de sempre");
+        assert_eq!(
+            t,
+            vec!["→".to_string(), "oi".to_string()],
+            "o texto pinta-se na mesma ordem de sempre"
+        );
         let dom = crate::dom::parse_html_to_dom(
             "<style>p{margin:0} p::before{content:\"→\";display:block;height:30px}</style><p>oi</p>",
         );
@@ -387,9 +391,7 @@ pub(crate) mod tests {
             measurer: &ApproxMeasurer,
         };
         let lista = layout_document(&dom, &ctx);
-        let p_id = dom
-            .resolve(dom.query_all("p")[0])
-            .expect("<p> vivo");
+        let p_id = dom.resolve(dom.query_all("p")[0]).expect("<p> vivo");
         let h = lista
             .geometry_now()
             .rects
@@ -400,7 +402,10 @@ pub(crate) mod tests {
         // acima do que uma ÚNICA linha (~20px) daria se os 30px do `height`
         // tivessem sido descartados, que é o que "tratado como inline" quer
         // dizer na prática.
-        assert!(h > 40.0, "::before de bloco devia somar os seus 30px à altura do <p>: h={h}");
+        assert!(
+            h > 40.0,
+            "::before de bloco devia somar os seus 30px à altura do <p>: h={h}"
+        );
     }
 
     #[test]

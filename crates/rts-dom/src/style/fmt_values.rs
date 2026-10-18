@@ -60,9 +60,9 @@ pub(crate) fn side_css_resolved(css: &ComputedStyle, s: crate::style::Side) -> S
             // (`22.1776` saía `22.177599` sem isto).
             fmt_px(arredondar_6(v as f64 * font as f64))
         }
-        crate::style::Side::Len(Dimension::Rem(v)) => {
-            fmt_px(arredondar_6(v as f64 * crate::style::root_font_size() as f64))
-        }
+        crate::style::Side::Len(Dimension::Rem(v)) => fmt_px(arredondar_6(
+            v as f64 * crate::style::root_font_size() as f64,
+        )),
         other => side_css(other),
     }
 }
@@ -137,6 +137,7 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
     match d {
         Dimension::Px(v) => fmt_px(v),
         Dimension::Percent(p) => format!("{p}%"),
+        Dimension::Stretch => "stretch".into(),
         Dimension::Em(v) => format!("{v}em"),
         Dimension::Rem(v) => format!("{v}rem"),
         Dimension::Vw(v) => format!("{v}vw"),
@@ -146,6 +147,29 @@ pub(crate) fn fmt_dim(d: Dimension) -> String {
         Dimension::Auto => "auto".into(),
         Dimension::MaxContent => "max-content".into(),
         Dimension::MinContent => "min-content".into(),
+        Dimension::FitContent => "fit-content".into(),
+        // `fit-content(L)`: o argumento com a MESMA reconstrução do calc — um
+        // só termo vira `fit-content(100px)`, vários `fit-content(calc(...))`.
+        Dimension::FitContentLength(c) => {
+            let mut parts: Vec<String> = Vec::new();
+            for (v, u) in [
+                (c.px, "px"),
+                (c.pct, "%"),
+                (c.em, "em"),
+                (c.rem, "rem"),
+                (c.vw, "vw"),
+                (c.vh, "vh"),
+            ] {
+                if v != 0.0 {
+                    parts.push(format!("{v}{u}"));
+                }
+            }
+            match parts.len() {
+                0 => "fit-content(0px)".into(),
+                1 => format!("fit-content({})", parts[0]),
+                _ => format!("fit-content(calc({}))", parts.join(" + ")),
+            }
+        }
         // calc: reconstrói a forma canônica com os termos não-zero.
         Dimension::Calc(c) => {
             let mut parts: Vec<String> = Vec::new();
@@ -182,12 +206,18 @@ pub(crate) fn fmt_justify(j: JustifyContent) -> String {
         JustifyContent::Right => "right",
         JustifyContent::Start => "start",
         JustifyContent::End => "end",
+        JustifyContent::Stretch => "stretch",
+        JustifyContent::Baseline => "baseline",
+        JustifyContent::LastBaseline => "last baseline",
+        JustifyContent::SafeCenter => "safe center",
+        JustifyContent::SafeEnd => "safe end",
     }
     .into()
 }
 
 pub(crate) fn fmt_align(a: AlignItems) -> String {
     match a {
+        AlignItems::Normal => "normal",
         AlignItems::Stretch => "stretch",
         AlignItems::FlexStart => "flex-start",
         AlignItems::FlexEnd => "flex-end",
@@ -196,6 +226,10 @@ pub(crate) fn fmt_align(a: AlignItems) -> String {
         AlignItems::SafeEnd => "safe end",
         AlignItems::Baseline => "baseline",
         AlignItems::LastBaseline => "last baseline",
+        AlignItems::Left => "left",
+        AlignItems::Right => "right",
+        AlignItems::SelfStart => "self-start",
+        AlignItems::SelfEnd => "self-end",
     }
     .into()
 }
@@ -278,16 +312,32 @@ pub(crate) fn fmt_track(track: &crate::style::GridTrack) -> String {
     match track {
         crate::style::GridTrack::Fixed(d) => fmt_dim(*d),
         crate::style::GridTrack::Fr(f) => format!("{f}fr"),
+        crate::style::GridTrack::Flex { min, flex } => {
+            format!("minmax({}, {flex}fr)", fmt_track_bound(min))
+        }
         crate::style::GridTrack::Auto => "auto".to_string(),
         crate::style::GridTrack::Bounded { min, max } => {
             format!("minmax({}, {})", fmt_dim(*min), fmt_dim(*max))
         }
         crate::style::GridTrack::Intrinsic { min, max } => {
-            format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+            if min == max {
+                fmt_track_bound(min)
+            } else if let crate::style::TrackBound::FitContent(d) = max {
+                if matches!(min, crate::style::TrackBound::Auto) {
+                    format!("fit-content({})", fmt_dim(*d))
+                } else {
+                    format!("minmax({}, fit-content({}))", fmt_track_bound(min), fmt_dim(*d))
+                }
+            } else {
+                format!("minmax({}, {})", fmt_track_bound(min), fmt_track_bound(max))
+            }
         }
         crate::style::GridTrack::AutoRepeat { tracks, fit, .. } => {
             let kw = if *fit { "auto-fit" } else { "auto-fill" };
             format!("repeat({}, {})", kw, fmt_track_list(tracks))
+        }
+        crate::style::GridTrack::List(list) => {
+            list.iter().map(fmt_track).collect::<Vec<_>>().join(" ")
         }
     }
 }
@@ -299,6 +349,7 @@ fn fmt_track_bound(b: &crate::style::TrackBound) -> String {
         crate::style::TrackBound::Fixed(d) => fmt_dim(*d),
         crate::style::TrackBound::MinContent => "min-content".to_string(),
         crate::style::TrackBound::MaxContent => "max-content".to_string(),
+        crate::style::TrackBound::Auto => "auto".to_string(),
         crate::style::TrackBound::FitContent(d) => format!("fit-content({})", fmt_dim(*d)),
     }
 }

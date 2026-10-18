@@ -18,9 +18,20 @@ const HTML: &str = r#"<style>
 #[test]
 fn o_clearfix_em_after_contem_os_floats() {
     let (dom, list) = geometria(HTML, 1280.0);
-    let r = |s: &str| { let r = rect(&dom, &list, s, 0); (r.x, r.y, r.w, r.h) };
-    assert_eq!(r("#cf"), (0.0, 0.0, 320.0, 100.0), "com clearfix: contem as duas linhas de floats");
+    let r = |s: &str| {
+        let r = rect(&dom, &list, s, 0);
+        (r.x, r.y, r.w, r.h)
+    };
+    assert_eq!(
+        r("#cf"),
+        (0.0, 0.0, 320.0, 100.0),
+        "com clearfix: contem as duas linhas de floats"
+    );
     assert_eq!(r("#f4"), (176.0, 66.0, 128.0, 18.0));
     assert_eq!(r("#sem"), (0.0, 120.0, 320.0, 0.0), "sem clearfix: 0");
-    assert_eq!(r("#fim").1, 170.0, "o clear seguinte desce ate ao fundo dos floats do #sem");
+    assert_eq!(
+        r("#fim").1,
+        170.0,
+        "o clear seguinte desce ate ao fundo dos floats do #sem"
+    );
 }

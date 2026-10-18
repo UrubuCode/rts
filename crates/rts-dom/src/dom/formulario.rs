@@ -6,7 +6,6 @@
 use super::*;
 
 impl Dom {
-
     // ── FORMULÁRIO: input editável (mini-browser) ────────────────────────────────
 
     /// O texto a EXIBIR num `<input>`/`<textarea>`: o valor editado
@@ -61,13 +60,17 @@ impl Dom {
         }
         let previous = self.focused_input;
         if let Some(previous) = previous {
-            self.raw_event_queue.push_back((previous, "focusout".to_string()));
-            self.raw_event_queue.push_back((previous, "blur".to_string()));
+            self.raw_event_queue
+                .push_back((previous, "focusout".to_string()));
+            self.raw_event_queue
+                .push_back((previous, "blur".to_string()));
         }
         self.focused_input = id;
         if let Some(current) = id {
-            self.raw_event_queue.push_back((current, "focusin".to_string()));
-            self.raw_event_queue.push_back((current, "focus".to_string()));
+            self.raw_event_queue
+                .push_back((current, "focusin".to_string()));
+            self.raw_event_queue
+                .push_back((current, "focus".to_string()));
         }
         self.touch();
     }
@@ -207,10 +210,18 @@ impl Dom {
             Some(&resto[..fim])
         };
         let num = |nome: &str| -> Option<f32> {
-            valor(nome)?.trim().trim_end_matches("px").trim().parse().ok()
+            valor(nome)?
+                .trim()
+                .trim_end_matches("px")
+                .trim()
+                .parse()
+                .ok()
         };
         let vb_ratio = valor("viewBox").and_then(|vb| {
-            let n: Vec<f32> = vb.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+            let n: Vec<f32> = vb
+                .split_whitespace()
+                .filter_map(|s| s.parse().ok())
+                .collect();
             (n.len() == 4 && n[3] > 0.0).then(|| n[2] / n[3])
         });
         let (w, h) = match (num("width"), num("height")) {
@@ -280,9 +291,9 @@ impl Dom {
         match tag.as_str() {
             "option" => self.nodes[idx].attr("selected").is_some(),
             "input" => {
-                let is_checkable = self.nodes[idx]
-                    .attr("type")
-                    .is_some_and(|t| t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio"));
+                let is_checkable = self.nodes[idx].attr("type").is_some_and(|t| {
+                    t.eq_ignore_ascii_case("checkbox") || t.eq_ignore_ascii_case("radio")
+                });
                 is_checkable && self.nodes[idx].attr("checked").is_some()
             }
             "button" => self.is_default_submit(idx),

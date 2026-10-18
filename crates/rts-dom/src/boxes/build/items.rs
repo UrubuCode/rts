@@ -32,7 +32,9 @@ pub(super) fn e_item_de_bloco(dom: &Dom, item: &FlowItem) -> bool {
 /// own inside a `<pre>` (asking only the container got both wrong).
 pub(super) fn corrida_so_de_espaco(dom: &Dom, contentor: NodeIdx, itens: &[FlowItem]) -> bool {
     let preserves = preserves_spaces(dom, contentor);
-    itens.iter().all(|item| item_so_de_espaco(dom, item, preserves))
+    itens
+        .iter()
+        .all(|item| item_so_de_espaco(dom, item, preserves))
 }
 
 pub(super) fn preserves_spaces(dom: &Dom, no: NodeIdx) -> bool {
@@ -81,7 +83,7 @@ pub(super) fn run_without_line_content(dom: &Dom, container: NodeIdx, items: &[F
 pub(super) fn item_so_de_espaco(dom: &Dom, item: &FlowItem, preserves: bool) -> bool {
     match item {
         FlowItem::Plain(n) => match &dom.node(*n).kind {
-            NodeKind::Text(t) => !preserves && t.trim().is_empty(),
+            NodeKind::Text(t) => !preserves && crate::inline_box::so_espaco_css(t),
             NodeKind::Comment(_) => true,
             _ => false,
         },
@@ -158,7 +160,9 @@ pub(super) fn out_of_flow(dom: &Dom, node: NodeIdx) -> bool {
     }
     dom.computed_style_idx(node).is_some_and(|css| {
         css.effective_display() != Some(DisplayKind::None)
-            && (css.float_side.is_some_and(|f| f != crate::style::FloatSide::None)
+            && (css
+                .float_side
+                .is_some_and(|f| f != crate::style::FloatSide::None)
                 || css.position.is_some_and(|p| p.out_of_flow()))
     })
 }
