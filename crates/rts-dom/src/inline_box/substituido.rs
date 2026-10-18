@@ -264,11 +264,18 @@ pub(crate) fn replaced_inline_size(
     // `replaced-element-013`/`-014`). Esse caso fica no caminho da razão natural
     // como antes; o override da propriedade cobre o content-box, que é a
     // esmagadora maioria.
-    let ratio = css
+    let declarada = css
         .aspect_ratio
         .filter(|r| *r > 0.0 && r.is_finite() && css.border_box != Some(true))
-        .map(|r| (r, 1.0))
-        .or(ratio);
+        .map(|r| (r, 1.0));
+    let ratio = if css.aspect_ratio_auto == Some(true) {
+        // `auto <ratio>`: a razão NATURAL do replaced vence; a `<ratio>`
+        // declarada é só fallback quando não há natural (CSS Sizing 4 §5).
+        ratio.or(declarada)
+    } else {
+        // `<ratio>` puro SOBREPÕE o natural.
+        declarada.or(ratio)
+    };
     let natural = match (ratio, default_box) {
         (Some(r), _) => r,
         (None, Some(d)) => d,

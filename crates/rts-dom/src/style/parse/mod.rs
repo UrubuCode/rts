@@ -515,7 +515,12 @@ pub(super) fn aplica_declaracao(css: &mut ComputedStyle, prop: &str, val: &str) 
             val,
             crate::style::effects::Transform::parse(val),
         ),
-        "aspect-ratio" => set_if(&mut css.aspect_ratio, parse_aspect_ratio(val)),
+        "aspect-ratio" => {
+            if let Some((r, auto)) = parse_aspect_ratio(val) {
+                css.aspect_ratio = Some(r);
+                css.aspect_ratio_auto = Some(auto);
+            }
+        }
         "opacity" => {
             // `opacity: <0..1>` (clampa fora do intervalo, como o browser).
             css.opacity = val.trim().parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
@@ -641,16 +646,36 @@ fn parse_grid_columns(v: &str) -> Option<i32> {
     }
 }
 
-/// Parseia `aspect-ratio`: `<w> / <h>` (ex. `16 / 9`) ou um número único (`1.5`).
-/// `auto`/inválido → `None`. Devolve a razão largura/altura.
-fn parse_aspect_ratio(v: &str) -> Option<f32> {
+/// Parseia `aspect-ratio`: `<w> / <h>` (ex. `16 / 9`), um número único (`1.5`),
+/// ou a forma `auto <ratio>` / `<ratio> auto` (CSS Sizing 4 §5), em qualquer
+/// ordem. Devolve `(razão largura/altura, veio_com_auto)`. `auto` sozinho ou
+/// inválido → `None` (sem razão declarada; o `auto` puro é o default).
+fn parse_aspect_ratio(v: &str) -> Option<(f32, bool)> {
     let v = v.trim();
-    if let Some((w, h)) = v.split_once('/') {
+    // Separa um token `auto` solto (em qualquer das pontas) do resto.
+    let mut auto = false;
+    let mut resto: Vec<&str> = Vec::new();
+    for tok in v.split_whitespace() {
+        if tok.eq_ignore_ascii_case("auto") {
+            auto = true;
+        } else {
+            resto.push(tok);
+        }
+    }
+    let ratio_str = resto.join(" ");
+    let ratio_str = ratio_str.trim();
+    // `auto` sozinho: sem razão declarada.
+    if ratio_str.is_empty() {
+        return None;
+    }
+    let r = if let Some((w, h)) = ratio_str.split_once('/') {
         let w = w.trim().parse::<f32>().ok()?;
         let h = h.trim().parse::<f32>().ok()?;
-        return (h != 0.0 && w > 0.0).then_some(w / h);
-    }
-    v.parse::<f32>().ok().filter(|r| *r > 0.0)
+        (h != 0.0 && w > 0.0).then_some(w / h)?
+    } else {
+        ratio_str.parse::<f32>().ok().filter(|r| *r > 0.0)?
+    };
+    Some((r, auto))
 }
 
 /// Parseia `display`. Cobre os keywords de uma palavra (a forma legada, que a
