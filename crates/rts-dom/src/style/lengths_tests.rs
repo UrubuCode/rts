@@ -105,6 +105,46 @@ mod palavras_chave_intrinsecas {
         assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
     }
 
+    /// Um `max-height` DEFINIDO transfere-se pela razão a um MÁXIMO de largura
+    /// (CSS Sizing 4 §5.1): um bloco de largura auto com `aspect-ratio:1/1;
+    /// max-height:100%` (=100px) NÃO estica ao contentor — a largura é capada em
+    /// 100 (WPT `block-aspect-ratio-020`). Antes esticava a 1280.
+    #[test]
+    fn max_height_transfere_um_maximo_de_largura_pela_razao() {
+        let fonte = "<div style='height:100px'><div style='aspect-ratio:1/1;max-height:100%;background:green' id='alvo'>\
+            <div style='width:20px;height:10px;display:inline-block'></div>\
+            <div style='width:20px;height:10px;display:inline-block'></div>\
+            <div style='width:20px;height:10px;display:inline-block'></div></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 1);
+        assert_eq!((a.w, a.h), (100.0, 100.0), "{a:?}");
+    }
+
+    /// O máximo transferido de `max-height` NÃO corta abaixo do mínimo de
+    /// conteúdo (WPT `block-aspect-ratio-043`): `height:200; aspect-ratio:1/2;
+    /// max-height:100` (máx transferido 50) com filho `width:100` fica 100 de
+    /// largura, não 50 — o min-content vence o máximo transferido.
+    #[test]
+    fn maximo_transferido_nao_corta_o_minimo_de_conteudo() {
+        let fonte = "<div style='background:green;height:200px;aspect-ratio:1/2;max-height:100px' id='alvo'>\
+            <div style='width:100px'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert!((a.w - 100.0).abs() < 1.0, "043: {a:?}");
+    }
+
+    /// Uma `width` definida não é capada pelo máximo transferido de `max-height`
+    /// (WPT `block-aspect-ratio-039`): `width:100; aspect-ratio:1/2;
+    /// max-height:100` fica 100 de largura (o máx transferido 50 não vence).
+    #[test]
+    fn width_definida_nao_e_capada_pelo_maximo_transferido() {
+        let fonte = "<div style='background:green;width:100px;aspect-ratio:1/2;max-height:100px' id='alvo'>\
+            <div style='height:200px'></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let a = rect(&d, &l, "div", 0);
+        assert!((a.w - 100.0).abs() < 1.0, "039: {a:?}");
+    }
+
     /// `aspect-ratio: auto <ratio>` (em qualquer ordem) parseia a razão e marca
     /// o flag `auto`; `auto` sozinho não declara razão.
     #[test]

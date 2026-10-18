@@ -332,6 +332,17 @@ pub(crate) fn layout_block(
     // "the definite max-width should win the transferred minimum" (CSS Sizing 4
     // §5.1, WPT `block-aspect-ratio-045`). Um `min-width` EXPLÍCITO continua a
     // vencer o max (CSS normal, via `clamp_size`); só o transferido é capado.
+    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
+    // em vários sítios da `aspect-ratio`: o máximo-por-razão aqui, a largura- e
+    // a altura-por-razão abaixo e o piso de conteúdo. Computado uma vez.
+    let parent_display = dom
+        .node(id)
+        .parent
+        .and_then(|p| dom.computed_style_idx(p))
+        .and_then(|pcss| pcss.effective_display());
+    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
+    let parent_is_flex_or_grid =
+        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
     let mxw = crate::layout::measure::intrinsic_min_max::resolve(
         css.max_width,
         dom,
@@ -347,6 +358,22 @@ pub(crate) fn layout_block(
             v
         }
     });
+    // O MÁXIMO de largura TRANSFERIDO de um `max-height` definido pela razão
+    // (CSS Sizing 4 §5.1). NÃO é um `max-width` qualquer: ao contrário deste,
+    // NÃO corta abaixo do mínimo de conteúdo (WPT `block-aspect-ratio-043`) e
+    // NÃO vence uma `width` definida (WPT `-039`). Por isso vive à parte de
+    // `mxw` e é aplicado só no ramo de largura-auto, com piso de min-content.
+    let transferred_max_w = (!parent_is_flex_or_grid && css.width.is_none())
+        .then(|| {
+            let mxh = resolve_height(css.max_height, avail_h, &resolve)?;
+            crate::layout::measure::aspect_ratio::width_for_height(
+                &css,
+                mxh,
+                padding_h + border_h,
+                frame_v,
+            )
+        })
+        .flatten();
     let mnw = crate::layout::measure::intrinsic_min_max::resolve(
         css.min_width,
         dom,
@@ -390,17 +417,6 @@ pub(crate) fn layout_block(
         };
         Some(teto.map_or(transferido, |t| transferido.min(t)))
     });
-    // O pai é um contentor FLEX/GRID? (este nó é então um ITEM desses). Usado
-    // em três sítios da `aspect-ratio`: a largura-por-razão aqui, a altura-por-
-    // razão e o piso de conteúdo abaixo. Computado uma vez.
-    let parent_display = dom
-        .node(id)
-        .parent
-        .and_then(|p| dom.computed_style_idx(p))
-        .and_then(|pcss| pcss.effective_display());
-    let parent_is_grid = parent_display.is_some_and(|d| d.is_grid_container());
-    let parent_is_flex_or_grid =
-        parent_is_grid || parent_display.is_some_and(|d| d.is_flex_container());
     let mut content_w = if let Some(fw) = forced_outer_w {
         // main size do FLEX (grow/shrink já resolvidos): outer imposto → content =
         // outer - frame (o frame já soma margem+borda+padding dos dois lados).
@@ -563,7 +579,7 @@ pub(crate) fn layout_block(
                             })
                         })
                         .flatten();
-                    def_h
+                    let auto_w = def_h
                         .and_then(|h| {
                             crate::layout::measure::aspect_ratio::width_for_height(
                                 &css,
@@ -572,7 +588,23 @@ pub(crate) fn layout_block(
                                 frame_v_l,
                             )
                         })
-                        .unwrap_or_else(|| (avail_w - frame).max(0.0))
+                        .unwrap_or_else(|| (avail_w - frame).max(0.0));
+                    // O MÁXIMO transferido de `max-height` capa a largura-auto,
+                    // mas NÃO abaixo do min-content (WPT `block-aspect-ratio-043`
+                    // — o máximo transferido não corta o mínimo de conteúdo).
+                    match transferred_max_w {
+                        Some(tmax) => {
+                            let content_min = (crate::table::min_content(
+                                dom,
+                                id,
+                                font_for_content,
+                                ctx,
+                            ) - frame)
+                                .max(0.0);
+                            auto_w.min(tmax).max(content_min)
+                        }
+                        None => auto_w,
+                    }
                 }
             }
         };
