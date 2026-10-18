@@ -1,5 +1,7 @@
 # Design: immediate-mode GUI via egui — crate `rts-egui` + `ui` namespace
 
+> **Path check, 2026-10-18:** `crates/rts-codegen-new/` cited below no longer exists (the engine named `rts-codegen-new` was deleted 2026-08-10; the current codegen is `crates/rts-codegen`). `crates/rts-egui` exists. Other claims not re-verified.
+
 > **Status:** spec (pre-implementation). Architectural decision locked with the team;
 > code comes after this spec. Branch: `feat/egui-ui-crate`.
 >

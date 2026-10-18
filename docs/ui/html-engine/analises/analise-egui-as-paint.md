@@ -1,5 +1,7 @@
 # Analise: egui-as-paint
 
+> **Path check, 2026-10-18:** `crates/rts-runtime/src/namespaces/ui/` cited below does not exist in the current tree (`crates/rts-runtime` exists; the UI crates are `rts-ui`, `rts-dom`, `rts-egui`, `rts-render`). Other claims not re-verified.
+
 I now have all the API confirmations needed. Let me verify two specific 0.34 details: the `text::layout` free function and whether `Painter::text` returns the bounding `Rect` (for measuring after the fact) — I already have these. Let me confirm the `CornerRadius` type rename and `StrokeKind` (new in recent egui) to be precise about the 0.34 signatures, which I already captured. I have enough to write the report.
 
 ---
