@@ -254,6 +254,20 @@ mod palavras_chave_intrinsecas {
         assert!((f.w - 100.0).abs() < 1.5, "{f:?}");
     }
 
+    /// Um item de flex-ROW esticado propaga o cross DEFINIDO do container ao
+    /// `height:%` dos seus filhos na medição intrínseca: um `<canvas height:
+    /// 100%>` 1:1 dentro de um item esticado de `inline-flex; height:100` mede
+    /// 100 de largura (altura 100 × razão), não a natural 10 (WPT
+    /// `css-flexbox/aspect-ratio-intrinsic-size-001`).
+    #[test]
+    fn item_flex_row_esticado_propaga_altura_ao_height_percent_dos_filhos() {
+        let fonte = "<div style='display:inline-flex;height:100px' id='fl'>\
+            <div><canvas width='10' height='10' style='height:100%'></canvas></div></div>";
+        let (d, l) = geometria(fonte, 1280.0);
+        let fl = rect(&d, &l, "div", 0);
+        assert!((fl.w - 100.0).abs() < 1.5, "{fl:?}");
+    }
+
     /// Com `overflow:hidden` o piso de conteúdo NÃO se aplica (o mínimo
     /// automático é 0): `aspect-ratio:1/1; overflow:hidden; height:100` com um
     /// filho de 500px fica na razão (100), cortando o filho (WPT
