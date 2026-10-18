@@ -394,7 +394,7 @@ fn species_buffer(this: u64, length: usize) -> Result<Option<u32>, ()> {
     }
     let usable = with_current(|context| {
         crate::entry::functions::constructible(context, species, 0).is_none()
-            && Value(species).as_slot().is_some_and(|cell| context.callable_at(cell).is_some())
+            && Value(species).as_slot().is_some_and(|cell| context.is_callable_cell(cell))
     });
     if !usable {
         crate::entry::throw::type_error("object.constructor[Symbol.species] is not a constructor");

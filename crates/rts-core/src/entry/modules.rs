@@ -1428,7 +1428,7 @@ pub fn usv_string_in(context: &Context, value: u64) -> Option<String> {
 pub fn is_callable_in(context: &Context, value: u64) -> bool {
     Value(value)
         .as_slot()
-        .is_some_and(|cell| context.callable_at(cell).is_some())
+        .is_some_and(|cell| context.is_callable_cell(cell))
 }
 
 /// Publishes one exported binding into the specifier table.

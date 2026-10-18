@@ -157,7 +157,20 @@ extern "C" fn revoked(environment: u64, _this: u64, _a0: u64, _a1: u64, _a2: u64
     with_current(|context| {
         if let Some(cell) = Value(environment).as_slot() {
             let nothing = Value::from_singleton(context.singletons.null).bits();
-            context.set_proxy(cell, nothing, nothing);
+            // A CALLABLE target is kept: whether a proxy has `[[Call]]` is fixed
+            // when it is made, so `typeof revoked` is still "function". Nothing
+            // else reads the target of a revoked record — every trap lookup
+            // refuses on the handler first.
+            let target = context
+                .proxy_at(cell)
+                .map(|(target, _)| target)
+                .filter(|target| {
+                    Value(*target)
+                        .as_slot()
+                        .is_some_and(|inner| context.is_callable_cell(inner))
+                })
+                .unwrap_or(nothing);
+            context.set_proxy(cell, target, nothing);
         }
         super::objects::undefined_of(context)
     })
@@ -210,6 +223,25 @@ pub(in crate::entry) fn is_proxy(object: u64) -> bool {
             .as_slot()
             .is_some_and(|cell| context.proxy_at(cell).is_some())
     })
+}
+
+/// Whether `new` may reach this proxy: its target (through any nesting) is a
+/// constructor. Decided from the target at creation time, so it survives revoke.
+pub(super) fn constructs_through(context: &mut Context, object: u64) -> bool {
+    let mut at = object;
+    for _ in 0..64 {
+        let Some(cell) = Value(at).as_slot() else {
+            return false;
+        };
+        if context.callable_at(cell).is_some() {
+            return super::functions::constructible(context, at, 0).is_none();
+        }
+        let Some((target, _)) = context.proxy_at(cell) else {
+            return false;
+        };
+        at = target;
+    }
+    false
 }
 
 /// Looks a trap up, without holding a borrow for the call that follows.
@@ -312,6 +344,9 @@ pub(super) fn property_of(key: Key) -> u64 {
     with_current(|context| {
         let spelled = spelled_in(context, key);
         if let Some(symbol) = super::symbol::value_of_key_text(context, &spelled) {
+            return symbol;
+        }
+        if let Some(symbol) = super::symbol::well_known_of_key_text(context, &spelled) {
             return symbol;
         }
         let text = Str::from_str(&spelled);

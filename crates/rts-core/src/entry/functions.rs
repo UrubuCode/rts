@@ -1704,7 +1704,13 @@ pub(super) fn allocate_for(context: &mut Context, target: u64, callee: u64) -> O
             // A handler WITH a `get` trap is not consulted here, because this
             // runs inside the context borrow and a trap is user code; that is
             // the stated limit, not an oversight.
-            if let Some((target, _)) = context.proxy_at(resolved) {
+            if let Some((target, handler)) = context.proxy_at(resolved) {
+                // A revoked proxy keeps a callable target only so that
+                // `typeof` stays "function"; `[[Get]]` on it is a TypeError,
+                // not a read of that target.
+                if !super::objects::is_object(context, handler) {
+                    return None;
+                }
                 if let Some(next) = Value(target).as_slot() {
                     resolved = next;
                     continue;
@@ -2082,6 +2088,29 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
     // bound function, so the refusal is raised from inside it.
     let mut resume: Option<(u64, u64)> = None;
     let ordinary_hook = hook.is_none();
+    // A PROXY callee answers `prototype` through its own `[[Get]]` — its `get`
+    // trap — and that is user code, so the read happens here, outside the
+    // borrow below. Only for an object on the left (step 3 returns `false`
+    // before reading anything for a primitive) and a callable proxy (the
+    // refusal belongs to the walk). Node reads exactly `get(@@hasInstance)`
+    // then `get(prototype)`; the target's slot was read directly before, which
+    // skipped the second trap lookup.
+    let proxied_prototype = if super::proxy::is_proxy(callee)
+        && with_current(|context| {
+            Value(callee).as_slot().is_some_and(|cell| context.is_callable_cell(cell))
+                && Value(value)
+                    .as_slot()
+                    .is_some_and(|cell| context.text_at(cell).is_none())
+        }) {
+        let key = with_current(|context| context.well_known_text("prototype"));
+        let read = super::computed::get_indexed(callee, key);
+        if super::throw::in_flight() {
+            return false;
+        }
+        Some(read)
+    } else {
+        None
+    };
     let held = with_current(|context| {
         let Some(mut function) = Value(callee).as_slot() else {
             return Err(Refusal::NotCallable);
@@ -2110,7 +2139,13 @@ pub fn instance_of(value: u64, callee: u64) -> bool {
         // borrow — the same limit `entry/primitive.rs` records.
         let key = prototype_key(context);
         let mut found = None;
+        if let Some(read) = proxied_prototype {
+            found = Some(Value(read));
+        }
         for _ in 0..super::objects::CHAIN_LIMIT {
+            if found.is_some() {
+                break;
+            }
             if context.callable_at(function).is_none() && context.proxy_at(function).is_none() {
                 // Nothing callable here or anywhere down the bound/proxy chain.
                 // A plain object and an array are what reach this in real code,

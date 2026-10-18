@@ -394,7 +394,7 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     }
     if Value(this)
         .as_slot()
-        .is_some_and(|cell| context.callable_at(cell).is_some())
+        .is_some_and(|cell| context.is_callable_cell(cell))
     {
         return "Function";
     }

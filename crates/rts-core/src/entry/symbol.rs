@@ -343,6 +343,19 @@ pub(in crate::entry) fn value_of_key_text(context: &Context, text: &str) -> Opti
     Some(Value::from_client(context.kinds.symbol, u64::from(*number)).bits())
 }
 
+/// The well-known symbol a key text names, minting it when the shared table has
+/// not been filled yet.
+///
+/// [`value_of_key_text`] only matches symbols somebody already made, and the
+/// table is filled when the program first names `Symbol`. A proxy trap handed
+/// the key of an `instanceof` or a `for`-`of` in a program that never wrote
+/// `Symbol` therefore received the string `"@@hasInstance"` — an engine
+/// spelling — where the language hands it `Symbol.hasInstance`.
+pub(in crate::entry) fn well_known_of_key_text(context: &mut Context, text: &str) -> Option<u64> {
+    let name = text.strip_prefix(PREFIX)?;
+    WELL_KNOWN.contains(&name).then(|| well_known(context, name))
+}
+
 /// `GetMethod(value, @@name)` — the callable a value carries under one of the
 /// language's own symbols, if it carries one.
 ///
