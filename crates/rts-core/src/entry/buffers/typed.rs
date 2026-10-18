@@ -37,6 +37,14 @@ pub(in crate::entry) fn construct(
     offset: u64,
     length: u64,
 ) -> u64 {
+    // `Uint8Array(3)` without `new`: the machine hands a constructor a fresh
+    // cell under `new`, and an ordinary call hands it a receiver that is not one
+    // (the test `WeakRef` uses).
+    if Value(this).as_slot().is_none() {
+        let name = super::typed_classes::named(kind).unwrap_or("TypedArray");
+        crate::entry::throw::type_error(&format!("Constructor {name} requires 'new'"));
+        return super::undefined();
+    }
     // Before any borrow: each of these takes one of its own.
     let offset = super::optional_number(offset);
     let length = super::optional_number(length);

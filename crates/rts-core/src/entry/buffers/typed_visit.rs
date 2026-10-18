@@ -434,6 +434,18 @@ fn write_back(this: u64, elements: &[u64]) {
 /// mapper threw — and this adds only the narrowing into elements of `kind`. A
 /// second walk here would be a second answer to "what is iterable", which is
 /// what the array module's own first page refuses.
+/// The typed array kind a constructor value builds, if it is one of the
+/// typed array classes (read off its own `name`).
+pub(in crate::entry) fn kind_of_constructor(this: u64) -> Option<Kind> {
+    let name = with_current(|context| {
+        let cell = Value(this).as_slot()?;
+        let key = context.well_known("name");
+        let found = crate::entry::objects::own_property(context, cell, key)?;
+        context.text_at(found.as_slot()?)?.to_rust()
+    })?;
+    super::typed_classes::kind_named(&name)
+}
+
 pub(in crate::entry) fn from(kind: Kind, source: u64, mapper: u64, receiver: u64) -> u64 {
     let absent = super::undefined();
     let listed = crate::entry::array_proto::more::from::from(0, absent, source, mapper, receiver, absent);

@@ -224,9 +224,16 @@ macro_rules! declare {
                 /// instance's. Its absence read as a broken engine rather than
                 /// as a gap: `Uint8Array.from([1,2])` is how most programs
                 /// build one at all.
+                ///
+                /// `this` is the constructor the call was made on and decides
+                /// the class built (`Uint8Array.from.call(Int16Array, x)` is an
+                /// `Int16Array`); a receiver that is not a typed array class
+                /// falls back to this class.
                 #[stat]
-                fn from(source: u64, mapper: u64, receiver: u64) -> u64 {
-                    typed_visit::from($kind, source, mapper, receiver)
+                #[arity(1)]
+                fn from(this: u64, source: u64, mapper: u64, receiver: u64) -> u64 {
+                    let kind = typed_visit::kind_of_constructor(this).unwrap_or($kind);
+                    typed_visit::from(kind, source, mapper, receiver)
                 }
 
                 /// `T.of(...items)` — a typed array of exactly the arguments,
@@ -255,10 +262,12 @@ macro_rules! declare {
                 /// is lost, and answering a length that is right for every other
                 /// call was judged better than refusing all of them.
                 #[stat]
-                fn of(a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+                #[arity(0)]
+                fn of(this: u64, a0: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+                    let kind = typed_visit::kind_of_constructor(this).unwrap_or($kind);
                     let items = crate::entry::functions::rest_arguments(0, a0, a1, a2, a3);
                     let absent = crate::entry::undefined_value();
-                    typed_visit::from($kind, items, absent, absent)
+                    typed_visit::from(kind, items, absent, absent)
                 }
 
                 /// `t.forEach(callback, thisArg)`.
@@ -392,6 +401,16 @@ macro_rules! declare {
             $(
                 if kind == $kind {
                     return Some($js);
+                }
+            )+
+            None
+        }
+
+        /// The kind a typed array constructor builds, read off its `name`.
+        pub(in crate::entry) fn kind_named(name: &str) -> Option<Kind> {
+            $(
+                if name == $js {
+                    return Some($kind);
                 }
             )+
             None
