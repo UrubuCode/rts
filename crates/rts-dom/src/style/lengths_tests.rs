@@ -79,6 +79,23 @@ mod palavras_chave_intrinsecas {
         );
     }
 
+    /// `aspect-ratio: auto <ratio>` (em qualquer ordem) parseia a razão e marca
+    /// o flag `auto`; `auto` sozinho não declara razão.
+    #[test]
+    fn aspect_ratio_auto_e_parseado_com_o_flag() {
+        let a = parse_inline("aspect-ratio:auto 1/1");
+        assert_eq!(a.aspect_ratio, Some(1.0));
+        assert_eq!(a.aspect_ratio_auto, Some(true));
+        let b = parse_inline("aspect-ratio:2/1 auto");
+        assert_eq!(b.aspect_ratio, Some(2.0));
+        assert_eq!(b.aspect_ratio_auto, Some(true));
+        let c = parse_inline("aspect-ratio:3/2");
+        assert_eq!(c.aspect_ratio, Some(1.5));
+        assert_eq!(c.aspect_ratio_auto, Some(false));
+        // `auto` sozinho não declara razão nenhuma.
+        assert_eq!(parse_inline("aspect-ratio:auto").aspect_ratio, None);
+    }
+
     /// O espelho em `max-content`: `width:max-content` num pai de
     /// `<div height:100px; aspect-ratio:1/1>` também é 100 (WPT
     /// `aspect-ratio/intrinsic-size-002`).

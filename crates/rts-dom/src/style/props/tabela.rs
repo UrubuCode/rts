@@ -30,6 +30,13 @@ css_props! {
         /// tem largura mas NÃO altura explícita, a altura = largura / ratio. `None` =
         /// sem razão fixa. Usado por imagens/vídeos/cards proporcionais.
         [] aspect_ratio: f32;
+        /// `true` quando a razão veio da forma `auto <ratio>` (CSS Sizing 4 §5):
+        /// um elemento REPLACED com dimensões naturais PREFERE a razão natural, e
+        /// a `<ratio>` declarada só vale como fallback. Sem isto, `auto 1/1` num
+        /// `<img>` com razão natural usaria 1/1 (regressão já revertida uma vez).
+        /// Para um não-replaced não muda nada — não há natural, e `aspect_ratio`
+        /// já carrega a razão.
+        [] aspect_ratio_auto: bool;
         /// `background: linear-gradient(...)` — quando o fundo é um gradiente linear
         /// (não uma cor sólida). Pintado como `DisplayItem::GradientRect`. `None` = o
         /// fundo é `bg` (cor sólida) ou nada.
