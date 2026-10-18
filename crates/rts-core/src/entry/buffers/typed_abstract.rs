@@ -259,6 +259,22 @@ extern "C" fn buffer_getter(_e: u64, this: u64, _a0: u64, _a1: u64, _a2: u64, _a
 }
 
 fn dv_fact(this: u64, name: &str) -> u64 {
+    // `buffer` stays readable after a detach; the two sizes throw.
+    let detached = name != "buffer"
+        && with_current(|context| {
+            Value(this)
+                .as_slot()
+                .and_then(|cell| context.view_at(cell))
+                .is_some_and(|view| {
+                    matches!(view.kind, super::Kind::Raw) && context.buffer_detached(view.buffer)
+                })
+        });
+    if detached {
+        crate::entry::throw::type_error(&format!(
+            "Cannot perform get DataView.prototype.{name} on a detached ArrayBuffer"
+        ));
+        return with_current(|context| objects::undefined_of(context));
+    }
     let fact = with_current(|context| {
         let cell = Value(this).as_slot()?;
         let view = context.view_at(cell)?;

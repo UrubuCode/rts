@@ -84,6 +84,14 @@ pub(in crate::entry) fn construct(
                 )));
                 return undefined_of(context);
             }
+            // After the offset's own checks and before the length is taken:
+            // a detached buffer has no bytes to view.
+            if context.buffer_detached(over) {
+                failure = Some(Failure::Type(
+                    "Cannot perform Construct on a detached ArrayBuffer".to_string(),
+                ));
+                return undefined_of(context);
+            }
             let count = match length {
                 Some(asked) => {
                     let Some(items) = super::to_index(asked) else {
@@ -141,6 +149,15 @@ pub(in crate::entry) fn construct(
         let is_string = Value(source)
             .as_slot()
             .is_some_and(|cell| context.text_at(cell).is_some());
+        if let Some(from) = Value(source).as_slot().and_then(|c| context.view_at(c))
+            && from.kind != Kind::Raw
+            && context.buffer_detached(from.buffer)
+        {
+            failure = Some(Failure::Type(
+                "Cannot perform Construct on a detached ArrayBuffer".to_string(),
+            ));
+            return undefined_of(context);
+        }
         if let Some(from) = Value(source).as_slot().and_then(|c| context.view_at(c))
             && from.kind != Kind::Raw
             && from.kind.is_bigint() != kind.is_bigint()

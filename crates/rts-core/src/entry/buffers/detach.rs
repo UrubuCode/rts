@@ -75,7 +75,21 @@ impl Context {
         // (A `DataView` has no `length`; it is left alone.)
         for view in self.views.references_where(cell, |view| view.buffer == cell) {
             if self.views.copied(view).is_some_and(|v| matches!(v.kind, super::Kind::Raw)) {
+                // A DataView has no length to zero, but its two own size slots
+                // would shadow the prototype accessors that refuse a detached
+                // buffer, so they are removed and the accessor answers.
+                for name in ["byteLength", "byteOffset"] {
+                    if let crate::object::Key::Name(machine) = self.well_known(name) {
+                        crate::entry::computed::remove_own(self, view, machine);
+                    }
+                }
                 continue;
+            }
+            // The window itself, not only the stamped facts: `in`, `Object.keys`
+            // and every other reader of `count()` sees an empty view.
+            if let Some(held) = self.views.get_mut(view) {
+                held.offset = 0;
+                held.length = 0;
             }
             super::stamp(self, view, "byteLength", 0.0);
             super::stamp(self, view, "byteOffset", 0.0);

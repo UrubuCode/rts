@@ -64,6 +64,9 @@ impl DataView {
             if start > size {
                 return Err(Refusal::Offset);
             }
+            if context.buffer_detached(over) {
+                return Err(Refusal::Detached);
+            }
             let count = match length {
                 Some(asked) => {
                     let asked = super::to_index(asked).ok_or(Refusal::Length)?;
@@ -98,6 +101,9 @@ impl DataView {
                 "Start offset is outside the bounds of the buffer",
             ),
             Refusal::Length => crate::entry::throw::range_error("Invalid DataView length"),
+            Refusal::Detached => crate::entry::throw::type_error(
+                "Cannot perform DataView constructor on a detached ArrayBuffer",
+            ),
         }
         super::undefined()
     }
@@ -208,7 +214,7 @@ impl DataView {
 /// An offset the width does not fit at raises a `RangeError` in [`position`];
 /// the `NaN` answered then is never seen, because the throw is in flight.
 fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
-    let Some(index) = position(this, at, kind) else {
+    let Some(index) = position(this, at, kind, false) else {
         return f64::NAN;
     };
     with_current(|context| {
@@ -238,7 +244,7 @@ fn fetch(this: u64, at: f64, kind: Kind, little: bool) -> f64 {
 ///
 /// An offset the width does not fit at raises in [`position`], as [`fetch`]'s.
 fn fetch_big(this: u64, at: f64, kind: Kind, little: bool) -> u64 {
-    let Some(index) = position(this, at, kind) else {
+    let Some(index) = position(this, at, kind, false) else {
         return super::undefined();
     };
     with_current(|context| {
@@ -269,7 +275,7 @@ fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
     let Some(value) = super::coerce_for_store(value, kind) else {
         return super::undefined();
     };
-    let Some(index) = position(this, at, kind) else {
+    let Some(index) = position(this, at, kind, true) else {
         return super::undefined();
     };
     with_current(|context| {
@@ -290,7 +296,7 @@ fn store_big(this: u64, at: f64, value: u64, kind: Kind, little: bool) -> u64 {
 
 /// One write. Answers `undefined`, which is what a `set*` evaluates to.
 fn store(this: u64, at: f64, value: f64, kind: Kind, little: bool) -> u64 {
-    let Some(index) = position(this, at, kind) else {
+    let Some(index) = position(this, at, kind, true) else {
         return super::undefined();
     };
     with_current(|context| {
@@ -310,6 +316,7 @@ enum Refusal {
     NotABuffer,
     Offset,
     Length,
+    Detached,
 }
 
 /// The byte offset a get or set may use, or `None` once a `RangeError` has been
@@ -321,8 +328,35 @@ enum Refusal {
 /// makes `new DataView(buf, 3, 4).getUint8(4)` a throw even though byte 7 of the
 /// buffer exists. A receiver that is not a view is left to the caller, which
 /// answers `NaN` or `undefined` as it did before.
-fn position(this: u64, at: f64, kind: Kind) -> Option<usize> {
-    let window = with_current(|context| super::view_of(context, this).map(|view| view.length));
+///
+/// A detached buffer is refused first, as V8 does (`Cannot perform
+/// DataView.prototype.getInt8 on a detached ArrayBuffer`): this is the one
+/// door every get and set passes, so the check cannot drift between them.
+fn position(this: u64, at: f64, kind: Kind, writing: bool) -> Option<usize> {
+    let (window, detached) = with_current(|context| match super::view_of(context, this) {
+        Some(view) => (Some(view.length), context.buffer_detached(view.buffer)),
+        None => (None, false),
+    });
+    if detached {
+        let name = match kind {
+            Kind::Int8 => "Int8",
+            Kind::Uint8 | Kind::Uint8Clamped => "Uint8",
+            Kind::Int16 => "Int16",
+            Kind::Uint16 => "Uint16",
+            Kind::Int32 => "Int32",
+            Kind::Uint32 => "Uint32",
+            Kind::Float32 => "Float32",
+            Kind::Float64 => "Float64",
+            Kind::BigInt64 => "BigInt64",
+            Kind::BigUint64 => "BigUint64",
+            Kind::Raw => "",
+        };
+        let verb = if writing { "set" } else { "get" };
+        crate::entry::throw::type_error(&format!(
+            "Cannot perform DataView.prototype.{verb}{name} on a detached ArrayBuffer"
+        ));
+        return None;
+    }
     let index = super::to_index(at);
     match (index, window) {
         (_, None) => Some(index.unwrap_or(0)),

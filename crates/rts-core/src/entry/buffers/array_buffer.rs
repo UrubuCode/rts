@@ -205,6 +205,14 @@ impl ArrayBuffer {
         // Before any borrow: each of these takes one of its own.
         let begin = super::optional_number(begin);
         let end = super::optional_number(end);
+        // A detached buffer has no bytes to copy. Raised outside the borrow:
+        // building the error runs the program's own constructor.
+        if with_current(|context| Value(this).as_slot().is_some_and(|cell| context.buffer_detached(cell))) {
+            crate::entry::throw::type_error(
+                "Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer",
+            );
+            return super::undefined();
+        }
         with_current(|context| {
             let absent = undefined_of(context);
             let Some(cell) = Value(this).as_slot() else {

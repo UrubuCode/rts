@@ -149,7 +149,7 @@ pub(super) fn values_of(value: u64) -> Vec<u64> {
                 // detached buffer is a TypeError, not an empty walk.
                 let detached = with_current(|context| context.buffer_detached(view.buffer));
                 if detached {
-                    super::throw::type_error("Cannot iterate a typed array over a detached ArrayBuffer");
+                    super::throw::type_error("Cannot perform %TypedArray%.prototype.values on a detached ArrayBuffer");
                     Vec::new()
                 } else {
                     with_current(|context| super::buffers::typed::elements(context, &view))

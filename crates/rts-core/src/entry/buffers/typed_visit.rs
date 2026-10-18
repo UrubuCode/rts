@@ -51,14 +51,41 @@ pub(in crate::entry) fn is_typed_array(this: u64) -> bool {
 }
 
 /// The receiver brand check every %TypedArray%.prototype method begins with:
-/// answers `true` for a typed array, and otherwise raises the `TypeError`
-/// and answers `false` so the caller returns without touching the receiver.
-pub(in crate::entry) fn brand(this: u64) -> bool {
-    if is_typed_array(this) {
-        return true;
+/// answers `true` for a typed array over a LIVE buffer, and otherwise raises the
+/// `TypeError` and answers `false` so the caller returns without touching the
+/// receiver.
+///
+/// This is also the one place a detached buffer is refused for the prototype
+/// methods (`ValidateTypedArray`): the bytes are gone, so `t.fill(0)` on a
+/// view of a transferred buffer is a `TypeError` rather than a silent no-op.
+/// `method` is the name V8 prints, which is not always the one called
+/// (`toString` reports `join`, `findLastIndex` reports `findIndexLast`,
+/// `subarray` reports its species construction).
+pub(in crate::entry) fn brand(this: u64, method: &str) -> bool {
+    let (typed, detached) = with_current(|context| match super::view_of(context, this) {
+        Some(view) => (
+            super::typed_classes::named(view.kind).is_some(),
+            context.buffer_detached(view.buffer),
+        ),
+        None => (false, false),
+    });
+    if !typed {
+        throw::type_error("this is not a typed array.");
+        return false;
     }
-    throw::type_error("this is not a typed array.");
-    false
+    if detached {
+        throw::type_error(&detached_message(method));
+        return false;
+    }
+    true
+}
+
+/// V8's text for a typed-array operation refused over a detached buffer.
+pub(in crate::entry) fn detached_message(method: &str) -> String {
+    match method {
+        "subarray" => "Cannot perform Construct on a detached ArrayBuffer".to_string(),
+        _ => format!("Cannot perform %TypedArray%.prototype.{method} on a detached ArrayBuffer"),
+    }
 }
 
 /// The receiver's element kind.
