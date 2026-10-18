@@ -100,7 +100,7 @@ impl Lowering<'_> {
                 let key = self.declared(key, &at);
                 let define = self.domain.entry_point(RuntimeOp::DefineMethod);
                 self.call(Callee::Entry(define), None, vec![all, key, running], &at);
-            } else if self.names.find("callee").is_some() {
+            } else {
                 let poison = self.domain.entry_point(RuntimeOp::StrictCallee);
                 self.call(Callee::Entry(poison), None, vec![all], &at);
             }

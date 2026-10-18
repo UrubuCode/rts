@@ -159,6 +159,12 @@ pub(super) struct State {
     /// step for that turn has happened: the inner iterator was advanced from
     /// outside the parked frame. See [`delegate`].
     pending: Option<u64>,
+    /// The arguments the call really passed, as an array, when the frame's own
+    /// parameter fields cannot carry them: more were passed than the body
+    /// declares, or the last one was an explicit `undefined`. Pushed as the
+    /// running call's argument vector for each re-entry, so `arguments` and
+    /// `...rest` read the real list rather than the declared slots.
+    arguments: Option<u64>,
 }
 
 impl State {
@@ -191,6 +197,7 @@ impl State {
         // is parked.
         out.extend(self.delegating);
         out.extend(self.pending);
+        out.extend(self.arguments);
     }
 }
 
@@ -294,6 +301,24 @@ pub fn generator_new(
             .region
             .set_spanning_field(frame, shape.label_field, shape.slots, 0);
 
+        // The real argument list, kept only when the frame cannot hold it. The
+        // body is re-entered afresh with only its DECLARED parameters restored,
+        // so a surplus argument (or an explicit trailing `undefined`) is gone by
+        // the first `next()` and `arguments.length` read 0.
+        // All four argument slots ARE saved (the frame holds the whole signature),
+        // so only a fifth argument, or an explicit trailing `undefined` the slots
+        // cannot tell from padding, needs the list kept.
+        let declared = 4;
+        let passed = super::functions::collected(context, 0, a0, a1, a2, a3);
+        let absent = super::objects::undefined_of(context);
+        let kept = if passed.len() > declared || passed.last() == Some(&absent) {
+            Some(passed)
+        } else {
+            None
+        };
+        let kept = kept.map(|passed| super::array::built_in(context, passed));
+        let _kept_rooted = kept.map(|array| super::rooted::Rooted::with(vec![array]));
+
         let Some(cell) = made(context) else {
             return super::objects::undefined_of(context);
         };
@@ -306,6 +331,7 @@ pub fn generator_new(
                 done: false,
                 delegating: None,
                 pending: None,
+                arguments: kept,
             },
         );
         Value::from_slot(cell).bits()

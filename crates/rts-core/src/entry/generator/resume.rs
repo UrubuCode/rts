@@ -111,6 +111,8 @@ struct Resuming {
     mode_field: u32,
     /// Where a finished body left its answer, if it has one.
     return_field: Option<u32>,
+    /// The real argument list, when the frame could not carry it.
+    arguments: Option<u64>,
 }
 
 impl Resuming {
@@ -123,6 +125,7 @@ impl Resuming {
             resumed_field: state.shape.resumed_field,
             mode_field: state.shape.mode_field,
             return_field: state.shape.return_field,
+            arguments: state.arguments,
         }
     }
 }
@@ -235,7 +238,24 @@ pub(in crate::entry) fn advance(cell: u32, sent: u64, mode: ResumeMode) -> Advan
     // the shape is the one `resumable_form` states — one reference in, whether it
     // finished out.
     let body: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(state.code as usize) };
+    // The running call's argument list for the length of this turn, when the
+    // frame kept one: what `arguments` and `...rest` read first.
+    //
+    // Always pushed, kept list or not: the resuming CALL (`g.next()`, zero
+    // arguments) left its own count on the stack, and the body would otherwise
+    // read that as the count of the arguments the generator was CALLED with.
+    with_current(|context| {
+        let vector = state
+            .arguments
+            .unwrap_or_else(|| objects::undefined_of(context));
+        context.pending_arguments.push(vector);
+        context.pending_counts.push(None);
+    });
     let finished = body(i64::from(state.frame)) != 0;
+    with_current(|context| {
+        context.pending_arguments.pop();
+        context.pending_counts.pop();
+    });
 
     // Rule 8 of `crates/rts-core/README.md`, and the body IS the user code this
     // native called. A generator whose body threw is COMPLETED — `.next()` on it
