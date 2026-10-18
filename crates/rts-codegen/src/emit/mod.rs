@@ -690,6 +690,11 @@ pub struct Ctx<'a> {
     /// Whether the next body emitted is a module's or a script's own, whose
     /// named top-level functions the pickle may name. Taken by that body.
     pub(in crate::emit) names_top_level: bool,
+    /// For the next body emitted: the number of leading parameter-prologue
+    /// statements and the names the body must give a binding of its own (a
+    /// separate parameter scope), or `None` for the ordinary single scope.
+    /// Set immediately before `emit_body`, taken by it.
+    pub(in crate::emit) parameter_split: Option<(usize, Vec<Name>, Vec<Name>)>,
     /// Whether `Math` still refers to the primordial the runtime installed.
     ///
     /// Proved over the whole program before anything is emitted — see
@@ -850,6 +855,7 @@ impl<'a> Ctx<'a> {
             module_paths: None,
             module_key: None,
             names_top_level: false,
+            parameter_split: None,
             math_primordial: false,
             core_imports: std::collections::BTreeMap::new(),
             intrinsic_fns: std::collections::BTreeMap::new(),

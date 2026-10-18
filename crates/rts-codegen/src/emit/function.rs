@@ -352,6 +352,7 @@ fn emit_function(
     // is a loop over the iteration protocol rather than a suspension. See
     // `expr::yielded`.
     let (parameters, mut prologue, parameter_claims) = bind_parameters(ctx, function);
+    let parameter_prologue = prologue.len();
     // A rest parameter that destructures is the same desugaring as a parameter
     // that does: bind the vector to a name, then unpack it with an ordinary
     // declaration. It was refused separately, and the refusal only made sense
@@ -439,6 +440,11 @@ fn emit_function(
         false => prologue.into_iter().chain(body.iter().cloned()).collect(),
     };
     let body = body.as_slice();
+    // A list with a default or a pattern has a parameter scope of its own, which
+    // a `var` or function of the body can shadow. Decided here, where the
+    // prologue length is still known; the MIR stage shares one scope for both and
+    // so declines these.
+    let split = parameter_split(body, parameter_prologue, &parameters, rest);
 
     // An async body may contain `Await`, and the verifier refuses that
     // instruction in a function whose signature does not say so. Declared on the
@@ -471,7 +477,7 @@ fn emit_function(
     // THROUGH THE MIR STAGE FIRST, where it agrees with this emitter about everything
     // the function touches -- `through_mir` lists what it declines and why. What it
     // takes is the body the program runs.
-    let through = match candidate {
+    let through = match candidate && split.is_none() {
         true => super::through_mir::try_emit(ctx, enclosing, function),
         false => None,
     };
@@ -484,26 +490,30 @@ fn emit_function(
         None if reprs => Err(super::module::refuse(
             "an @repr(i32) function the MIR stage declines",
         )),
-        None => emit_body(
-            ctx,
-            enclosing,
-            &parameters,
-            &parameter_claims,
-            body,
-            function.captures_this,
-            rest,
-            late_this,
-            // What the body binds its OWN name to, decided here because only this
-            // level has both the tree and the enclosing scope. See [`self_binding`].
-            self_binding(enclosing, function, definition),
-            &[],
-            // A nested function is not a module: it has no specifier and nothing to
-            // publish. Passing the enclosing module's would make every closure
-            // re-publish its exports on every call.
-            None,
-            &[],
-        ),
+        None => {
+            ctx.parameter_split = split.map(|(copies, fresh)| (parameter_prologue, copies, fresh));
+            emit_body(
+                ctx,
+                enclosing,
+                &parameters,
+                &parameter_claims,
+                body,
+                function.captures_this,
+                rest,
+                late_this,
+                // What the body binds its OWN name to, decided here because only this
+                // level has both the tree and the enclosing scope. See [`self_binding`].
+                self_binding(enclosing, function, definition),
+                &[],
+                // A nested function is not a module: it has no specifier and nothing to
+                // publish. Passing the enclosing module's would make every closure
+                // re-publish its exports on every call.
+                None,
+                &[],
+            )
+        }
     };
+    ctx.parameter_split = None;
     // Asked HERE, while `ctx.sloppy` is still this function's own: whether the
     // compiled code may call it without the runtime's argument bookkeeping.
     // `light_call` is the rule; the answer travels as one bit of the arity.
@@ -1097,6 +1107,15 @@ fn emit_body_into(
     // Taken FIRST: every body emitted from here down — a hoisted closure is
     // the first — is nested in this one, and none of them is a module's own.
     let names_top_level = std::mem::take(&mut ctx.names_top_level);
+    let split = ctx.parameter_split.take().filter(|(head, _, _)| *head <= body.len());
+    // A name only the BODY declares is not bound while the initialisers run, so
+    // the function's entry layer must not pre-bind it over the enclosing one.
+    let mut own_level = own_level;
+    if let Some((_, _, fresh)) = &split {
+        for name in fresh {
+            own_level.remove(name);
+        }
+    }
     let types = ctx.types;
     let mut builder = FuncBuilder::new(func, types, entry);
 
@@ -1360,8 +1379,52 @@ fn emit_body_into(
     // which is per-block rather than whole-body, and before the first
     // statement, which is what makes reading one before its own `var` line
     // answer `undefined` instead of refusing to compile.
-    hoist_vars(&mut builder, &mut scope, ctx, body)?;
-    hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
+    //
+    // A list with defaults or patterns has a PARAMETER scope of its own: its
+    // initialisers run first, seeing the parameters and the enclosing scope but
+    // not the body's `var`s and functions, and the body then gets bindings of its
+    // own for the names it redeclares. `head` is the initialisers, emitted before
+    // any hoist; the rest of this function sees only `body`.
+    let mut loops = Loops::default();
+    let mut terminated = false;
+    let (head, body): (&[Stmt], &[Stmt]) = match &split {
+        Some((at, _, _)) => body.split_at(*at),
+        None => (&[], body),
+    };
+    if let Some((_, copies, fresh)) = &split {
+        scope.expect_lexical(&binding::lexical_names(head));
+        for statement in head {
+            if super::emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
+                terminated = true;
+                break;
+            }
+        }
+        if !terminated {
+            // A `var` takes the parameter's value at body entry; a function
+            // declaration of the same name overwrites it in `hoist` below.
+            let vars = vars_of(body);
+            let mut starts = Vec::new();
+            for name in copies.iter().filter(|name| vars.contains(name)) {
+                starts.push((*name, binding::read(&mut builder, &scope, ctx, *name)?));
+            }
+            // Only a name a closure captured needs storage of its own; a register
+            // binding is already a distinct binding once declared again.
+            let owned: Vec<Name> = copies
+                .iter()
+                .copied()
+                .chain(fresh.iter().copied())
+                .filter(|name| scope.is_captured(*name))
+                .collect();
+            binding::push_environment(&mut builder, &mut scope, ctx, &owned)?;
+            for (name, value) in starts {
+                binding::declare(&mut builder, &mut scope, ctx, name, value)?;
+            }
+        }
+    }
+    if !terminated {
+        hoist_vars(&mut builder, &mut scope, ctx, body)?;
+        hoist(&mut builder, &mut scope, ctx, body, names_top_level)?;
+    }
     // The body's own `let`, `const` and `class` names are in their dead zone
     // until their declarations are reached. Armed after both hoists on purpose:
     // a `var` and a hoisted `function` have no dead zone, and binding them first
@@ -1369,9 +1432,10 @@ fn emit_body_into(
     let lexical = binding::lexical_names(body);
     scope.expect_lexical(&lexical);
 
-    let mut loops = Loops::default();
-    let mut terminated = false;
     for statement in body {
+        if terminated {
+            break;
+        }
         if super::emit_stmt(&mut builder, &mut scope, ctx, &mut loops, statement)? {
             terminated = true;
             break;
@@ -1605,6 +1669,57 @@ pub fn hoist_vars(
         }
     }
     Ok(())
+}
+
+/// Whether a function with a non-simple parameter list needs the body to run in
+/// a scope of its own, and the names it must rebind there.
+///
+/// `body` is the prologue (`prologue_len` statements, the defaults and patterns)
+/// followed by the written body. The language gives such a list its own
+/// environment: an initialiser sees the parameters and the ENCLOSING scope, never
+/// the body's `var`s or functions, and a body `var x` where `x` is also a
+/// parameter is a distinct binding that starts with the parameter's value — so a
+/// closure made in the list keeps watching the parameter.
+///
+/// `None` when no body declaration collides with the list, which is every
+/// ordinary function: it keeps the one scope and the order it always had. Else
+/// the redeclared parameter names (`var` and function), possibly empty when only
+/// a default mentions a name the body declares.
+fn parameter_split(
+    body: &[Stmt],
+    prologue_len: usize,
+    parameters: &[Name],
+    rest: Option<Name>,
+) -> Option<(Vec<Name>, Vec<Name>)> {
+    if prologue_len == 0 || prologue_len > body.len() {
+        return None;
+    }
+    let (head, tail) = body.split_at(prologue_len);
+    let mut bound: std::collections::BTreeSet<Name> = parameters.iter().copied().collect();
+    bound.extend(rest);
+    bound.extend(binding::lexical_names(head));
+    let mut declared = vars_of(tail);
+    for statement in tail {
+        if let StmtKind::Function(function) = &statement.kind {
+            declared.extend(function.name);
+        }
+    }
+    let mut mentioned = std::collections::BTreeSet::new();
+    for statement in head {
+        capture::all_names_in_statement(statement, &mut mentioned);
+    }
+    let mut copies: Vec<Name> = Vec::new();
+    let mut fresh: Vec<Name> = Vec::new();
+    for name in declared {
+        if bound.contains(&name) {
+            if !copies.contains(&name) {
+                copies.push(name);
+            }
+        } else if mentioned.contains(&name) && !fresh.contains(&name) {
+            fresh.push(name);
+        }
+    }
+    (!fresh.is_empty() || !copies.is_empty()).then_some((copies, fresh))
 }
 
 /// A function's parameter list as plain names, with the statements that unpack
