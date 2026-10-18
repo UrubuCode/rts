@@ -69,6 +69,26 @@ impl<T: Clone> Types<T> {
 /// so a hundred rounds over one block means `join` narrowed somewhere.
 const ROUNDS: usize = 100;
 
+/// How many levels a value may climb, counting the widening's jumps -- the lattice's height
+/// as the fixed point sees it: bottom, a range, a half-widened range, the whole `Int32`,
+/// `Double`, the top, with room to spare.
+const CLIMB: usize = 8;
+
+/// How many times one block may be re-analysed in a function of `values` values.
+///
+/// `ROUNDS` alone called a LONG CHAIN a bug. A block is re-queued each time a value it
+/// reads moves, and a value that flows round a loop one link per lap (`a = b + 1; b = c +
+/// 1; ...` with the reads before the writes, so every link is carried by the back edge)
+/// moves its front one link per visit of the head however monotone the join is: a
+/// minified bundle's hundred-variable loop needed a hundred laps and was refused as a
+/// narrowing domain. The honest bound is the one the argument gives: every re-analysis is
+/// caused by some value having moved, a value moves at most `CLIMB` times, so no block can
+/// be re-analysed more than `CLIMB * values` times without a value moving DOWN. `ROUNDS`
+/// stays as the floor, for the small function where that product is the smaller number.
+fn round_limit(values: usize) -> usize {
+    ROUNDS.max(CLIMB.saturating_mul(values))
+}
+
 /// How many analyses of a block pass before its parameters are widened.
 ///
 /// Small, because a loop's climb is cut by the widening and not by waiting; not zero,
@@ -155,11 +175,12 @@ pub fn infer<D: Domain>(func: &Func, domain: &D) -> Types<D::Type> {
     let mut visits = vec![0usize; func.blocks.len()];
     let mut worklist: Vec<_> = func.block_ids().collect();
     worklist.reverse();
+    let limit = round_limit(func.values as usize);
     while let Some(block) = worklist.pop() {
         visits[block.0 as usize] += 1;
         assert!(
-            visits[block.0 as usize] <= ROUNDS,
-            "a block was re-analysed {ROUNDS} times, which means the domain's join narrows somewhere"
+            visits[block.0 as usize] <= limit,
+            "a block was re-analysed {limit} times, which means the domain's join narrows somewhere"
         );
         let mut changed = false;
         let mut moved = Vec::new();
