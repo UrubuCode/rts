@@ -45,6 +45,14 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
     box_id: Option<crate::boxes::BoxId>,
     font: f32,
     ctx: &LayoutCtx,
+    // Altura de CONTEÚDO do containing block, quando DEFINIDA, para resolver um
+    // `height`/`min-height`/`max-height` em PERCENTAGEM de `id` (um replaced com
+    // `height:100%` + `aspect-ratio` converte a % em largura intrínseca — WPT
+    // `intrinsic-percent-replaced`). `None` = base indefinida → a % é `auto`,
+    // como no browser. Flui só pela recursão SEM cache; o `intrinsic_content_width`
+    // cacheado passa sempre `None` (a caixa de topo não tem contexto de %), por
+    // isso a cache por `id` nunca mistura dois contextos.
+    cb_h: Option<f32>,
 ) -> f32 {
     // Um elemento REPLACED não tem filhos nem texto, e por isso caía na resposta
     // das folhas vazias: zero. Zero é o que fazia a `<figure>` (`display:table`)
@@ -59,7 +67,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             id,
             &css,
             f32::INFINITY,
-            None,
+            cb_h,
             (None, None),
             ctx,
         ) {
@@ -115,11 +123,38 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
         );
     }
 
+    // A altura de CONTEÚDO de `id`, quando DEFINIDA, é o containing block dos
+    // FILHOS para resolverem um `height:%` (o threading de altura, só pela
+    // recursão sem cache). `%` resolve contra `cb_h`; absoluta direta; auto/none
+    // → `None` (base indefinida para os filhos).
+    let content_cb_h = dom.computed_style_idx(id).and_then(|css| {
+        let r = ResolveCtx {
+            parent_content_w: ctx.viewport_w,
+            node_font_size: font_px(&css, font),
+            root_font_size: crate::style::root_font_size(),
+            viewport_w: ctx.viewport_w,
+            viewport_h: ctx.viewport_h,
+        };
+        let h = match css.height {
+            Some(crate::style::Dimension::Percent(p)) => cb_h.map(|c| (c * p / 100.0).max(0.0)),
+            Some(d) => crate::style::dimensao_absoluta(d, &r),
+            None => None,
+        }?;
+        let fv = {
+            let [bt, _, bb, _] = crate::style::borders::used_widths(&css);
+            css.padding.resolve_v(&r) + bt + bb
+        };
+        Some(if css.border_box == Some(true) {
+            (h - fv).max(0.0)
+        } else {
+            h
+        })
+    });
     let content_w = match box_id {
         // O chamador já tem a caixa em mãos (um fragmento específico, ou o
         // caso ubíquo de um nó com uma caixa só, resolvido no `match` de
         // baixo antes de chegar aqui recursivamente): usa exatamente essa.
-        Some(c) => intrinsic_content_width_general(dom, tree, id, c, font, ctx),
+        Some(c) => intrinsic_content_width_general(dom, tree, id, c, font, ctx, content_cb_h),
         // Sem caixa em mãos: dobra sobre as de `id`. This is the ONE place the
         // intrinsic-width family turns a node into its boxes; everything below
         // it takes the exact box (BT-2a).
@@ -127,7 +162,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             // O caso ubíquo: um nó normal, uma caixa só — comportamento
             // idêntico ao de antes deste lote (era exatamente este o único
             // caminho que existia).
-            [c] => intrinsic_content_width_general(dom, tree, id, *c, font, ctx),
+            [c] => intrinsic_content_width_general(dom, tree, id, *c, font, ctx, content_cb_h),
             // Sem caixa nenhuma (a cascata recusou o elemento, ou o split
             // absorveu um inline que só envolvia um bloco): sem filhos para
             // medir. The generated boxes' widths of a row flex used to be
@@ -150,7 +185,7 @@ pub(in crate::layout) fn intrinsic_content_width_no_cache(
             // pelo `<div>` do meio (29.44, o maior das duas).
             caixas => caixas
                 .iter()
-                .map(|&c| intrinsic_content_width_general(dom, tree, id, c, font, ctx))
+                .map(|&c| intrinsic_content_width_general(dom, tree, id, c, font, ctx, content_cb_h))
                 .fold(0.0, f32::max),
         },
     };
@@ -198,6 +233,8 @@ fn intrinsic_content_width_general(
     box_id: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
+    // Altura de CONTEÚDO de `id` (o CB dos seus filhos) para o `height:%` deles.
+    cb_h: Option<f32>,
 ) -> f32 {
     // o EIXO em que os filhos se dispõem decide SOMA vs MAX: um flex em COLUNA
     // empilha como um bloco (o maior filho), mesmo com `flex-wrap` — a
@@ -230,7 +267,7 @@ fn intrinsic_content_width_general(
 
     if !is_row {
         let mut lines = super::text::Lines::new(false);
-        walk_children(&mut lines, dom, tree, box_id, font, ctx);
+        walk_children(&mut lines, dom, tree, box_id, font, ctx, cb_h);
         return lines.finish(ctx);
     }
     let mut sum = 0.0f32;
@@ -254,7 +291,7 @@ fn intrinsic_content_width_general(
         if matches!(&dom.node(child).kind, NodeKind::Text(t) if t.trim().is_empty()) {
             continue;
         }
-        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx);
+        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx, cb_h);
         if w > 0.0 {
             count += 1;
         }
@@ -304,6 +341,8 @@ fn walk_children(
     parent_box: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
+    // CB dos filhos (altura de conteúdo do pai) para o `height:%` deles.
+    cb_h: Option<f32>,
 ) {
     for &child_box in tree.children_without_generated(parent_box) {
         let Some(child) = tree.node_of(child_box) else {
@@ -311,7 +350,7 @@ fn walk_children(
             // transparent: it is the block that wraps a split run, and the text
             // in it ("aaaa"/"cccc" of `<span>aaaa<div>b</div>cccc</span>`)
             // counts, on lines of its own.
-            lines.block(anonymous_width(dom, tree, child_box, font, ctx), ctx);
+            lines.block(anonymous_width(dom, tree, child_box, font, ctx, cb_h), ctx);
             continue;
         };
         if is_out_of_flow(dom, child) {
@@ -342,7 +381,7 @@ fn walk_children(
             if start > 0.0 {
                 lines.atom(start, ctx);
             }
-            walk_children(lines, dom, tree, child_box, f, ctx);
+            walk_children(lines, dom, tree, child_box, f, ctx, cb_h);
             if end > 0.0 {
                 lines.atom(end, ctx);
             }
@@ -351,7 +390,7 @@ fn walk_children(
         // The concrete box travels into the recursion: `child` may itself have
         // several (a nested fragment), and without saying WHICH one is measured
         // here `intrinsic_outer_width` would fall back to `id` alone.
-        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx);
+        let w = intrinsic_outer_width_of(dom, tree, child, Some(child_box), font, ctx, cb_h);
         if matches!(&dom.node(child).kind, NodeKind::Element { tag } if tag == "br") {
             lines.forced_break(ctx);
         } else if close_run(dom, child) {
@@ -378,6 +417,7 @@ fn anonymous_width(
     box_id: crate::boxes::BoxId,
     font: f32,
     ctx: &LayoutCtx,
+    cb_h: Option<f32>,
 ) -> f32 {
     // An anonymous TABLE is as wide as the SUM of its columns, not the widest
     // of its cells: measuring the cells as stacked blocks gave a floated row
@@ -392,7 +432,7 @@ fn anonymous_width(
         return crate::table::anonymous_table_widths(dom, tree, box_id, font, ctx).1;
     }
     let mut lines = super::text::Lines::new(false);
-    walk_children(&mut lines, dom, tree, box_id, font, ctx);
+    walk_children(&mut lines, dom, tree, box_id, font, ctx, cb_h);
     lines.finish(ctx)
 }
 
@@ -414,6 +454,8 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
     box_id: Option<crate::boxes::BoxId>,
     parent_font: f32,
     ctx: &LayoutCtx,
+    // CB de `id` (altura de conteúdo do pai) para o `height:%` do próprio `id`.
+    cb_h: Option<f32>,
 ) -> f32 {
     match &dom.node(id).kind {
         NodeKind::Element { .. } => {
@@ -511,7 +553,7 @@ pub(in crate::layout) fn intrinsic_outer_width_of(
             // ESPECÍFICO de `id`, e a cache de `intrinsic_content_width` é
             // chaveada só por `id`: cachear aqui misturaria a resposta de um
             // fragmento com a do outro (ver o comentário da função).
-            let content = intrinsic_content_width_no_cache(dom, tree, id, box_id, f, ctx);
+            let content = intrinsic_content_width_no_cache(dom, tree, id, box_id, f, ctx, cb_h);
             // Um bloco NÃO-replaced com altura DEFINIDA e `aspect-ratio` tem uma
             // largura max-content de altura×razão mesmo com conteúdo vazio (CSS
             // Sizing 4 §5) — espelho do piso de min-content em

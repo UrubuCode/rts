@@ -75,7 +75,7 @@ pub(in crate::layout) fn intrinsic_content_width(
     // `intrinsic_outer_width_of` (um fragmento entre vários de `id`), e
     // cachear por `id` misturaria a resposta de um fragmento com a do outro.
     let tree = dom.box_tree();
-    let width = intrinsic_content_width_no_cache(dom, &tree, id, None, font, ctx);
+    let width = intrinsic_content_width_no_cache(dom, &tree, id, None, font, ctx, None);
     dom.intrinsic_width_put(key, width);
     width
 }
@@ -88,7 +88,7 @@ pub(crate) fn intrinsic_outer_width(
     parent_font: f32,
     ctx: &LayoutCtx,
 ) -> f32 {
-    intrinsic_outer_width_of(dom, &dom.box_tree(), id, None, parent_font, ctx)
+    intrinsic_outer_width_of(dom, &dom.box_tree(), id, None, parent_font, ctx, None)
 }
 
 /// Altura OUTER que um filho QUER, para o align-items/cross-axis. Para nós-bloco,
