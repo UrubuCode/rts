@@ -72,6 +72,19 @@ pub(in crate::entry) fn read_on(object: u64, key: u64, receiver: u64) -> u64 {
     {
         return answered;
     }
+    // A view's `length`/`byteLength`/`byteOffset`/`buffer` are accessors that
+    // brand-check their receiver: `Reflect.get(view, "length", proxy)` throws.
+    if receiver != object {
+        let refused = with_current(|context| {
+            let slot = Value(object).as_slot()?;
+            let named = property_key(context, Value(key))?;
+            Some(super::super::buffers::fact_receiver_refused(context, slot, named, receiver))
+        });
+        if refused == Some(true) {
+            super::super::throw::type_error("Receiver is not a typed array or DataView");
+            return with_current(|context| undefined_of(context));
+        }
+    }
     // `undefined[k]` / `null[k]` throw at the access, exactly as `u.x` does.
     let mut refusal: Option<String> = None;
     let found = with_current(|context| {

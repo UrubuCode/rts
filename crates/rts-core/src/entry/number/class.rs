@@ -323,7 +323,16 @@ fn written(value: u64) -> bool {
 /// also what `String.prototype`'s numeric receivers go through, and widening it
 /// would make one function answer for two `[[Data]]` slots.
 fn receiver_number(this: u64) -> f64 {
+    refuse_proxy(this, "Number");
     class_support::this_number(primitive_proto::unwrapped(this))
+}
+
+/// A Proxy has no `[[NumberData]]`/`[[BooleanData]]` slot, however faithfully its
+/// handler forwards, so V8 raises a `TypeError` and so does this.
+fn refuse_proxy(this: u64, class: &str) {
+    if super::super::proxy::is_proxy(this) {
+        throw::type_error(&format!("{class}.prototype method called on incompatible receiver"));
+    }
 }
 
 /// The flag a `Boolean.prototype` method's receiver IS.
@@ -332,6 +341,7 @@ fn receiver_number(this: u64) -> f64 {
 /// so `new Boolean(false).valueOf()` was `true` without it — a wrong answer that
 /// looks exactly like a right one.
 fn receiver_boolean(this: u64) -> bool {
+    refuse_proxy(this, "Boolean");
     class_support::to_boolean(primitive_proto::unwrapped(this))
 }
 

@@ -46,6 +46,15 @@ pub(in crate::entry) fn get_on(object: u64, key: Key, receiver: u64) -> Option<u
         return Some(absent());
     }
     let Some(callee) = trap.callee else {
+        let refused = with_current(|context| {
+            Value(trap.target).as_slot().is_some_and(|cell| {
+                crate::entry::buffers::fact_receiver_refused(context, cell, key, receiver)
+            })
+        });
+        if refused {
+            throw::type_error("Receiver is not a typed array or DataView");
+            return Some(absent());
+        }
         return Some(forwarded_read(trap.target, key));
     };
     let property = property_of(key);
@@ -289,10 +298,7 @@ pub(in crate::entry) fn delete(object: u64, key: Key) -> Option<bool> {
         // rebuilds the shape without the key, and a second spelling of that is
         // a second answer to where a property lives.
         let property = property_of(key);
-        return Some(crate::entry::computed::delete_property(
-            trap.target,
-            property,
-        ));
+        return Some(crate::entry::computed::delete_own(trap.target, property));
     };
     let property = property_of(key);
     let answered = functions::call(

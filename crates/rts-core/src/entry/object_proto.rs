@@ -197,10 +197,16 @@ impl ObjectPrototype {
             return with_current(|context| undefined_of(context));
         }
         with_current(|context| {
+            let proxied_this = Value(this).as_slot().is_some_and(|cell| context.proxy_at(cell).is_some());
             let tag = match Value(declared).as_slot().and_then(|cell| context.text_at(cell)) {
                 // Only a STRING counts. The specification says so, and it
                 // matters: a tag that is a number would otherwise print as
                 // `[object 5]` for an object that never claimed to be one.
+                // An arguments object fakes its class with an own tag property, which
+                // a Proxy would forward; a real one has no slot a Proxy can show.
+                Some(text) if text.to_rust().as_deref() == Some("Arguments") && proxied_this => {
+                    object_tag(context, this).to_owned()
+                }
                 Some(text) => text.to_rust().unwrap_or_else(|| object_tag(context, this).to_owned()),
                 None => object_tag(context, this).to_owned(),
             };
@@ -373,12 +379,14 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
     // A chain, because a proxy's target may be another one, and bounded for the
     // reason every walk in this file is: the chain is data a program built.
     let mut this = this;
+    let mut proxied = false;
     for _ in 0..super::objects::CHAIN_LIMIT {
         let Some(target) = Value(this).as_slot().and_then(|cell| context.proxy_at(cell))
         else {
             break;
         };
         this = target.0;
+        proxied = true;
     }
     if this == Value::from_singleton(context.singletons.undefined).bits() {
         return "Undefined";
@@ -397,6 +405,12 @@ fn object_tag(context: &mut Context, this: u64) -> &'static str {
         .is_some_and(|cell| context.is_callable_cell(cell))
     {
         return "Function";
+    }
+    // Only the array and callable rows see through a proxy; every other row
+    // needs an internal slot (Date, RegExp, Error, Arguments, boxed…) that the
+    // proxy does not have, so V8 answers the Object fallback.
+    if proxied {
+        return "Object";
     }
     if Value(this).as_bool().is_some() {
         return "Boolean";

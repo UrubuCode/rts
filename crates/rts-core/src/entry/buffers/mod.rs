@@ -590,6 +590,43 @@ pub(in crate::entry) fn is_element_key(context: &Context, cell: u32, key: Value)
         .is_some_and(|view| view.kind != Kind::Raw && is_canonical_numeric(context, key))
 }
 
+/// Whether reading `key` off the view `target` with this `receiver` must throw.
+///
+/// An instance keeps `length`, `byteLength`, `byteOffset` and `buffer` as own
+/// data slots (see [`attach`]), where the language makes them accessors on the
+/// prototype that brand-check their receiver. A read whose receiver is not a
+/// view — a Proxy forwarding with `Reflect.get(t, k, r)` — is therefore one the
+/// language refuses, and the own slot would have answered it.
+pub(in crate::entry) fn fact_receiver_refused(
+    context: &Context,
+    target: u32,
+    key: crate::object::Key,
+    receiver: u64,
+) -> bool {
+    if Value(receiver).as_slot() == Some(target) {
+        return false;
+    }
+    let Some(view) = context.view_at(target) else {
+        return false;
+    };
+    let crate::object::Key::Name(name) = key else {
+        return false;
+    };
+    let Some(text) = context.interner.text(name).and_then(|text| text.to_rust()) else {
+        return false;
+    };
+    let raw = view.kind == Kind::Raw;
+    let named = match raw {
+        true => matches!(text.as_str(), "byteLength" | "byteOffset" | "buffer"),
+        false => matches!(text.as_str(), "length" | "byteLength" | "byteOffset" | "buffer"),
+    };
+    named
+        && !Value(receiver)
+            .as_slot()
+            .and_then(|cell| context.view_at(cell))
+            .is_some_and(|other| (other.kind == Kind::Raw) == raw)
+}
+
 /// `t[i] = v` — whether the write was a view's and is finished.
 ///
 /// `true` for any index-shaped key on a view, including one out of range: the

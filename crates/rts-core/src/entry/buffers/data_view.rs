@@ -336,6 +336,14 @@ enum Refusal {
 /// DataView.prototype.getInt8 on a detached ArrayBuffer`): this is the one
 /// door every get and set passes, so the check cannot drift between them.
 fn position(this: u64, at: f64, kind: Kind, writing: bool) -> Option<usize> {
+    // No [[DataView]] slot (a Proxy over a DataView, or anything else): V8 throws.
+    let branded = with_current(|context| {
+        super::view_of(context, this).is_some_and(|view| view.kind == Kind::Raw)
+    });
+    if !branded {
+        crate::entry::throw::type_error("Receiver is not a DataView");
+        return None;
+    }
     let (window, detached) = with_current(|context| match super::view_of(context, this) {
         Some(view) => (
             Some(view.length),

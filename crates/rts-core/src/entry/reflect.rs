@@ -141,6 +141,19 @@ impl Reflect {
             receiver != super::objects::undefined_of(context) && receiver != target
         });
         if substituted {
+            // A typed array's [[Set]] with a foreign receiver: an index that is
+            // not valid is dropped and reported as success.
+            let dropped = with_current(|context| {
+                let cell = Value(target).as_slot()?;
+                if !super::buffers::is_element_key(context, cell, Value(key)) {
+                    return None;
+                }
+                let count = context.view_at(cell).map_or(0, |view| view.count());
+                Some(!super::array::as_index(context, Value(key)).is_some_and(|at| at < count))
+            });
+            if dropped == Some(true) {
+                return true;
+            }
             let Some(named) =
                 with_current(|context| super::computed::property_key(context, Value(key)))
             else {

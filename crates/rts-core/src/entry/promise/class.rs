@@ -264,10 +264,11 @@ fn attached(this: u64, make: impl FnOnce(PromiseId) -> Handler) -> u64 {
             .and_then(|cell| context.promises.id_of(cell))
     });
     let Some(source) = source else {
-        // `Promise.prototype.then.call({})`. The language throws a
-        // `TypeError`; this answers `undefined`, the same stated gap every
-        // refusal in this crate settles on while there is nowhere for a
-        // throw to land.
+        // `Promise.prototype.then.call({})` and a Proxy over a promise: no
+        // promise slot, so V8 throws a `TypeError` and so does this.
+        crate::entry::throw::type_error(
+            "Method Promise.prototype.then called on incompatible receiver",
+        );
         return super::undefined();
     };
     let built = match super::capability::species_of(this) {
