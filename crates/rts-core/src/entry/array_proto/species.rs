@@ -231,7 +231,7 @@ pub(super) fn collected(original: u64, values: Vec<u64>) -> u64 {
 
 /// The getter `constructor[Symbol.species]` resolves to, or `None` where it is
 /// absent or a plain value.
-fn species_getter(constructor: u64) -> Option<u64> {
+pub(in crate::entry) fn species_getter(constructor: u64) -> Option<u64> {
     with_current(|context| {
         let cell = Value(constructor).as_slot()?;
         let key = context.well_known(super::super::symbol::SPECIES);
@@ -245,7 +245,7 @@ fn species_getter(constructor: u64) -> Option<u64> {
 /// Whether `getter` is the native every built-in's `Symbol.species` is -- the
 /// one that answers its receiver -- known by its address, which is what a
 /// native cell carries as its code.
-fn is_receiver_getter(getter: u64) -> bool {
+pub(in crate::entry) fn is_receiver_getter(getter: u64) -> bool {
     with_current(|context| {
         let cell = Value(getter).as_slot()?;
         let (code, _) = context.callable_at(cell)?;

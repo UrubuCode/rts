@@ -205,31 +205,66 @@ impl ArrayBuffer {
         // Before any borrow: each of these takes one of its own.
         let begin = super::optional_number(begin);
         let end = super::optional_number(end);
-        // A detached buffer has no bytes to copy. Raised outside the borrow:
+        // 0 ok, 1 incompatible receiver, 2 detached. Raised outside the borrow:
         // building the error runs the program's own constructor.
-        if with_current(|context| Value(this).as_slot().is_some_and(|cell| context.buffer_detached(cell))) {
-            crate::entry::throw::type_error(
-                "Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer",
-            );
+        let state = with_current(|context| match Value(this).as_slot() {
+            Some(cell) if context.buffer_detached(cell) => 2,
+            Some(cell) if is_plain_buffer(context, cell) => 0,
+            _ => 1,
+        });
+        match state {
+            1 => {
+                crate::entry::throw::type_error("Method ArrayBuffer.prototype.slice called on incompatible receiver");
+                return super::undefined();
+            }
+            2 => {
+                crate::entry::throw::type_error(
+                    "Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer",
+                );
+                return super::undefined();
+            }
+            _ => {}
+        }
+        let (first, last) = with_current(|context| {
+            let cell = Value(this).as_slot().expect("checked above");
+            super::range(context.bytes_at(cell).map_or(0, |bytes| bytes.len()), begin, end)
+        });
+        let wanted = last - first;
+        // SpeciesConstructor. `Ok(None)` is the ordinary case: build the
+        // default buffer with no user code run.
+        let derived = match species_buffer(this, wanted) {
+            Ok(found) => found,
+            Err(()) => return super::undefined(),
+        };
+        // Copied out before the new buffer is made, because making one takes
+        // the byte store mutably and the source slice borrows it. Re-read after
+        // the species ran: it is user code and may have detached or resized us.
+        let taken: Vec<u8> = with_current(|context| {
+            let cell = Value(this).as_slot().expect("checked above");
+            match context.bytes_at(cell) {
+                Some(bytes) if !context.buffer_detached(cell) => {
+                    let end = last.min(bytes.len());
+                    bytes[first.min(end)..end].to_vec()
+                }
+                _ => Vec::new(),
+            }
+        });
+        if derived.is_some() && with_current(|context| Value(this).as_slot().is_some_and(|cell| context.buffer_detached(cell))) {
+            crate::entry::throw::type_error("Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer");
             return super::undefined();
         }
         with_current(|context| {
             let absent = undefined_of(context);
-            let Some(cell) = Value(this).as_slot() else {
-                return absent;
-            };
-            let Some(bytes) = context.bytes_at(cell) else {
-                return absent;
-            };
-            let (first, last) = super::range(bytes.len(), begin, end);
-            // Copied out before the new buffer is made, because making one takes
-            // the byte store mutably and the source slice borrows it.
-            let taken = bytes[first..last].to_vec();
-            let Some(made) = super::new_buffer(context, taken.len()) else {
-                return absent;
+            let made = match derived {
+                Some(made) => made,
+                None => match super::new_buffer(context, taken.len()) {
+                    Some(made) => made,
+                    None => return absent,
+                },
             };
             if let Some(destination) = context.bytes_at_mut(made) {
-                destination.copy_from_slice(&taken);
+                let count = taken.len().min(destination.len());
+                destination[..count].copy_from_slice(&taken[..count]);
             }
             Value::from_slot(made).bits()
         })
@@ -264,6 +299,99 @@ impl ArrayBuffer {
     fn transfer_to_fixed_length(this: u64, length: u64) -> u64 {
         transferred(this, length, "transferToFixedLength", false)
     }
+}
+
+/// A genuine, non-shared `ArrayBuffer` (not a view, not a `SharedArrayBuffer`).
+fn is_plain_buffer(context: &crate::entry::Context, cell: u32) -> bool {
+    if !is_buffer(context, cell) || context.view_at(cell).is_some() {
+        return false;
+    }
+    let shared = class_support::prototype(context, "SharedArrayBuffer");
+    shared.is_none() || context.prototype_at(cell) != shared
+}
+
+/// `SpeciesConstructor(this, %ArrayBuffer%)` then `new species(length)`, with the
+/// specification's checks on what comes back. `Ok(None)` means "use the default
+/// buffer"; `Err(())` means a TypeError is already in flight.
+fn species_buffer(this: u64, length: usize) -> Result<Option<u32>, ()> {
+    use crate::entry::array_proto::species::{is_receiver_getter, property, species_getter};
+    let (default_ctor, undefined, null) = with_current(|context| {
+        let null = rts_cranelift::tags::encode(
+            rts_cranelift::tags::TAG_SINGLETON,
+            u64::from(context.singletons.null),
+        );
+        (class_support::made(context, "ArrayBuffer"), undefined_of(context), null)
+    });
+    let Some(constructor) = property(this, "constructor") else {
+        return Ok(None);
+    };
+    if crate::entry::throw::in_flight() {
+        return Err(());
+    }
+    if constructor == undefined {
+        return Ok(None);
+    }
+    if Value(constructor).as_slot().is_none() {
+        crate::entry::throw::type_error("The .constructor property is not an object");
+        return Err(());
+    }
+    // The built-in with its own receiver-answering species getter is the
+    // default: no user code, no construction.
+    if Some(constructor) == default_ctor && species_getter(constructor).is_some_and(is_receiver_getter) {
+        return Ok(None);
+    }
+    let species = match property(constructor, crate::entry::symbol::SPECIES) {
+        Some(found) => found,
+        None => undefined,
+    };
+    if crate::entry::throw::in_flight() {
+        return Err(());
+    }
+    if species == undefined || species == null {
+        return Ok(None);
+    }
+    if Some(species) == default_ctor {
+        return Ok(None);
+    }
+    let usable = with_current(|context| {
+        crate::entry::functions::constructible(context, species, 0).is_none()
+            && Value(species).as_slot().is_some_and(|cell| context.callable_at(cell).is_some())
+    });
+    if !usable {
+        crate::entry::throw::type_error("object.constructor[Symbol.species] is not a constructor");
+        return Err(());
+    }
+    let counted = Value::from_f64(length as f64).bits();
+    let made = crate::entry::functions::construct(species, counted, undefined, undefined, undefined);
+    if crate::entry::throw::in_flight() {
+        return Err(());
+    }
+    // 0 ok, 1 not a buffer, 2 detached, 3 the same buffer, 4 too small.
+    let verdict = with_current(|context| {
+        let Some(cell) = Value(made).as_slot() else { return 1 };
+        if !is_plain_buffer(context, cell) {
+            return 1;
+        }
+        if context.buffer_detached(cell) {
+            return 2;
+        }
+        if made == this {
+            return 3;
+        }
+        match context.bytes_at(cell) {
+            Some(bytes) if bytes.len() >= length => 0,
+            _ => 4,
+        }
+    });
+    let message = match verdict {
+        0 => return Ok(Value(made).as_slot()),
+        1 => "Method ArrayBuffer.prototype.slice called on incompatible receiver",
+        2 => "Cannot perform ArrayBuffer.prototype.slice on a detached ArrayBuffer",
+        3 => "ArrayBuffer subclass returned this from species constructor",
+        _ => "Derived ArrayBuffer constructor created a buffer which was too small",
+    };
+    crate::entry::throw::type_error(message);
+    Err(())
 }
 
 /// The bytes moved into a new buffer, leaving this one detached.
