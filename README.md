@@ -27,21 +27,21 @@
 JS spec compatibility validated against **Bun** and **Node** over 1528 standalone TS fixtures.
 
 ```
-[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱] 90%   1368/1520 fixtures passing
+[▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▱▱] 90%   1369/1521 fixtures passing
 ```
 
 | Metric | Value |
 |---|---|
-| **Parity** | **90%** (1368/1520) |
-| ✅ RTS = Bun = Node | 1368 |
+| **Parity** | **90%** (1369/1521) |
+| ✅ RTS = Bun = Node | 1369 |
 | ❌ RTS diverges | 111 |
 | 💥 RTS runtime error | 41 |
 | 🛠️  **Left to fix** | **152** |
-| ⚠️ Bun ≠ Node (skip) | 7 |
+| ⚠️ Bun ≠ Node (skip) | 6 |
 | 🚫 Rejected (RTS-only) | 0 |
 | 📦 Total fixtures | 1528 |
 
-_Updated: 2026-10-18 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
+_Updated: 2026-10-19 — [how to add a fixture](the spec removed 2026-08-03 (see git history))_
 
 <!-- CROSS_RUNTIME_STATS_END -->
 

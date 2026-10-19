@@ -1102,7 +1102,7 @@
   "rts_exit": 134,
   "bun_error": "",
   "node_error": "",
-  "rts_error": "\nthread 'main' (4663) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
+  "rts_error": "\nthread 'main' (4643) has overflowed its stack\nfatal runtime error: stack overflow, aborting\ntimeout: the monitored command dumped core"
 }
 ,
 {
@@ -9745,9 +9745,9 @@
 ,
 {
   "name": "286_setimmediate",
-  "status": "bun_node_diverge",
+  "status": "pass",
   "bun": "order=micro|immediate|timeout",
-  "node": "order=micro|timeout|immediate",
+  "node": "order=micro|immediate|timeout",
   "rts": "order=micro|immediate|timeout",
   "bun_exit": 0,
   "node_exit": 0,
@@ -21391,4 +21391,4 @@
   "rts_error": ""
 }
 
-],"summary":{"total":1528,"pass":1368,"reachable":1520,"rts_diverge":111,"bun_node_diverge":7,"errors":41,"rejected":0,"upstream_defect":1}}
+],"summary":{"total":1528,"pass":1369,"reachable":1521,"rts_diverge":111,"bun_node_diverge":6,"errors":41,"rejected":0,"upstream_defect":1}}
