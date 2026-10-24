@@ -695,7 +695,25 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      # O corpus do WPT que 51 testes deste crate leem. Sem ele esses testes
+      # SALTAM (`crates/rts-dom/src/wpt_corpus.rs`), e durante meses foi pior
+      # do que saltar: nomeavam um caminho absoluto da máquina de quem os
+      # escreveu, logo falhavam aqui com `NotFound` — 50 vermelhos que este
+      # job, sendo `continue-on-error`, não reportava a ninguém. Um checkout
+      # esparso são ~57 MB e é o que os torna uma régua em vez de um hábito.
+      # Clone NOVO e descartável, por isso a lista curta é segura aqui: narrow
+      # um checkout que já existe é o que `scripts/wpt_reftests.md` avisa que
+      # apaga pastas em silêncio.
+      - name: WPT corpus (sparse)
+        run: |
+          git clone --filter=blob:none --sparse --depth 1 \
+            https://github.com/web-platform-tests/wpt.git tests/wpt-corpus
+          git -C tests/wpt-corpus sparse-checkout set \
+            css/css-grid css/support css/reference fonts
+
       - name: rts-dom and rts-dom-bridge tests
+        env:
+          RTS_WPT_CORPUS: ${{ github.workspace }}/tests/wpt-corpus
         run: cargo test -p rts-dom -p rts-dom-bridge --no-fail-fast
 
   # A quinta régua, no mesmo espírito das anteriores: mede o custo de

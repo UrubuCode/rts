@@ -175,3 +175,11 @@ PLAN_RTS.MD
 # build output is the SDK's rather than ours.
 bench/dotnet/bin/
 bench/dotnet/obj/
+
+# A checkout of the WPT used as a corpus by the tests of `rts-dom` that compare
+# a WPT test against its own reference (`crates/rts-dom/src/wpt_corpus.rs`).
+# NOTHING of the WPT is vendored here — `THIRD-PARTY-NOTICES.md` — and a
+# machine without it SKIPS those tests instead of failing them. Put a checkout
+# here, or point `RTS_WPT_CORPUS` at one — `scripts/wpt_reftests.md` has the
+# procedure (and the warning about narrowing a checkout that already exists).
+tests/wpt-corpus/

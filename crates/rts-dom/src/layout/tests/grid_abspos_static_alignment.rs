@@ -218,11 +218,12 @@ fn test_negative_indices_003_geometry() {
 
 #[test]
 fn test_018_abspos_clamped_container() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-018.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/positioned-grid-items-018.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\reference\ref-filled-green-100px-square-only.html",
+        crate::wpt_corpus::path("css/reference/ref-filled-green-100px-square-only.html"),
     ).unwrap();
     let (d_t, l_t) = geometria(&test_html, 800.0);
     let (d_r, l_r) = geometria(&ref_html, 800.0);
@@ -236,11 +237,12 @@ fn test_018_abspos_clamped_container() {
 
 #[test]
 fn test_orthogonal_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\orthogonal-positioned-grid-items-001.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/orthogonal-positioned-grid-items-001.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\orthogonal-positioned-grid-items-001-ref.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/orthogonal-positioned-grid-items-001-ref.html"),
     ).unwrap();
     let (d_t, l_t) = geometria(&test_html, 800.0);
     let (d_r, l_r) = geometria(&ref_html, 800.0);
@@ -255,14 +257,15 @@ fn test_orthogonal_001() {
 
 #[test]
 fn test_sizing_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-sizing-001.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/positioned-grid-items-sizing-001.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\positioned-grid-items-sizing-001-ref.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/positioned-grid-items-sizing-001-ref.html"),
     ).unwrap();
     let grid_css = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css",
+        crate::wpt_corpus::path("css/support/grid.css"),
     ).unwrap();
     let mut d_t = crate::parse_html_to_dom(&test_html);
     d_t.add_stylesheet(&grid_css);
@@ -298,11 +301,12 @@ fn test_sizing_001() {
 
 #[test]
 fn test_descendant_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-001.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/descendant-static-position-001.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-001-ref.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/descendant-static-position-001-ref.html"),
     ).unwrap();
     let (d_t, l_t) = geometria(&test_html, 800.0);
     let (d_r, l_r) = geometria(&ref_html, 800.0);
@@ -318,11 +322,12 @@ fn test_descendant_001() {
 
 #[test]
 fn test_descendant_002() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-002.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/descendant-static-position-002.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\descendant-static-position-002-ref.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/descendant-static-position-002-ref.html"),
     ).unwrap();
     let (d_t, l_t) = geometria(&test_html, 800.0);
     let (d_r, l_r) = geometria(&ref_html, 800.0);
@@ -338,11 +343,12 @@ fn test_descendant_002() {
 
 #[test]
 fn test_bg_rtl_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-positioned-items-background-rtl-001.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/grid-positioned-items-background-rtl-001.html"),
     ).unwrap();
     let grid_css = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css",
+        crate::wpt_corpus::path("css/support/grid.css"),
     ).unwrap();
     let mut d_t = crate::parse_html_to_dom(&test_html);
     d_t.add_stylesheet(&grid_css);
@@ -366,11 +372,12 @@ fn test_bg_rtl_001() {
 
 #[test]
 fn test_vertwm_002() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let test_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-abspos-staticpos-align-self-vertWM-002.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-002.html"),
     ).unwrap();
     let ref_html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\abspos\grid-abspos-staticpos-align-self-vertWM-002-ref.html",
+        crate::wpt_corpus::path("css/css-grid/abspos/grid-abspos-staticpos-align-self-vertWM-002-ref.html"),
     ).unwrap();
     let (d_t, l_t) = crate::table::tests::geometria(&test_html, 800.0);
     let (d_r, l_r) = crate::table::tests::geometria(&ref_html, 800.0);
