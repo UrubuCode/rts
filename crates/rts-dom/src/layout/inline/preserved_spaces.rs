@@ -64,6 +64,34 @@ impl Spaces {
     }
 }
 
+/// Does everything these runs carry COLLAPSE AWAY — leaving the inline that
+/// produced them with no content on any line?
+///
+/// Asked of the runs ONE inline container contributed (`runs.rs`), to decide
+/// whether it still deserves a position. An inline whose whole content is
+/// collapsible white space makes no line box (CSS 2.1 §9.4.2) and yet Blink
+/// reports a 0x0 rect for it at the place the line WOULD have been
+/// (`claude-margem-atraves-de-inline-vazio`, `#s2`): the engine recorded no
+/// rect at all, so the span answered y = 0 instead of y = 140.
+///
+/// Two things disqualify a run: an ATOM (a replaced box, a widget, the border
+/// edge of a nested inline — anything with a surface on the line), and a
+/// white-space regime that PRESERVES, because then the space is content and
+/// the line box is real. The regime is each run's own, read the way
+/// `Spaces::from_flow` reads it, so a nested `white-space: pre` inside a
+/// collapsing container is not mistaken for emptiness.
+pub(in crate::layout) fn tudo_colapsa(dom: &crate::Dom, runs: &[InlineRun]) -> bool {
+    runs.iter().all(|r| {
+        r.atomic.is_none()
+            && crate::inline_box::so_espaco_css(&r.text)
+            && !r
+                .owners
+                .last()
+                .and_then(|&o| dom.computed_style_idx(o))
+                .is_some_and(|c| WhiteSpaceRegime::from_css(&c).preserves())
+    })
+}
+
 /// One element's `white-space` and `tab-size`.
 #[derive(Clone, Copy)]
 pub(in crate::layout) struct WhiteSpaceRegime {

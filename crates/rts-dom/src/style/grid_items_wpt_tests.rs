@@ -460,8 +460,9 @@ fn test_named_grid_lines_001() {
 
 #[test]
 fn test_subgrid_item_margin_left_auto() {
-    let html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-item-with-margin-left-auto.html").unwrap();
-    let ref_html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\reference\ref-filled-green-100px-square.xht").unwrap();
+    crate::wpt_corpus::sem_corpus_wpt!();
+    let html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/subgrid-item-with-margin-left-auto.html")).unwrap();
+    let ref_html = std::fs::read_to_string(crate::wpt_corpus::path("css/reference/ref-filled-green-100px-square.xht")).unwrap();
     let (dom, list) = crate::table::tests::geometria(&html, 800.0);
     let (ref_dom, ref_list) = crate::table::tests::geometria(&ref_html, 800.0);
     let subgrid = crate::table::tests::rect(&dom, &list, ".subgrid", 0);
@@ -473,7 +474,8 @@ fn test_subgrid_item_margin_left_auto() {
 
 #[test]
 fn test_flex_sizing_rows_indefinite_height_002() {
-    let html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\layout-algorithm\flex-sizing-rows-indefinite-height-002.html").unwrap();
+    crate::wpt_corpus::sem_corpus_wpt!();
+    let html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/layout-algorithm/flex-sizing-rows-indefinite-height-002.html")).unwrap();
     let (dom, list) = crate::table::tests::geometria(&html, 800.0);
     let grid = crate::table::tests::rect(&dom, &list, ".grid", 0);
     let item = crate::table::tests::rect(&dom, &list, ".item", 0);

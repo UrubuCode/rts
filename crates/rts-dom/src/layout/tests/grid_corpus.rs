@@ -96,6 +96,7 @@ fn rodape_desce_para_depois_da_row_do_meio() {
 
 #[test]
 fn grid_item_overflow_auto_max_height_percentage() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let html = r#"<style>
 .webconsole-app { display: grid; height: 200px; }
 .sidebar { display: flex; flex: 1; flex-direction: row; height: 100%; background: blue; }
@@ -115,8 +116,8 @@ fn grid_item_overflow_auto_max_height_percentage() {
     </div>
   </div>
 </div>"#;
-    let p_test = "C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage.html";
-    let p_ref = "C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage-ref.html";
+    let p_test = crate::wpt_corpus::path("css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage.html");
+    let p_ref = crate::wpt_corpus::path("css/css-grid/grid-items/grid-item-overflow-auto-max-height-percentage-ref.html");
     if let (Ok(ht), Ok(hr)) = (std::fs::read_to_string(p_test), std::fs::read_to_string(p_ref)) {
         let (dt, lt) = geometria(&ht, 1280.0);
         let (dr, lr) = geometria(&hr, 1280.0);
@@ -162,9 +163,10 @@ fn grid_size_with_orthogonal_child_002() {
 
 #[test]
 fn debug_percentage_sizes_001_to_003() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     for num in ["001", "002", "003"] {
-        let test_path = format!("C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-percentage-sizes-{num}.html");
-        let ref_path = format!("C:/Users/nexga/Documents/wpt-corpus/css/css-grid/grid-items/grid-item-percentage-sizes-{num}-ref.html");
+        let test_path = crate::wpt_corpus::path(&format!("css/css-grid/grid-items/grid-item-percentage-sizes-{num}.html"));
+        let ref_path = crate::wpt_corpus::path(&format!("css/css-grid/grid-items/grid-item-percentage-sizes-{num}-ref.html"));
         let (html_test, html_ref) = match (std::fs::read_to_string(&test_path), std::fs::read_to_string(&ref_path)) {
             (Ok(t), Ok(r)) => (t, r),
             _ => continue,

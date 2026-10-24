@@ -74,9 +74,10 @@ fn test_min_content_width_percent_height_aspect_ratio_001() {
 
 #[test]
 fn test_fit_content_columns() {
-    let test_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-columns-fit-content-001.html"#;
-    let ref_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-columns-fit-content-001-ref.html"#;
-    let grid_css_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css"#;
+    crate::wpt_corpus::sem_corpus_wpt!();
+    let test_path = crate::wpt_corpus::path("css/css-grid/grid-definition/grid-template-columns-fit-content-001.html");
+    let ref_path = crate::wpt_corpus::path("css/css-grid/grid-definition/grid-template-columns-fit-content-001-ref.html");
+    let grid_css_path = crate::wpt_corpus::path("css/support/grid.css");
 
     let grid_css = std::fs::read_to_string(grid_css_path).unwrap();
     let test_html = std::fs::read_to_string(test_path).unwrap();
@@ -119,9 +120,10 @@ fn test_fit_content_columns() {
 
 #[test]
 fn test_fit_content_rows() {
-    let test_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-rows-fit-content-001.html"#;
-    let ref_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\grid-definition\grid-template-rows-fit-content-001-ref.html"#;
-    let grid_css_path = r#"C:\Users\nexga\Documents\wpt-corpus\css\support\grid.css"#;
+    crate::wpt_corpus::sem_corpus_wpt!();
+    let test_path = crate::wpt_corpus::path("css/css-grid/grid-definition/grid-template-rows-fit-content-001.html");
+    let ref_path = crate::wpt_corpus::path("css/css-grid/grid-definition/grid-template-rows-fit-content-001-ref.html");
+    let grid_css_path = crate::wpt_corpus::path("css/support/grid.css");
 
     let grid_css = std::fs::read_to_string(grid_css_path).unwrap();
     let test_html = std::fs::read_to_string(test_path).unwrap();
@@ -156,13 +158,14 @@ fn test_fit_content_rows() {
 
 #[test]
 fn test_baseline_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let ctx = crate::layout::LayoutCtx {
         viewport_w: 1280.0,
         viewport_h: 800.0,
         measurer: &crate::layout::ApproxMeasurer,
     };
-    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\baseline-001.html").unwrap());
-    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\baseline-001-ref.html").unwrap());
+    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/baseline-001.html")).unwrap());
+    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/baseline-001-ref.html")).unwrap());
     let list_t = crate::layout::layout_document(&dom_t, &ctx);
     let list_r = crate::layout::layout_document(&dom_r, &ctx);
     let yt = dom_t.query_all("y");
@@ -176,13 +179,14 @@ fn test_baseline_001() {
 
 #[test]
 fn test_repeat_auto_fill_003() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let ctx = crate::layout::LayoutCtx {
         viewport_w: 1280.0,
         viewport_h: 800.0,
         measurer: &crate::layout::ApproxMeasurer,
     };
-    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\repeat-auto-fill-003.html").unwrap());
-    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\repeat-auto-fill-001-ref.html").unwrap());
+    let dom_t = crate::parse_html_to_dom(&std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/repeat-auto-fill-003.html")).unwrap());
+    let dom_r = crate::parse_html_to_dom(&std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/repeat-auto-fill-001-ref.html")).unwrap());
     let list_t = crate::layout::layout_document(&dom_t, &ctx);
     let list_r = crate::layout::layout_document(&dom_r, &ctx);
     let div_t = dom_t.query_all(".subgrid > .subgrid > div");
@@ -204,11 +208,11 @@ fn wpt_rect_mismatches(test: &str, reference: &str, sheets: &[&str], sel: &str) 
         viewport_h: 800.0,
         measurer: &crate::layout::ApproxMeasurer,
     };
-    let base = r"C:\Users\nexga\Documents\wpt-corpus\css\";
     let load = |p: &str| {
-        let mut dom = crate::parse_html_to_dom(&std::fs::read_to_string(format!("{base}{p}")).unwrap());
+        let full = |rel: &str| crate::wpt_corpus::path(&format!("css/{rel}"));
+        let mut dom = crate::parse_html_to_dom(&std::fs::read_to_string(full(p)).unwrap());
         for s in sheets {
-            dom.add_stylesheet(&std::fs::read_to_string(format!("{base}{s}")).unwrap());
+            dom.add_stylesheet(&std::fs::read_to_string(full(s)).unwrap());
         }
         dom
     };
@@ -232,6 +236,7 @@ fn wpt_rect_mismatches(test: &str, reference: &str, sheets: &[&str], sel: &str) 
 
 #[test]
 fn test_grid_self_baseline_002() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let bad = wpt_rect_mismatches(
         r"css-grid\alignment\self-baseline\grid-self-baseline-002.html",
         r"css-grid\alignment\self-baseline\grid-self-baseline-002-ref.html",
@@ -245,6 +250,7 @@ const SELF_BASELINE_002_MAX: usize = 7;
 
 #[test]
 fn test_grid_item_content_baseline_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let bad = wpt_rect_mismatches(
         r"css-grid\alignment\grid-item-content-baseline-001.html",
         r"css-grid\alignment\grid-item-content-baseline-001-ref.html",

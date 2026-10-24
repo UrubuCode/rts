@@ -72,6 +72,11 @@ mod listitem;
 /// ele — a largura vem da COLUNA — e por isso é uma passada própria.
 mod table;
 
+/// Onde está o corpus do WPT que dezenas de testes deste crate leem — uma
+/// pergunta, uma resposta, e um SKIP visível quando a máquina não o tem.
+#[cfg(test)]
+mod wpt_corpus;
+
 #[cfg(test)]
 mod flowtests;
 

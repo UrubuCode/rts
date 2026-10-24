@@ -199,8 +199,9 @@ fn test_standalone_axis_size() {
 }
 #[test]
 fn test_grid_gap_smaller() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-smaller-001.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/grid-gap-smaller-001.html"),
     )
     .unwrap();
     let (dom, list) = crate::table::tests::geometria(&html, 800.0);
@@ -215,8 +216,9 @@ fn test_grid_gap_smaller() {
 
 #[test]
 fn test_grid_gap_001() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-001.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/grid-gap-001.html"),
     )
     .unwrap();
     let dom = crate::parse_html_to_dom(&html);
@@ -227,7 +229,7 @@ fn test_grid_gap_001() {
     };
     let list = crate::layout::layout_document(&dom, &ctx);
     let html_ref = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-001-ref.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/grid-gap-001-ref.html"),
     )
     .unwrap();
     let dom_ref = crate::parse_html_to_dom(&html_ref);
@@ -272,8 +274,9 @@ fn test_grid_gap_001() {
 
 #[test]
 fn test_subgrid_stretch() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-stretch.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/subgrid-stretch.html"),
     )
     .unwrap();
     let dom = crate::parse_html_to_dom(&html);
@@ -293,8 +296,9 @@ fn test_subgrid_stretch() {
 
 #[test]
 fn test_grid_gap_007() {
+    crate::wpt_corpus::sem_corpus_wpt!();
     let html = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-007.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/grid-gap-007.html"),
     )
     .unwrap();
     let dom = crate::parse_html_to_dom(&html);
@@ -305,7 +309,7 @@ fn test_grid_gap_007() {
     };
     let list = crate::layout::layout_document(&dom, &ctx);
     let html_ref = std::fs::read_to_string(
-        r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\grid-gap-007-ref.html",
+        crate::wpt_corpus::path("css/css-grid/subgrid/grid-gap-007-ref.html"),
     )
     .unwrap();
     let dom_ref = crate::parse_html_to_dom(&html_ref);
@@ -329,7 +333,8 @@ fn test_grid_gap_007() {
 
 #[test]
 fn test_subgrid_item_block_size_001() {
-    let html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-item-block-size-001.html").unwrap();
+    crate::wpt_corpus::sem_corpus_wpt!();
+    let html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/subgrid-item-block-size-001.html")).unwrap();
     let dom = crate::parse_html_to_dom(&html);
     let ctx = crate::layout::LayoutCtx {
         viewport_w: 800.0,
@@ -337,7 +342,7 @@ fn test_subgrid_item_block_size_001() {
         measurer: &crate::layout::ApproxMeasurer,
     };
     let list = crate::layout::layout_document(&dom, &ctx);
-    let html_ref = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\subgrid-item-block-size-001-ref.html").unwrap();
+    let html_ref = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/subgrid-item-block-size-001-ref.html")).unwrap();
     let dom_ref = crate::parse_html_to_dom(&html_ref);
     let list_ref = crate::layout::layout_document(&dom_ref, &ctx);
 

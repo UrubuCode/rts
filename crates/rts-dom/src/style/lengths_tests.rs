@@ -473,11 +473,12 @@ mod palavras_chave_intrinsecas {
 
     #[test]
     fn test_writing_directions_002() {
+    crate::wpt_corpus::sem_corpus_wpt!();
         let test_html = std::fs::read_to_string(
-            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\writing-directions-002.html",
+            crate::wpt_corpus::path("css/css-grid/subgrid/writing-directions-002.html"),
         )
         .unwrap();
-        let ref_html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\writing-directions-002-ref.html").unwrap();
+        let ref_html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/writing-directions-002-ref.html")).unwrap();
         let (d_t, l_t) = geometria(&test_html, 800.0);
         let (d_r, l_r) = geometria(&ref_html, 800.0);
         for (i, node) in d_t.query_all("x").iter().enumerate() {
@@ -497,7 +498,8 @@ mod palavras_chave_intrinsecas {
 
     #[test]
     fn test_csft() {
-        let test_html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\contribution-size-flex-tracks-001.html").unwrap();
+    crate::wpt_corpus::sem_corpus_wpt!();
+        let test_html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/contribution-size-flex-tracks-001.html")).unwrap();
         let (d_t, l_t) = geometria(&test_html, 800.0);
         let g = d_t.resolve(d_t.query(".grid").unwrap()).unwrap();
         let s = d_t.resolve(d_t.query(".subgrid").unwrap()).unwrap();
@@ -533,11 +535,12 @@ mod palavras_chave_intrinsecas {
 
     #[test]
     fn test_wd003() {
+    crate::wpt_corpus::sem_corpus_wpt!();
         let test_html = std::fs::read_to_string(
-            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\writing-directions-003.html",
+            crate::wpt_corpus::path("css/css-grid/subgrid/writing-directions-003.html"),
         )
         .unwrap();
-        let ref_html = std::fs::read_to_string(r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\writing-directions-003-ref.html").unwrap();
+        let ref_html = std::fs::read_to_string(crate::wpt_corpus::path("css/css-grid/subgrid/writing-directions-003-ref.html")).unwrap();
         let (d_t, l_t) = geometria(&test_html, 800.0);
         let (d_r, l_r) = geometria(&ref_html, 800.0);
         let items_t = d_t.query_all(".grid-item");
@@ -559,12 +562,13 @@ mod palavras_chave_intrinsecas {
 
     #[test]
     fn test_ln11() {
+    crate::wpt_corpus::sem_corpus_wpt!();
         let test_html = std::fs::read_to_string(
-            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-011.html",
+            crate::wpt_corpus::path("css/css-grid/subgrid/line-names-011.html"),
         )
         .unwrap();
         let ref_html = std::fs::read_to_string(
-            r"C:\Users\nexga\Documents\wpt-corpus\css\css-grid\subgrid\line-names-011-ref.html",
+            crate::wpt_corpus::path("css/css-grid/subgrid/line-names-011-ref.html"),
         )
         .unwrap();
         let (d_t, l_t) = geometria(&test_html, 800.0);
