@@ -42,6 +42,14 @@ no laço de iteração.
 
 ## O número, hoje
 
+**2026-10-24 (lote `aresta-nao-e-conteudo`): as 170 fixtures passam** — 4 528
+das 4 528 medições —, e `esperado-a-falhar.txt` está vazia pela primeira vez: as
+duas últimas lacunas eram a aresta de um inline a contar como conteúdo para o
+trim de whitespace e o inline cujo conteúdo colapsa todo a não ter posição.
+Medido com `target/release/examples/run_fixture` construído sobre
+`ccr-c0b9806e-wzrnjy`. O parágrafo abaixo é o número anterior, mantido porque é
+ele que diz o que a lista de "falha de propósito" chegou a ter.
+
 **2026-09-05 (vaga 8, lote flex-basis-content-wrap): 141 das 145
 fixtures passam**, a 1px de tolerância; as 4 que falham estão em
 `esperado-a-falhar.txt` com a razão: 3 da folha de UA

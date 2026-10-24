@@ -105,6 +105,27 @@ impl AtomicKind {
         )
     }
 
+    /// Is this atom the START or END EDGE of an inline box — the margin,
+    /// border and padding of a `<span>`, or of an `inline` generated box —
+    /// rather than content?
+    ///
+    /// It occupies width on the line and yet it is NOT what the whitespace
+    /// rules call content: a collapsible space right after a start edge is
+    /// still at the line's start, and one right before an end edge is still at
+    /// its end, so both collapse away (CSS Text 3 §4.1.2). Counting the edge
+    /// as content is what made `<span style="border-right:25px"> X </span>`
+    /// measure 51.39 where Blink gives 33.8 — one space on each side too many
+    /// (`claude-absoluto-posicao-estatica-linha-vazia`, `#s2`/`#s3`).
+    pub(crate) fn e_aresta_de_inline(self) -> bool {
+        matches!(
+            self,
+            Self::EdgeStart
+                | Self::EdgeEnd
+                | Self::Generated(_, GeneratedPart::Start)
+                | Self::Generated(_, GeneratedPart::End)
+        )
+    }
+
     /// An inline-level box laid out as a block (an `inline-block` element or
     /// an atomic generated box): it sits on the baseline by its own rules.
     pub(crate) fn e_bloco_na_linha(self) -> bool {

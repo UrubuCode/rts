@@ -21,6 +21,16 @@ fn a_block_level_absolute_box_first_on_its_line_sits_at_the_lines_top() {
     let mut wrong = Vec::new();
     for (sel, e) in [
         ("#c1", (0.0, 0.0, 1280.0, 60.0)),
+        // The WIDTH of the span is the second thing this fixture pins: the
+        // collapsible space that opens the span is at the LINE's start and the
+        // one that closes it is at its end, so Blink keeps neither — a border
+        // edge is not content and does not move the line's edges (CSS Text 3
+        // §4.1.2). `#s1` (no border) got this right all along; `#s2`/`#s3`
+        // read 51.39 for 33.8 until the edge pieces stopped counting.
+        ("#s1", (0.0, 20.0, 8.8, 19.0)),
+        ("#s2", (0.0, 120.0, 33.8, 19.0)),
+        ("#s3", (0.0, 220.0, 33.8, 19.0)),
+        ("#s6", (0.0, 500.0, 8.8, 19.0)),
         ("#a1", (0.0, 0.0, 30.0, 10.0)),
         ("#a2", (0.0, 100.0, 30.0, 10.0)),
         ("#a3", (0.0, 200.0, 30.0, 10.0)),

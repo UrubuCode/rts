@@ -78,6 +78,14 @@ pub(in crate::layout) fn wrap_runs(
         width: f32,
         atomic: Option<(NodeIdx, crate::boxes::BoxId, AtomicKind, f32, f32)>,
     }
+    impl Chunk {
+        /// Is this piece the border/padding EDGE of an inline box rather than
+        /// content? (`AtomicKind::e_aresta_de_inline` says why it matters.)
+        fn e_aresta(&self) -> bool {
+            self.atomic
+                .is_some_and(|(_, _, kind, _, _)| kind.e_aresta_de_inline())
+        }
+    }
     let mut cluster: Vec<Chunk> = Vec::new();
     let mut cluster_w = 0.0f32;
     // The preserved spaces/tabs that END the cluster under `pre-wrap`/`pre`:
@@ -181,6 +189,7 @@ pub(in crate::layout) fn wrap_runs(
                 let sep = cluster_space && !at_line_start;
                 let mut first = true;
                 for chunk in cluster.drain(..) {
+                    let edge = chunk.e_aresta();
                     let run = &runs[chunk.run];
                     let with_space = first && sep;
                     let space = if with_space {
@@ -254,7 +263,10 @@ pub(in crate::layout) fn wrap_runs(
                         }
                     }
                     first = false;
-                    at_line_start = false;
+                    // An edge is not content, so the line has not STARTED yet:
+                    // the collapsible space that follows a start edge is still
+                    // at the line's start and still collapses.
+                    at_line_start &= edge;
                 }
                 if let (Some((whole, _)), Some(last)) =
                     (shaped.filter(|s| s.1 == lines.len()), cur.last_mut())
@@ -272,14 +284,26 @@ pub(in crate::layout) fn wrap_runs(
     // acrescenta uma peca ao cluster corrente, abrindo-o se estiver vazio.
     macro_rules! join {
         ($chunk:expr, $w:expr) => {{
-            if cluster.is_empty() {
+            let chunk = $chunk;
+            // An EDGE of an inline box occupies width and is not content
+            // (`AtomicKind::e_aresta_de_inline`): it neither CONSUMES the
+            // pending space — which stays due, so `a </span>b` keeps its
+            // space — nor decides whether the cluster opens after one. So a
+            // cluster that still holds only edges answers the second question
+            // the way an empty one does, and the space is attributed to the
+            // first real content that arrives. If none arrives, the line ends
+            // and the space is simply never realised, which is the trim.
+            let edge = chunk.e_aresta();
+            if !edge && cluster.iter().all(Chunk::e_aresta) {
                 cluster_space = pending_space;
                 cluster_space_outside = space_outside;
             }
-            cluster.push($chunk);
+            cluster.push(chunk);
             cluster_w += $w;
-            pending_space = false;
-            space_outside = false;
+            if !edge {
+                pending_space = false;
+                space_outside = false;
+            }
         }};
     }
     // A collapsible space at a boundary whose run FORBIDS automatic wrapping

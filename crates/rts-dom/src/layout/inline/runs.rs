@@ -434,7 +434,16 @@ pub(in crate::layout) fn collect_runs(
                 // Um inline VAZIO (`<source>`, `<br>`, `<span></span>`) não gerou run
                 // e ficaria sem caixa. O marker dá-lhe a posição na linha sem lhe dar
                 // largura nem altura próprias — que é a caixa que o browser reporta.
-                if is_container && out.len() == before {
+                //
+                // "Não gerou run" era `out.len() == before`, e deixava de fora o
+                // inline que gerou runs que COLAPSAM TODOS — `<span> </span>`,
+                // um único espaço. Esse não faz linha nenhuma (§9.4.2) e também
+                // não ficava dono de peça nenhuma, logo não recebia retângulo:
+                // o Blink dá 0x0 na posição da linha e este motor respondia
+                // y = 0 (`claude-margem-atraves-de-inline-vazio`, `#s2`). A
+                // pergunta certa é se sobra CONTEÚDO, e é
+                // `preserved_spaces::tudo_colapsa` que a responde.
+                if is_container && super::preserved_spaces::tudo_colapsa(dom, &out[before..]) {
                     crate::bump!(inline_runs);
                     out.push(InlineRun {
                         text: String::new(),

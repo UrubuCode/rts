@@ -92,6 +92,7 @@ mod relative_inline_percent_offsets;
 mod replaced_fundo;
 mod replaced_percent_height;
 mod replaced_pixels;
+mod empty_inline_rect_corpus;
 mod static_position_empty_line_corpus;
 mod static_position_in_line_corpus;
 mod svg_atributo_corpus;
