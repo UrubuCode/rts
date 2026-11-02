@@ -96,7 +96,8 @@ Os 374 de fora leem os módulos **internos** do Node (`internal/…`, `_http_com
 > ninguém.** As licenças e as condições de atribuição estão em
 > [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
 
-_Updated: 2026-08-24 — [como isto é medido](scripts/node_tests/README.md)_
+_Updated: 2026-11-02 — [como isto é medido](scripts/node_tests/README.md)_
+
 <!-- NODE_SUITE_STATS_END -->
 
 <!-- CSS_DOM_STATS_START -->
