@@ -206,6 +206,15 @@
       "total": 1528,
       "rts_diverge": 111,
       "errors": 41
+    },
+    {
+      "date": "2026-11-16",
+      "pct": 90,
+      "pass": 1369,
+      "total_valid": 1521,
+      "total": 1528,
+      "rts_diverge": 111,
+      "errors": 41
     }
   ]
 }
